@@ -86,7 +86,8 @@ TARGET_CFLAGS += \
 	-D_GNU_SOURCE \
 	-Wno-unused-result \
 	-Wno-format-nonliteral \
-	-Wno-error=use-after-free
+	-Wno-error=use-after-free \
+	-Wno-error=discarded-qualifiers
 
 TARGET_LDFLAGS += $(FPIC)
 

@@ -42,7 +42,7 @@ define Build/Compile
 	rm -rf $(PKG_BUILD_DIR)/intel-ucode-ipkg
 	mkdir -p $(PKG_BUILD_DIR)/intel-ucode-ipkg
 	$(STAGING_DIR)/../host/bin/iucode_tool -q \
-		--write-firmware=$(PKG_BUILD_DIR)/intel-ucode-ipkg $(PKG_BUILD_DIR)/$(MICROCODE).bin
+		--overwrite --write-firmware=$(PKG_BUILD_DIR)/intel-ucode-ipkg $(PKG_BUILD_DIR)/$(MICROCODE).bin
 endef
 
 define Package/intel-microcode/install
