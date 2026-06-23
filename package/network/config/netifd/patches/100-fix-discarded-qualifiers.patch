@@ -1,0 +1,33 @@
+--- a/handler.c
++++ b/handler.c
+@@ -312,7 +312,7 @@ netifd_handler_parse_config(struct uchar
+ 
+ 		attrs[i].name = str_cur;
+ 		str_cur += sprintf(str_cur, "%s", name) + 1;
+-		delim = strchr(attrs[i].name, ':');
++		delim = (char *)strchr(attrs[i].name, ':');
+ 		if (delim) {
+ 			*delim = '\0';
+ 			validate[i] = ++delim;
+--- a/iprule.c
++++ b/iprule.c
+@@ -91,7 +91,7 @@ rule_ready(struct iprule *rule)
+ }
+ 
+ static bool
+-iprule_parse_mark(const char *mark, struct iprule *rule)
++iprule_parse_mark(char *mark, struct iprule *rule)
+ {
+ 	char *s, *e;
+ 	unsigned int n;
+--- a/system-linux.c
++++ b/system-linux.c
+@@ -3159,7 +3159,7 @@ system_add_devtype(struct blob_buf *b, c
+ 	if (!system_get_dev_sysfs("uevent", ifname, buf, sizeof(buf))) {
+ 		const char *info = "DEVTYPE=";
+ 		char *context = NULL;
+-		const char *line = strtok_r(buf, "\r\n", &context);
++		char *line = strtok_r(buf, "\r\n", &context);
+ 
+ 		while (line != NULL) {
+ 			char *index = strstr(line, info);

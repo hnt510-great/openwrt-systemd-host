@@ -1,0 +1,82 @@
+--- a/src/config.c
++++ b/src/config.c
+@@ -347,7 +347,7 @@
+ static int config_parse_opt_string(const char *src, uint8_t **dst, const bool array)
+ {
+ 	int o_len = 0;
+-	char *sep = strpbrk(src, ARRAY_SEP);
++	char *sep = (char *)strpbrk(src, ARRAY_SEP);
+ 
+ 	if (sep && !array)
+ 		return -1;
+@@ -371,7 +371,7 @@
+ 		src = sep;
+ 
+ 		if (sep)
+-			sep = strpbrk(src, ARRAY_SEP);
++			sep = (char *)strpbrk(src, ARRAY_SEP);
+ 	} while (src);
+ 
+ 	return o_len;
+@@ -380,7 +380,7 @@
+ static int config_parse_opt_dns_string(const char *src, uint8_t **dst, const bool array)
+ {
+ 	int o_len = 0;
+-	char *sep = strpbrk(src, ARRAY_SEP);
++	char *sep = (char *)strpbrk(src, ARRAY_SEP);
+ 
+ 	if (sep && !array)
+ 		return -1;
+@@ -408,7 +408,7 @@
+ 		src = sep;
+ 
+ 		if (sep)
+-			sep = strpbrk(src, ARRAY_SEP);
++			sep = (char *)strpbrk(src, ARRAY_SEP);
+ 	} while (src);
+ 
+ 	return o_len;
+@@ -417,7 +417,7 @@
+ static int config_parse_opt_ip6(const char *src, uint8_t **dst, const bool array)
+ {
+ 	int o_len = 0;
+-	char *sep = strpbrk(src, ARRAY_SEP);
++	char *sep = (char *)strpbrk(src, ARRAY_SEP);
+ 
+ 	if (sep && !array)
+ 		return -1;
+@@ -442,7 +442,7 @@
+ 		src = sep;
+ 
+ 		if (sep)
+-			sep = strpbrk(src, ARRAY_SEP);
++			sep = (char *)strpbrk(src, ARRAY_SEP);
+ 	} while (src);
+ 
+ 	return o_len;
+@@ -451,7 +451,7 @@
+ static int config_parse_opt_user_class(const char *src, uint8_t **dst, const bool array)
+ {
+ 	int o_len = 0;
+-	char *sep = strpbrk(src, ARRAY_SEP);
++	char *sep = (char *)strpbrk(src, ARRAY_SEP);
+ 
+ 	if (sep && !array)
+ 		return -1;
+@@ -480,7 +480,7 @@
+ 		src = sep;
+ 
+ 		if (sep)
+-			sep = strpbrk(src, ARRAY_SEP);
++			sep = (char *)strpbrk(src, ARRAY_SEP);
+ 	} while (src);
+ 
+ 	return o_len;
+@@ -564,7 +564,7 @@
+ 	struct odhcp6c_opt *dopt = NULL;
+ 	int ret = -1;
+ 
+-	data = strpbrk(opt, ":");
++	data = (char *)strpbrk(opt, ":");
+ 	if (!data)
+ 		return -1;

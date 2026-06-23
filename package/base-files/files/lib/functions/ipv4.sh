@@ -28,7 +28,7 @@ assert_uint32() {
 	return 1
     fi
 
-    if [ "$__n" -gt $uint_max ]; then
+    if [ "$((__n > uint_max))" = 1 ]; then
 	printf "Out of range (%s)\n" "$__n" >&2
 	return 1
     fi
