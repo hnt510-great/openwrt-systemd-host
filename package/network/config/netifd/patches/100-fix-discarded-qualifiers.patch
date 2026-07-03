@@ -1,11 +1,11 @@
 --- a/handler.c
 +++ b/handler.c
-@@ -312,7 +312,7 @@ netifd_handler_parse_config(struct uchar
+@@ -314,7 +314,7 @@ netifd_handler_parse_config(struct uchar
  
- 		attrs[i].name = str_cur;
- 		str_cur += sprintf(str_cur, "%s", name) + 1;
--		delim = strchr(attrs[i].name, ':');
-+		delim = (char *)strchr(attrs[i].name, ':');
+ 		attrs[i].name = dest;
+ 		str_cur += sprintf(dest, "%s", name) + 1;
+-		delim = strchr(dest, ':');
++		delim = (char *)strchr(dest, ':');
  		if (delim) {
  			*delim = '\0';
  			validate[i] = ++delim;
