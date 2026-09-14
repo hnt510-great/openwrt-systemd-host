@@ -191,8 +191,8 @@ static void otto_l3_930x_host_route_read(struct otto_l3_ctrl *ctrl, int idx, str
 		break;
 	case 2: /* IPv6 Unicast route */
 		ipv6_addr_set(&rt->dst_ip6,
-			      data[3], data[2],
-			      data[1], data[0]);
+			      data[1], data[2],
+			      data[3], data[4]);
 		break;
 	case 1: /* IPv4 Multicast route */
 	case 3: /* IPv6 Multicast route */
@@ -231,7 +231,7 @@ static void otto_l3_930x_host_route_write(struct otto_l3_ctrl *ctrl, int idx, st
 		rt->attr.dst_null);
 	dev_dbg(ctrl->dev, "GW: %pI4, prefix_len: %d\n", &rt->dst_ip, rt->prefix_len);
 
-	v = BIT(31); /* Entry is valid */
+	v = rt->attr.valid ? BIT(31) : 0;
 	v |= (rt->attr.type & 0x3) << 29;
 	v |= rt->attr.hit ? BIT(20) : 0;
 	v |= rt->attr.dst_null ? BIT(19) : 0;
@@ -268,12 +268,15 @@ static void otto_l3_930x_host_route_write(struct otto_l3_ctrl *ctrl, int idx, st
 __maybe_unused
 static int otto_l3_930x_find_slot(struct otto_l3_ctrl *ctrl, struct otto_l3_route *rt, bool must_exist)
 {
+	/* Slots one entry occupies, by type: IPv4 unicast, IPv4 multicast,
+	 * IPv6 unicast, IPv6 multicast.
+	 */
+	static const u8 slot_widths[] = { 1, 2, 3, 6 };
 	int slot_width, algorithm, addr, idx;
 	struct otto_l3_route route_entry;
 	u32 hash;
 
-	/* IPv6 entries take up 3 slots */
-	slot_width = (rt->attr.type == 0) || (rt->attr.type == 2) ? 1 : 3;
+	slot_width = slot_widths[rt->attr.type & 0x3];
 
 	for (int t = 0; t < 2; t++) {
 		algorithm = (sw_r32(RTL930X_L3_HOST_TBL_CTRL) >> (2 + t)) & 0x1;
@@ -399,6 +402,26 @@ static void otto_l3_930x_set_nexthop(struct otto_l3_ctrl *ctrl,
 }
 
 
+/* Prefix length of an IPv6 mask, i.e. how many leading bits are set */
+__maybe_unused
+static int otto_l3_930x_mask6_len(const struct in6_addr *mask)
+{
+	int len = 0;
+
+	for (int i = 0; i < 4; i++) {
+		u32 word = ntohl(mask->s6_addr32[i]);
+
+		if (word == 0xffffffff) {
+			len += 32;
+			continue;
+		}
+
+		return len + 32 - fls(~word);
+	}
+
+	return len;
+}
+
 /* Read a prefix route entry from the L3_PREFIX_ROUTE_IPUC table
  * We currently only support IPv4 and IPv6 unicast route
  */
@@ -430,9 +453,11 @@ static void otto_l3_930x_route_read(struct otto_l3_ctrl *ctrl, int idx, struct o
 		rt->dst_ip = data[4];
 		ip4_m = data[9];
 		dev_dbg(ctrl->dev, "Read ip4 mask: %08x\n", ip4_m);
-		rt->prefix_len = host_route ? 32 : -1;
-		rt->prefix_len = (rt->prefix_len < 0 && default_route) ? 0 : -1;
-		if (rt->prefix_len < 0)
+		if (host_route)
+			rt->prefix_len = 32;
+		else if (default_route)
+			rt->prefix_len = 0;
+		else
 			rt->prefix_len = inet_mask_len(ip4_m);
 		break;
 	case 2: /* IPv6 Unicast route */
@@ -442,11 +467,12 @@ static void otto_l3_930x_route_read(struct otto_l3_ctrl *ctrl, int idx, struct o
 		ipv6_addr_set(&ip6_m,
 			      data[6], data[7],
 			      data[8], data[9]);
-		rt->prefix_len = host_route ? 128 : 0;
-		rt->prefix_len = (rt->prefix_len < 0 && default_route) ? 0 : -1;
-		if (rt->prefix_len < 0)
-			rt->prefix_len = find_last_bit((unsigned long *)&ip6_m.s6_addr32,
-						       128);
+		if (host_route)
+			rt->prefix_len = 128;
+		else if (default_route)
+			rt->prefix_len = 0;
+		else
+			rt->prefix_len = otto_l3_930x_mask6_len(&ip6_m);
 		break;
 	case 1: /* IPv4 Multicast route */
 	case 3: /* IPv6 Multicast route */
@@ -552,8 +578,8 @@ static void otto_l3_930x_route_write(struct otto_l3_ctrl *ctrl, int idx, struct 
 	v |= (rt->nh.id & 0x7ff) << 7;
 	v |= rt->attr.ttl_dec ? BIT(6) : 0;
 	v |= rt->attr.ttl_check ? BIT(5) : 0;
-	v |= rt->attr.dst_null ? BIT(6) : 0;
-	v |= rt->attr.qos_as ? BIT(6) : 0;
+	v |= rt->attr.dst_null ? BIT(4) : 0;
+	v |= rt->attr.qos_as ? BIT(3) : 0;
 	v |= rt->attr.qos_prio & 0x7;
 	v |= rt->prefix_len == 0 ? BIT(20) : 0; /* set default route bit */
 
@@ -743,11 +769,6 @@ static int otto_l3_930x_setup(struct otto_l3_ctrl *ctrl)
 	pr_debug("L3_IPUC_ROUTE_CTRL %08x, IPMC_ROUTE %08x, IP6UC_ROUTE %08x, IP6MC_ROUTE %08x\n",
 		 sw_r32(RTL930X_L3_IPUC_ROUTE_CTRL), sw_r32(RTL930X_L3_IPMC_ROUTE_CTRL),
 		 sw_r32(RTL930X_L3_IP6UC_ROUTE_CTRL), sw_r32(RTL930X_L3_IP6MC_ROUTE_CTRL));
-	sw_w32_mask(0, 1, RTL930X_L3_IPUC_ROUTE_CTRL);
-	sw_w32_mask(0, 1, RTL930X_L3_IP6UC_ROUTE_CTRL);
-	sw_w32_mask(0, 1, RTL930X_L3_IPMC_ROUTE_CTRL);
-	sw_w32_mask(0, 1, RTL930X_L3_IP6MC_ROUTE_CTRL);
-
 	sw_w32(0x00002001, RTL930X_L3_IPUC_ROUTE_CTRL);
 	sw_w32(0x00014581, RTL930X_L3_IP6UC_ROUTE_CTRL);
 	sw_w32(0x00000501, RTL930X_L3_IPMC_ROUTE_CTRL);
@@ -790,6 +811,7 @@ static int otto_l3_alloc_egress_intf(struct otto_l3_ctrl *ctrl, u64 mac, int vla
 
 	if (free_mac < 0) {
 		dev_err(ctrl->dev, "No free egress interface, cannot offload\n");
+		mutex_unlock(ctrl->lock);
 		return -1;
 	}
 
