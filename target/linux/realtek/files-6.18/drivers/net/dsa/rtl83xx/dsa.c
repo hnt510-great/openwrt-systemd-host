@@ -1501,10 +1501,19 @@ void rtldsa_port_fast_age(struct dsa_switch *ds, int port)
 static void rtldsa_setup_l2_uc_entry(struct rtl838x_l2_entry *e, int port,
 				     int vid, u64 mac)
 {
+	bool next_hop = e->valid && e->next_hop;
+	u16 nh_route_id = next_hop ? e->nh_route_id : 0;
+
 	memset(e, 0, sizeof(*e));
 
 	e->type = L2_UNICAST;
 	e->valid = true;
+
+	/* A route may be forwarding through this address already, and the id
+	 * it is known by lives nowhere else.
+	 */
+	e->next_hop = next_hop;
+	e->nh_route_id = nh_route_id;
 
 	e->age = 3;
 	e->is_static = true;
@@ -1530,17 +1539,22 @@ static void rtldsa_setup_l2_mc_entry(struct rtl838x_l2_entry *e, int vid, u64 ma
 	u64_to_ether_addr(mac, e->mac);
 }
 
+static int rtldsa_l2_hash_index(u32 key, int slot)
+{
+	return slot > 3 ? ((key >> 14) & 0xffff) | (slot & 3) : ((key << 2) | slot) & 0xffff;
+}
+
 /* Uses the seed to identify a hash bucket in the L2 using the derived hash key and then loops
  * over the entries in the bucket until either a matching entry is found or an empty slot
  * Returns the filled in rtl838x_l2_entry and the index in the bucket when an entry was found
  * when an empty slot was found and must exist is false, the index of the slot is returned
  * when no slots are available returns -1
  */
-static int rtldsa_find_l2_hash_entry(struct rtl838x_switch_priv *priv, u64 seed,
-				     bool must_exist, struct rtl838x_l2_entry *e)
+int rtldsa_find_l2_hash_entry(struct rtl838x_switch_priv *priv, u64 seed,
+			      bool must_exist, struct rtl838x_l2_entry *e)
 {
-	int idx = -1;
 	u32 key = priv->r->l2_hash_key(priv, seed);
+	int free_slot = -1;
 	u64 entry;
 
 	pr_debug("%s: using key %x, for seed %016llx\n", __func__, key, seed);
@@ -1548,15 +1562,30 @@ static int rtldsa_find_l2_hash_entry(struct rtl838x_switch_priv *priv, u64 seed,
 	for (int i = 0; i < priv->r->l2_bucket_size; i++) {
 		entry = priv->r->read_l2_entry_using_hash(key, i, e);
 		pr_debug("valid %d, mac %016llx\n", e->valid, ether_addr_to_u64(&e->mac[0]));
-		if (must_exist && !e->valid)
+
+		/* Remember the first free slot, but keep looking: the address
+		 * may be sitting further down the bucket.
+		 */
+		if (!e->valid) {
+			if (free_slot < 0)
+				free_slot = i;
 			continue;
-		if (!e->valid || ((entry & 0x0fffffffffffffffULL) == seed)) {
-			idx = i > 3 ? ((key >> 14) & 0xffff) | (i & 3) : ((key << 2) | i) & 0xffff;
-			break;
 		}
+
+		if ((entry & 0x0fffffffffffffffULL) == seed)
+			return rtldsa_l2_hash_index(key, i);
 	}
 
-	return idx;
+	if (must_exist || free_slot < 0)
+		return -1;
+
+	/* The loop leaves the last entry it read here, valid bit included.
+	 * Reading the free slot back does not undo that on RTL930x and
+	 * RTL931x, whose readers return as soon as the valid bit is clear.
+	 */
+	memset(e, 0, sizeof(*e));
+
+	return rtldsa_l2_hash_index(key, free_slot);
 }
 
 /* Uses the seed to identify an entry in the CAM by looping over all its entries
@@ -1646,6 +1675,17 @@ static int rtldsa_port_fdb_add(struct dsa_switch *ds, int port,
 
 	/* Found an existing or empty entry */
 	if (idx >= 0) {
+		struct rtldsa_l2_uc *m = rtldsa_l2_uc_lookup(priv, idx);
+
+		if (m) {
+			/* A slot nobody had claimed carries whatever its last
+			 * owner left behind.
+			 */
+			if (!e.valid)
+				*m = (struct rtldsa_l2_uc){};
+			m->fdb_ref = true;
+		}
+
 		rtldsa_setup_l2_uc_entry(&e, port, vid, mac);
 		priv->r->write_l2_entry_using_hash(idx >> 2, idx & 0x3, &e);
 		goto out;
@@ -1689,8 +1729,24 @@ static int rtldsa_port_fdb_del(struct dsa_switch *ds, int port,
 	idx = rtldsa_find_l2_hash_entry(priv, seed, true, &e);
 
 	if (idx >= 0) {
+		struct rtldsa_l2_uc *m = rtldsa_l2_uc_lookup(priv, idx);
+
 		pr_debug("Found entry index %d, key %d and bucket %d\n", idx, idx >> 2, idx & 3);
-		e.valid = false;
+
+		if (m)
+			m->fdb_ref = false;
+
+		/* A route still forwarding through this address keeps it, as
+		 * the next hop it already is, reachable through no port of its
+		 * own.
+		 */
+		if (m && m->l3_refcount && e.next_hop) {
+			e.port = priv->r->port_ignore;
+			e.age = 0;
+		} else {
+			e.valid = false;
+		}
+
 		priv->r->write_l2_entry_using_hash(idx >> 2, idx & 0x3, &e);
 		goto out;
 	}
