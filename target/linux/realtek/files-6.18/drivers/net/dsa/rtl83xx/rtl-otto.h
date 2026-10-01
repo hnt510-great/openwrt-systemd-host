@@ -9,6 +9,7 @@
 #include <linux/soc/realtek/otto_table.h>
 
 #include "stats.h"
+#include "stp.h"
 #include "vlan.h"
 
 /* Register definition */
@@ -251,10 +252,6 @@
 #define MV_ACT_DROP				1
 #define MV_ACT_TRAP2CPU				2
 #define MV_ACT_COPY2CPU				3
-
-#define RTL839X_ST_CTRL				(0x27e4)
-#define RTL930X_ST_CTRL				(0x8798)
-#define RTL931X_ST_CTRL				(0x8000)
 
 #define RTL930X_L2_PORT_SABLK_CTRL		(0x905c)
 #define RTL930X_L2_PORT_DABLK_CTRL		(0x9060)
@@ -860,14 +857,6 @@ struct rtldsa_port {
 	const struct dsa_port *dp;
 };
 
-struct rtldsa_mst {
-	/** @msti: MSTI mapped to this slot. 0 == unused */
-	u16 msti;
-
-	/** @refcount: number of vlans currently using this msti, undefined when unused */
-	struct kref refcount;
-};
-
 enum l2_entry_type {
 	L2_INVALID = 0,
 	L2_UNICAST = 1,
@@ -1159,9 +1148,11 @@ struct rtldsa_config {
 	u8 l2_bucket_size;
 	u16 n_mst;
 	u32 fib_entries;
+	enum otto_table_id l2_uc_tbl;
+	enum otto_table_id l2_cam_tbl;
 	int trk_ctrl;
 	int trk_hash_ctrl;
-	int spanning_tree_ctrl;
+	void (*stp_init)(void);
 	void (*vlan_tables_read)(u32 vlan, struct rtldsa_vlan_info *info);
 	void (*vlan_set_tagged)(u32 vlan, struct rtldsa_vlan_info *info);
 	void (*vlan_set_untagged)(u32 vlan, u64 portmask);
@@ -1418,7 +1409,8 @@ static inline struct rtldsa_l2_uc *rtldsa_l2_uc_lookup(struct rtl838x_switch_pri
 	return &priv->l2_uc_map[idx];
 }
 
-int rtldsa_l2_nexthop_add(struct rtl838x_switch_priv *priv, struct otto_l3_nexthop *nh);
+int rtldsa_l2_nexthop_add(struct rtl838x_switch_priv *priv, struct otto_l3_nexthop *nh,
+			  bool require_existing);
 int rtldsa_l2_nexthop_del(struct rtl838x_switch_priv *priv, struct otto_l3_nexthop *nh);
 
 #endif /* _RTL838X_H */
