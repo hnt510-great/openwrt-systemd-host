@@ -1,0 +1,7 @@
+# Preserve the native variant's runtime mount across the OpenWrt pivot.
+openwrt_systemd_run() {
+	[ -f /etc/openwrt-systemd ] || return 0
+	/usr/libexec/openwrt-systemd-prepare --runtime-only
+}
+
+boot_hook_add preinit_main openwrt_systemd_run

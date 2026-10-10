@@ -1,0 +1,22 @@
+#!/bin/sh
+case "$1" in
+	boot) prefix=S; action=boot ;;
+	shutdown) prefix=K; action=shutdown ;;
+	*) exit 2 ;;
+esac
+for script in /etc/rc.d/"$prefix"[0-9][0-9]*; do
+	[ -x "$script" ] || continue
+	# D-Bus is owned by its native unit in this boot mode.
+	case "${script##*/}" in
+		[SK][0-9][0-9]dbus|K[0-9][0-9]umount) continue ;;
+	esac
+	if [ "$action" = shutdown ]; then
+		/usr/bin/timeout -s TERM 25 "$script" "$action"
+	else
+		"$script" "$action"
+	fi
+	status=$?
+	[ "$status" -eq 0 ] || echo "OpenWrt rc script $script $action exited $status" >&2
+done
+# Like procd's rc queue, finish the sequence even when an optional script fails.
+exit 0

@@ -387,11 +387,12 @@ endif
     $(eval $(call BuildPackVariable,$(1),postrm,,1))
 
     $(PKG_BUILD_DIR)/.pkgdir/$(1).installed : export PATH=$$(TARGET_PATH_PKG)
-    $(PKG_BUILD_DIR)/.pkgdir/$(1).installed: $(STAMP_BUILT)
+    $(PKG_BUILD_DIR)/.pkgdir/$(1).installed: $(STAMP_BUILT) $(INCLUDE_DIR)/package-pack.mk $(TOPDIR)/.config $(if $(CONFIG_OPENWRT_SYSTEMD),$(SCRIPT_DIR)/merge-usr.py)
 	rm -rf $$@ $(PKG_BUILD_DIR)/.pkgdir/$(1)
 	mkdir -p $(PKG_BUILD_DIR)/.pkgdir/$(1)
 	$(call Package/$(1)/install,$(PKG_BUILD_DIR)/.pkgdir/$(1))
 	$(call Package/$(1)/install_lib,$(PKG_BUILD_DIR)/.pkgdir/$(1))
+	$(if $(CONFIG_OPENWRT_SYSTEMD),python3 $(SCRIPT_DIR)/merge-usr.py $(PKG_BUILD_DIR)/.pkgdir/$(1) --package $(1) $(if $(filter base-files,$(1)),--aliases))
 	touch $$@
 
     $(STAGING_DIR_ROOT)/stamp/.$(1)_installed: $(PKG_BUILD_DIR)/.pkgdir/$(1).installed
@@ -454,7 +455,7 @@ $(_endef)
     $$(PACK_$(1)) : $(call shexport,Package/$(1)/description)
     $$(PACK_$(1)) : export PATH=$$(TARGET_PATH_PKG)
     $$(PACK_$(1)) : export SOURCE_DATE_EPOCH=$$(PKG_SOURCE_DATE_EPOCH)
-    $(PKG_INFO_DIR)/$(1).provides $$(PACK_$(1)): $(STAMP_BUILT) $(INCLUDE_DIR)/package-pack.mk
+    $(PKG_INFO_DIR)/$(1).provides $$(PACK_$(1)): $(STAMP_BUILT) $(INCLUDE_DIR)/package-pack.mk $(if $(CONFIG_OPENWRT_SYSTEMD),$(SCRIPT_DIR)/merge-usr.py)
 	rm -rf $$(IDIR_$(1))
 ifeq ($$(CONFIG_USE_APK),)
 	$$(call remove_ipkg_files,$(1),$$(call opkg_package_files,$(call gen_package_wildcard,$(1))))
@@ -605,6 +606,7 @@ else
 		exit 1; \
 	fi
 
+	$(if $(CONFIG_OPENWRT_SYSTEMD),python3 $(SCRIPT_DIR)/merge-usr.py $$(IDIR_$(1)) --package $(1) $(if $(filter base-files,$(1)),--aliases))
 	SOURCE_DATE_EPOCH=0 $(FAKEROOT) $(STAGING_DIR_HOST)/bin/apk mkpkg \
 	  --info "name:$(1)$$(ABIV_$(1))" \
 	  --info "version:$(VERSION)" \

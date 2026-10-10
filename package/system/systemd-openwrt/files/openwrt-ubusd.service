@@ -1,0 +1,15 @@
+[Unit]
+Description=OpenWrt ubus message bus
+Before=openwrt-procd.service
+
+[Service]
+Type=exec
+User=ubus
+Group=ubus
+RuntimeDirectory=ubus
+ExecStart=/sbin/ubusd -s /run/ubus/ubus.sock
+Restart=on-failure
+RestartMode=direct
+
+[Install]
+WantedBy=multi-user.target

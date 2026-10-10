@@ -18,6 +18,28 @@ config EXPERIMENTAL
 
 menu "Global build settings"
 
+	config OPENWRT_SYSTEMD
+		bool "Experimental native systemd init (x86_64/glibc/APK)"
+		depends on TARGET_x86_64 && USE_GLIBC && USE_APK
+		select KERNEL_DEVTMPFS
+		select KERNEL_CGROUPS
+		select KERNEL_CGROUP_PIDS
+		select KERNEL_MEMCG
+		select KERNEL_CGROUP_SCHED
+		select KERNEL_FHANDLE
+		select KERNEL_SECCOMP
+		select BUSYBOX_CONFIG_SULOGIN if BUSYBOX_CUSTOM
+		select BUSYBOX_DEFAULT_SULOGIN if !BUSYBOX_CUSTOM
+		select BUSYBOX_CONFIG_SHA256SUM if BUSYBOX_CUSTOM
+		select BUSYBOX_DEFAULT_SHA256SUM if !BUSYBOX_CUSTOM
+		select BUSYBOX_CONFIG_FEATURE_MD5_SHA1_SUM_CHECK if BUSYBOX_CUSTOM
+		select BUSYBOX_DEFAULT_FEATURE_MD5_SHA1_SUM_CHECK if !BUSYBOX_CUSTOM
+		select PACKAGE_systemd-openwrt
+		help
+		  Boot systemd after OpenWrt preinit, retaining procd router services
+		  and a GRUB recovery entry. Packages use a merged /usr layout and
+		  are written to bin/systemd. Flash firmware from procd recovery.
+
 	config JSON_OVERVIEW_IMAGE_INFO
 		bool "Create JSON info file overview per target"
 		default y

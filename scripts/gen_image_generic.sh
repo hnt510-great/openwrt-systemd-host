@@ -21,7 +21,11 @@ head=16
 sect=63
 
 # create partition table
-set $(ptgen -o "$OUTPUT" -h $head -s $sect ${GUID:+-g} -t "${KERNELPARTTYPE}" -p "${KERNELSIZE}m${PARTOFFSET:+@$PARTOFFSET}" -t "${ROOTFSPARTTYPE}" -p "${ROOTFSSIZE}m" ${ALIGN:+-l $ALIGN} ${SIGNATURE:+-S 0x$SIGNATURE} ${GUID:+-G $GUID})
+GPTBACKUP=
+if [ "$PADDING" = sparse ] && [ -n "$GUID" ]; then
+    GPTBACKUP="-d 0"
+fi
+set $(ptgen -o "$OUTPUT" -h $head -s $sect ${GUID:+-g} $GPTBACKUP -t "${KERNELPARTTYPE}" -p "${KERNELSIZE}m${PARTOFFSET:+@$PARTOFFSET}" -t "${ROOTFSPARTTYPE}" -p "${ROOTFSSIZE}m" ${ALIGN:+-l $ALIGN} ${SIGNATURE:+-S 0x$SIGNATURE} ${GUID:+-G $GUID})
 
 KERNELOFFSET="$(($1 / 512))"
 KERNELSIZE="$2"
@@ -46,11 +50,17 @@ dos_dircopy() {
   done
 }
 
-[ -n "$PADDING" ] && dd if=/dev/zero of="$OUTPUT" bs=512 seek="$ROOTFSOFFSET" conv=notrunc count="$ROOTFSSIZE"
+if [ "$PADDING" = sparse ]; then
+    # Extend without allocating a partition-sized buffer or writing zeroes.
+    # Keep any GPT backup already placed beyond the root partition by ptgen.
+    truncate -s ">$(((ROOTFSOFFSET + ROOTFSSIZE) * 512))" "$OUTPUT"
+elif [ -n "$PADDING" ]; then
+    dd if=/dev/zero of="$OUTPUT" bs=512 seek="$ROOTFSOFFSET" conv=notrunc count="$ROOTFSSIZE"
+fi
 dd if="$ROOTFSIMAGE" of="$OUTPUT" bs=512 seek="$ROOTFSOFFSET" conv=notrunc
 
 if [ -n "$GUID" ]; then
-    [ -n "$PADDING" ] && dd if=/dev/zero of="$OUTPUT" bs=512 seek="$((ROOTFSOFFSET + ROOTFSSIZE))" conv=notrunc count="$sect"
+    [ -n "$PADDING" ] && [ "$PADDING" != sparse ] && dd if=/dev/zero of="$OUTPUT" bs=512 seek="$((ROOTFSOFFSET + ROOTFSSIZE))" conv=notrunc count="$sect"
     mkfs.fat --invariant -n kernel -C "$OUTPUT.kernel" -S 512 "$((KERNELSIZE / 1024))"
     LC_ALL=C dos_dircopy "$KERNELDIR" /
 else

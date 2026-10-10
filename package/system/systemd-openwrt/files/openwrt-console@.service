@@ -1,0 +1,18 @@
+[Unit]
+Description=OpenWrt login console on %I
+After=openwrt-services.service
+ConditionPathExists=/dev/%I
+
+[Service]
+ExecStart=/sbin/askfirst /usr/libexec/login.sh
+Restart=always
+RestartSec=2
+StandardInput=tty
+StandardOutput=tty
+StandardError=tty
+TTYPath=/dev/%I
+TTYReset=yes
+TTYVHangup=yes
+
+[Install]
+WantedBy=multi-user.target

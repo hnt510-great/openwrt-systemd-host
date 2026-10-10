@@ -1,0 +1,14 @@
+[Unit]
+Description=D-Bus system message bus
+Before=openwrt-services.service
+
+[Service]
+Type=exec
+ExecStartPre=/bin/mkdir -p /run/dbus /var/lib/dbus
+ExecStartPre=/bin/ln -sf /etc/machine-id /var/lib/dbus/machine-id
+ExecStart=/usr/bin/dbus-daemon --system --nofork --nopidfile
+ExecStartPost=/usr/libexec/openwrt-dbus-ready
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

@@ -26,9 +26,13 @@ boot() {
 	mkdir -p /var/lock
 	chmod 1777 /var/lock
 	mkdir -p /var/log
-	mkdir -p /var/run
-	ln -s /var/run /run
-	ln -s /var/lock /run/lock
+	if [ -f /etc/openwrt-systemd ]; then
+		mkdir -p /run/lock
+	else
+		mkdir -p /var/run
+		[ -e /run ] || ln -s /var/run /run
+		[ -e /run/lock ] || ln -s /var/lock /run/lock
+	fi
 	mkdir -p /var/state
 	mkdir -p /var/tmp
 	mkdir -p /tmp/.uci

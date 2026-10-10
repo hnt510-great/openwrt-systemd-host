@@ -1,0 +1,357 @@
+Subject: [PATCH] procd: add opt-in systemd handoff and daemon compatibility
+
+Preserve preinit and procd recovery while supporting a systemd-managed
+service and hotplug daemon. Delegate reboot and reject firmware upgrades
+outside procd recovery.
+
+---
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -34,6 +34,12 @@
+ FIND_LIBRARY(json NAMES json-c json)
+ FIND_LIBRARY(udebug NAMES udebug)
+ 
++IF(OPENWRT_SYSTEMD)
++  ADD_DEFINITIONS(-DOPENWRT_SYSTEMD)
++  FIND_LIBRARY(systemd NAMES systemd REQUIRED)
++  SET(SYSTEMD_LIB ${systemd})
++ENDIF()
++
+ SET(LIBS ${ubox} ${ubus} ${json} ${blobmsg_json} ${json_script} ${udebug})
+ 
+ IF(DEBUG)
+@@ -53,7 +59,7 @@
+ add_subdirectory(upgraded)
+ 
+ ADD_EXECUTABLE(procd ${SOURCES})
+-TARGET_LINK_LIBRARIES(procd ${LIBS})
++TARGET_LINK_LIBRARIES(procd ${LIBS} ${SYSTEMD_LIB})
+ SET_TARGET_PROPERTIES(procd PROPERTIES COMPILE_DEFINITIONS "HAS_UDEBUG")
+ INSTALL(TARGETS procd
+ 	RUNTIME DESTINATION ${CMAKE_INSTALL_SBINDIR}
+--- /dev/null
++++ b/systemd.h
+@@ -0,0 +1,23 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#ifndef PROCD_SYSTEMD_H
++#define PROCD_SYSTEMD_H
++#include <stdbool.h>
++#include <string.h>
++#include <unistd.h>
++#include "utils/utils.h"
++static inline bool openwrt_systemd_requested(void)
++{
++#ifdef OPENWRT_SYSTEMD
++	char mode[16], failsafe[8];
++
++	if (!access("/tmp/failsafe", F_OK) ||
++	    !access("/tmp/.failsafe", F_OK) ||
++	    get_cmdline_val("failsafe", failsafe, sizeof(failsafe)))
++		return false;
++	return get_cmdline_val("openwrt.init", mode, sizeof(mode)) &&
++	       !strcmp(mode, "systemd");
++#else
++	return false;
++#endif
++}
++#endif
+--- a/initd/init.c
++++ b/initd/init.c
+@@ -38,6 +38,7 @@
+ #include "../utils/utils.h"
+ #include "init.h"
+ #include "../watchdog.h"
++#include "../systemd.h"
+ 
+ unsigned int debug = 0;
+ 
+@@ -133,7 +134,8 @@
+ 		exit(-1);
+ 	early();
+ 	cmdline();
+-	watchdog_init(1);
++	if (!openwrt_systemd_requested())
++		watchdog_init(1);
+ 
+ 	pid = fork();
+ 	if (!pid) {
+--- a/initd/early.c
++++ b/initd/early.c
+@@ -26,6 +26,7 @@
+ #include "init.h"
+ #include "../libc-compat.h"
+ #include "../container.h"
++#include "../systemd.h"
+ 
+ static void
+ early_dev(void)
+@@ -81,8 +82,13 @@
+ 		mount("sysfs", "/sys", "sysfs", MS_NODEV | MS_NOEXEC | MS_NOSUID | MS_RELATIME, NULL);
+ 		mount("efivars", "/sys/firmware/efi/efivars", "efivarfs", MS_NODEV | MS_NOEXEC | MS_NOSUID | MS_RELATIME, NULL);
+ 		mount("cgroup2", "/sys/fs/cgroup", "cgroup2",  MS_NODEV | MS_NOEXEC | MS_NOSUID | MS_RELATIME, "nsdelegate");
+-		mount("tmpfs", "/dev", "tmpfs", MS_NOEXEC | MS_NOSUID | MS_RELATIME, "mode=0755,size=512K");
+-		ignore(symlink("/tmp/shm", "/dev/shm"));
++		mount(openwrt_systemd_requested() ? "devtmpfs" : "tmpfs", "/dev",
++		      openwrt_systemd_requested() ? "devtmpfs" : "tmpfs",
++		      MS_NOEXEC | MS_NOSUID | MS_RELATIME, "mode=0755");
++		if (openwrt_systemd_requested())
++			mkdir("/dev/shm", 01777);
++		else
++			ignore(symlink("/tmp/shm", "/dev/shm"));
+ 		mkdir("/dev/pts", 0755);
+ 		mount("devpts", "/dev/pts", "devpts", MS_NOEXEC | MS_NOSUID | MS_RELATIME, NULL);
+ 
+@@ -95,7 +101,13 @@
+ 	early_noafile();
+ 	mkdir("/tmp/shm", 01777);
+ 
++#ifdef OPENWRT_SYSTEMD
++	mkdir("/run", 0755);
++	mount("tmpfs", "/run", "tmpfs", MS_NOSUID | MS_NODEV, "mode=0755");
++	ignore(symlink("/run", "/tmp/run"));
++#else
+ 	mkdir("/tmp/run", 0755);
++#endif
+ 	mkdir("/tmp/lock", 0755);
+ 	mkdir("/tmp/state", 0755);
+ 	umask(oldumask);
+--- a/initd/preinit.c
++++ b/initd/preinit.c
+@@ -29,6 +29,9 @@
+ #include "init.h"
+ #include "../watchdog.h"
+ #include "../sysupgrade.h"
++#include "../systemd.h"
++#include <sys/wait.h>
++#include <errno.h>
+ 
+ static struct uloop_process preinit_proc;
+ static struct uloop_process plugd_proc;
+@@ -102,6 +105,30 @@
+ 
+ 	check_sysupgrade();
+ 
++#ifdef OPENWRT_SYSTEMD
++	if (!ret && openwrt_systemd_requested()) {
++		int status;
++		pid_t child = fork();
++		pid_t waited = -1;
++
++		if (!child) {
++			execl("/usr/libexec/openwrt-systemd-prepare",
++			      "openwrt-systemd-prepare", NULL);
++			_exit(127);
++		}
++		if (child > 0)
++			do {
++				waited = waitpid(child, &status, 0);
++			} while (waited < 0 && errno == EINTR);
++		if (child > 0 && waited == child &&
++		    WIFEXITED(status) && !WEXITSTATUS(status)) {
++			LOG("- systemd -\n");
++			unsetenv("WDTFD");
++			execl("/usr/lib/systemd/systemd", "systemd", NULL);
++		}
++		ERROR("systemd handoff failed; booting procd recovery\n");
++	}
++#endif
+ 	DEBUG(2, "Exec to real procd now\n");
+ 	if (wdt_fd)
+ 		setenv("WDTFD", wdt_fd, 1);
+--- a/procd.h
++++ b/procd.h
+@@ -31,6 +31,9 @@
+ extern const char *rc_d_path;
+ 
+ extern const char *ubus_socket;
++extern bool procd_systemd;
++void procd_systemd_ubus_ready(void);
++void procd_systemd_coldplug_ready(void);
+ 
+ void procd_connect_ubus(void);
+ void procd_reconnect_ubus(int reconnect);
+--- a/procd.c
++++ b/procd.c
+@@ -24,6 +24,47 @@
+ #include "procd.h"
+ #include "watchdog.h"
+ #include "plug/hotplug.h"
++#include "service/service.h"
++#ifdef OPENWRT_SYSTEMD
++#include <systemd/sd-daemon.h>
++#endif
++
++bool procd_systemd;
++static bool systemd_ubus_ready, systemd_coldplug_ready;
++
++static void systemd_ready(void)
++{
++#ifdef OPENWRT_SYSTEMD
++	if (procd_systemd && systemd_ubus_ready && systemd_coldplug_ready)
++		sd_notify(0, "READY=1");
++#endif
++}
++
++void procd_systemd_ubus_ready(void)
++{
++	systemd_ubus_ready = true;
++	systemd_ready();
++}
++
++void procd_systemd_coldplug_ready(void)
++{
++	systemd_coldplug_ready = true;
++	systemd_ready();
++}
++
++#ifdef OPENWRT_SYSTEMD
++static void systemd_stop(struct uloop_signal *signal)
++{
++	sd_notify(0, "STOPPING=1");
++	service_stop_all();
++	hotplug_shutdown();
++	watchdog_set_magicclose(true);
++	watchdog_set_stopped(true);
++	uloop_end();
++}
++
++static struct uloop_signal systemd_term = { .signo = SIGTERM, .cb = systemd_stop };
++#endif
+ 
+ unsigned int debug;
+ 
+@@ -93,6 +134,10 @@
+ int main(int argc, char **argv)
+ {
+ 	int ch;
++	static const struct option options[] = {
++		{ "systemd", no_argument, NULL, 1000 },
++		{ NULL, 0, NULL, 0 }
++	};
+ 	char *dbglvl = getenv("DBGLVL");
+ 	int ulog_channels = ULOG_KMSG;
+ 
+@@ -101,8 +146,15 @@
+ 		unsetenv("DBGLVL");
+ 	}
+ 
+-	while ((ch = getopt(argc, argv, "d:s:h:I:R:S")) != -1) {
++	while ((ch = getopt_long(argc, argv, "d:s:h:I:R:S", options, NULL)) != -1) {
+ 		switch (ch) {
++#ifdef OPENWRT_SYSTEMD
++		case 1000:
++			if (getpid() == 1)
++				return usage(argv[0]);
++			procd_systemd = true;
++			break;
++#endif
+ 		case 'h':
+ 			return hotplug_run(optarg);
+ 		case 's':
+@@ -131,6 +183,14 @@
+ 	setsid();
+ 	uloop_init();
+ 	procd_signal();
++#ifdef OPENWRT_SYSTEMD
++	if (procd_systemd) {
++		uloop_signal_add(&systemd_term);
++		watchdog_init(0);
++		hotplug("/etc/hotplug.json");
++		procd_coldplug();
++	}
++#endif
+ 	procd_udebug_set_enabled(true);
+ 	if (getpid() != 1)
+ 		procd_connect_ubus();
+--- a/ubus.c
++++ b/ubus.c
+@@ -85,6 +85,8 @@
+ 	reset_timeout();
+ 	ubus_add_uloop(ctx);
+ 	procd_state_ubus_connect();
++	if (procd_systemd)
++		procd_systemd_ubus_ready();
+ }
+ 
+ void
+--- a/plug/coldplug.c
++++ b/plug/coldplug.c
+@@ -32,7 +32,10 @@
+ {
+ 	P_DEBUG(4, "Coldplug complete\n");
+ 	hotplug_last_event(NULL);
+-	procd_state_next();
++	if (procd_systemd)
++		procd_systemd_coldplug_ready();
++	else
++		procd_state_next();
+ }
+ 
+ static void udevtrigger_complete(struct uloop_process *proc, int ret)
+@@ -46,7 +49,7 @@
+ 	char *argv[] = { "udevtrigger", NULL };
+ 	unsigned int oldumask = umask(0);
+ 
+-	if (!is_container()) {
++	if (!is_container() && !procd_systemd) {
+ 		umount2("/dev/pts", MNT_DETACH);
+ 		umount2("/dev/", MNT_DETACH);
+ 		mount("tmpfs", "/dev", "tmpfs", MS_NOATIME | MS_NOEXEC | MS_NOSUID, "mode=0755,size=512K");
+@@ -55,7 +58,8 @@
+ 		mount("devpts", "/dev/pts", "devpts", MS_NOATIME | MS_NOEXEC | MS_NOSUID, 0);
+ 	}
+ 
+-	ignore(symlink("/tmp/shm", "/dev/shm"));
++	if (!procd_systemd)
++		ignore(symlink("/tmp/shm", "/dev/shm"));
+ 	umask(oldumask);
+ 	udevtrigger.cb = udevtrigger_complete;
+ 	udevtrigger.pid = fork();
+--- a/system.c
++++ b/system.c
+@@ -34,6 +34,8 @@
+ #include "sysupgrade.h"
+ #include "watchdog.h"
+ #include "service/service.h"
++#include <sys/wait.h>
++#include <errno.h>
+ 
+ static struct blob_buf b;
+ static int notify;
+@@ -443,6 +445,24 @@
+ 			 struct ubus_request_data *req, const char *method,
+ 			 struct blob_attr *msg)
+ {
++	if (procd_systemd) {
++		int status;
++		pid_t child = fork();
++		pid_t waited = -1;
++
++		if (!child) {
++			execl("/usr/bin/systemctl", "systemctl", "--no-block", "reboot", NULL);
++			_exit(127);
++		}
++		if (child > 0)
++			do {
++				waited = waitpid(child, &status, 0);
++			} while (waited < 0 && errno == EINTR);
++		if (child < 0 || waited != child ||
++		    !WIFEXITED(status) || WEXITSTATUS(status))
++			return UBUS_STATUS_UNKNOWN_ERROR;
++		return UBUS_STATUS_OK;
++	}
+ 	procd_shutdown(RB_AUTOBOOT);
+ 	return 0;
+ }
+@@ -822,6 +842,11 @@
+ 		return UBUS_STATUS_NOT_SUPPORTED;
+ 	}
+ 
++	if (procd_systemd) {
++		sysupgrade_error(ctx, req,
++				 "Boot the procd recovery entry before flashing firmware");
++		return UBUS_STATUS_NOT_SUPPORTED;
++	}
+ 	service_stop_all();
+ 
+ 	sysupgrade_exec_upgraded(blobmsg_get_string(tb[SYSUPGRADE_PREFIX]),

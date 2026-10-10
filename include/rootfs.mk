@@ -51,7 +51,7 @@ apk = \
 	--no-logfile \
 	--preserve-env
 
-TARGET_DIR_ORIG := $(TARGET_ROOTFS_DIR)/root.orig-$(BOARD)
+TARGET_DIR_ORIG := $(TARGET_ROOTFS_DIR)/root.orig-$(BOARD)$(if $(CONFIG_OPENWRT_SYSTEMD),-systemd)
 
 ifdef CONFIG_CLEAN_IPKG
   define clean_ipkg
@@ -73,6 +73,7 @@ define prepare_rootfs
 		$(call file_copy,$(2)/.,$(1)); \
 	fi)
 	@mkdir -p $(1)/etc/rc.d
+	$(if $(CONFIG_OPENWRT_SYSTEMD),python3 $(SCRIPT_DIR)/merge-usr.py $(1) --aliases)
 	@mkdir -p $(1)/var/lock
 	@( \
 		cd $(1); \

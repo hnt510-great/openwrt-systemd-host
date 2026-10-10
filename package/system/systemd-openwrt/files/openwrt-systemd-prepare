@@ -1,0 +1,18 @@
+#!/bin/sh
+# Executed by early init after the OpenWrt overlay has been mounted.
+[ -f /etc/openwrt-systemd ] || exit 1
+mkdir -p /run || exit 1
+if grep -q ' /rom/run ' /proc/mounts; then
+	mount --move /rom/run /run || exit 1
+elif ! grep -q ' /run ' /proc/mounts; then
+	mount -t tmpfs -o mode=0755,nosuid,nodev tmpfs /run || exit 1
+fi
+[ -e /tmp/run ] || ln -s /run /tmp/run
+[ "$1" = --runtime-only ] && exit 0
+[ "$(readlink /bin)" = usr/bin ] || exit 1
+[ "$(readlink /sbin)" = usr/sbin ] || exit 1
+[ "$(readlink /lib)" = usr/lib ] || exit 1
+[ -d /run ] && [ ! -L /run ] || exit 1
+[ -L /var/run ] && [ "$(readlink /var/run)" = /run ] || exit 1
+/usr/lib/systemd/systemd --version >/dev/null || exit 1
+exit 0

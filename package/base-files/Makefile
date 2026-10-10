@@ -29,6 +29,7 @@ PKG_CONFIG_DEPENDS += \
 	CONFIG_LEGACY_SDCARD_SUPPORT \
 	CONFIG_EMMC_SUPPORT \
 	CONFIG_CLEAN_IPKG \
+	CONFIG_OPENWRT_SYSTEMD \
 	CONFIG_PER_FEED_REPO \
 	$(foreach feed,$(FEEDS_AVAILABLE),CONFIG_FEED_$(feed))
 
@@ -232,6 +233,13 @@ else
 endif
 	$(LN) /tmp/resolv.conf /tmp/TZ /tmp/localtime $(1)/etc/
 	$(LN) /tmp/sysinfo/board.json $(1)/etc/board.json
+ifeq ($(CONFIG_OPENWRT_SYSTEMD),y)
+	mkdir -p $(1)/run
+	touch $(1)/run/.keep
+	rm -f $(1)/var/run
+	$(LN) /run $(1)/var/run
+	touch $(1)/etc/openwrt-systemd
+endif
 
 	chmod 0600 $(1)/etc/shadow
 	chmod 1777 $(1)/tmp
@@ -258,6 +266,10 @@ ifneq ($(CONFIG_USE_APK),)
 	mkdir -p $(1)/etc/apk/repositories.d
 	$(call FeedSourcesAppendAPK,$(1)/etc/apk/repositories.d/distfeeds.list)
 	$(VERSION_SED_SCRIPT) $(1)/etc/apk/repositories.d/distfeeds.list
+ifeq ($(CONFIG_OPENWRT_SYSTEMD),y)
+	sed -i '/^[^#]/s/^/# /' $(1)/etc/apk/repositories.d/distfeeds.list
+	echo '# Native systemd images require the matching bin/systemd APK repositories.' >> $(1)/etc/apk/repositories.d/distfeeds.list
+endif
 
 	rm -f $(1)/etc/uci-defaults/13_fix-group-user
 	rm -f $(1)/sbin/pkg_check

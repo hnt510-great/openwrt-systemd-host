@@ -550,6 +550,7 @@ ifeq ($(CONFIG_EXTERNAL_TOOLCHAIN),)
 
   define Package/glibc/install
 	$(CP) ./glibc-files/* $(1)/
+	$(if $(CONFIG_OPENWRT_SYSTEMD),sed -i -e 's/^passwd:files/passwd: files systemd/' -e 's/^group:files/group: files systemd/' -e 's/^shadow:files/shadow: files systemd/' $(1)/etc/nsswitch.conf)
 	rm -f $(1)/etc/localtime
 	$(INSTALL_DIR) $(1)/lib
 	$(CP) \

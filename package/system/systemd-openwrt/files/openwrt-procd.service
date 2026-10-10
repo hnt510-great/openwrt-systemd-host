@@ -1,0 +1,19 @@
+[Unit]
+Description=OpenWrt procd service and hotplug compatibility
+Requires=openwrt-ubusd.service
+Wants=openwrt-services.service
+After=openwrt-ubusd.service
+Before=openwrt-services.service
+
+[Service]
+Type=notify
+NotifyAccess=main
+ExecStart=/sbin/procd --systemd -S
+Delegate=yes
+TimeoutStartSec=90
+TimeoutStopSec=30
+KillMode=control-group
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

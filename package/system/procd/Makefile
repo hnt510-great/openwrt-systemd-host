@@ -8,7 +8,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=procd
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL=$(PROJECT_GIT)/project/procd.git
@@ -26,7 +26,7 @@ PKG_BUILD_FLAGS:=lto
 PKG_ASLR_PIE_REGULAR:=1
 PKG_CONFIG_DEPENDS:= \
 	CONFIG_TARGET_INIT_PATH CONFIG_KERNEL_SECCOMP CONFIG_PROCD_SHOW_BOOT \
-	CONFIG_KERNEL_NAMESPACES CONFIG_PACKAGE_procd-ujail CONFIG_PACKAGE_procd-seccomp
+	CONFIG_KERNEL_NAMESPACES CONFIG_PACKAGE_procd-ujail CONFIG_PACKAGE_procd-seccomp CONFIG_OPENWRT_SYSTEMD
 
 include $(INCLUDE_DIR)/package.mk
 include $(INCLUDE_DIR)/cmake.mk
@@ -35,13 +35,13 @@ ifeq ($(DUMP),)
   STAMP_CONFIGURED:=$(strip $(STAMP_CONFIGURED))_$(shell echo $(CONFIG_TARGET_INIT_PATH) | $(MKHASH) md5)
 endif
 
-CMAKE_OPTIONS += -DEARLY_PATH="$(TARGET_INIT_PATH)"
+CMAKE_OPTIONS += -DEARLY_PATH="$(TARGET_INIT_PATH)" -DOPENWRT_SYSTEMD=$(if $(CONFIG_OPENWRT_SYSTEMD),ON,OFF)
 
 define Package/procd/Default
   SECTION:=base
   CATEGORY:=Base system
   DEPENDS:=+ubusd +ubus +libjson-script +ubox +libubox +libudebug \
-	  +libubus +libblobmsg-json +libjson-c +jshn
+	  +libubus +libblobmsg-json +libjson-c +jshn +OPENWRT_SYSTEMD:libsystemd
   TITLE:=OpenWrt system process manager
   USERID:=:dialout=20
 endef

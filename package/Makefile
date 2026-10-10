@@ -113,7 +113,7 @@ endif
 # package, and of the inputs below. Installing it takes a few seconds, so
 # keep a copy and restore it if none of them changed. Later build steps
 # modify the rootfs, so it is always restored from the copy.
-ROOTFS_CACHE:=$(TARGET_ROOTFS_DIR)/rootfs-cache-$(BOARD)
+ROOTFS_CACHE:=$(TARGET_ROOTFS_DIR)/rootfs-cache-$(BOARD)$(if $(CONFIG_OPENWRT_SYSTEMD),-systemd)
 
 define rootfs_cache_key
 $(shell ( \
@@ -147,7 +147,7 @@ define apk_install_rootfs
 		--repositories-file /dev/null --repository file://$(PACKAGE_DIR_ALL)/packages.adb \
 		$(if $(CONFIG_SIGNED_PACKAGES),,--allow-untrusted) \
 		$$(cat $(TMP_DIR)/apk_install_list)
-	rm -rf $(TARGET_DIR)/run
+	$(if $(CONFIG_OPENWRT_SYSTEMD),find $(TARGET_DIR)/run -mindepth 1 ! -name .keep -delete,rm -rf $(TARGET_DIR)/run)
 	$(CP) $(TARGET_DIR) $(TARGET_DIR_ORIG)
 	$(call prepare_rootfs,$(TARGET_DIR),$(TOPDIR)/files)
 	rm -rf $(ROOTFS_CACHE)

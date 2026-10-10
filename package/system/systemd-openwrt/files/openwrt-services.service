@@ -1,0 +1,16 @@
+[Unit]
+Description=OpenWrt router services
+BindsTo=openwrt-procd.service
+After=openwrt-procd.service dbus.service
+Before=openwrt-console@tty1.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/openwrt-rcS boot
+ExecStop=/usr/libexec/openwrt-rcS shutdown
+TimeoutStartSec=180
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

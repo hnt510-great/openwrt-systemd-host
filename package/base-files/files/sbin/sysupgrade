@@ -435,6 +435,11 @@ if [ $TEST -eq 1 ]; then
 	exit 0
 fi
 
+if [ -f /etc/openwrt-systemd ] && [ -d /run/systemd/system ]; then
+	echo "Boot the procd recovery entry before flashing firmware. Image checks and backups are supported under systemd." >&2
+	exit 1
+fi
+
 install_bin /sbin/upgraded
 v "Commencing upgrade. Closing all shell sessions."
 

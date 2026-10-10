@@ -47,6 +47,7 @@ tools-y += findutils
 tools-y += firmware-utils
 tools-y += flex
 tools-y += gengetopt
+tools-$(CONFIG_OPENWRT_SYSTEMD) += gperf
 tools-y += gnulib
 tools-y += libressl
 tools-y += libtool

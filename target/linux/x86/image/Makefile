@@ -33,6 +33,13 @@ GRUB_TIMEOUT:=$(call qstrip,$(CONFIG_GRUB_TIMEOUT))
 GRUB_TITLE:=$(call qstrip,$(CONFIG_GRUB_TITLE))
 
 BOOTOPTS:=$(call qstrip,$(CONFIG_GRUB_BOOTOPTS))
+IMAGE_COMPRESS:=$(if $(CONFIG_OPENWRT_SYSTEMD),gzip,libdeflate-gzip)
+IMAGE_PADDING:=$(if $(CONFIG_OPENWRT_SYSTEMD),systemd-pad-to,pad-to)
+
+define Build/systemd-pad-to
+	size="$$(stat -c%s $@)"; \
+		truncate -s $$(( ($$size + $(1) - 1) / $(1) * $(1) )) $@
+endef
 
 define Build/combined
 	$(CP) $(KDIR)/$(KERNEL_NAME) $@.boot/boot/vmlinuz
@@ -44,7 +51,7 @@ define Build/combined
 		$(INSTALL_DIR) $@.boot/efi/boot
 		$(CP) $(STAGING_DIR_IMAGE)/grub2/boot$(if $(CONFIG_x86_64),x64,ia32).efi $@.boot/efi/boot/
 	)
-	PADDING="1" SIGNATURE="$(IMG_PART_SIGNATURE)" \
+	PADDING="$(if $(CONFIG_OPENWRT_SYSTEMD),sparse,1)" SIGNATURE="$(IMG_PART_SIGNATURE)" \
 		$(if $(filter $(1),efi),GUID="$(IMG_PART_DISKGUID)") $(SCRIPT_DIR)/gen_image_generic.sh \
 		$@ \
 		$(CONFIG_TARGET_KERNEL_PARTSIZE) $@.boot \
@@ -63,7 +70,9 @@ define Build/grub-config
 		-e 's#@CMDLINE@#$(BOOTOPTS) $(GRUB_CONSOLE_CMDLINE)#g' \
 		-e 's#@TIMEOUT@#$(GRUB_TIMEOUT)#g' \
 		-e 's#@TITLE@#$(GRUB_TITLE)#g' \
+		-e 's#@INIT@#$(if $(CONFIG_OPENWRT_SYSTEMD),openwrt.init=systemd,)#g' \
 		./grub-$(1).cfg > $@.boot/boot/grub/grub.cfg
+	$(if $(CONFIG_OPENWRT_SYSTEMD),sed -i '/menuentry .* (failsafe)/i menuentry "$(GRUB_TITLE) (procd recovery)" {\n\tlinux /boot/vmlinuz $(if $(filter iso,$(1)),root=/dev/sr0 rootfstype=iso9660,$(if $(filter efi,$(1)),root=$(GPT_ROOTPART),root=$(ROOTPART))) rootwait $(BOOTOPTS) $(GRUB_CONSOLE_CMDLINE) openwrt.init=procd noinitrd\n}' $@.boot/boot/grub/grub.cfg)
 endef
 
 define Build/grub-install
@@ -129,15 +138,15 @@ DEVICE_VARS += GRUB2_VARIANT
 define Device/Default
   ARTIFACT/image.iso := grub-config iso | iso
   IMAGE/combined.img := grub-config pc | combined | grub-install | append-metadata
-  IMAGE/combined.img.gz := grub-config pc | combined | grub-install | libdeflate-gzip | append-metadata
+  IMAGE/combined.img.gz := grub-config pc | combined | grub-install | $(IMAGE_COMPRESS) | append-metadata
   IMAGE/combined.vdi := grub-config pc | combined | grub-install | qemu-image vdi
   IMAGE/combined.vmdk := grub-config pc | combined | grub-install | qemu-image vmdk
   IMAGE/combined.vhdx := grub-config pc | combined | grub-install | qemu-image vhdx -o subformat=dynamic
-  IMAGE/rootfs.img := append-rootfs | pad-to $(ROOTFS_PARTSIZE)
-  IMAGE/rootfs.img.gz := append-rootfs | pad-to $(ROOTFS_PARTSIZE) | libdeflate-gzip
+  IMAGE/rootfs.img := append-rootfs | $(IMAGE_PADDING) $(ROOTFS_PARTSIZE)
+  IMAGE/rootfs.img.gz := append-rootfs | $(IMAGE_PADDING) $(ROOTFS_PARTSIZE) | $(IMAGE_COMPRESS)
   ARTIFACT/image-efi.iso := grub-config iso | iso efi
   IMAGE/combined-efi.img := grub-config efi | combined efi | grub-install efi | append-metadata
-  IMAGE/combined-efi.img.gz := grub-config efi | combined efi | grub-install efi | libdeflate-gzip | append-metadata
+  IMAGE/combined-efi.img.gz := grub-config efi | combined efi | grub-install efi | $(IMAGE_COMPRESS) | append-metadata
   IMAGE/combined-efi.vdi := grub-config efi | combined efi | grub-install efi | qemu-image vdi
   IMAGE/combined-efi.vmdk := grub-config efi | combined efi | grub-install efi | qemu-image vmdk
   IMAGE/combined-efi.vhdx := grub-config efi | combined efi | grub-install efi | qemu-image vhdx -o subformat=dynamic
