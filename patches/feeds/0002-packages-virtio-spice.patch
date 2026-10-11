@@ -1,0 +1,175 @@
+From 3047e348b9a0065bf23d27edd04d8a55ea89a05b Mon Sep 17 00:00:00 2001
+From: hnt510 <hnt510@gmail.com>
+Date: Mon, 12 Oct 2026 06:20:38 +0800
+Subject: [PATCH] qemu: enable SPICE and EGL VirGL rendering
+
+Add OpenGL/VirGL options and dependencies while retaining VNC. Supply the
+SPICE GTK introspection dependencies and fix the libdrm capability select.
+
+Validated with target package and complete x86_64/glibc/systemd builds,
+signed APK verification, nested KVM/EGL shader readback and SPICE/VNC GUI
+tests. Physical Intel GPU operation remains untested.
+---
+ libs/libdrm/Makefile           |  4 ++--
+ multimedia/gstreamer1/Makefile | 20 ++++++++++++++++++--
+ utils/qemu/Makefile            | 21 ++++++++++++++++++---
+ 3 files changed, 38 insertions(+), 7 deletions(-)
+
+diff --git a/libs/libdrm/Makefile b/libs/libdrm/Makefile
+index 2431565..503cc20 100644
+--- a/libs/libdrm/Makefile
++++ b/libs/libdrm/Makefile
+@@ -7,7 +7,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=libdrm
+ PKG_VERSION:=2.4.133
+-PKG_RELEASE:=2
++PKG_RELEASE:=3
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://dri.freedesktop.org/libdrm
+@@ -35,7 +35,7 @@ define Package/libdrm/Default
+   SUBMENU:=Video
+   TITLE:=libdrm
+   URL:=https://dri.freedesktop.org/
+-  DEPENDS:=video-support
++  DEPENDS:=+video-support
+ endef
+ 
+ define Package/libdrm/description/Default
+diff --git a/multimedia/gstreamer1/Makefile b/multimedia/gstreamer1/Makefile
+index 6afe449..77877bf 100644
+--- a/multimedia/gstreamer1/Makefile
++++ b/multimedia/gstreamer1/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=gstreamer1
+ PKG_VERSION:=1.28.7
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PKG_SOURCE:=gstreamer-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://gstreamer.freedesktop.org/src/gstreamer
+@@ -28,6 +28,11 @@ include $(INCLUDE_DIR)/package.mk
+ include $(INCLUDE_DIR)/nls.mk
+ include $(INCLUDE_DIR)/meson.mk
+ 
++PKG_CONFIG_DEPENDS += CONFIG_PACKAGE_spice-gtk
++ifneq ($(CONFIG_PACKAGE_spice-gtk),)
++include $(INCLUDE_DIR)/gobject-introspection.mk
++endif
++
+ define Package/gstreamer1/Default
+   CATEGORY:=Multimedia
+   SECTION:=multimedia
+@@ -133,7 +138,7 @@ MESON_ARGS += \
+ 	-Dexamples=disabled \
+ 	-Dbenchmarks=disabled \
+ 	-Dtools=enabled \
+-	-Dintrospection=disabled \
++	-Dintrospection=$(if $(CONFIG_PACKAGE_spice-gtk),en,dis)abled \
+ 	-Dnls=enabled \
+ 	-Dgobject-cast-checks=disabled \
+ 	-Dglib-asserts=disabled \
+@@ -161,6 +166,7 @@ define Build/InstallDev
+ 		./usr/lib/pkgconfig/gstreamer*-$(GST_VERSION).pc \
+ 		$(1)/usr/lib/pkgconfig/ \
+ 	)
++	$(call Build/InstallDev/GIR,$(1))
+ 	$(INSTALL_DIR) $(2)/share/aclocal
+ 	( cd $(PKG_INSTALL_DIR); $(CP) \
+ 		./usr/share/aclocal/* \
+@@ -168,6 +174,14 @@ define Build/InstallDev
+ 	)
+ endef
+ 
++ifneq ($(CONFIG_PACKAGE_spice-gtk),)
++define Build/InstallDev/GIR
++	$(INSTALL_DIR) $(1)/usr/share/gir-1.0 $(1)/usr/lib/girepository-1.0
++	$(CP) $(PKG_INSTALL_DIR)/usr/share/gir-1.0/*.gir $(1)/usr/share/gir-1.0/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0/*.typelib $(1)/usr/lib/girepository-1.0/
++endef
++endif
++
+ define Package/gstreamer1/install
+   true
+ endef
+@@ -187,6 +201,8 @@ define Package/gstreamer1-utils/install
+ endef
+ 
+ define Package/libgstreamer1/install
++	$(if $(CONFIG_PACKAGE_spice-gtk),$(INSTALL_DIR) $(1)/usr/lib/girepository-1.0)
++	$(if $(CONFIG_PACKAGE_spice-gtk),$(CP) $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0/Gst-1.0.typelib $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0/GstBase-1.0.typelib $(1)/usr/lib/girepository-1.0/)
+ 	$(INSTALL_DIR) $(1)/usr/lib
+ 	( cd $(PKG_INSTALL_DIR); $(CP) \
+ 		./usr/lib/libgstbase-$(GST_VERSION).so.* \
+diff --git a/utils/qemu/Makefile b/utils/qemu/Makefile
+index cb9c4fa..3b5b4c7 100644
+--- a/utils/qemu/Makefile
++++ b/utils/qemu/Makefile
+@@ -10,7 +10,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=qemu
+ PKG_VERSION:=11.1.1
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://download.qemu.org/
+ PKG_HASH:=079ffbff8a7111bbc89022107cbabf3bbfd614d5fc9d7cc675991196aca12482
+@@ -199,6 +199,8 @@ define qemu-target
+ 	+QEMU_UI_VNC_JPEG:libjpeg \
+ 	+QEMU_UI_VNC_SASL:libsasl2 \
+ 	+QEMU_UI_SPICE:libspice-server \
++	+QEMU_OPENGL:libepoxy +QEMU_OPENGL:libmesa \
++	+QEMU_VIRGLRENDERER:virglrenderer \
+ 	+QEMU_DEV_USB:libusb-1.0 \
+ 	+QEMU_SECCOMP:libseccomp \
+ 	+QEMU_ZSTD:libzstd \
+@@ -258,6 +260,17 @@ config QEMU_UI_VNC_SASL
+ config QEMU_UI_SPICE
+ 	bool "QEMU SPICE ui support"
+ 
++config QEMU_OPENGL
++	bool "QEMU OpenGL (EGL/GBM) support"
++	default n
++	depends on HAVE_MESA
++
++config QEMU_VIRGLRENDERER
++	bool "QEMU VirtIO GPU 3D (VirGL) support"
++	default n
++	depends on HAVE_MESA
++	select QEMU_OPENGL
++
+ config QEMU_DEV_USB
+ 	bool "QEMU USB passthrough support"
+ 	default y
+@@ -281,6 +294,8 @@ PKG_CONFIG_DEPENDS += \
+ 	CONFIG_QEMU_UI_VNC_JPEG \
+ 	CONFIG_QEMU_UI_VNC_SASL \
+ 	CONFIG_QEMU_UI_SPICE \
++	CONFIG_QEMU_OPENGL \
++	CONFIG_QEMU_VIRGLRENDERER \
+ 	CONFIG_QEMU_DEV_USB \
+ 	CONFIG_QEMU_SECCOMP \
+ 	CONFIG_QEMU_ZSTD \
+@@ -351,7 +366,7 @@ CONFIGURE_ARGS +=			\
+ 	--disable-sdl			\
+ 	--disable-sdl-image		\
+ 	--$(if $(CONFIG_QEMU_UI_SPICE),enable,disable)-spice			\
+-	--disable-virglrenderer		\
++	--$(if $(CONFIG_QEMU_VIRGLRENDERER),enable,disable)-virglrenderer		\
+ 	--$(if $(CONFIG_QEMU_UI_VNC),enable,disable)-vnc			\
+ 	--$(if $(CONFIG_QEMU_UI_VNC_JPEG),enable,disable)-vnc-jpeg		\
+ 	--$(if $(CONFIG_QEMU_UI_VNC_SASL),enable,disable)-vnc-sasl		\
+@@ -413,7 +428,7 @@ CONFIGURE_ARGS +=			\
+ 	--disable-netmap		\
+ 	--disable-nettle		\
+ 	--disable-numa			\
+-	--disable-opengl		\
++	--$(if $(CONFIG_QEMU_OPENGL),enable,disable)-opengl		\
+ 	--disable-plugins		\
+ 	--disable-qom-cast-debug	\
+ 	--disable-rbd			\
+-- 
+2.47.3
+

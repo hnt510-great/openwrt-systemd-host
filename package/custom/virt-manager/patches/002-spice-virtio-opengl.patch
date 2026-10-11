@@ -1,0 +1,104 @@
+--- a/virtinst/guest.py
++++ b/virtinst/guest.py
+@@ -263,8 +263,8 @@
+ 
+         self.skip_default_console = False
+         self.skip_default_channel = False
+-        self.skip_default_sound = False
+-        self.skip_default_usbredir = False
++        self.skip_default_sound = self.conn.is_qemu() and not self.conn.is_remote()
++        self.skip_default_usbredir = self.conn.is_qemu() and not self.conn.is_remote()
+         self.skip_default_graphics = False
+         self.skip_default_rng = False
+         self.skip_default_tpm = False
+--- a/virtinst/devices/graphics.py
++++ b/virtinst/devices/graphics.py
+@@ -4,7 +4,9 @@
+ # This work is licensed under the GNU GPLv2 or later.
+ # See the COPYING file in the top-level directory.
+ 
++import glob
+ import os
++import stat
+ 
+ from .device import Device
+ from ..logger import log
+@@ -201,6 +203,20 @@
+             return "off"
+         return None
+ 
++    @staticmethod
++    def local_rendernodes(conn):
++        # OpenWrt has no udev-backed libvirt node-device daemon.
++        if not conn.is_qemu() or conn.is_remote():
++            return []
++        nodes = []
++        for path in sorted(glob.glob("/dev/dri/renderD[0-9]*")):
++            try:
++                if stat.S_ISCHR(os.stat(path).st_mode):
++                    nodes.append(path)
++            except OSError:
++                continue
++        return nodes
++
+     def _default_spice_gl(self, _guest):
+         # If spice GL but rendernode wasn't specified, hardcode
+         # the first one
+@@ -210,12 +226,20 @@
+                     continue
+                 self.rendernode = nodedev.get_devnode().path
+                 break
++        if not self.rendernode:
++            nodes = self.local_rendernodes(self.conn)
++            if nodes:
++                self.rendernode = nodes[0]
+ 
+     def set_defaults(self, guest):
+         if not self.type:
+             self.type = self._default_type(guest)
+         if self.type == "vnc" and self.listen is None and not self.listens:
+             self.listen = "127.0.0.1"
++
++        if (self.type == "spice" and not self.conn.is_remote()
++                and self.listen is None and not self.listens):
++            self.listen = "none"
+ 
+         if self.type == "sdl":
+             if not self.xauth:
+--- a/virtinst/devices/video.py
++++ b/virtinst/devices/video.py
+@@ -56,6 +56,10 @@
+             # virtio is implied in this case
+             return "virtio"
+ 
++        if (guest.conn.is_qemu() and not guest.conn.is_remote() and guest.os.is_x86()
++                and guest.lookup_domcaps().supports_video_virtio()):
++            return "virtio"
++
+         if guest.lookup_domcaps().supports_video_virtio() and guest.osinfo.supports_virtiogpu():
+             # When the guest supports it, this is the top preference
+             return "virtio"
+--- a/virtManager/device/gfxdetails.py
++++ b/virtManager/device/gfxdetails.py
+@@ -117,6 +117,10 @@
+             if drm.is_drm_render():
+                 rendernode = drm.get_devnode().path
+                 model.append([rendernode, i.pretty_name()])
++        known = {row[0] for row in model}
++        for rendernode in virtinst.DeviceGraphics.local_rendernodes(self.conn.get_backend()):
++            if rendernode not in known:
++                model.append([rendernode, rendernode])
+ 
+     ##############
+     # UI syncing #
+@@ -182,7 +186,9 @@
+ 
+     def reset_state(self):
+         uiutil.set_list_selection(self.widget("graphics-type"), self.config.get_graphics_type())
+-        self.widget("graphics-listen-type").set_active(0)
++        self.widget("graphics-listen-type").set_active(
++            1 if self.config.get_graphics_type() == "spice" else 0
++        )
+         self.widget("graphics-address").set_active(0)
+ 
+         # Select last entry in the list, which should be a rendernode path

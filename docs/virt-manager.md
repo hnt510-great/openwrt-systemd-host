@@ -42,9 +42,10 @@ If startup fails, the launcher shows the connection error and a Retry button.
 ## Creating guests
 
 Use the creation wizard to install from an existing readable Linux ISO or
-import a raw/qcow2 disk. Defaults are SeaBIOS, qcow2 storage and a local VNC
-console. The VNC connection remains inside the host; use the existing TLS
-Weston desktop mirror for remote desktop access.
+import a raw/qcow2 disk. Defaults are SeaBIOS, qcow2 storage, SPICE with a local socket and a VirtIO
+video device. OpenGL and 3D acceleration are initially disabled. VNC remains
+available on loopback. Use the existing TLS Weston desktop mirror for remote
+desktop access. Existing guests and saved user preferences are not migrated.
 
 The network defaults to `br-lan`. For a different existing OpenWrt bridge,
 enter its name in the bridge field. OpenWrt continues to own bridges, DHCP
@@ -58,7 +59,7 @@ pool and any autostart guests; see [libvirt.md](libvirt.md) for persistence,
 mount dependencies and backup guidance. ISO directories need traversal
 permissions and the libvirt-qemu account needs read access to the ISO.
 
-UEFI guest firmware, SPICE, device passthrough, libvirt NAT network creation,
+UEFI guest firmware, device passthrough, libvirt NAT network creation,
 and remote-host management are outside the supported first release.
 Guest shutdown requires a guest OS that responds to ACPI shutdown; serial
 console access requires the guest OS to enable that console.
@@ -109,10 +110,79 @@ virt-manager-setup USER
 Alpine 3.24 测试选择 Generic Linux 2024。确认主机可用内存和存储空间后再
 创建客体。目录存储池可在“连接详情 → Storage”中管理。
 
-图形控制台通过宿主回环地址上的 VNC 连接；串口控制台在“View → Consoles”
+新建图形控制台默认使用本地 SPICE socket 和 VirtIO 显卡，3D 默认关闭；已有
+VNC 客体继续可用。串口控制台在“View → Consoles”
 中选择，客体须启用串口 getty。自动启动在客体的 Boot Options 中设置。
 普通用户终端使用 `virsh -c qemu:///system`，避免连接到用户会话实例。
 
 升级前备份 `/etc/libvirt`、`/srv/libvirt`、其他存储池和用户 home 中的 dconf
 配置。OpenWrt 配置备份不包含完整客体磁盘。原生 systemd 下实际刷写仍须
 先进入 GRUB 的 procd recovery；不要用单包升级替代已验证的完整固件。
+
+## SPICE, VirtIO and OpenGL
+
+The virtualization Mesa provider uses GLVND for EGL, GLES and desktop
+OpenGL dispatch. Its `50_mesa.json` selects `libEGL_mesa.so.0`. Both the
+dispatch libraries and vendor configuration are required for VirGL; EGL/GLES
+alone is insufficient. GLX and X11 are disabled in this Wayland build.
+
+The local CPU panel supports host-passthrough with KVM. Disk bus VirtIO and
+NIC model VirtIO are available; the NIC uses the existing OpenWrt bridge.
+The creation wizard defaults to VirtIO video when QEMU reports support,
+including when the OS database has no matching VirtIO-GPU entry. Guests must
+supply the corresponding VirtIO drivers; for Windows, prepare those drivers
+before selecting VirtIO disk, NIC or video.
+
+For a SPICE GL console, first enable the desktop's GPU renderer as root:
+
+```sh
+uci set desktop.main.renderer='gl'
+uci commit desktop
+/etc/init.d/desktop restart
+```
+
+Restart the manager after reconnecting to the desktop. The default `pixman`
+desktop makes GTK use softpipe; it cannot display the accelerated DMA buffers
+in the tested virtual GPU setup. Selecting a guest render node does not change
+the desktop renderer. The GL desktop uses the same authenticated TLS VNC mirror.
+It is explicit and does not silently fall back if EGL initialization fails.
+Set `desktop.main.renderer='pixman'` and restart to restore software composition.
+
+To enable 3D, shut down the guest, select **Video → Virtio → 3D acceleration**,
+then **Display Spice → Listen type None → OpenGL** and choose an existing
+`/dev/dri/renderD*` node. Save both changes before starting. The local GPU list
+also discovers render nodes without a libvirt node-device daemon. A missing
+node, denied access or EGL initialization failure remains a visible startup
+error; the application does not silently disable acceleration.
+
+SPICE GL is local and uses UNIX sockets/file descriptors through libvirt,
+including the Listen None mode. It is not a LAN SPICE server. Remote desktop
+access continues through the Weston TLS mirror. Both QEMU and the desktop
+client use EGL; the Weston desktop defaults to pixman with an explicit GL option.
+
+`virt-manager-setup USER` grants render-group membership as well as VM
+management. Revoke removes render membership only if this helper added it;
+pre-existing membership remains. Restart all of the user's sessions to refresh
+groups. `accel-support` allocates the render group and creates render nodes.
+Libvirt's final DRM hotplug rule enforces root:render 0660 after node creation,
+and libvirt preparation repairs already present render nodes at service start.
+Wayland's display-node rule only handles `card*`, so it cannot overwrite render
+permissions with the video group.
+Display card nodes and input devices do not receive broader permissions.
+
+The selected `libmesa-virtualization` package contains Intel iris/crocus/i915,
+virtual VirtIO-GPU virgl and software softpipe in one Mesa build. Select it
+instead of other `libmesa-*` OpenGL providers: their common EGL/GBM/Gallium
+files overlap. Software rendering remains available but is not evidence of
+hardware acceleration. The source package supports selecting other providers
+for other firmware configurations.
+
+QEMU build options are `QEMU_UI_SPICE`, `QEMU_OPENGL` and
+`QEMU_VIRGLRENDERER`; VirGL requires OpenGL. The firmware includes spice-gtk
+with SpiceClientGLib and SpiceClientGtk Python introspection metadata. New
+SPICE guests do not automatically receive unsupported sound or USB redirection
+devices. SPICE clipboard/resizing needs a guest-side spice-vdagent; no guest
+agent is installed into a guest automatically.
+
+See [libvirt.md](libvirt.md#graphics-examples) for XML and CLI examples and
+[virtio-spice-validation.md](virtio-spice-validation.md) for build/runtime evidence.

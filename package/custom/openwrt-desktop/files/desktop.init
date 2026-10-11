@@ -5,7 +5,7 @@ STOP=5
 USE_PROCD=1
 
 start_service() {
-	local enabled user output port address runtime key cert attempt
+	local enabled user output port address runtime key cert attempt renderer
 	. /usr/libexec/desktop-common.sh
 	config_load desktop
 	config_get_bool enabled main enabled 0
@@ -14,6 +14,8 @@ start_service() {
 	desktop_validate_user "$user" || return 1
 	config_get output main output auto
 	output="$(desktop_select_output "$output")" || return 1
+	config_get renderer main renderer pixman
+	case "$renderer" in pixman|gl) ;; *) desktop_error 'Invalid desktop renderer'; return 1 ;; esac
 	config_get port main port 5900
 	case "$port" in ''|*[!0-9]*) desktop_error 'Invalid VNC port'; return 1 ;; esac
 	[ "$port" -ge 1024 ] && [ "$port" -le 65535 ] || {
@@ -47,7 +49,7 @@ start_service() {
 			set -- "$@" --property=StandardInput=tty --property=TTYPath=/dev/tty7 \
 				--setenv=XDG_SEAT=seat0 --setenv=XDG_VTNR=7
 		fi
-		"$@" /usr/libexec/desktop-session "$output" "$address" "$port" "$key" "$cert"
+		"$@" /usr/libexec/desktop-session "$output" "$address" "$port" "$key" "$cert" "$renderer"
 		return
 	fi
 	runtime="/tmp/run/desktop-$DESKTOP_USER_UID"
@@ -56,7 +58,7 @@ start_service() {
 	chown "$DESKTOP_USER_UID:$DESKTOP_USER_GID" "$runtime"
 	chmod 0700 "$runtime"
 	procd_open_instance
-	procd_set_param command /usr/libexec/desktop-session "$output" "$address" "$port" "$key" "$cert"
+	procd_set_param command /usr/libexec/desktop-session "$output" "$address" "$port" "$key" "$cert" "$renderer"
 	procd_set_param user "$user"
 	procd_set_param env HOME="$DESKTOP_USER_HOME" USER="$user" LOGNAME="$user" \
 		SHELL="$DESKTOP_USER_SHELL" XDG_RUNTIME_DIR="$runtime" LIBSEAT_BACKEND=seatd

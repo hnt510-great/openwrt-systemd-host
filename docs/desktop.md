@@ -70,3 +70,22 @@ logread -e weston
 SSH and LuCI remain available when the desktop is stopped. Missing accounts,
 passwords, monitors, seatd, or LAN addresses prevent session startup. Crashes
 are retried five times with a delay, then reported by procd.
+
+## Optional GPU desktop for SPICE GL
+
+The default compositor renderer remains `pixman`. To display accelerated
+SPICE DMA buffers, use an authorized desktop account with render-node access
+(see `virt-manager-setup USER`) and explicitly select the GL renderer:
+
+```sh
+uci set desktop.main.renderer='gl'
+uci commit desktop
+/etc/init.d/desktop restart
+```
+
+Reconnect and restart desktop applications. Weston uses EGL/GBM on the local
+DRM device, and the authenticated TLS VNC mirror remains available. EGL
+startup failures stay in the desktop service log; there is no automatic
+software fallback. To return to software composition, set the option to
+`pixman` and restart. Existing configurations without `renderer` retain
+pixman. The option is passed identically by systemd and procd service paths.

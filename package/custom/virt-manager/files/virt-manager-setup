@@ -18,10 +18,22 @@ if ! awk -F: '$1 == "libvirt-admin" { found=1 } END { exit !found }' /etc/group;
 	[ "$revoke" = 0 ] || { echo 'User is not authorized'; exit 0; }
 	groupadd -r libvirt-admin
 fi
+render_grant="/etc/libvirt/render-access/$user"
 if [ "$revoke" = 1 ]; then
+	if [ -f "$render_grant" ]; then
+		if id -nG "$user" | tr ' ' '\n' | grep -qx render; then gpasswd -d "$user" render; fi
+		rm -f "$render_grant"
+	fi
 	if id -nG "$user" | tr ' ' '\n' | grep -qx libvirt-admin; then gpasswd -d "$user" libvirt-admin; fi
 else
 	usermod -a -G libvirt-admin "$user"
+	if ! id -nG "$user" | tr ' ' '\n' | grep -qx render; then
+		mkdir -p /etc/libvirt/render-access
+		chmod 0700 /etc/libvirt/render-access
+		: > "$render_grant"
+		chmod 0600 "$render_grant"
+		usermod -a -G render "$user"
+	fi
 	for daemon in virtqemud virtstoraged virtsecretd; do
 		for suffix in '' '-ro'; do
 			unit="$daemon$suffix.socket"

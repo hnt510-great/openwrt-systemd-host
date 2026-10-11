@@ -1,0 +1,34 @@
+<domain type='kvm'>
+  <name>openwrt-graphics-gl-vm</name>
+  <memory unit='MiB'>512</memory>
+  <vcpu>1</vcpu>
+  <os>
+    <type arch='x86_64'>hvm</type>
+    <boot dev='hd'/>
+  </os>
+  <features><acpi/><apic/></features>
+  <cpu mode='host-passthrough'/>
+  <devices>
+    <emulator>/usr/bin/qemu-system-x86_64</emulator>
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2'/>
+      <source file='/srv/libvirt/images/openwrt-graphics-gl-vm.qcow2'/>
+      <target dev='vda' bus='virtio'/>
+    </disk>
+    <interface type='bridge'>
+      <source bridge='br-lan'/>
+      <model type='virtio'/>
+    </interface>
+    <graphics type='spice'>
+      <listen type='none'/>
+      <gl enable='yes' rendernode='/dev/dri/renderD128'/>
+    </graphics>
+    <video>
+      <model type='virtio' heads='1' primary='yes'>
+        <acceleration accel3d='yes'/>
+      </model>
+    </video>
+    <serial type='pty'><target port='0'/></serial>
+    <console type='pty'><target type='serial' port='0'/></console>
+  </devices>
+</domain>

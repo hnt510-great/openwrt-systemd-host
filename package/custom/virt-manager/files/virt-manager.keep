@@ -5,3 +5,4 @@
 /etc/systemd/system/virtstoraged-ro.socket.d/zz-desktop-access.conf
 /etc/systemd/system/virtsecretd.socket.d/zz-desktop-access.conf
 /etc/systemd/system/virtsecretd-ro.socket.d/zz-desktop-access.conf
+/etc/libvirt/render-access/

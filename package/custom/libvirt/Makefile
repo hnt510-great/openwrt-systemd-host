@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=libvirt
 PKG_VERSION:=12.8.0
-PKG_RELEASE:=1
+PKG_RELEASE:=4
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=https://download.libvirt.org/
 PKG_HASH:=0cd46a8f3a2b9b63c35c6e6f42a6c2989183ef3b3d1499ee92b4876db35e6fe9
@@ -49,10 +49,10 @@ endef
 define Package/libvirt-daemon
   $(call Package/libvirt/Default)
   TITLE:=Native systemd QEMU and directory storage management
-  DEPENDS+=+libvirt +virsh +qemu-x86_64-softmmu +qemu-img +kmod-tun +kvm-support
+  DEPENDS+=+libvirt +virsh +qemu-x86_64-softmmu +qemu-img +kmod-tun +kvm-support +accel-support
   DEPENDS+=+coreutils-dd +coreutils-kill +coreutils-true +coreutils-timeout
   DEPENDS+=+coreutils-chown +coreutils-chmod +coreutils-mkdir +coreutils-mv +coreutils-rm +coreutils-stat +coreutils-sleep
-  USERID:=libvirt-qemu=191:libvirt-qemu=191:kvm=34
+  USERID:=libvirt-qemu=191:libvirt-qemu=191:kvm=34,render=43
 endef
 
 define Package/libvirt-daemon/conffiles
@@ -143,10 +143,12 @@ define Package/libvirt-daemon/install
 	$(INSTALL_DATA) ./files/libvirt.conf $(1)/etc/libvirt/libvirt.conf
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/libexec/libvirt_iohelper $(1)/usr/libexec/
 	$(INSTALL_BIN) ./files/libvirt-openwrt-prepare ./files/libvirt-openwrt-guests $(1)/usr/libexec/
+	$(INSTALL_DIR) $(1)/etc/hotplug.d/drm
+	$(INSTALL_BIN) ./files/libvirt-render.hotplug $(1)/etc/hotplug.d/drm/zz-libvirt-render
 	$(LN) /usr/lib/systemd/system/virtqemud.service $(1)/etc/systemd/system/multi-user.target.wants/
 	$(LN) /usr/lib/systemd/system/libvirt-openwrt-guests.service $(1)/etc/systemd/system/multi-user.target.wants/
 	$(INSTALL_DIR) $(1)/usr/share/libvirt/examples
-	$(INSTALL_DATA) ./files/openwrt-vm.xml $(1)/usr/share/libvirt/examples/
+	$(INSTALL_DATA) ./files/openwrt*.xml $(1)/usr/share/libvirt/examples/
 	$(INSTALL_DIR) $(1)/usr/lib/upgrade/keep.d
 	$(INSTALL_DATA) ./files/libvirt.keep $(1)/usr/lib/upgrade/keep.d/libvirt
 endef

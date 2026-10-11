@@ -1,0 +1,12 @@
+{
+  "packages": {
+    "base": "d617731d19956abf9fa4987719939738b970820a",
+    "commit": "3047e348b9a0065bf23d27edd04d8a55ea89a05b",
+    "patch": "patches/feeds/0002-packages-virtio-spice.patch"
+  },
+  "video": {
+    "base": "a87f26f1851842bf825599971700f840fcc785dd",
+    "commit": "5e068983c0d02f482400fab04492bcc2b592edb3",
+    "patch": "patches/feeds/0002-video-virtio-spice.patch"
+  }
+}

@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 PKG_NAME:=virt-manager
 PKG_VERSION:=5.1.0
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 PKG_SOURCE:=virt-manager-5.1.0.tar.xz
 PKG_SOURCE_URL:=https://releases.pagure.org/virt-manager/
 PKG_HASH:=ccfc44b6c1c0be8398beb687c675d9ea4ca1c721dfb67bd639209a7b0dec11b1
@@ -13,7 +13,7 @@ include $(INCLUDE_DIR)/meson.mk
 MESON_USE_STAGING_PYTHON:=1
 PYTHON_BIN:=$(STAGING_DIR_HOSTPKG)/bin/python3
 MESON_VARS += PATH="$(STAGING_DIR_HOSTPKG)/bin:$(TARGET_PATH)"
-MESON_ARGS += -Ddefault-hvs=qemu -Ddefault-graphics=vnc -Dupdate-icon-cache=false -Dcompile-schemas=false -Dtests=disabled
+MESON_ARGS += -Ddefault-hvs=qemu -Ddefault-graphics=spice -Dupdate-icon-cache=false -Dcompile-schemas=false -Dtests=disabled
 
 define Package/virt-manager-common
   SECTION:=utils
@@ -32,7 +32,7 @@ endef
 define Package/virt-manager
   $(call Package/virt-manager-common)
   TITLE:=Virtual Machine Manager for the Weston desktop
-  DEPENDS:=+virt-manager-common +libgtk3 +gtk-vnc +libvirt-glib +libvte3 +dconf +glib2-utils +libvirt-daemon +openwrt-desktop +shadow-groupadd +shadow-gpasswd
+  DEPENDS:=+virt-manager-common +libgtk3 +gtk-vnc +spice-gtk +accel-support +libvirt-glib +libvte3 +dconf +glib2-utils +libvirt-daemon +openwrt-desktop +shadow-groupadd +shadow-gpasswd
 endef
 
 define Package/virt-manager/conffiles

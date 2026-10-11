@@ -1,0 +1,13 @@
+#!/bin/sh
+
+# Repair the final hotplug permissions, after node creation and desktop rules.
+if [ "$ACTION" = "add" ]; then
+	case "$DEVNAME" in
+	dri/renderD[0-9]*)
+		if [ -c "/dev/$DEVNAME" ]; then
+			chown root:render "/dev/$DEVNAME"
+			chmod 0660 "/dev/$DEVNAME"
+		fi
+		;;
+	esac
+fi

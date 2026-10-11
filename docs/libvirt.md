@@ -28,7 +28,7 @@ The default URI is qemu:///system. All packaged libvirt UNIX sockets are
 root-owned and mode 0600. Run the client as root or through sudo. TCP/TLS
 listeners and the remote proxy are not included. Ordinary-user session
 management is outside the supported scope. QEMU processes run under the locked, non-login libvirt-qemu service
-account, with supplementary membership in the existing kvm group. No human
+account, with supplementary membership in the kvm and render groups. No human
 account, password or SSH key is seeded.
 
 AppArmor/SELinux and private mount namespaces are disabled in this first
@@ -109,3 +109,57 @@ systemd.md. A firmware upgrade alone is not a virtual-machine data backup.
 
 Validation results and exact firmware hash are recorded in
 [libvirt-validation.md](libvirt-validation.md).
+
+## Graphics examples
+
+Host CPU passthrough, VirtIO disk and VirtIO network are already included in
+`/usr/share/libvirt/examples/openwrt-vm.xml`. KVM is required for host CPU
+passthrough; guests need the appropriate VirtIO drivers. The new graphics
+examples preserve this CPU/storage/bridge setup:
+
+- `openwrt-graphics-vm.xml`: SPICE, VirtIO video, 3D disabled; works without a host GPU.
+- `openwrt-graphics-gl-vm.xml`: SPICE, VirtIO video, 3D enabled; choose an existing usable render node.
+
+Create the referenced qcow2 disk or change its source path, then define the
+chosen example. These commands create a new guest, not modify an existing one:
+
+```sh
+qemu-img create -f qcow2 /srv/libvirt/images/openwrt-graphics-vm.qcow2 8G
+virsh -c qemu:///system define /usr/share/libvirt/examples/openwrt-graphics-vm.xml
+virsh -c qemu:///system start openwrt-graphics-vm
+virsh -c qemu:///system domcapabilities --virttype kvm
+virsh -c qemu:///system dumpxml openwrt-graphics-vm
+```
+
+A `virt-install` example for importing an already bootable Linux disk:
+
+```sh
+virt-install --connect qemu:///system --name linux-spice \
+  --memory 1024 --vcpus 2 --cpu host-passthrough --osinfo generic \
+  --import --disk path=/srv/libvirt/images/linux.qcow2,format=qcow2,bus=virtio \
+  --network bridge=br-lan,model=virtio \
+  --graphics spice,listen=none --video virtio --noautoconsole
+```
+
+For explicit OpenGL use `--graphics spice,listen=none,gl.enable=yes,gl.rendernode=/dev/dri/renderD128`
+and `--video virtio,model.acceleration.accel3d=yes`. The equivalent XML is:
+
+```xml
+<graphics type='spice'>
+  <listen type='none'/>
+  <gl enable='yes' rendernode='/dev/dri/renderD128'/>
+</graphics>
+<video>
+  <model type='virtio' heads='1' primary='yes'>
+    <acceleration accel3d='yes'/>
+  </model>
+</video>
+```
+
+Changing an existing VM's video, CPU or disk bus requires stopping it first
+and ensuring its operating system has the drivers. Nothing rewrites existing
+VM definitions automatically. A successful GL boot must be followed by a
+renderer check in the guest, for example `glxinfo -B` in an X11 session or
+`eglinfo`/`wflinfo` for EGL/Wayland. A renderer containing softpipe/llvmpipe is
+software rendering. Nested VirtIO/VirGL results do not certify physical Intel
+GPU performance. No PCI passthrough or Vulkan support is added here.

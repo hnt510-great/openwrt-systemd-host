@@ -1,0 +1,299 @@
+From 5e068983c0d02f482400fab04492bcc2b592edb3 Mon Sep 17 00:00:00 2001
+From: hnt510 <hnt510@gmail.com>
+Date: Mon, 12 Oct 2026 06:20:38 +0800
+Subject: [PATCH] mesa: add Intel VirtIO virtualization rendering provider
+
+Build iris, crocus, i915, virgl and softpipe together with GLVND. Correct
+capability selects and keep the Wayland hotplug rule limited to display
+card nodes so render nodes retain the render group.
+
+Validated with the complete systemd image, GPU unbind/rebind permissions,
+nested hardware-backed VirGL shaders and ordinary-user SPICE consoles.
+Physical Intel GPU operation remains untested.
+---
+ frameworks/wayland/Makefile            |  2 +-
+ frameworks/wayland/files/video.hotplug | 16 +++++--
+ libs/mesa/Makefile                     | 66 ++++++++++++++++++--------
+ 3 files changed, 59 insertions(+), 25 deletions(-)
+
+diff --git a/frameworks/wayland/Makefile b/frameworks/wayland/Makefile
+index 5e4df85..cdd3753 100644
+--- a/frameworks/wayland/Makefile
++++ b/frameworks/wayland/Makefile
+@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=wayland
+ PKG_VERSION:=1.26.0
+-PKG_RELEASE:=2
++PKG_RELEASE:=3
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://gitlab.freedesktop.org/wayland/wayland/-/releases/$(PKG_VERSION)/downloads/
+diff --git a/frameworks/wayland/files/video.hotplug b/frameworks/wayland/files/video.hotplug
+index fe21322..8073038 100644
+--- a/frameworks/wayland/files/video.hotplug
++++ b/frameworks/wayland/files/video.hotplug
+@@ -1,6 +1,14 @@
+ #!/bin/sh
+ 
+-[ "$ACTION" = "add" ] && [ -n "$DEVNAME" ] && {
+-	chown root:video "/dev/$DEVNAME"
+-	chmod 0660 "/dev/$DEVNAME"
+-}
++# Render nodes belong to accel-support's render group. Do not overwrite its
++# permissions after the device creation rules have run.
++if [ "$ACTION" = "add" ]; then
++	case "$DEVNAME" in
++	dri/card[0-9]*)
++		if [ -c "/dev/$DEVNAME" ]; then
++			chown root:video "/dev/$DEVNAME"
++			chmod 0660 "/dev/$DEVNAME"
++		fi
++		;;
++	esac
++fi
+diff --git a/libs/mesa/Makefile b/libs/mesa/Makefile
+index b2fc229..7cd7e84 100644
+--- a/libs/mesa/Makefile
++++ b/libs/mesa/Makefile
+@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=mesa
+ PKG_VERSION:=26.2.2
+-PKG_RELEASE:=2
++PKG_RELEASE:=4
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://archive.mesa3d.org/
+@@ -21,6 +21,7 @@ HOST_BUILD_DEPENDS:=python3/host python-packaging/host spirv-tools/host MESA_USE
+ PKG_CONFIG_DEPENDS:= \
+ 	CONFIG_PACKAGE_libmesa-amd \
+ 	CONFIG_PACKAGE_libmesa-intel \
++	CONFIG_PACKAGE_libmesa-virtualization \
+ 	CONFIG_PACKAGE_libmesa-tegra \
+ 	CONFIG_PACKAGE_libmesa-etnaviv \
+ 	CONFIG_PACKAGE_libmesa-broadcom \
+@@ -105,7 +106,7 @@ endef
+ define Package/libmesa-amd
+ $(call Package/libmesa/Default)
+   TITLE+= (AMD)
+-  DEPENDS+=accel-support +libdrm-amdgpu +libdrm-radeon +libelf @MESA_USE_LLVM
++  DEPENDS+=+accel-support +libdrm-amdgpu +libdrm-radeon +libelf @MESA_USE_LLVM
+   VARIANT:=amd
+ endef
+ 
+@@ -129,11 +130,24 @@ endef
+ 
+ define Package/libmesa-intel
+ $(call Package/libmesa/Default)
+-  DEPENDS+=accel-support +libdrm-intel @(i386||i686||x86_64) @MESA_USE_LLVM
++  DEPENDS+=+accel-support +libdrm-intel @(i386||i686||x86_64) @MESA_USE_LLVM
+   TITLE+= (Intel)
+   VARIANT:=intel
+ endef
+ 
++define Package/libmesa-virtualization
++$(call Package/libmesa/Default)
++  TITLE+= (Intel, VirtIO and software rendering)
++  DEPENDS+=+accel-support +libdrm-intel +libglvnd @TARGET_x86_64 @MESA_USE_LLVM
++  VARIANT:=virtualization
++endef
++
++define Package/libmesa-virtualization/description
++  A single Mesa provider with Intel iris/crocus/i915, VirtIO virgl and
++  software softpipe drivers. Shared EGL, GBM and Gallium libraries are
++  installed once, so all render paths remain available in the same image.
++endef
++
+ define Package/libmesa-intel/description
+ A collection of drivers for GPUs embedded in Intel's CPUs.
+ 
+@@ -157,7 +171,7 @@ endef
+ 
+ define Package/libmesa-tegra
+ $(call Package/libmesa/Default)
+-  DEPENDS+=accel-support +libdrm-tegra @(aarch64||arm) @MESA_USE_LLVM
++  DEPENDS+=+accel-support +libdrm-tegra @(aarch64||arm) @MESA_USE_LLVM
+   TITLE+= (NVIDIA Tegra)
+   VARIANT:=tegra
+ endef
+@@ -171,7 +185,7 @@ endef
+ 
+ define Package/libmesa-etnaviv
+ $(call Package/libmesa/Default)
+-  DEPENDS+=accel-support +libdrm-etnaviv @(aarch64||arm||mips||mips64||mipsel||mips64el||riscv64)
++  DEPENDS+=+accel-support +libdrm-etnaviv @(aarch64||arm||mips||mips64||mipsel||mips64el||riscv64)
+   TITLE+= (Vivante)
+   VARIANT:=etnaviv
+ endef
+@@ -185,7 +199,7 @@ endef
+ 
+ define Package/libmesa-nouveau
+ $(call Package/libmesa/Default)
+-  DEPENDS+=accel-support +libdrm-nouveau @MESA_USE_LLVM
++  DEPENDS+=+accel-support +libdrm-nouveau @MESA_USE_LLVM
+   TITLE+= (NVIDIA)
+   VARIANT:=nouveau
+ endef
+@@ -202,7 +216,7 @@ define Package/libmesa-broadcom
+ $(call Package/libmesa/Default)
+   TITLE+= (Broadcom)
+   VARIANT:=broadcom
+-  DEPENDS+=accel-support +libarchive @(aarch64||arm) @HAS_FPU
++  DEPENDS+=+accel-support +libarchive @(aarch64||arm) @HAS_FPU
+ endef
+ 
+ define Package/libmesa-broadcom/description
+@@ -224,7 +238,7 @@ define Package/libmesa-lima
+ $(call Package/libmesa/Default)
+   TITLE+= (ARM Mali Utgard)
+   VARIANT:=lima
+-  DEPENDS+=accel-support @(aarch64||arm)
++  DEPENDS+=+accel-support @(aarch64||arm)
+ endef
+ 
+ define Package/libmesa-lima/description
+@@ -247,7 +261,7 @@ define Package/libmesa-panfrost
+ $(call Package/libmesa/Default)
+   TITLE+= (ARM Mali Midgard and later)
+   VARIANT:=panfrost
+-  DEPENDS+=accel-support @(aarch64||arm) @MESA_USE_LLVM
++  DEPENDS+=+accel-support @(aarch64||arm) @MESA_USE_LLVM
+ endef
+ 
+ define Package/libmesa-panfrost/description
+@@ -272,7 +286,7 @@ define Package/libmesa-virgl
+ $(call Package/libmesa/Default)
+   TITLE+= (VirtIO GL)
+   VARIANT:=virgl
+-  DEPENDS+=accel-support
++  DEPENDS+=+accel-support
+ endef
+ 
+ define Package/libmesa-virgl/description
+@@ -287,7 +301,7 @@ define Package/libmesa-zink
+ $(call Package/libmesa/Default)
+   TITLE+= (Zink GL via Vulkan)
+   VARIANT:=vulkan
+-  DEPENDS+=accel-support @MESA_USE_LLVM
++  DEPENDS+=+accel-support @MESA_USE_LLVM
+ endef
+ 
+ define Package/libmesa-zink/description
+@@ -329,7 +343,7 @@ endef
+ 
+ define Package/libvulkan-broadcom
+ $(call Package/mesa/Default)
+-  DEPENDS+=accel-support +libdisplay-info +libdrm +libexpat +libstdcpp +libudev +libwayland +libzstd +zlib \
++  DEPENDS+=+accel-support +libdisplay-info +libdrm +libexpat +libstdcpp +libudev +libwayland +libzstd +zlib \
+ 	   @(arm||aarch64) @HAS_FPU
+   TITLE+= Broadcom Vulkan driver
+   VARIANT:=vulkan
+@@ -342,7 +356,7 @@ endef
+ 
+ define Package/libvulkan-imagination
+ $(call Package/mesa/Default)
+-  DEPENDS+=accel-support +libatomic +libdisplay-info +libdrm +libexpat +libstdcpp +libudev +libwayland +libzstd \
++  DEPENDS+=+accel-support +libatomic +libdisplay-info +libdrm +libexpat +libstdcpp +libudev +libwayland +libzstd \
+ 	   +zlib @(aarch64||arm||mips||mips64||mipsel||mips64el||riscv64)
+   TITLE+= Imagination PowerVR driver (EXPERIMENTAL)
+   VARIANT:=vulkan
+@@ -366,7 +380,7 @@ endef
+ 
+ define Package/libvulkan-intel
+ $(call Package/mesa/Default)
+-  DEPENDS+=accel-support +libdisplay-info +libdrm-intel +libexpat +libstdcpp +libudev +libwayland +libzstd +zlib \
++  DEPENDS+=+accel-support +libdisplay-info +libdrm-intel +libexpat +libstdcpp +libudev +libwayland +libzstd +zlib \
+ 	   @(i386||i686||x86_64) @MESA_USE_LLVM
+   TITLE+= Intel Gen9+ Vulkan driver
+   VARIANT:=vulkan
+@@ -379,7 +393,7 @@ endef
+ 
+ define Package/libvulkan-intel-hasvk
+ $(call Package/mesa/Default)
+-  DEPENDS+=accel-support +libdisplay-info +libdrm-intel +libexpat +libstdcpp +libudev +libwayland +libzstd +zlib \
++  DEPENDS+=+accel-support +libdisplay-info +libdrm-intel +libexpat +libstdcpp +libudev +libwayland +libzstd +zlib \
+ 	   @(i386||i686||x86_64) @MESA_USE_LLVM
+   TITLE+= Intel Gen7/Gen8 Vulkan driver
+   VARIANT:=vulkan
+@@ -405,7 +419,7 @@ endef
+ define Package/libvulkan-nouveau
+ $(call Package/mesa/Default)
+   TITLE+= nouveau Vulkan driver for nVidia GPUs
+-  DEPENDS+=accel-support $(RUST_ARCH_DEPENDS) @MESA_USE_LLVM @BROKEN
++  DEPENDS+=+accel-support $(RUST_ARCH_DEPENDS) @MESA_USE_LLVM @BROKEN
+   VARIANT:=vulkan
+ # needs rust-bindgen which currently can't be built
+ endef
+@@ -421,7 +435,7 @@ endef
+ 
+ define Package/libvulkan-panfrost
+ $(call Package/mesa/Default)
+-  DEPENDS+=accel-support +libdisplay-info +libdrm +libexpat +libstdcpp +libudev +libwayland +libzstd +zlib \
++  DEPENDS+=+accel-support +libdisplay-info +libdrm +libexpat +libstdcpp +libudev +libwayland +libzstd +zlib \
+ 	   @(arm||aarch64) @MESA_USE_LLVM
+   TITLE+= ARM Mali Midgard/Bifrost/Valhall Vulkan driver
+   VARIANT:=vulkan
+@@ -435,7 +449,7 @@ endef
+ define Package/libvulkan-radeon
+ $(call Package/mesa/Default)
+   TITLE+= AMD Radeon Vulkan driver
+-  DEPENDS+=accel-support +libdisplay-info +libdrm-amdgpu +libelf +libexpat +libstdcpp +libudev +libwayland \
++  DEPENDS+=+accel-support +libdisplay-info +libdrm-amdgpu +libelf +libexpat +libstdcpp +libudev +libwayland \
+ 	   +libzstd +zlib @MESA_USE_LLVM
+   VARIANT:=vulkan
+ endef
+@@ -447,7 +461,7 @@ endef
+ define Package/libvulkan-virtio
+ $(call Package/mesa/Default)
+   TITLE+= virtio-gpu Vulkan driver (venus)
+-  DEPENDS+=accel-support +libdisplay-info +libdrm +libstdcpp +libudev +libwayland +libzstd +zlib
++  DEPENDS+=+accel-support +libdisplay-info +libdrm +libstdcpp +libudev +libwayland +libzstd +zlib
+   VARIANT:=vulkan
+ endef
+ 
+@@ -562,7 +576,7 @@ MESON_ARGS += \
+ 	-Dgbm=enabled \
+ 	-Dgles1=enabled \
+ 	-Dgles2=enabled \
+-	-Dglvnd=disabled \
++	-Dglvnd=$(if $(filter virtualization,$(BUILD_VARIANT)),en,dis)abled \
+ 	-Dopengl=true \
+ 	-Dandroid-stub=false \
+ 	-Dlibunwind=disabled \
+@@ -585,6 +599,12 @@ MESON_ARGS += \
+ 	-Dintel-rt=$(if $(CONFIG_TARGET_x86_64),en,dis)abled
+ endif
+ 
++ifeq ($(BUILD_VARIANT),virtualization)
++MESON_ARGS += \
++	-Dgallium-drivers=crocus,i915,iris,virgl,softpipe \
++	-Dintel-rt=disabled
++endif
++
+ ifeq ($(BUILD_VARIANT),tegra)
+ MESON_ARGS += \
+ 	-Dgallium-drivers=tegra,nouveau
+@@ -829,6 +849,11 @@ endef
+ Package/libteflon-rocket/install = $(Package/libteflon/install)
+ Package/libteflon-etnaviv/install = $(Package/libteflon/install)
+ 
++define Package/libmesa-virtualization/install
++	$(call Package/libmesa/install,$(1))
++	$(INSTALL_DIR) $(1)/usr/share/glvnd/egl_vendor.d
++	$(CP) $(PKG_INSTALL_DIR)/usr/share/glvnd/egl_vendor.d/*.json $(1)/usr/share/glvnd/egl_vendor.d/
++endef
+ Package/libmesa-intel/install = $(Package/libmesa/install)
+ Package/libmesa-amd/install = $(Package/libmesa/install)
+ Package/libmesa-tegra/install = $(Package/libmesa/install)
+@@ -845,6 +870,7 @@ Package/libmesa-llvmpipe/install = $(Package/libmesa/install)
+ $(eval $(call BuildPackage,mesa3d))
+ $(eval $(call BuildPackage,libmesa-amd))
+ $(eval $(call BuildPackage,libmesa-intel))
++$(eval $(call BuildPackage,libmesa-virtualization))
+ $(eval $(call BuildPackage,libmesa-tegra))
+ $(eval $(call BuildPackage,libmesa-etnaviv))
+ $(eval $(call BuildPackage,libmesa-broadcom))
+-- 
+2.47.3
+

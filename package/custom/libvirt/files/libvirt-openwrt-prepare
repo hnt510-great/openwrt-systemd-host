@@ -24,3 +24,9 @@ if [ -c /dev/kvm ]; then
 	chown root:kvm /dev/kvm
 	chmod 0660 /dev/kvm
 fi
+# The DRM hotplug rule handles new nodes; repair existing ones on service start.
+for node in /dev/dri/renderD[0-9]*; do
+	[ -c "$node" ] || continue
+	chown root:render "$node"
+	chmod 0660 "$node"
+done

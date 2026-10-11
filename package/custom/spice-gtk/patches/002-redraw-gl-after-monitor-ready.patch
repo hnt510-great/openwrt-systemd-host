@@ -1,0 +1,33 @@
+The first GtkGLArea render can precede the monitor configuration. Queue a
+new GL render once the monitor becomes ready, including on reconnect. Keep
+acknowledging GL draw messages while waiting for monitor configuration.
+
+--- a/src/spice-widget.c
++++ b/src/spice-widget.c
+@@ -295,6 +295,16 @@
+ 
+     d->ready = ready;
+     g_object_notify(G_OBJECT(display), "ready");
++#if HAVE_EGL
++    if (ready && egl_enabled(d) && d->egl.context_ready) {
++        GtkWidget *area = gtk_stack_get_child_by_name(d->stack, "gl-area");
++
++        /* The first frame may arrive before MonitorsConfig. GtkGLArea
++         * has auto-render disabled, so drawing the parent is insufficient.
++         */
++        gtk_gl_area_queue_render(GTK_GL_AREA(area));
++    }
++#endif
+ }
+ 
+ static void set_monitor_ready(SpiceDisplay *self, gboolean ready)
+@@ -609,7 +619,8 @@
+     SpiceDisplay *display = SPICE_DISPLAY(user_data);
+     SpiceDisplayPrivate *d = display->priv;
+ 
+-    spice_egl_update_display(display);
++    if (d->ready)
++        spice_egl_update_display(display);
+     glFlush();
+     if (d->egl.call_draw_done) {
+         spice_display_channel_gl_draw_done(d->display);
