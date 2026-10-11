@@ -1,0 +1,7 @@
+/etc/libvirt/desktop-access
+/etc/systemd/system/virtqemud.socket.d/zz-desktop-access.conf
+/etc/systemd/system/virtqemud-ro.socket.d/zz-desktop-access.conf
+/etc/systemd/system/virtstoraged.socket.d/zz-desktop-access.conf
+/etc/systemd/system/virtstoraged-ro.socket.d/zz-desktop-access.conf
+/etc/systemd/system/virtsecretd.socket.d/zz-desktop-access.conf
+/etc/systemd/system/virtsecretd-ro.socket.d/zz-desktop-access.conf

@@ -1,0 +1,6 @@
+#!/bin/sh
+# The scanner adds target directories to LD_LIBRARY_PATH before linking its
+# dumper. GCC and collect2 are host programs and must never load those libraries.
+set -eu
+unset LD_LIBRARY_PATH LD_PRELOAD
+exec "$@"

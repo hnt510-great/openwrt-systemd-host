@@ -1,0 +1,30 @@
+#!/usr/bin/python3
+import os
+import sys
+
+if os.geteuid() == 0:
+    sys.exit("Start Virtual Machine Manager as the authorized desktop user.")
+os.environ["GDK_BACKEND"] = "wayland"
+import gi
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gtk
+import libvirt
+
+Gtk.init(sys.argv)
+while True:
+    try:
+        conn = libvirt.open("qemu:///system")
+        conn.close()
+        break
+    except libvirt.libvirtError as err:
+        dialog = Gtk.MessageDialog(message_type=Gtk.MessageType.ERROR, text="Cannot connect to local virtual machines")
+        dialog.format_secondary_text(
+            "Ask root to run: virt-manager-setup " + os.environ.get("USER", "USER")
+            + "\nThen restart your desktop. If already authorized, check the libvirt services.\n\n" + str(err)
+        )
+        dialog.add_buttons("Close", Gtk.ResponseType.CLOSE, "Retry", Gtk.ResponseType.APPLY)
+        response = dialog.run()
+        dialog.destroy()
+        if response != Gtk.ResponseType.APPLY:
+            sys.exit(1)
+os.execv("/usr/bin/virt-manager", ["virt-manager", "--connect", "qemu:///system"])

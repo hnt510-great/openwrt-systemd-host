@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+root=$(CDPATH= cd -- "${0%/*}/.." && pwd)
+staging="$root/staging_dir/target-x86_64_glibc"
+loader="$root/staging_dir/toolchain-x86_64_gcc-14.4.0_glibc/lib/ld-linux-x86-64.so.2"
+libs="$staging/usr/lib:$staging/lib:$root/staging_dir/toolchain-x86_64_gcc-14.4.0_glibc/lib"
+# g-ir-scanner supplies directories of not-yet-installed target libraries.
+old_ifs=$IFS
+IFS=:
+for path in ${GI_TARGET_LIBRARY_PATH:-}; do
+	case "$path" in "$root"/build_dir/target-x86_64_glibc/*) libs="$path:$libs" ;; esac
+done
+IFS=$old_ifs
+unset LD_LIBRARY_PATH LD_PRELOAD
+exec "$loader" --inhibit-cache --library-path "$libs" "$@"

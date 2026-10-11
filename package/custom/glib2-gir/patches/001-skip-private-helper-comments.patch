@@ -1,0 +1,94 @@
+GLib private helper comments are not public introspection documentation.
+
+--- a/glib/gutf8.c
++++ b/glib/gutf8.c
+@@ -1576,7 +1576,7 @@
+   return result;
+ }
+ 
+-/**< private >
++/*< private >
+  * find_invalid_or_incomplete_utf8_sequence:
+  *
+  * @string: the source string.
+@@ -1595,7 +1595,7 @@
+   return end;
+ }
+ 
+-/**< private >
++/*< private >
+  * find_valid_and_complete_utf8_sequence:
+  *
+  * @string: a NULL-terminated source string.
+@@ -1623,7 +1623,7 @@
+ }
+ 
+ 
+-/**< private >
++/*< private >
+  * invalidly_encoded_string_to_utf16_get_output_length:
+  *
+  * @start: start of the source string.
+@@ -1646,7 +1646,7 @@
+   return count;
+ }
+ 
+-/**< private >
++/*< private >
+  * invalidly_encoded_string_to_utf16:
+  *
+  * @start: start of the string.
+@@ -1675,7 +1675,7 @@
+   return count;
+ }
+ 
+-/**< private >
++/*< private >
+  * invalidly_encoded_string_to_utf16_backtrack:
+  *
+  * @start: start of the source string.
+@@ -1697,7 +1697,7 @@
+ }
+ 
+ 
+-/**< private >
++/*< private >
+  * valid_utf8_to_utf16_get_output_length:
+  *
+  * @start: start of the source string. Must be valid UTF-8.
+@@ -1729,7 +1729,7 @@
+   return count;
+ }
+ 
+-/**< private >
++/*< private >
+  * valid_utf8_to_utf16:
+  *
+  * @start: start of the source string. Must be valid UTF-8
+@@ -1769,7 +1769,7 @@
+   return count;
+ }
+ 
+-/**< private >
++/*< private >
+  * valid_utf8_to_utf16_backtrack:
+  *
+  * @start: start of the source string. Must be valid UTF-8.
+@@ -1900,7 +1900,7 @@
+   return count;
+ }
+ 
+-/** < private >
++/* < private >
+  * g_utf8_to_utf16_make_valid:
+  *
+  * @utf8: source UTF-8 string. May contain invalid or incomplete sequences.
+@@ -1954,7 +1954,7 @@
+     *out_utf16_len = output_length;
+ }
+ 
+-/** < private >
++/* < private >
+  * g_utf8_to_utf16_make_valid_backtrack:
+  *
+  * @utf8: source UTF-8 string. May contain invalid or incomplete sequences.

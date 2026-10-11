@@ -1,0 +1,131 @@
+--- a/virtinst/storage.py
++++ b/virtinst/storage.py
+@@ -47,7 +47,7 @@
+ 
+ 
+ def _preferred_default_pool_path(conn):
+-    root = conn.get_libvirt_data_root_dir()
++    root = "/srv/libvirt" if conn.is_qemu() and not conn.is_remote() and not conn.is_qemu_unprivileged() else conn.get_libvirt_data_root_dir()
+     return os.path.join(root, "images")
+ 
+ 
+--- a/virtManager/device/netlist.py
++++ b/virtManager/device/netlist.py
+@@ -4,6 +4,8 @@
+ # See the COPYING file in the top-level directory.
+ 
+ from gi.repository import Gtk
++
++import os
+ 
+ import virtinst
+ from virtinst import log
+@@ -147,8 +149,14 @@
+             _nettype = virtinst.DeviceInterface.TYPE_VDPA
+             model.append(_build_manual_row(_nettype, _label))
+ 
+-        vnets = self._find_virtual_networks()
+-        default_bridge = virtinst.DeviceInterface.default_bridge(self.conn.get_backend())
++        # OpenWrt owns these bridges and its DHCP/firewall configuration.
++        vnets = []
++        for name in sorted(os.listdir("/sys/class/net")):
++            if os.path.isdir(os.path.join("/sys/class/net", name, "bridge")):
++                nettype = virtinst.DeviceInterface.TYPE_BRIDGE
++                label = _pretty_network_desc(nettype, name)
++                vnets.append(_NetRowData.build_row(nettype, name, label, True))
++        default_bridge = "br-lan"
+ 
+         add_usermode = False
+         if self.conn.is_qemu_unprivileged():
+@@ -164,12 +172,13 @@
+         defaultnetidx = None
+         for row in sorted(vnets, key=lambda r: r[NET_ROW_LABEL]):
+             model.append(row)
+-            if row[NET_ROW_DATA].source == "default":
++            if row[NET_ROW_DATA].source == default_bridge:
+                 defaultnetidx = len(model) - 1
+ 
+         bridgeidx = _add_manual_bridge_row()
+-        _add_manual_macvtap_row()
+-        _add_manual_vdpa_row()
++
++        if defaultnetidx is not None:
++            return defaultnetidx
+ 
+         # If there is a bridge device, default to that
+         if default_bridge:
+--- a/virtinst/guest.py
++++ b/virtinst/guest.py
+@@ -1099,6 +1099,9 @@
+         return path
+ 
+     def _set_default_uefi(self):
++        # OpenWrt v1 supplies SeaBIOS guest firmware only.
++        if self.uefi_requested is None:
++            self.uefi_requested = False
+         if self.uefi_requested is False:
+             return
+ 
+--- a/virtinst/devices/graphics.py
++++ b/virtinst/devices/graphics.py
+@@ -214,6 +214,8 @@
+     def set_defaults(self, guest):
+         if not self.type:
+             self.type = self._default_type(guest)
++        if self.type == "vnc" and self.listen is None and not self.listens:
++            self.listen = "127.0.0.1"
+ 
+         if self.type == "sdl":
+             if not self.xauth:
+--- a/virtManager/device/gfxdetails.py
++++ b/virtManager/device/gfxdetails.py
+@@ -104,7 +104,6 @@
+         model.clear()
+         model.append([None, _("Hypervisor default")])
+         model.append(["127.0.0.1", _("Localhost only")])
+-        model.append(["0.0.0.0", _("All interfaces")])
+ 
+         # Host GPU rendernode
+         combo = self.widget("graphics-rendernode")
+--- a/virtManager/host.py
++++ b/virtManager/host.py
+@@ -125,6 +125,8 @@
+     def _init_net_state(self):
+         self._hostnets = vmmHostNets(self.conn, self.builder, self.topwin)
+         self.widget("net-align").add(self._hostnets.top_box)
++        self.widget("net-align").set_no_show_all(True)
++        self.widget("net-align").hide()
+ 
+     def _init_storage_state(self):
+         self._storagelist = vmmHostStorage(self.conn, self.builder, self.topwin)
+--- a/virtManager/createconn.py
++++ b/virtManager/createconn.py
+@@ -103,6 +103,8 @@
+         model = Gtk.ListStore(int, str)
+ 
+         def _add_hv_row(rowid, config_name, label):
++            if rowid != HV_QEMU:
++                return
+             if (
+                 not self.config.default_hvs
+                 or not config_name
+@@ -156,7 +158,7 @@
+         hv = uiutil.get_list_selection(self.widget("hypervisor"))
+         is_session = hv == HV_QEMU_SESSION
+         is_custom = hv == HV_CUSTOM
+-        show_remote = not is_session and not is_custom
++        show_remote = False
+         uiutil.set_grid_row_visible(self.widget("session-warning-box"), is_session)
+         uiutil.set_grid_row_visible(self.widget("connect-remote"), show_remote)
+         uiutil.set_grid_row_visible(self.widget("username-entry"), show_remote)
+--- a/virtManager/createpool.py
++++ b/virtManager/createpool.py
+@@ -77,7 +77,7 @@
+         type_list.set_model(model)
+         uiutil.init_combo_text_column(type_list, 1)
+ 
+-        for typ in vmmStoragePool.list_types():
++        for typ in [StoragePool.TYPE_DIR]:
+             desc = vmmStoragePool.pretty_type(typ)
+             model.append([typ, "%s: %s" % (typ, desc)])
+ 

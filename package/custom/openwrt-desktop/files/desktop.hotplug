@@ -1,0 +1,6 @@
+#!/bin/sh
+case "$ACTION" in
+	add|remove|change)
+		[ "$(uci -q get desktop.main.enabled)" = 1 ] && /etc/init.d/desktop restart
+		;;
+esac

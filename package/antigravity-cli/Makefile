@@ -1,12 +1,13 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=antigravity-cli
-PKG_VERSION:=1.0.10
+PKG_VERSION:=1.3.3
 PKG_RELEASE:=1
 
-PKG_SOURCE:=agy_cli_linux_x64.tar.gz
+PKG_SOURCE:=agy_cli_linux_x64-$(PKG_VERSION).tar.gz
+PKG_SOURCE_URL_FILE:=agy_cli_linux_x64.tar.gz
 PKG_SOURCE_URL:=https://github.com/google-antigravity/antigravity-cli/releases/download/$(PKG_VERSION)/
-PKG_HASH:=6547cf9a37227f26004fa4b805418b1df96f54c57b9723ca7d10864d2610bb0f
+PKG_HASH:=8ee3ca32574c431285efbf4d4732f7f8d53e959370bc4a61646e4fa496f7f2b6
 
 PKG_MAINTAINER:=Google Antigravity <https://github.com/google-antigravity>
 PKG_LICENSE:=Apache-2.0
@@ -19,7 +20,7 @@ define Package/antigravity-cli
   CATEGORY:=Utilities
   TITLE:=Antigravity CLI - AI coding assistant for your terminal
   URL:=https://github.com/google-antigravity/antigravity-cli
-  DEPENDS:=@(TARGET_x86_64) +libpthread +librt
+  DEPENDS:=@TARGET_x86_64 @USE_GLIBC +libpthread +librt
   PKGARCH:=x86_64
 endef
 

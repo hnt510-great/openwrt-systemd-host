@@ -1,0 +1,44 @@
+#!/bin/sh
+
+# Run before sshd starts, including after a configuration-preserving sysupgrade.
+[ -x /usr/sbin/sshd ] && [ -x /usr/bin/ssh-keygen ] || exit 1
+umask 077
+
+mkdir -p /etc/ssh/authorized_keys.d /etc/dropbear /root/.ssh /var/empty || exit 1
+chown root:root /etc/ssh/authorized_keys.d /etc/dropbear /root/.ssh /var/empty || exit 1
+chmod 0755 /etc/ssh/authorized_keys.d || exit 1
+chmod 0700 /etc/dropbear /root/.ssh /var/empty || exit 1
+chmod go-w /root || exit 1
+
+for keys in /etc/dropbear/authorized_keys /root/.ssh/authorized_keys; do
+	[ -f "$keys" ] || continue
+	chown root:root "$keys" && chmod 0600 "$keys" || exit 1
+done
+
+# LuCI continues to manage this file; no keys are copied or baked into the image.
+ln -sf /etc/dropbear/authorized_keys /etc/ssh/authorized_keys.d/root || exit 1
+
+# A restored sshd_config may predate the package's Include directive.
+config=/etc/ssh/sshd_config
+include='Include /etc/ssh/sshd_config.d/00-openwrt-access.conf'
+[ -f "$config" ] || exit 1
+first=$(awk '!/^[[:space:]]*(#|$)/ { print; exit }' "$config")
+case "$first" in
+"$include"|'Include /etc/ssh/sshd_config.d/*.conf') ;;
+*)
+	{ printf '%s\n' "$include"; cat "$config"; } > "$config.new" || exit 1
+	chmod 0600 "$config.new" && mv "$config.new" "$config" || exit 1
+	;;
+esac
+
+# sshd -t needs host keys; retain existing keys and create missing ones locally.
+for type in rsa ed25519; do
+	key=/etc/ssh/ssh_host_${type}_key
+	[ -f "$key" ] || /usr/bin/ssh-keygen -q -N '' -t "$type" -f "$key" || exit 1
+done
+
+/usr/sbin/sshd -t || exit 1
+/etc/init.d/sshd enable || exit 1
+[ ! -x /etc/init.d/dropbear ] || /etc/init.d/dropbear disable || exit 1
+
+exit 0

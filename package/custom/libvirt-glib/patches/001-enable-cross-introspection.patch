@@ -1,0 +1,11 @@
+--- a/meson.build
++++ b/meson.build
+@@ -61,7 +61,7 @@
+ 
+ # gobject introspection
+ gir = find_program('g-ir-scanner', required: get_option('introspection'))
+-enable_introspection = gir.found() and not meson.is_cross_build()
++enable_introspection = gir.found()
+ 
+ # vala
+ vapi_opt = get_option('vapi')

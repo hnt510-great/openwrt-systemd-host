@@ -1,0 +1,47 @@
+#!/bin/sh
+set -eu
+[ "$(id -u)" = 0 ] || { echo 'Run virt-manager-setup as root' >&2; exit 1; }
+revoke=0
+if [ "${1:-}" = --revoke ]; then revoke=1; shift; fi
+[ "$#" = 1 ] || { echo 'Usage: virt-manager-setup [--revoke] USER' >&2; exit 1; }
+. /usr/libexec/desktop-common.sh
+user=$1
+if [ "$revoke" = 0 ]; then
+	desktop_validate_user "$user"
+else
+	case "$user" in ''|-*|*[!a-zA-Z0-9_-]*) echo 'Invalid username' >&2; exit 1 ;; esac
+	awk -F: -v name="$user" '$1 == name && $3 >= 1000 && $4 > 0 { found=1 } END { exit !found }' /etc/passwd || {
+		echo 'An existing ordinary account is required' >&2; exit 1;
+	}
+fi
+if ! awk -F: '$1 == "libvirt-admin" { found=1 } END { exit !found }' /etc/group; then
+	[ "$revoke" = 0 ] || { echo 'User is not authorized'; exit 0; }
+	groupadd -r libvirt-admin
+fi
+if [ "$revoke" = 1 ]; then
+	if id -nG "$user" | tr ' ' '\n' | grep -qx libvirt-admin; then gpasswd -d "$user" libvirt-admin; fi
+else
+	usermod -a -G libvirt-admin "$user"
+	for daemon in virtqemud virtstoraged virtsecretd; do
+		for suffix in '' '-ro'; do
+			unit="$daemon$suffix.socket"
+			dir="/etc/systemd/system/$unit.d"
+			mkdir -p "$dir"
+			cat > "$dir/zz-desktop-access.conf" <<EOF
+[Socket]
+SocketUser=root
+SocketGroup=libvirt-admin
+SocketMode=0660
+EOF
+			chmod 0644 "$dir/zz-desktop-access.conf"
+			socket="/run/libvirt/$daemon-sock$suffix"
+			if [ -S "$socket" ]; then chgrp libvirt-admin "$socket"; chmod 0660 "$socket"; fi
+		done
+	done
+	systemctl daemon-reload
+	mkdir -p /etc/libvirt
+	printf 'group=libvirt-admin\n' > /etc/libvirt/desktop-access
+	echo 'libvirt-admin grants full local VM management with privileges comparable to root.'
+fi
+printf 'Restart the desktop and any login sessions of %s to apply the group change.\n' "$user"
+[ "$revoke" = 0 ] || echo 'Existing libvirt connections remain authorized until those applications exit.'

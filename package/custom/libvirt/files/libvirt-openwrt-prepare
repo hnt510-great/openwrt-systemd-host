@@ -1,0 +1,26 @@
+#!/bin/sh
+set -eu
+mkdir -p /srv/libvirt/state /srv/libvirt/images /var/lib/libvirt
+mkdir -p /run/libvirt/qemu /var/cache/libvirt/qemu /var/log/libvirt/qemu
+mkdir -p /srv/libvirt/state/qemu /srv/libvirt/state/lockd
+mkdir -p /srv/libvirt/state/secrets
+chmod 0700 /srv/libvirt/state/secrets
+# The host's /var/lib/systemd credential key is volatile on OpenWrt. Use
+# a root-only persistent libvirt key and systemd's plain credential loader.
+key=/srv/libvirt/state/secrets/openwrt-encryption-key
+if [ ! -e "$key" ]; then
+	umask 077
+	trap 'rm -f "$key.new"' EXIT HUP INT TERM
+	dd if=/dev/urandom of="$key.new" bs=32 count=1 status=none
+	mv "$key.new" "$key"
+	trap - EXIT HUP INT TERM
+fi
+chmod 0600 "$key"
+chmod 0755 /srv/libvirt /srv/libvirt/state /srv/libvirt/images
+chown libvirt-qemu:libvirt-qemu /srv/libvirt/state/qemu /srv/libvirt/images
+chown libvirt-qemu:libvirt-qemu /run/libvirt/qemu /var/cache/libvirt/qemu /var/log/libvirt/qemu
+chmod 0750 /srv/libvirt/state/qemu /run/libvirt/qemu
+if [ -c /dev/kvm ]; then
+	chown root:kvm /dev/kvm
+	chmod 0660 /dev/kvm
+fi

@@ -1,0 +1,11 @@
+[Unit]
+Description=Prepare persistent libvirt state on OpenWrt
+Requires=openwrt-services.service
+After=openwrt-services.service
+RequiresMountsFor=/srv/libvirt
+Before=var-lib-libvirt.mount
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/libvirt-openwrt-prepare

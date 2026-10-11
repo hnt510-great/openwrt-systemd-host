@@ -1,0 +1,52 @@
+#!/bin/sh
+set -eu
+[ "$#" = 5 ] || exit 1
+output="$1"
+address="$2"
+port="$3"
+key="$4"
+cert="$5"
+cd "$HOME"
+umask 077
+# This script runs as the desktop user, including all runtime file writes.
+cat > "$XDG_RUNTIME_DIR/weston.ini" <<EOF
+[core]
+shell=desktop-shell.so
+idle-time=0
+
+[shell]
+locking=false
+panel-position=top
+background-color=0xff203040
+
+[launcher]
+icon=/usr/share/weston/terminal.png
+path=/usr/bin/weston-terminal
+
+EOF
+if [ -x /usr/libexec/virt-manager-launch ]; then
+	cat >> "$XDG_RUNTIME_DIR/weston.ini" <<EOF
+[launcher]
+icon=/usr/share/icons/hicolor/48x48/apps/virt-manager.png
+path=/usr/libexec/virt-manager-launch
+
+EOF
+fi
+cat >> "$XDG_RUNTIME_DIR/weston.ini" <<EOF
+[output]
+name=$output
+mode=preferred
+
+[output]
+name=vnc
+mirror-of=$output
+resizeable=false
+
+[vnc]
+refresh-rate=30
+tls-key=$key
+tls-cert=$cert
+EOF
+exec /usr/libexec/desktop-dbus-session /usr/bin/weston --backends=drm,vnc --renderer=pixman \
+	--continue-without-input --address="$address" --port="$port" \
+	--config="$XDG_RUNTIME_DIR/weston.ini"

@@ -1,0 +1,26 @@
+#!/bin/sh
+
+[ -x /usr/sbin/groupadd ] && [ -x /usr/sbin/visudo ] || exit 1
+
+# Shadow defaults to bcrypt, while OpenWrt's libcrypt-compat and BusyBox
+# authentication support SHA512. Use a hash understood by all login paths.
+sed -i 's/^[[:space:]]*ENCRYPT_METHOD[[:space:]].*/ENCRYPT_METHOD SHA512/' /etc/login.defs || exit 1
+grep -q '^ENCRYPT_METHOD SHA512$' /etc/login.defs || exit 1
+
+# Give newly created users private home directories.
+if grep -q '^HOME_MODE[[:space:]]' /etc/login.defs; then
+	sed -i 's/^HOME_MODE[[:space:]].*/HOME_MODE 0700/' /etc/login.defs || exit 1
+else
+	printf '\nHOME_MODE 0700\n' >> /etc/login.defs || exit 1
+fi
+
+mkdir -p /home /etc/sudoers.d || exit 1
+chown root:root /home /etc/sudoers.d /etc/sudoers.d/10-multiuser || exit 1
+chmod 0755 /home || exit 1
+chmod 0750 /etc/sudoers.d || exit 1
+chmod 0440 /etc/sudoers.d/10-multiuser || exit 1
+
+grep -q '^sudo:' /etc/group || /usr/sbin/groupadd -r sudo || exit 1
+/usr/sbin/visudo -c || exit 1
+
+exit 0

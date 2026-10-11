@@ -1,0 +1,13 @@
+libxml2 no longer exports ATTRIBUTE_UNUSED; use the GLib annotation.
+
+--- a/osinfo/osinfo_loader.c
++++ b/osinfo/osinfo_loader.c
+@@ -1902,7 +1902,7 @@
+ }
+ 
+ static void
+-catchXMLError(void *ctx, const char *msg ATTRIBUTE_UNUSED, ...)
++catchXMLError(void *ctx, const char *msg G_GNUC_UNUSED, ...)
+ {
+     xmlParserCtxtPtr ctxt = (xmlParserCtxtPtr) ctx;
+ 

@@ -1,0 +1,2 @@
+# Members of sudo may administer the router after authenticating.
+%sudo ALL=(ALL:ALL) ALL

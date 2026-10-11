@@ -1,0 +1,269 @@
+From e37145e396a515d1b01ba8002e8712e38c2df4aa Mon Sep 17 00:00:00 2001
+From: hnt510 <hnt510@gmail.com>
+Date: Sun, 11 Oct 2026 13:23:00 +0800
+Subject: [PATCH] video: integrate Weston desktop and introspection support
+
+Add opt-in target GIR/typelib support to Pango, HarfBuzz and GdkPixbuf,
+and retain Weston VNC/PAM, Qt5 configuration and Mesa build fixes.
+
+Validated by the complete EFI image build, Weston TLS VNC and ordinary-user
+virt-manager ISO/import/console flows.
+---
+ frameworks/qt5/qt5base/Config.in    |  7 ++++++-
+ frameworks/weston/Makefile          | 15 ++++++++++++---
+ libs/gdk-pixbuf/Makefile            | 15 +++++++++++++--
+ libs/harfbuzz/Makefile              | 15 +++++++++++++--
+ libs/mesa/Makefile                  |  4 ++--
+ libs/mesa/host-pip-requirements.txt |  1 -
+ libs/pango/Makefile                 | 16 +++++++++++++---
+ 7 files changed, 59 insertions(+), 14 deletions(-)
+
+diff --git a/frameworks/qt5/qt5base/Config.in b/frameworks/qt5/qt5base/Config.in
+index aa89719..768598e 100644
+--- a/frameworks/qt5/qt5base/Config.in
++++ b/frameworks/qt5/qt5base/Config.in
+@@ -15,10 +15,13 @@ config BUILD_qt5base-gui_DRM
+     depends on PACKAGE_qt5base-gui
+     default y
+ 
++# Keep this choice independent of PACKAGE_qt5base-gui: its conditional
++# Mesa dependency propagates hardware prerequisites back to the package.
++menu "Qt5 GUI OpenGL configuration"
++
+ choice
+     prompt "Which OpenGL variant to use"
+     default BUILD_qt5base-gui_OPENGL_NONE
+-    depends on PACKAGE_qt5base-gui
+ 
+ config BUILD_qt5base-gui_OPENGL_OPENGLES2
+     bool "es2"
+@@ -27,3 +30,5 @@ config BUILD_qt5base-gui_OPENGL_NONE
+     bool "no"
+ 
+ endchoice
++
++endmenu
+diff --git a/frameworks/weston/Makefile b/frameworks/weston/Makefile
+index 4ad2063..db405e2 100644
+--- a/frameworks/weston/Makefile
++++ b/frameworks/weston/Makefile
+@@ -1,7 +1,7 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=weston
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PKG_VERSION:=16.0.0
+ PKG_MAJOR_VERSION:=$(firstword $(subst .,$(space),$(PKG_VERSION)))
+@@ -15,6 +15,7 @@ PKG_LICENSE_FILES:=COPYING
+ 
+ PKG_INSTALL:=1
+ PKG_BUILD_DEPENDS:=wayland/host
++PKG_CONFIG_DEPENDS:=CONFIG_WESTON_VNC
+ 
+ include $(INCLUDE_DIR)/package.mk
+ include $(INCLUDE_DIR)/meson.mk
+@@ -28,19 +29,27 @@ define Package/weston
+   DEPENDS:=+gstreamer1-plugins-base +libcairo +libevdev +libdisplay-info \
+ 	+libgst1allocators +libgst1app +libgst1video +libgstreamer1 +libinput \
+ 	+libmesa +libpango +libseat +libwayland +libwebp +libxkbcommon +pixman \
+-	+seatd +vulkan-loader +wayland-protocols +xkeyboard-config
++	+seatd +vulkan-loader +wayland-protocols +xkeyboard-config \
++	+WESTON_VNC:libaml +WESTON_VNC:libneatvnc +WESTON_VNC:libpam
+ endef
+ 
+ define Package/weston/description
+ endef
+ 
++define Package/weston/config
++config WESTON_VNC
++	bool "Enable authenticated TLS VNC backend"
++	depends on PACKAGE_weston
++	default n
++endef
++
+ MESON_ARGS += \
+ 	--wrap-mode=nofallback \
+ 	-Dbackend-drm=true \
+ 	-Dbackend-headless=false \
+ 	-Dbackend-pipewire=false \
+ 	-Dbackend-rdp=false \
+-	-Dbackend-vnc=false \
++	-Dbackend-vnc=$(if $(CONFIG_WESTON_VNC),true,false) \
+ 	-Dbackend-x11=false \
+ 	-Dbackend-wayland=true \
+ 	-Dxwayland=false \
+diff --git a/libs/gdk-pixbuf/Makefile b/libs/gdk-pixbuf/Makefile
+index 3f8fbf3..41c9e44 100644
+--- a/libs/gdk-pixbuf/Makefile
++++ b/libs/gdk-pixbuf/Makefile
+@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=gdk-pixbuf
+ PKG_VERSION:=2.44.8
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=@GNOME/$(PKG_NAME)/$(basename $(PKG_VERSION))
+@@ -29,7 +29,7 @@ define Package/libgdk-pixbuf
+   SECTION:=video-frameworks
+   CATEGORY:=Video
+   SUBMENU:=Frameworks and Toolkits
+-  DEPENDS:=+giflib +libpng +libtiff +libjpeg +shared-mime-info
++  DEPENDS:=+PACKAGE_glib2-gir:glib2-gir +giflib +libpng +libtiff +libjpeg +shared-mime-info
+   TITLE:=GdkPixbuf: Image loading library
+   URL:=http://www.gtk.org/
+ endef
+@@ -38,7 +38,16 @@ define Package/libgdk-pixbuf/description
+   GdkPixbuf is a library that loads image data in various formats and stores it as linear buffers in memory.
+ endef
+ 
++PKG_CONFIG_DEPENDS += CONFIG_PACKAGE_glib2-gir
++ifeq ($(CONFIG_PACKAGE_glib2-gir),y)
++include $(INCLUDE_DIR)/gobject-introspection.mk
++MESON_ARGS += -Dintrospection=enabled -Ddefault_library=both
++endif
++
+ define Build/InstallDev
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(INSTALL_DIR) $(1)/usr/share/gir-1.0 $(1)/usr/lib/girepository-1.0)
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(CP) $(PKG_INSTALL_DIR)/usr/share/gir-1.0/*.gir $(1)/usr/share/gir-1.0/)
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(CP) $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0/*.typelib $(1)/usr/lib/girepository-1.0/)
+ 	$(INSTALL_DIR) $(1)/usr/include/gdk-pixbuf-2.0/gdk-pixbuf
+ 	$(CP) \
+ 		$(PKG_INSTALL_DIR)/usr/include/gdk-pixbuf-2.0/gdk-pixbuf/*.h \
+@@ -56,6 +65,8 @@ define Build/InstallDev
+ endef
+ 
+ define Package/libgdk-pixbuf/install
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(INSTALL_DIR) $(1)/usr/lib/girepository-1.0)
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(CP) $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0/*.typelib $(1)/usr/lib/girepository-1.0/)
+ 	$(INSTALL_DIR) $(1)/usr/lib
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/*.so* $(1)/usr/lib/
+ 
+diff --git a/libs/harfbuzz/Makefile b/libs/harfbuzz/Makefile
+index 82f8187..a07e956 100644
+--- a/libs/harfbuzz/Makefile
++++ b/libs/harfbuzz/Makefile
+@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=harfbuzz
+ PKG_VERSION:=14.3.1
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://github.com/harfbuzz/harfbuzz/releases/download/$(PKG_VERSION)/
+@@ -30,13 +30,22 @@ define Package/harfbuzz
+   SUBMENU:=Video
+   TITLE:=hafbuzz
+   URL:=http://www.harfbuzz.org/
+-  DEPENDS:=+glib2 +icu +libcairo +libfreetype
++  DEPENDS:=+PACKAGE_glib2-gir:glib2-gir +glib2 +icu +libcairo +libfreetype
+ endef
+ 
+ define Package/harfbuzz/description
+ endef
+ 
++PKG_CONFIG_DEPENDS += CONFIG_PACKAGE_glib2-gir
++ifeq ($(CONFIG_PACKAGE_glib2-gir),y)
++include $(INCLUDE_DIR)/gobject-introspection.mk
++MESON_ARGS += -Dintrospection=enabled
++endif
++
+ define Build/InstallDev
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(INSTALL_DIR) $(1)/usr/share/gir-1.0 $(1)/usr/lib/girepository-1.0)
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(CP) $(PKG_INSTALL_DIR)/usr/share/gir-1.0/*.gir $(1)/usr/share/gir-1.0/)
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(CP) $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0/*.typelib $(1)/usr/lib/girepository-1.0/)
+ 	$(INSTALL_DIR) $(1)/usr/include
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/include/* $(1)/usr/include/
+ 	$(INSTALL_DIR) $(1)/usr/lib
+@@ -46,6 +55,8 @@ define Build/InstallDev
+ endef
+ 
+ define Package/harfbuzz/install
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(INSTALL_DIR) $(1)/usr/lib/girepository-1.0)
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(CP) $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0/*.typelib $(1)/usr/lib/girepository-1.0/)
+ 	$(INSTALL_DIR) $(1)/usr/lib
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/*.so* $(1)/usr/lib/
+ endef
+diff --git a/libs/mesa/Makefile b/libs/mesa/Makefile
+index f379ca3..b2fc229 100644
+--- a/libs/mesa/Makefile
++++ b/libs/mesa/Makefile
+@@ -13,10 +13,10 @@ PKG_LICENSE:=BSD-3-Clause
+ 
+ PKG_INSTALL:=1
+ 
+-PKG_BUILD_DEPENDS:=glslang/host python3/host libva vulkan-headers \
++PKG_BUILD_DEPENDS:=glslang/host python3/host python-packaging/host libva vulkan-headers \
+ 		   MESA_USE_LLVM:llvm MESA_USE_LLVM:mesa/host
+ 
+-HOST_BUILD_DEPENDS:=python3/host spirv-tools/host MESA_USE_LLVM:llvm
++HOST_BUILD_DEPENDS:=python3/host python-packaging/host spirv-tools/host MESA_USE_LLVM:llvm
+ 
+ PKG_CONFIG_DEPENDS:= \
+ 	CONFIG_PACKAGE_libmesa-amd \
+diff --git a/libs/mesa/host-pip-requirements.txt b/libs/mesa/host-pip-requirements.txt
+index ac44d87..72f6bd1 100644
+--- a/libs/mesa/host-pip-requirements.txt
++++ b/libs/mesa/host-pip-requirements.txt
+@@ -1,6 +1,5 @@
+ Mako==1.3.5 --hash=sha256:48dbc20568c1d276a2698b36d968fa76161bf127194907ea6fc594fa81f943bc
+ MarkupSafe==2.1.5 --hash=sha256:d283d37a890ba4c1ae73ffadf8046435c76e7bc2247bbb63c00bd1a709c6544b
+-packaging==26.0 --hash=sha256:00243ae351a257117b6a241061796684b084ed1c516a08c48a3f7e147a9d80b4
+ ply==3.11 --hash=sha256:00c7c1aaa88358b9c765b6d3000c6eec0ba42abca5351b095321aef446081da3
+ pycparser==2.21 --hash=sha256:e644fdec12f7872f86c58ff790da456218b10f863970249516d60a5eaca77206
+ PyYAML==6.0.2 --hash=sha256:d584d9ec91ad65861cc08d42e834324ef890a082e591037abe114850ff7bbc3e
+diff --git a/libs/pango/Makefile b/libs/pango/Makefile
+index 264df16..d88eaee 100644
+--- a/libs/pango/Makefile
++++ b/libs/pango/Makefile
+@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=pango
+ PKG_VERSION:=1.58.2
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=@GNOME/$(PKG_NAME)/$(basename $(PKG_VERSION))
+@@ -28,18 +28,26 @@ define Package/libpango
+   SUBMENU:=Video
+   TITLE:=libpango
+   URL:=https://www.pango.org/
+-  DEPENDS:=+glib2 +fribidi +harfbuzz +libcairo $(ICONV_DEPENDS) $(INTL_DEPENDS)
++  DEPENDS:=+PACKAGE_glib2-gir:glib2-gir +glib2 +fribidi +harfbuzz +libcairo $(ICONV_DEPENDS) $(INTL_DEPENDS)
+ endef
+ 
+ MESON_ARGS += \
+-	-Dintrospection=disabled \
+ 	-Dgtk_doc=false \
+ 	-Dsysprof=disabled
+ 
+ define package/libpango/decription
+ endef
+ 
++PKG_CONFIG_DEPENDS += CONFIG_PACKAGE_glib2-gir
++ifeq ($(CONFIG_PACKAGE_glib2-gir),y)
++include $(INCLUDE_DIR)/gobject-introspection.mk
++MESON_ARGS += -Dintrospection=enabled
++endif
++
+ define Build/InstallDev
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(INSTALL_DIR) $(1)/usr/share/gir-1.0 $(1)/usr/lib/girepository-1.0)
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(CP) $(PKG_INSTALL_DIR)/usr/share/gir-1.0/*.gir $(1)/usr/share/gir-1.0/)
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(CP) $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0/*.typelib $(1)/usr/lib/girepository-1.0/)
+ 	$(INSTALL_DIR) $(1)/usr/lib
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/*.so* $(1)/usr/lib/
+ 	$(INSTALL_DIR) $(1)/usr/include/pango-1.0/pango
+@@ -50,6 +58,8 @@ define Build/InstallDev
+ endef
+ 
+ define Package/libpango/install
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(INSTALL_DIR) $(1)/usr/lib/girepository-1.0)
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(CP) $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0/*.typelib $(1)/usr/lib/girepository-1.0/)
+ 	$(INSTALL_DIR) $(1)/usr/lib
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/*.so* $(1)/usr/lib/
+ endef

@@ -1,0 +1,16 @@
+#!/bin/sh
+# Give all running guests 60 seconds to handle ACPI shutdown before host shutdown.
+set -eu
+guests="$(virsh -c qemu:///system list --uuid)"
+[ -n "$guests" ] || exit 0
+for uuid in $guests; do
+	timeout 5 virsh -c qemu:///system shutdown "$uuid" || true
+done
+remaining=60
+while [ "$remaining" -gt 0 ]; do
+	running="$(timeout 5 virsh -c qemu:///system list --uuid)" || break
+	[ -n "$running" ] || exit 0
+	sleep 2
+	remaining=$((remaining - 2))
+done
+echo "libvirt: guests did not all shut down before the host shutdown deadline" >&2

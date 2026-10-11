@@ -1,0 +1,12 @@
+{
+  "packages": {
+    "base": "0526d6d9cad0a9052fc9d49572e2f8968a1bf8dd",
+    "commit": "fe1f82a03c957d3bfdafdec1bbc4d5bd269baa37",
+    "patch": "patches/feeds/0001-packages-local-integration.patch"
+  },
+  "video": {
+    "base": "8d4551ceb287527f6a2ba99f9e86ded782a937bb",
+    "commit": "e37145e396a515d1b01ba8002e8712e38c2df4aa",
+    "patch": "patches/feeds/0001-video-local-integration.patch"
+  }
+}

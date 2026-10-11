@@ -1,0 +1,16 @@
+Bind Wayland seats added after startup, including Weston VNC reconnects.
+
+--- a/gdk/wayland/gdkdisplay-wayland.c
++++ b/gdk/wayland/gdkdisplay-wayland.c
+@@ -562,6 +562,11 @@
+ 
+   g_hash_table_insert (display_wayland->known_globals,
+                        GUINT_TO_POINTER (id), g_strdup (interface));
++
++  /* After display initialization, hotplugged seats must also run their
++   * deferred bindings. Weston adds a seat for every VNC connection. */
++  if (display_wayland->selection != NULL)
++    process_on_globals_closures (display_wayland);
+ }
+ 
+ static void

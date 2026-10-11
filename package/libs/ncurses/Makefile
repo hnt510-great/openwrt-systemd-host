@@ -12,7 +12,7 @@ PKG_CPE_ID:=cpe:/a:gnu:ncurses
 PKG_VERSION_MAJOR:=6.6
 PKG_SNAPSHOT_DATE:=20260801
 PKG_VERSION:=$(PKG_VERSION_MAJOR)$(if $(PKG_SNAPSHOT_DATE),.$(PKG_SNAPSHOT_DATE),)
-PKG_RELEASE:=2
+PKG_RELEASE:=3
 
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/ThomasDickey/ncurses-snapshots.git
@@ -169,12 +169,19 @@ endef
 define Package/libncurses-dev/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/* $(1)/usr/bin/
+	$(SED) 's,-[IL]$(TOOLCHAIN_DIR)/usr/lib,,g;s,-[IL]$(TOOLCHAIN_DIR)/lib,,g' $(1)/usr/bin/ncursesw6-config
 	$(INSTALL_DIR) $(1)/usr/include
 	$(CP) $(PKG_INSTALL_DIR)/usr/include/*.h $(1)/usr/include/
+	$(LN) . $(1)/usr/include/ncursesw
 	$(INSTALL_DIR) $(1)/usr/lib
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/*.a $(1)/usr/lib/
+	for lib in ncurses panel menu form; do \
+		$(CP) $(PKG_INSTALL_DIR)/usr/lib/lib$$$${lib}w.so $(1)/usr/lib/; \
+		$(LN) lib$$$${lib}w.so $(1)/usr/lib/lib$$$${lib}.so; \
+	done
 	$(INSTALL_DIR) $(1)/usr/lib/pkgconfig
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/*.pc $(1)/usr/lib/pkgconfig/
+	$(SED) 's,-[IL]$(TOOLCHAIN_DIR)/usr/lib,,g;s,-[IL]$(TOOLCHAIN_DIR)/lib,,g' $(1)/usr/lib/pkgconfig/*.pc
 endef
 
 define Build/InstallDev

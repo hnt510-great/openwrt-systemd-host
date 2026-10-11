@@ -1,0 +1,15 @@
+#!/bin/sh
+
+# This image uses the uhttpd LuCI collection. nginx-mod-luci supplies
+# luci.locations when Nginx is intentionally selected as the LuCI server.
+[ -x /etc/init.d/uhttpd ] || exit 0
+[ -f /etc/nginx/conf.d/luci.locations ] && exit 0
+
+/etc/init.d/uhttpd enable || exit 1
+
+if [ -x /etc/init.d/nginx ]; then
+	/etc/init.d/nginx stop
+	/etc/init.d/nginx disable || exit 1
+fi
+
+exit 0

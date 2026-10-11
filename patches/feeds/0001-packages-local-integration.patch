@@ -1,0 +1,285 @@
+From fe1f82a03c957d3bfdafdec1bbc4d5bd269baa37 Mon Sep 17 00:00:00 2001
+From: hnt510 <hnt510@gmail.com>
+Date: Sun, 11 Oct 2026 13:23:00 +0800
+Subject: [PATCH] packages: integrate desktop runtime and local compatibility
+ fixes
+
+Add GLib GI runtime and cache helpers, host docutils and session D-Bus support.
+Retain the existing Perl, PAM, V4L2, Python, sed and squeezelite fixes.
+
+Validated by the complete x86_64/glibc/systemd image build and cold-boot
+virt-manager runtime tests.
+---
+ lang/perl/Makefile                         |  7 ++++++
+ lang/perl/perlmod.mk                       |  3 ++-
+ lang/python/python-docutils/Makefile       |  6 +++++
+ lang/python/python-vcs-versioning/Makefile |  4 +--
+ libs/glib2/Makefile                        | 29 +++++++++++++++++++++-
+ libs/glib2/files/glib2-cache-update        |  5 ++++
+ libs/libpam/Makefile                       |  3 ++-
+ libs/v4l-utils/Makefile                    |  3 ++-
+ sound/squeezelite/Makefile                 |  6 +++--
+ utils/dbus/Makefile                        |  3 ++-
+ utils/sed/Makefile                         |  4 ++-
+ 11 files changed, 63 insertions(+), 10 deletions(-)
+ create mode 100755 libs/glib2/files/glib2-cache-update
+
+diff --git a/lang/perl/Makefile b/lang/perl/Makefile
+index 23de7a9..31a8a30 100644
+--- a/lang/perl/Makefile
++++ b/lang/perl/Makefile
+@@ -81,6 +81,13 @@ endef
+ 
+ define Host/Install
+ 	( cd $(HOST_BUILD_DIR); ./miniperl installperl )
++	# Remove obsolete optional core archives left by an earlier host configuration.
++	for module in DB_File GDBM_File NDBM_File ODBM_File; do \
++		if [ ! -f $(HOST_BUILD_DIR)/lib/auto/$$$$module/$$$$module.a ]; then \
++			find $(HOST_PERL_PREFIX)/lib/perl5/$(PKG_VERSION) \
++				-path "*/auto/$$$$module" -type d -prune -exec rm -rf {} +; \
++		fi; \
++	done
+ 	$(INSTALL_DIR) $(HOST_PERL_PREFIX)/bin/
+ 	$(CP) $(HOST_BUILD_DIR)/generate_uudmap $(HOST_PERL_PREFIX)/bin/
+ 	
+diff --git a/lang/perl/perlmod.mk b/lang/perl/perlmod.mk
+index 50cb923..d96f5c5 100644
+--- a/lang/perl/perlmod.mk
++++ b/lang/perl/perlmod.mk
+@@ -37,10 +37,11 @@ PERLMOD_TESTSDIR:=/usr/share/perl/perlmod-tests
+ 
+ FLOCK:=$(STAGING_DIR_HOST)/bin/flock
+ 
++# Static host Perl extensions can contain non-PIC objects; disable compiler-default PIE for this executable.
+ define perlmod/host/relink
+ 	rm -f $(1)/Makefile.aperl
+ 	($(FLOCK) -w 900 9 || { echo perlmod/host/relink: failed to acquire lock; exit 1; }; \
+-	    $(MAKE) -C $(1) perl && \
++	    $(MAKE) -C $(1) perl MAP_LINKCMD="$(HOSTCC) -no-pie $(HOST_LDFLAGS)" && \
+ 	    $(INSTALL_BIN) $(1)/perl $(PERL_CMD) && \
+ 	    $(INSTALL_BIN) $(1)/perl $(STAGING_DIR_HOSTPKG)/usr/bin/perl \
+ 	) 9> $(TMP_DIR)/.perlmod-perl.flock
+diff --git a/lang/python/python-docutils/Makefile b/lang/python/python-docutils/Makefile
+index fc90849..37b4e45 100644
+--- a/lang/python/python-docutils/Makefile
++++ b/lang/python/python-docutils/Makefile
+@@ -12,8 +12,12 @@ PKG_LICENSE:=Public-Domain BSD-2-Clause Python-2.0.1 GPL-3.0-or-later
+ PKG_LICENSE_FILES:=COPYING.txt licenses/BSD-2-Clause.txt licenses/python-2-1-1.txt licenses/gpl-3-0.txt
+ 
+ include ../pypi.mk
++HOST_BUILD_DEPENDS:=python3/host
++
+ include $(INCLUDE_DIR)/package.mk
++include $(INCLUDE_DIR)/host-build.mk
+ include ../python3-package.mk
++include ../python3-host-build.mk
+ 
+ define Package/python3-docutils
+   SUBMENU:=Python
+@@ -34,3 +38,5 @@ endef
+ $(eval $(call Py3Package,python3-docutils))
+ $(eval $(call BuildPackage,python3-docutils))
+ $(eval $(call BuildPackage,python3-docutils-src))
++
++$(eval $(call HostBuild))
+diff --git a/lang/python/python-vcs-versioning/Makefile b/lang/python/python-vcs-versioning/Makefile
+index aa0db87..c1ae7dd 100644
+--- a/lang/python/python-vcs-versioning/Makefile
++++ b/lang/python/python-vcs-versioning/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=python-vcs-versioning
+ PKG_VERSION:=2.5.0
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PYPI_NAME:=vcs-versioning
+ PYPI_SOURCE_NAME:=vcs_versioning
+@@ -23,7 +23,7 @@ PKG_HOST_ONLY:=1
+ HOST_BUILD_DEPENDS:= \
+ 	python3/host \
+ 	python-build/host \
+-	python-hatchling/host \
++	python-setuptools/host \
+ 	python-installer/host \
+ 	python-packaging/host \
+ 	python-typing-extensions/host
+diff --git a/libs/glib2/Makefile b/libs/glib2/Makefile
+index f10f742..8ce3788 100644
+--- a/libs/glib2/Makefile
++++ b/libs/glib2/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=glib2
+ PKG_VERSION:=2.88.1
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PKG_SOURCE:=glib-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=@GNOME/glib/$(basename $(PKG_VERSION))
+@@ -69,6 +69,12 @@ $(call Package/glib2/default)
+   DEPENDS:=+glib2-core +glib2-gobject +glib2-gmodule +zlib +libffi
+ endef
+ 
++define Package/libgirepository2
++$(call Package/glib2/default)
++  TITLE:=GLib introspection runtime library
++  DEPENDS:=+glib2-gio
++endef
++
+ define Package/glib2
+ $(call Package/glib2/default)
+   TITLE:=Full GLib 2.0 library
+@@ -206,6 +212,11 @@ define Package/glib2-gio/install
+ 		$(1)/usr/lib
+ endef
+ 
++define Package/libgirepository2/install
++	$(INSTALL_DIR) $(1)/usr/lib
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libgirepository-2.0.so* $(1)/usr/lib/
++endef
++
+ define Package/glib2/install
+ 	:
+ endef
+@@ -217,3 +228,19 @@ $(eval $(call BuildPackage,glib2-gthread))
+ $(eval $(call BuildPackage,glib2-gobject))
+ $(eval $(call BuildPackage,glib2-gio))
+ $(eval $(call BuildPackage,glib2))
++
++$(eval $(call BuildPackage,libgirepository2))
++
++define Package/glib2-utils
++$(call Package/glib2/default)
++  TITLE:=GLib runtime settings and cache utilities
++  DEPENDS:=+glib2
++endef
++
++define Package/glib2-utils/install
++	$(INSTALL_DIR) $(1)/usr/bin $(1)/usr/libexec $(1)/etc/uci-defaults
++	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/glib-compile-schemas $(PKG_INSTALL_DIR)/usr/bin/gio-querymodules $(PKG_INSTALL_DIR)/usr/bin/gsettings $(1)/usr/bin/
++	$(INSTALL_BIN) ./files/glib2-cache-update $(1)/usr/libexec/
++	$(INSTALL_BIN) ./files/glib2-cache-update $(1)/etc/uci-defaults/95-glib2-cache
++endef
++$(eval $(call BuildPackage,glib2-utils))
+diff --git a/libs/glib2/files/glib2-cache-update b/libs/glib2/files/glib2-cache-update
+new file mode 100755
+index 0000000..ad862c2
+--- /dev/null
++++ b/libs/glib2/files/glib2-cache-update
+@@ -0,0 +1,5 @@
++#!/bin/sh
++set -eu
++[ ! -d /usr/share/glib-2.0/schemas ] || glib-compile-schemas /usr/share/glib-2.0/schemas
++[ ! -d /usr/lib/gio/modules ] || gio-querymodules /usr/lib/gio/modules
++exit 0
+diff --git a/libs/libpam/Makefile b/libs/libpam/Makefile
+index 63ffcca..ef7faf2 100644
+--- a/libs/libpam/Makefile
++++ b/libs/libpam/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=libpam
+ PKG_VERSION:=1.7.1
+-PKG_RELEASE:=5
++PKG_RELEASE:=6
+ 
+ PKG_SOURCE:=Linux-PAM-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://github.com/linux-pam/linux-pam/releases/download/v$(PKG_VERSION)
+@@ -69,6 +69,7 @@ define Package/libpam/install
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/security/*.so* $(1)/usr/lib/security/
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/security/pam_filter/* $(1)/usr/lib/security/pam_filter/
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/* $(1)/usr/sbin/
++	chmod 4755 $(1)/usr/sbin/unix_chkpwd
+ 	$(INSTALL_DIR) $(1)/usr/lib/pkgconfig
+ 	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/*.pc $(1)/usr/lib/pkgconfig/
+ endef
+diff --git a/libs/v4l-utils/Makefile b/libs/v4l-utils/Makefile
+index 3e4d091..368a7c3 100644
+--- a/libs/v4l-utils/Makefile
++++ b/libs/v4l-utils/Makefile
+@@ -7,7 +7,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=v4l-utils
+ PKG_VERSION:=1.30.1
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://www.linuxtv.org/downloads/v4l-utils
+@@ -20,6 +20,7 @@ PKG_BUILD_FLAGS:=no-mips16
+ PKG_BUILD_DEPENDS:=!USE_GLIBC:argp-standalone
+ PKG_CONFIG_DEPENDS:= \
+ 	CONFIG_BUILD_NLS \
++	CONFIG_PACKAGE_edid-decode \
+ 	CONFIG_PACKAGE_v4l-utils
+ 
+ include $(INCLUDE_DIR)/package.mk
+diff --git a/sound/squeezelite/Makefile b/sound/squeezelite/Makefile
+index 9c8fac2..5e74a0a 100644
+--- a/sound/squeezelite/Makefile
++++ b/sound/squeezelite/Makefile
+@@ -65,8 +65,10 @@ define Package/squeezelite-custom
+     MENU:=1
+ endef
+ 
++# FFmpeg prerequisites propagate through SQUEEZELITE_WMA_ALAC to the package;
++# guarding these options with the package would close a dependency cycle.
+ define Package/squeezelite-custom/config
+-	if PACKAGE_squeezelite-custom
++	menu "Squeezelite custom configuration"
+ 		config SQUEEZELITE_AAC
+ 		    bool "AAC codec support"
+ 		    help
+@@ -132,7 +134,7 @@ define Package/squeezelite-custom/config
+ 		    help
+ 			WMA and ALAC codec support
+ 		    default n
+-	endif
++	endmenu
+ endef
+ 
+ define Package/squeezelite/description/default
+diff --git a/utils/dbus/Makefile b/utils/dbus/Makefile
+index 0e20bb1..535b69c 100644
+--- a/utils/dbus/Makefile
++++ b/utils/dbus/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=dbus
+ PKG_VERSION:=1.16.2
+-PKG_RELEASE:=4
++PKG_RELEASE:=5
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://dbus.freedesktop.org/releases/dbus
+@@ -139,6 +139,7 @@ define Package/dbus/install
+ 	$(INSTALL_DIR) $(1)/usr/bin
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/dbus-cleanup-sockets $(1)/usr/bin/
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/dbus-daemon $(1)/usr/bin/
++	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/dbus-run-session $(1)/usr/bin/
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/dbus-launch $(1)/usr/bin/dbus-launch.real
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/dbus-uuidgen $(1)/usr/bin/
+ 	$(INSTALL_BIN) ./files/dbus-launch $(1)/usr/bin/
+diff --git a/utils/sed/Makefile b/utils/sed/Makefile
+index 2dbd877..390a572 100644
+--- a/utils/sed/Makefile
++++ b/utils/sed/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=sed
+ PKG_VERSION:=4.10
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=@GNU/sed
+@@ -46,6 +46,8 @@ CONFIGURE_ARGS += \
+ 	--disable-xattr \
+ 	--without-selinux
+ 
++TARGET_CFLAGS += -std=gnu23
++
+ define Build/Compile
+ 	sed -i 's/SUBDIRS = po . gnulib-tests/SUBDIRS = po ./' $(PKG_BUILD_DIR)/Makefile
+ 	$(call Build/Compile/Default,)

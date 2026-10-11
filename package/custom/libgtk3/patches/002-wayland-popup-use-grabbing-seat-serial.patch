@@ -1,0 +1,76 @@
+--- a/gdk/wayland/gdkwindow-wayland.c
++++ b/gdk/wayland/gdkwindow-wayland.c
+@@ -3012,13 +3012,13 @@
+ static void
+ gdk_wayland_window_create_xdg_popup (GdkWindow      *window,
+                                      GdkWindow      *parent,
+-                                     struct wl_seat *seat)
++                                     GdkSeat        *gdk_seat)
+ {
+   GdkWaylandDisplay *display = GDK_WAYLAND_DISPLAY (gdk_window_get_display (window));
+   GdkWindowImplWayland *impl = GDK_WINDOW_IMPL_WAYLAND (window->impl);
+   GdkWindowImplWayland *parent_impl = GDK_WINDOW_IMPL_WAYLAND (parent->impl);
+   gpointer positioner;
+-  GdkSeat *gdk_seat;
++  struct wl_seat *seat;
+   guint32 serial;
+ 
+   if (!impl->display_server.wl_surface)
+@@ -3089,9 +3089,9 @@
+       break;
+     }
+ 
+-  if (seat)
+-    {
+-      gdk_seat = gdk_display_get_default_seat (GDK_DISPLAY (display));
++  if (gdk_seat)
++    {
++      seat = gdk_wayland_seat_get_wl_seat (gdk_seat);
+       serial = _gdk_wayland_seat_get_last_implicit_grab_serial (gdk_seat, NULL);
+ 
+       switch (display->shell_variant)
+@@ -3111,7 +3111,7 @@
+   display->current_popups = g_list_append (display->current_popups, window);
+ }
+ 
+-static struct wl_seat *
++static GdkSeat *
+ find_grab_input_seat (GdkWindow *window, GdkWindow *transient_for)
+ {
+   GdkWindow *attached_grab_window;
+@@ -3123,7 +3123,7 @@
+    * grab before showing the popup window.
+    */
+   if (impl->grab_input_seat)
+-    return gdk_wayland_seat_get_wl_seat (impl->grab_input_seat);
++    return impl->grab_input_seat;
+ 
+   /* HACK: GtkMenu grabs a special window known as the "grab transfer window"
+    * and then transfers the grab over to the correct window later. Look for
+@@ -3136,7 +3136,7 @@
+     {
+       tmp_impl = GDK_WINDOW_IMPL_WAYLAND (attached_grab_window->impl);
+       if (tmp_impl->grab_input_seat)
+-        return gdk_wayland_seat_get_wl_seat (tmp_impl->grab_input_seat);
++        return tmp_impl->grab_input_seat;
+     }
+ 
+   while (transient_for)
+@@ -3144,7 +3144,7 @@
+       tmp_impl = GDK_WINDOW_IMPL_WAYLAND (transient_for->impl);
+ 
+       if (tmp_impl->grab_input_seat)
+-        return gdk_wayland_seat_get_wl_seat (tmp_impl->grab_input_seat);
++        return tmp_impl->grab_input_seat;
+ 
+       transient_for = tmp_impl->transient_for;
+     }
+@@ -3286,7 +3286,7 @@
+   else if (should_map_as_popup (window))
+     {
+       gboolean create_fallback = FALSE;
+-      struct wl_seat *grab_input_seat;
++      GdkSeat *grab_input_seat;
+ 
+       /* Popup menus can appear without a transient parent, which means they
+        * cannot be positioned properly on Wayland. This attempts to guess the
