@@ -1,12 +1,13 @@
 [Unit]
 Description=D-Bus system message bus
 Before=openwrt-services.service
+Requires=dbus.socket
 
 [Service]
-Type=exec
+Type=notify
 ExecStartPre=/bin/mkdir -p /run/dbus /var/lib/dbus
 ExecStartPre=/bin/ln -sf /etc/machine-id /var/lib/dbus/machine-id
-ExecStart=/usr/bin/dbus-daemon --system --nofork --nopidfile
+ExecStart=/usr/bin/dbus-daemon --system --address=systemd: --systemd-activation --nofork --nopidfile
 ExecStartPost=/usr/libexec/openwrt-dbus-ready
 Restart=on-failure
 

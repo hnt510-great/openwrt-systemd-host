@@ -1,0 +1,81 @@
+#!/bin/sh
+# Root explicitly delegates fixed operations on a fixed system service.
+set -eu
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+[ "$(id -u)" = 0 ] || fail 'Run systemd-access as root'
+[ -d /run/systemd/system ] || fail 'Native systemd is required'
+usage() {
+	fail 'Usage: systemd-access grant USER UNIT.service [start,stop,restart,reload] | revoke USER UNIT.service | list'
+}
+action=${1:-}
+case "$action" in
+	list)
+		[ "$#" = 1 ] || usage
+		for rule in /etc/polkit-1/rules.d/60-openwrt-service-*.rules; do
+			[ -f "$rule" ] || continue
+			sed -n 's,^// Grant: ,,p' "$rule"
+		done
+		exit 0 ;;
+	grant|revoke) [ "$#" -ge 3 ] && [ "$#" -le 4 ] || usage ;;
+	*) usage ;;
+esac
+user=$2
+unit=$3
+case "$user" in ''|-*|*[!a-zA-Z0-9_-]*) fail 'Invalid username' ;; esac
+case "$unit" in ''|-*|*[!a-zA-Z0-9_.@:-]*) fail 'Invalid service name' ;; esac
+case "$unit" in *.service) ;; *) fail 'Specify a concrete .service unit' ;; esac
+case "$unit" in *@.service) fail 'Specify a template instance, not a bare template' ;; esac
+[ "${#user}" -le 32 ] && [ "${#unit}" -le 150 ] || fail 'Name is too long'
+rule=/etc/polkit-1/rules.d/60-openwrt-service-u${#user}-$user-$unit.rules
+if [ "$action" = revoke ]; then
+	[ "$#" = 3 ] || usage
+	rm -f "$rule"
+	printf 'Revoked %s on %s. New requests will be checked again.\n' "$user" "$unit"
+	exit 0
+fi
+awk -F: -v name="$user" '$1 == name && $3 >= 1000 && $4 > 0 { ok=1 } END { exit !ok }' /etc/passwd ||
+	fail 'An existing ordinary account with a non-root primary group is required'
+systemctl is-active --quiet polkit.service || fail 'polkit is not running'
+fragment=$(systemctl show "$unit" -p FragmentPath --value)
+[ -n "$fragment" ] && [ -f "$fragment" ] || fail 'The service must have an installed unit file'
+[ "$(systemctl show "$unit" -p Transient --value)" = no ] || fail 'Transient system services cannot be delegated'
+[ "$(systemctl show "$unit" -p Id --value)" = "$unit" ] || fail 'Use the canonical unit name instead of an alias'
+# Unit files and all parent directories must be administrator-owned.
+for file in "$fragment" $(systemctl show "$unit" -p DropInPaths --value); do
+	path=$(readlink -f "$file")
+	while [ "$path" != / ]; do
+		[ "$(stat -c %u "$path")" = 0 ] || fail "Not root-owned: $path"
+		mode=$(stat -c %a "$path")
+		[ "$((0$mode & 022))" = 0 ] || fail "Writable by other users: $path"
+		path=${path%/*}
+		[ -n "$path" ] || path=/
+	done
+done
+verbs=${4:-start,stop,restart,reload}
+case "$verbs" in ''|,*|*,|*,,*) fail 'Empty operation' ;; esac
+old_ifs=$IFS
+IFS=,
+set -- $verbs
+IFS=$old_ifs
+json=
+for verb do
+	case "$verb" in start|stop|restart|reload) ;; *) fail "Unsupported operation: $verb" ;; esac
+	json=${json:+$json,}\"$verb\"
+done
+mkdir -p /etc/polkit-1/rules.d
+tmp=$(mktemp /etc/polkit-1/rules.d/.openwrt-service.XXXXXX)
+trap 'rm -f "$tmp"' EXIT HUP INT TERM
+cat > "$tmp" <<EOF
+// Grant: $user $unit $verbs
+polkit.addRule(function(action, subject) {
+    if (action.id === "org.freedesktop.systemd1.manage-units" &&
+        subject.user === "$user" && action.lookup("unit") === "$unit" &&
+        [$json].indexOf(action.lookup("verb")) !== -1) {
+        return polkit.Result.YES;
+    }
+});
+EOF
+chmod 0644 "$tmp"
+mv "$tmp" "$rule"
+trap - EXIT HUP INT TERM
+printf 'Granted %s on %s: %s\n' "$user" "$unit" "$verbs"

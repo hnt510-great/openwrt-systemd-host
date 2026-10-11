@@ -40,9 +40,11 @@ dependencies; udev-backed `.device` dependencies are outside this integration.
 Journald uses volatile storage limited to 32 MiB; systemd watchdog handling is
 disabled so procd remains the watchdog owner.
 
-The package excludes networkd, resolved, timesyncd, logind, PAM sessions,
-desktop integration and systemd user managers. The SSH generator is removed;
-the existing OpenWrt SSH service retains its listener and configuration.
+The package excludes networkd, resolved and timesyncd. Native mode includes
+polkit, PAM login sessions, logind and systemd user managers; see
+[ordinary-user authorization and sessions](systemd-permissions.md). The SSH
+generator is removed; the PAM variant of OpenWrt OpenSSH retains its listener
+and configuration. Display/input device access still uses seatd.
 
 ## Filesystem and packages
 
@@ -77,8 +79,10 @@ preinit can retrieve the saved configuration from the EFI partition.
 
 ## Updating the source tree and feeds
 
-The integration lives in the main repository; it does not patch feed checkouts
-or change `scripts/feeds`. Keep it committed when updating OpenWrt. This
+The boot bridge lives in the main repository; PAM-enabled SSH and native
+D-Bus support also have local changes in the packages feed, documented in
+[permissions and sessions](systemd-permissions.md). The integration does not
+change `scripts/feeds`. Preserve main-tree and feed-local changes when updating OpenWrt. This
 checkout uses merge-based pulls (`pull.rebase=false`), preserving its existing
 local commits and merge history. Review outstanding changes before updating:
 

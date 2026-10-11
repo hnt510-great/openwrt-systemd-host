@@ -1,0 +1,9 @@
+[Unit]
+Description=Persistent systemd user linger configuration
+Before=systemd-logind.service
+
+[Mount]
+What=/etc/systemd/linger
+Where=/var/lib/systemd/linger
+Type=none
+Options=bind

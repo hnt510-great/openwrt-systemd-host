@@ -1,6 +1,17 @@
 #!/bin/sh
 set -eu
 if [ ! -x /usr/bin/dbus-daemon ]; then exec "$@"; fi
+if [ -d /run/systemd/system ]; then
+	# The user manager owns the bus across concurrent SSH and desktop sessions.
+	[ -n "${XDG_RUNTIME_DIR:-}" ] || { echo 'PAM did not create a user runtime directory' >&2; exit 1; }
+	for attempt in 1 2 3 4 5; do
+		[ ! -S "$XDG_RUNTIME_DIR/bus" ] || break
+		sleep 1
+	done
+	[ -S "$XDG_RUNTIME_DIR/bus" ] || { echo 'The systemd user message bus is unavailable' >&2; exit 1; }
+	export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+	exec "$@"
+fi
 # procd signals the session's main process. Keep that process here so that
 # stopping/restarting the desktop also terminates its private D-Bus daemon.
 bus_pid=

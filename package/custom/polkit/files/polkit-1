@@ -1,0 +1,3 @@
+# Password challenges authenticate an explicitly selected existing administrator.
+auth required pam_unix.so
+account required pam_unix.so

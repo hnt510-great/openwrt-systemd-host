@@ -31,6 +31,25 @@ start_service() {
 	[ -f "$key" ] && [ -f "$cert" ] || {
 		desktop_error 'Run desktop-setup to generate TLS credentials'; return 1;
 	}
+	if [ -d /run/systemd/system ]; then
+		# PAM registers the desktop separately from SSH sessions. seatd keeps
+		# owning display/input devices; logind only tracks this session.
+		systemctl is-active --quiet openwrt-desktop.service && return 0
+		set -- systemd-run --quiet --collect --unit=openwrt-desktop.service \
+			--uid="$user" --property=PAMName=openwrt-desktop \
+			--property=Type=exec --property=Restart=on-failure --property=RestartSec=5s \
+			--property=Requires=systemd-logind.service --property=After=systemd-logind.service \
+			--setenv=HOME="$DESKTOP_USER_HOME" --setenv=USER="$user" --setenv=LOGNAME="$user" \
+			--setenv=SHELL="$DESKTOP_USER_SHELL" --setenv=LIBSEAT_BACKEND=seatd \
+			--setenv=XDG_SESSION_TYPE=wayland --setenv=XDG_SESSION_CLASS=user
+		if [ -e /dev/tty0 ]; then
+			/bin/busybox chvt 7 || { desktop_error 'Cannot activate desktop VT 7'; return 1; }
+			set -- "$@" --property=StandardInput=tty --property=TTYPath=/dev/tty7 \
+				--setenv=XDG_SEAT=seat0 --setenv=XDG_VTNR=7
+		fi
+		"$@" /usr/libexec/desktop-session "$output" "$address" "$port" "$key" "$cert"
+		return
+	fi
 	runtime="/tmp/run/desktop-$DESKTOP_USER_UID"
 	[ ! -L "$runtime" ] || { desktop_error 'Unsafe desktop runtime directory'; return 1; }
 	mkdir -p "$runtime" || return 1
@@ -45,6 +64,20 @@ start_service() {
 	procd_set_param stdout 1
 	procd_set_param stderr 1
 	procd_close_instance
+}
+
+stop_service() {
+	local sessions session
+	[ -d /run/systemd/system ] || return 0
+	sessions=
+	for session in $(loginctl list-sessions --no-legend --no-pager | awk '{print $1}'); do
+		[ "$(loginctl show-session "$session" -p Service --value 2>/dev/null)" = openwrt-desktop ] || continue
+		sessions="$sessions $session"
+	done
+	systemctl stop openwrt-desktop.service 2>/dev/null || :
+	# Kill this desktop's applications without touching the user's other
+	# login sessions or shared user manager/message bus.
+	for session in $sessions; do loginctl terminate-session "$session" 2>/dev/null || :; done
 }
 
 service_triggers() {

@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=systemd
 PKG_VERSION:=262
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/systemd/systemd/tar.gz/refs/tags/v$(PKG_VERSION)?
 PKG_HASH:=6aa77506c0644aa67f940a48e3d3a7368601f787e4f249139516d353f107bcab
@@ -29,7 +29,7 @@ define Package/systemd
   SECTION:=base
   CATEGORY:=Base system
   TITLE:=systemd system and service manager
-  DEPENDS:=@OPENWRT_SYSTEMD +libsystemd +dbus +mount-utils +swap-utils
+  DEPENDS:=@OPENWRT_SYSTEMD +libsystemd +libpam +libacl +mount-utils +swap-utils
   USERID:=:systemd-journal=190
 endef
 
@@ -44,7 +44,9 @@ MESON_ARGS += \
 	-Dauto_features=disabled -Dlibmount=enabled -Dblkid=enabled \
 	-Dseccomp=enabled -Dopenssl=enabled -Dnss-systemd=true \
 	-Dsysusers=true -Dtmpfiles=true -Dhwdb=false \
-	-Dlogind=false -Duserdb=false -Dpam=disabled -Dlibcrypt=disabled \
+	-Dlogind=true -Duserdb=false -Dpam=enabled -Dpolkit=enabled -Dacl=enabled -Dlibcrypt=disabled \
+	-Dpamlibdir=/usr/lib/security -Dpamconfdir=/etc/pam.d \
+	-Ddefault-kill-user-processes=false \
 	-Dnetworkd=false -Dresolve=false -Dtimesyncd=false -Dtimedated=false \
 	-Dhostnamed=false -Dlocaled=false -Dmachined=false -Dportabled=false \
 	-Dmountfsd=false -Dsysext=false -Dhomed=disabled -Dnsresourced=false \
@@ -82,6 +84,17 @@ define Package/systemd/install
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/{tmpfiles.d,sysusers.d} $(1)/usr/lib/
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libnss_systemd.so.2 $(1)/usr/lib/
 	$(CP) $(PKG_INSTALL_DIR)/etc/systemd $(1)/etc/
+	$(INSTALL_DIR) $(1)/usr/lib/security $(1)/etc/pam.d
+	$(CP) $(PKG_INSTALL_DIR)/usr/lib/security/pam_systemd.so $(1)/usr/lib/security/
+	$(INSTALL_DATA) ./files/systemd-user.pam $(1)/etc/pam.d/systemd-user
+	$(INSTALL_DIR) $(1)/usr/share/polkit-1/actions $(1)/usr/share/polkit-1/rules.d
+	$(CP) $(PKG_INSTALL_DIR)/usr/share/polkit-1/actions/*.policy $(1)/usr/share/polkit-1/actions/
+	$(INSTALL_DIR) $(1)/usr/share/dbus-1/system-services
+	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/dbus-1/system-services/org.freedesktop.login1.service \
+		$(1)/usr/share/dbus-1/system-services/
+	# OpenWrt owns DRM module loading.
+	$(SED) 's/ modprobe@drm.service//g' \
+		$(1)/usr/lib/systemd/system/systemd-logind.service
 	$(INSTALL_DIR) $(1)/etc/dbus-1/system.d
 	$(CP) $(PKG_INSTALL_DIR)/usr/share/dbus-1/system.d/*.conf $(1)/etc/dbus-1/system.d/
 	touch $(1)/etc/machine-id

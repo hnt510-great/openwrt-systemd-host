@@ -1,0 +1,5 @@
+# The root-only desktop setup explicitly selects an existing ordinary account.
+auth required pam_rootok.so
+account required pam_unix.so
+session required pam_unix.so
+session required pam_systemd.so type=wayland class=user

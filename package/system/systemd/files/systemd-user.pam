@@ -1,0 +1,6 @@
+# The system manager starts an already authenticated user's service manager.
+auth required pam_rootok.so
+account required pam_unix.so no_pass_expiry
+session required pam_unix.so
+session optional pam_keyinit.so force revoke
+session optional pam_systemd.so

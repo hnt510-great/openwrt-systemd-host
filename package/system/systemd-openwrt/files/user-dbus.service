@@ -1,0 +1,12 @@
+[Unit]
+Description=User D-Bus message bus
+Requires=dbus.socket
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/dbus-daemon --session --address=systemd: --systemd-activation --nofork --nopidfile
+Restart=on-failure
+RestartSec=1
+
+[Install]
+WantedBy=default.target

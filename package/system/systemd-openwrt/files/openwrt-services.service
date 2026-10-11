@@ -1,7 +1,8 @@
 [Unit]
 Description=OpenWrt router services
 BindsTo=openwrt-procd.service
-After=openwrt-procd.service dbus.service
+Wants=systemd-logind.service polkit.service systemd-user-sessions.service
+After=openwrt-procd.service dbus.service systemd-logind.service polkit.service systemd-user-sessions.service
 Before=openwrt-console@tty1.service
 
 [Service]

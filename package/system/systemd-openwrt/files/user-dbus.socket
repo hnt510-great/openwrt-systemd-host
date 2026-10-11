@@ -1,0 +1,6 @@
+[Unit]
+Description=User D-Bus message bus socket
+
+[Socket]
+ListenStream=%t/bus
+SocketMode=0600

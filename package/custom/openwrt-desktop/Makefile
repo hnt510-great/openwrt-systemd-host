@@ -1,7 +1,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openwrt-desktop
-PKG_RELEASE:=3
+PKG_RELEASE:=4
+PKG_CONFIG_DEPENDS:=CONFIG_OPENWRT_SYSTEMD
 PKG_LICENSE:=MIT
 
 include $(INCLUDE_DIR)/package.mk
@@ -24,6 +25,7 @@ endef
 define Package/openwrt-desktop/conffiles
 /etc/config/desktop
 /etc/pam.d/weston-remote-access
+$(if $(CONFIG_OPENWRT_SYSTEMD),/etc/pam.d/openwrt-desktop)
 endef
 
 define Build/Compile
@@ -35,6 +37,7 @@ define Package/openwrt-desktop/install
 	$(INSTALL_DATA) ./files/desktop.config $(1)/etc/config/desktop
 	$(INSTALL_BIN) ./files/desktop.init $(1)/etc/init.d/desktop
 	$(INSTALL_DATA) ./files/weston-remote-access $(1)/etc/pam.d/weston-remote-access
+	$(if $(CONFIG_OPENWRT_SYSTEMD),$(INSTALL_DATA) ./files/openwrt-desktop.pam $(1)/etc/pam.d/openwrt-desktop)
 	$(INSTALL_BIN) ./files/desktop-setup $(1)/usr/sbin/desktop-setup
 	$(INSTALL_BIN) ./files/desktop-dbus-session $(1)/usr/libexec/
 	$(INSTALL_BIN) ./files/desktop-session $(1)/usr/libexec/desktop-session

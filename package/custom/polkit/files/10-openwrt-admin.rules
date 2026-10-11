@@ -1,0 +1,18 @@
+// Preserve OpenWrt's explicit administrator role. No human account is supplied.
+polkit.addAdminRule(function(action, subject) {
+    return ["unix-user:root"];
+});
+
+// Router power and persistent user services require administrator approval,
+// including when an ordinary user has an active local desktop session.
+polkit.addRule(function(action, subject) {
+    if (subject.user !== "root" &&
+        (action.id.indexOf("org.freedesktop.login1.power-off") === 0 ||
+         action.id.indexOf("org.freedesktop.login1.reboot") === 0 ||
+         action.id.indexOf("org.freedesktop.login1.halt") === 0 ||
+         action.id.indexOf("org.freedesktop.login1.suspend") === 0 ||
+         action.id.indexOf("org.freedesktop.login1.hibernate") === 0 ||
+         action.id === "org.freedesktop.login1.set-user-linger")) {
+        return polkit.Result.AUTH_ADMIN;
+    }
+});
