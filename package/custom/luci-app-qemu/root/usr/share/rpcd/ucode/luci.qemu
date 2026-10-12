@@ -1,0 +1,118 @@
+// SPDX-License-Identifier: Apache-2.0
+'use strict';
+
+import { popen, readfile } from 'fs';
+
+const URI = 'qemu:///system';
+const UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+function quote(s) {
+	return "'" + replace(s, "'", "'\\''") + "'";
+}
+
+// Only callers below construct arguments; no URI, command or option comes
+// from the client. Kill a stuck client before the rpcd request times out.
+function virsh(args, seconds) {
+	let p = popen('LC_ALL=C /usr/bin/timeout -k 1 ' + seconds +
+		' /usr/bin/virsh --connect ' + URI + ' ' +
+		join(' ', map(args, quote)) + ' 2>&1', 'r');
+	if (!p)
+		return { code: 1, output: 'Unable to execute virsh.' };
+	let output = p.read('all');
+	return { code: p.close(), output: trim(output || '') };
+}
+
+function failure(result) {
+	if (result.code == 124 || result.code == 137)
+		return { success: false, error: 'virsh timed out. Refresh the virtual machine state before retrying.', code: result.code };
+	return { success: false, error: result.output || 'virsh failed.', code: result.code };
+}
+
+function number(stats, key) {
+	return exists(stats, key) ? stats[key] : null;
+}
+
+// Missing counters remain null: zero is a real measured value.
+function total(stats, pattern) {
+	let value = null;
+	for (let key, n in stats)
+		if (match(key, pattern))
+			value = (value ?? 0) + n;
+	return value;
+}
+
+const methods = {
+	status: {
+		call: function() {
+			let list = virsh([ '--readonly', 'list', '--all', '--uuid', '--name' ], 3);
+			if (list.code != 0)
+				return failure(list);
+
+			let domains = [];
+			let byname = {};
+			for (let line in split(list.output, '\n')) {
+				if (!length(line))
+					continue;
+				let m = match(line, /^([0-9a-fA-F-]{36}) (.+)$/);
+				if (!m || !match(m[1], UUID))
+					return failure({ code: 1, output: 'Unable to parse the virtual machine list.' });
+				let domain = { uuid: m[1], name: m[2], stats: {} };
+				push(domains, domain);
+				byname[m[2]] = domain;
+			}
+
+			if (length(domains)) {
+				let result = virsh([ '--readonly', 'domstats', '--raw', '--state',
+					'--cpu-total', '--balloon', '--vcpu', '--interface', '--block' ], 3);
+				if (result.code != 0)
+					return failure(result);
+				let domain = null;
+				for (let line in split(result.output, '\n')) {
+					let header = match(line, /^Domain: '(.*)'$/);
+					if (header) {
+						domain = byname[header[1]];
+						continue;
+					}
+					let m = match(line, /^\s+([a-zA-Z0-9_.]+)=([0-9]+)$/);
+					if (domain && m)
+						domain.stats[m[1]] = +m[2];
+				}
+			}
+
+			// Uptime is monotonic, so wall-clock/NTP changes cannot distort rates.
+			let uptime = +(split(readfile('/proc/uptime') || '0', ' ')[0]);
+			return { success: true, uri: URI, timestamp: uptime, domains: map(domains, (d) => {
+				let s = d.stats;
+				return {
+					uuid: d.uuid, name: d.name,
+					state: number(s, 'state.state'),
+					vcpus: number(s, 'vcpu.current'),
+					cpu_time: number(s, 'cpu.time'),
+					memory_kib: number(s, 'balloon.current'),
+					rss_kib: number(s, 'balloon.rss'),
+					disk_read: total(s, /^block\.[0-9]+\.rd\.bytes$/),
+					disk_write: total(s, /^block\.[0-9]+\.wr\.bytes$/),
+					net_rx: total(s, /^net\.[0-9]+\.rx\.bytes$/),
+					net_tx: total(s, /^net\.[0-9]+\.tx\.bytes$/)
+				};
+			}) };
+		}
+	},
+	action: {
+		args: { uuid: 'string', action: 'string' },
+		call: function(req) {
+			let uuid = req.args.uuid;
+			let action = req.args.action;
+			// Explicit length also rejects trailing newlines in regex anchors.
+			if (type(uuid) != 'string' || length(uuid) != 36 || !match(uuid, UUID) ||
+				!(action in [ 'start', 'shutdown', 'reboot' ]))
+				return { success: false, code: 2, error: 'Invalid virtual machine UUID or action.' };
+			let result = virsh([ action, uuid ], 5);
+			if (result.code != 0)
+				return failure(result);
+			return { success: true, message: result.output };
+		}
+	}
+};
+
+return { 'luci.qemu': methods };

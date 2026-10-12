@@ -1,0 +1,11 @@
+{
+	"luci-app-qemu": {
+		"description": "Manage local QEMU virtual machines",
+		"read": {
+			"ubus": { "luci.qemu": [ "status" ] }
+		},
+		"write": {
+			"ubus": { "luci.qemu": [ "action" ] }
+		}
+	}
+}

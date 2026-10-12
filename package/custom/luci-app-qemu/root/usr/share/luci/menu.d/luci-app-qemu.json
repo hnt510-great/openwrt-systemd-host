@@ -1,0 +1,13 @@
+{
+	"admin/services/qemu": {
+		"title": "QEMU Virtual Machines",
+		"order": 90,
+		"action": {
+			"type": "view",
+			"path": "qemu/overview"
+		},
+		"depends": {
+			"acl": [ "luci-app-qemu" ]
+		}
+	}
+}
