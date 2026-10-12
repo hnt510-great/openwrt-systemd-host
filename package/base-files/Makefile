@@ -15,7 +15,7 @@ PKG_NAME:=base-files
 PKG_FLAGS:=nonshared
 PKG_RELEASE:=$(COMMITCOUNT)
 
-PKG_FILE_DEPENDS:=$(PLATFORM_DIR)/ $(GENERIC_PLATFORM_DIR)/base-files/
+PKG_FILE_DEPENDS:=./os-release.systemd $(PLATFORM_DIR)/ $(GENERIC_PLATFORM_DIR)/base-files/
 PKG_BUILD_DEPENDS:=usign/host ucert/host
 PKG_LICENSE:=GPL-2.0
 
@@ -30,6 +30,10 @@ PKG_CONFIG_DEPENDS += \
 	CONFIG_EMMC_SUPPORT \
 	CONFIG_CLEAN_IPKG \
 	CONFIG_OPENWRT_SYSTEMD \
+	CONFIG_PACKAGE_openwrt-desktop \
+	CONFIG_PACKAGE_libvirt-daemon \
+	CONFIG_PACKAGE_openwrt-flatpak \
+	CONFIG_PACKAGE_podman \
 	CONFIG_PER_FEED_REPO \
 	$(foreach feed,$(FEEDS_AVAILABLE),CONFIG_FEED_$(feed))
 
@@ -187,6 +191,12 @@ define Package/base-files/install
 			$(CP) $(PLATFORM_SUBDIR)/base-files/* $(1)/; \
 		fi; \
 	)
+
+ifeq ($(CONFIG_OPENWRT_SYSTEMD),y)
+	$(INSTALL_DATA) ./os-release.systemd $(1)/usr/lib/os-release
+	$(SED) 's,@OPENWRT_FEATURES@,router$(if $(filter y,$(CONFIG_PACKAGE_openwrt-desktop)), desktop)$(if $(filter y,$(CONFIG_PACKAGE_libvirt-daemon)), virtualization)$(if $(filter y,$(CONFIG_PACKAGE_openwrt-flatpak)), flatpak)$(if $(filter y,$(CONFIG_PACKAGE_podman)), containers),g' \
+		$(1)/usr/lib/os-release
+endif
 
 	$(VERSION_SED_SCRIPT) \
 		$(1)/etc/banner \

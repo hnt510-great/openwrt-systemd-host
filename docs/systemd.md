@@ -48,6 +48,22 @@ and configuration. Display/input device access still uses seatd.
 
 ## Filesystem and packages
 
+Native images identify themselves in /etc/os-release (an alias of
+/usr/lib/os-release) as **OpenWrt Systemd Host**, with
+ID=openwrt-systemd, ID_LIKE="openwrt lede" and
+VARIANT_ID=native-systemd. Standard procd images keep their existing identity.
+The native template is package/base-files/os-release.systemd; release,
+revision, architecture and board values still come from the normal build
+metadata. OPENWRT_FEATURES lists the capabilities built into the image:
+router, plus desktop, virtualization, flatpak and containers when
+their corresponding packages are selected.
+
+Agents should read the OPENWRT_* identity fields before choosing administrative
+commands: this host uses glibc and matching native APK repositories, systemd
+for the default init, and UCI/netifd/procd for router services. Firmware flashing
+requires procd recovery. OPENWRT_DEFAULT_INIT describes the default boot mode;
+check /proc/1/comm for the current mode, since recovery runs procd.
+
 Package payloads and root overlays are normalized to merged `/usr`: `/bin`,
 `/sbin` and `/lib` become relative aliases for `/usr/bin`, `/usr/sbin` and
 `/usr/lib`. `/run` is a real tmpfs and `/var/run` points to it. Package file
