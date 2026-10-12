@@ -1,0 +1,29 @@
+Subject: [PATCH] qemu: retain existing disk leases across an ACPI fake reboot
+
+qemuProcessHandleShutdown marks fake-reboot CPU pauses with pausedShutdown.
+The STOP handler deliberately retains disk leases in that case. Do not
+resume/acquire those leases again when starting CPUs after system_reset:
+virtlockd rejects the duplicate acquisition and the reboot worker kills
+the domain. Ordinary starts and suspend/resume still acquire leases.
+
+Reproduced with libvirt 12.8.0, QEMU 11.1.1 and lock_manager="lockd".
+Upstream report: https://gitlab.com/libvirt/libvirt/-/work_items/892
+
+---
+--- a/src/qemu/qemu_process.c
++++ b/src/qemu/qemu_process.c
+@@ -3451,8 +3451,12 @@ qemuProcessStartCPUs(virQEMUDriver *driver, virDomainObj *vm,
+        return -1;
+ 
+     VIR_DEBUG("Using lock state '%s'", NULLSTR(priv->lockState));
+-    if (virDomainLockProcessResume(driver->lockManager, cfg->uri,
+-                                   vm, priv->lockState) < 0) {
++    /* The STOP handler retains leases while pausedShutdown is set for a
++     * fake reboot. Reacquiring them would collide with this same domain's
++     * existing leases, causing an otherwise clean reboot to fail. */
++    if (!priv->pausedShutdown &&
++        virDomainLockProcessResume(driver->lockManager, cfg->uri,
++                                  vm, priv->lockState) < 0) {
+         /* Don't free priv->lockState on error, because we need
+          * to make sure we have state still present if the user
+          * tries to resume again
