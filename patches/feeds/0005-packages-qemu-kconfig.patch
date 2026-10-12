@@ -1,0 +1,46 @@
+diff --git a/utils/qemu/Makefile b/utils/qemu/Makefile
+index b3be30d..c1db906 100644
+--- a/utils/qemu/Makefile
++++ b/utils/qemu/Makefile
+@@ -260,17 +260,6 @@ config QEMU_UI_VNC_SASL
+ config QEMU_UI_SPICE
+ 	bool "QEMU SPICE ui support"
+ 
+-config QEMU_OPENGL
+-	bool "QEMU OpenGL (EGL/GBM) support"
+-	default n
+-	depends on HAVE_MESA
+-
+-config QEMU_VIRGLRENDERER
+-	bool "QEMU VirtIO GPU 3D (VirGL) support"
+-	default n
+-	depends on HAVE_MESA
+-	select QEMU_OPENGL
+-
+ config QEMU_DEV_USB
+ 	bool "QEMU USB passthrough support"
+ 	default y
+@@ -287,6 +276,23 @@ config QEMU_ZSTD
+ 	default n
+ 
+ endif
++
++# Keep these options independent of the QEMU packages: their conditional
++# Mesa prerequisites propagate back to those packages and would form a cycle.
++menu "QEMU graphics configuration"
++
++config QEMU_OPENGL
++	bool "QEMU OpenGL (EGL/GBM) support"
++	default n
++	depends on HAVE_MESA
++
++config QEMU_VIRGLRENDERER
++	bool "QEMU VirtIO GPU 3D (VirGL) support"
++	default n
++	depends on HAVE_MESA
++	select QEMU_OPENGL
++
++endmenu
+ endef
+ 
+ PKG_CONFIG_DEPENDS += \

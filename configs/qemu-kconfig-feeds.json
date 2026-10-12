@@ -1,0 +1,7 @@
+{
+  "packages": {
+    "base": "d02536bfe97a42d31d0f97c0eee8e772bbf200d9",
+    "commit": "a551dd96e41ecfcdae329bafb8c79466abaa45ce",
+    "patch": "patches/feeds/0005-packages-qemu-kconfig.patch"
+  }
+}
