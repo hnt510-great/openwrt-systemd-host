@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openwrt-desktop
-PKG_RELEASE:=5
+PKG_RELEASE:=6
 PKG_CONFIG_DEPENDS:=CONFIG_OPENWRT_SYSTEMD
 PKG_LICENSE:=MIT
 
@@ -14,7 +14,7 @@ define Package/openwrt-desktop
   DEPENDS:=@TARGET_x86_64 +input-support +video-support +weston +@WESTON_VNC +seatd +libpam \
 	+kmod-input-evdev +dejavu-fonts-ttf-DejaVuSans \
 	+dejavu-fonts-ttf-DejaVuSansMono +openssl-util \
-	+shadow-usermod +shadow-useradd +shadow-passwd
+	+shadow-usermod +shadow-useradd +shadow-passwd +tar
 endef
 
 define Package/openwrt-desktop/description

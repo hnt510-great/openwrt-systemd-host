@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 PKG_NAME:=libgtk3
 PKG_VERSION:=3.24.52
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 PKG_SOURCE:=gtk-3.24.52.tar.xz
 PKG_SOURCE_URL:=https://download.gnome.org/sources/gtk/3.24/
 PKG_HASH:=80931fa472a77b9a164f6740e3c0b444fac6770054632d35a7ff9d679e5e7b9f
@@ -18,9 +18,10 @@ define Package/libgtk3
   SECTION:=libs
   CATEGORY:=Libraries
   TITLE:=libgtk3
-  DEPENDS:=@TARGET_x86_64 @USE_GLIBC +glib2-gir +glib2-utils +at-spi2-core +libpango +libgdk-pixbuf +libcairo +libepoxy +libwayland +libxkbcommon +libmesa +libjpeg +libpng +libtiff +fontconfig +libintl-full +adwaita-icons
+  DEPENDS:=@TARGET_x86_64 @USE_GLIBC +glib2-gir +glib2-utils +at-spi2-core +libpango +libgdk-pixbuf +libcairo +libepoxy +libwayland +libxkbcommon +libmesa +libjpeg +libpng +libtiff +fontconfig +libintl-full +adwaita-icons \
+	+libX11 +libXext +libXrender +libXrandr +libXi +libXcursor +libXfixes +libXdamage +libXcomposite
 endef
-MESON_ARGS += -Dintrospection=true -Dx11_backend=false -Dwayland_backend=true -Dbroadway_backend=false -Dquartz_backend=false -Dwin32_backend=false -Dprint_backends=file -Dcolord=no -Dgtk_doc=false -Dman=false -Ddemos=false -Dexamples=false -Dtests=false -Dinstalled_tests=false
+MESON_ARGS += -Dintrospection=true -Dx11_backend=true -Dxinerama=no -Dwayland_backend=true -Dbroadway_backend=false -Dquartz_backend=false -Dwin32_backend=false -Dprint_backends=file -Dcolord=no -Dgtk_doc=false -Dman=false -Ddemos=false -Dexamples=false -Dtests=false -Dinstalled_tests=false
 
 define Build/InstallDev
 	$(INSTALL_DIR) $(1)/usr/lib $(1)/usr/include $(1)/usr/share/gir-1.0 $(1)/usr/lib/girepository-1.0

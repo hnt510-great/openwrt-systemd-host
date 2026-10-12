@@ -1,0 +1,81 @@
+From ec363f088caa2c14d937610c91c6e0ac47ac0dfb Mon Sep 17 00:00:00 2001
+From: hnt510 <hnt510@gmail.com>
+Date: Mon, 12 Oct 2026 08:31:30 +0800
+Subject: [PATCH] video: enable Xlib and GLX for the Firefox GTK backend
+
+Build Cairo with Xlib and libepoxy with X11/GLX, declaring their X11 client dependencies. Bump package releases for the changed interfaces.
+
+Validated with scoped Cairo, libepoxy and GTK3 builds, complete x86_64/glibc native-systemd firmware, and Firefox/virt-manager checks in an isolated QEMU VM.
+---
+ libs/cairo/Makefile    | 6 +++---
+ libs/libepoxy/Makefile | 8 ++++----
+ 2 files changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/libs/cairo/Makefile b/libs/cairo/Makefile
+index 55f8441..97a8529 100644
+--- a/libs/cairo/Makefile
++++ b/libs/cairo/Makefile
+@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=cairo
+ PKG_VERSION:=1.18.4
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://cairo.freedesktop.org/releases/
+@@ -21,7 +21,7 @@ define Package/libcairo
+   SUBMENU:=Video
+   TITLE:=cairo
+   URL:=https://cairo.freedesktop.org/
+-  DEPENDS:=+libpng +libfreetype +fontconfig +libmesa +pixman +glib2 +libjpeg +zlib +liblzo
++  DEPENDS:=+libpng +libfreetype +fontconfig +libmesa +pixman +glib2 +libjpeg +zlib +liblzo +libX11 +libXext +libXrender
+ endef
+ 
+ define Package/libcairo/description
+@@ -34,7 +34,7 @@ MESON_ARGS += \
+ 	-Dfreetype=enabled \
+ 	-Dpng=enabled \
+ 	-Dxcb=disabled \
+-	-Dxlib=disabled \
++	-Dxlib=enabled \
+ 	-Dxlib-xcb=disabled \
+ 	-Dzlib=enabled
+ 
+diff --git a/libs/libepoxy/Makefile b/libs/libepoxy/Makefile
+index 4a2464d..f411de9 100644
+--- a/libs/libepoxy/Makefile
++++ b/libs/libepoxy/Makefile
+@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=libepoxy
+ PKG_VERSION:=1.5.10
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
+ PKG_SOURCE_URL:=https://codeload.github.com/anholt/libepoxy/tar.gz/$(PKG_VERSION)?
+@@ -21,7 +21,7 @@ define Package/libepoxy
+   SUBMENU:=Video
+   TITLE:=Epoxy OpenGL function pointer management
+   URL:=https://github.com/anholt/libepoxy
+-  DEPENDS:=+libmesa
++  DEPENDS:=+libmesa +libX11
+ endef
+ 
+ define Package/libepoxy/description
+@@ -30,9 +30,9 @@ endef
+ 
+ MESON_ARGS += \
+ 	-Ddocs=false \
+-	-Dglx=no \
++	-Dglx=yes \
+ 	-Degl=yes \
+-	-Dx11=false \
++	-Dx11=true \
+ 	-Dtests=false
+ 
+ define Package/libepoxy/install
+-- 
+2.47.3
+

@@ -264,10 +264,32 @@ fi
 
 include /lib/upgrade
 
+include_home_directory_metadata() {
+	local file="$1"
+	local dirs="$1.dirs"
+	local merged="$1.merged"
+
+	grep -q '^home/' "$file" || return 1
+	# GNU tar is included by the desktop package. Without this option, adding
+	# directories would recursively include files outside the backup selection.
+	tar --help 2>&1 | grep -q -- '--no-recursion' || return 1
+
+	# Keep every selected home file's parent ownership and mode. File lists
+	# remain newline-delimited, including paths containing spaces.
+	awk '/^home\// {
+		path = $0
+		while (sub(/\/[^\/]*$/, "", path)) print path
+	}' "$file" > "$dirs"
+	cat "$file" "$dirs" | sort -u > "$merged"
+	mv "$merged" "$file"
+	rm -f "$dirs"
+}
+
 create_backup_archive() {
 	local conf_tar="$1"
 	local disabled
 	local err
+	local tar_recursion_arg=""
 
 	[ "$(rootfs_type)" = "tmpfs" ] && {
 		echo "Cannot save config while running from ramdisk." >&2
@@ -282,6 +304,7 @@ create_backup_archive() {
 	v "Saving config files..."
 	[ "$VERBOSE" -gt 1 ] && TAR_V="v" || TAR_V=""
 	sed -i -e 's,^/,,' "$CONFFILES"
+	include_home_directory_metadata "$CONFFILES" && tar_recursion_arg="--no-recursion"
 	set -o pipefail
 	{
 		local ret=0
@@ -322,7 +345,7 @@ create_backup_archive() {
 
 		# Rest of archive with config files and ending padding
 		if [ $ret -eq 0 ]; then
-			tar c${TAR_V} -C / -T "$CONFFILES" || ret=1
+			tar c${TAR_V} $tar_recursion_arg -C / -T "$CONFFILES" || ret=1
 		fi
 
 		[ $ret -eq 0 ]

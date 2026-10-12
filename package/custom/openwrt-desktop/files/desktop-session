@@ -34,6 +34,14 @@ path=/usr/libexec/virt-manager-launch
 
 EOF
 fi
+if [ -x /usr/bin/firefox-esr ]; then
+	cat >> "$XDG_RUNTIME_DIR/weston.ini" <<EOF
+[launcher]
+icon=/usr/share/icons/hicolor/32x32/apps/firefox-esr.png
+path=/usr/bin/firefox-esr
+
+EOF
+fi
 cat >> "$XDG_RUNTIME_DIR/weston.ini" <<EOF
 [output]
 name=$output

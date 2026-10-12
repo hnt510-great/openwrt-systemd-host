@@ -21,6 +21,10 @@ The desktop starts automatically on subsequent boots when a display and LAN
 address are available. The terminal and VNC session run as this user, with terminals starting in the home directory.
 Click the terminal icon in the top panel to open a terminal window.
 
+Images containing Firefox ESR also show a browser icon in the panel.
+Click it to browse as the desktop user; Firefox does not start automatically.
+See [Firefox setup, updates and profile backups](firefox.md).
+
 Connect a TLS-capable VNC viewer, such as [TigerVNC](https://tigervnc.org/doc/vncviewer.html), to `LAN_IP::5900`.
 Authenticate with the desktop account's username and password. Use a client
 that supports VeNCrypt/X509Plain, rather than a password-only VNC client.

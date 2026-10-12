@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=gobject-introspection
 PKG_VERSION:=1.86.0
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 PKG_SOURCE:=gobject-introspection-1.86.0.tar.xz
 PKG_SOURCE_URL:=https://download.gnome.org/sources/gobject-introspection/1.86/
 PKG_HASH:=920d1a3fcedeadc32acff95c2e203b319039dd4b4a08dd1a2dfd283d19c0b9ae
@@ -34,14 +34,18 @@ endef
 define Build/Compile
 	$(CP) $(PKG_BUILD_DIR)/gir/cairo-1.0.gir.in $(PKG_BUILD_DIR)/gir/cairo-1.0.gir
 	$(SED) 's|@CAIRO_SHARED_LIBRARY@|libcairo-gobject.so.2|g;s|@CAIRO_GIR_PACKAGE@|cairo-gobject|g' $(PKG_BUILD_DIR)/gir/cairo-1.0.gir
+	# GTK's X11 namespace imports these opaque types; this generates data only.
+	$(STAGING_DIR_HOSTPKG)/bin/g-ir-compiler $(PKG_BUILD_DIR)/gir/xlib-2.0.gir \
+		-o $(PKG_BUILD_DIR)/gir/xlib-2.0.typelib
 endef
 
 define Build/Install
 endef
 
 define Build/InstallDev
-	$(INSTALL_DIR) $(1)/usr/share/gir-1.0 $(1)/usr/lib/pkgconfig $(1)/usr/bin
+	$(INSTALL_DIR) $(1)/usr/share/gir-1.0 $(1)/usr/lib/pkgconfig $(1)/usr/bin $(1)/usr/lib/girepository-1.0
 	$(CP) $(PKG_BUILD_DIR)/gir/*.gir $(1)/usr/share/gir-1.0/
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/gir/xlib-2.0.typelib $(1)/usr/lib/girepository-1.0/
 	$(INSTALL_BIN) ./files/g-ir-scanner $(1)/usr/bin/g-ir-scanner
 	$(SED) 's|@HOSTPKG@|$(STAGING_DIR_HOSTPKG)|g;s|@TOPDIR@|$(TOPDIR)|g' $(1)/usr/bin/g-ir-scanner
 	$(INSTALL_BIN) ./files/g-ir-compiler $(1)/usr/bin/g-ir-compiler
@@ -51,7 +55,8 @@ define Build/InstallDev
 endef
 
 define Package/gobject-introspection/install
-	:
+	$(INSTALL_DIR) $(1)/usr/lib/girepository-1.0
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/gir/xlib-2.0.typelib $(1)/usr/lib/girepository-1.0/
 endef
 
 $(eval $(call HostBuild))

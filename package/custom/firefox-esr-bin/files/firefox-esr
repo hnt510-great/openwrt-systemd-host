@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+if [ "$(id -u)" = 0 ]; then
+	echo 'Start Firefox as an ordinary desktop user.' >&2
+	exit 1
+fi
+
+export GDK_BACKEND=wayland
+export MOZ_ENABLE_WAYLAND=1
+exec /usr/lib/firefox-esr/firefox "$@"

@@ -1,0 +1,7 @@
+{
+  "video": {
+    "base": "8f7c7fdd48a0df61040768dd325374eaa133384e",
+    "commit": "ec363f088caa2c14d937610c91c6e0ac47ac0dfb",
+    "patch": "patches/feeds/0003-video-firefox-esr.patch"
+  }
+}
