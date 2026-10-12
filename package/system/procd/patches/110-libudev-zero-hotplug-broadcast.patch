@@ -1,0 +1,145 @@
+Subject: [PATCH] procd: rebroadcast completed hotplug events for libudev-zero
+
+Retain the original kernel uevent and enqueue a broadcast barrier after
+its rules have created device nodes and scheduled their helpers. Drain
+barriers in the parent after earlier helpers finish, without spawning an
+extra process per notification. Send to libudev-zero's netlink group 0x4.
+
+Listen only to kernel group 1 and reject userspace senders and truncated
+messages, preventing feedback loops and forged device-manager events.
+This applies equally to normal procd and the systemd compatibility daemon.
+
+---
+--- a/plug/hotplug.c
++++ b/plug/hotplug.c
+@@ -42,6 +42,8 @@
+ #include "hotplug.h"
+ 
+ #define HOTPLUG_WAIT	500
++/* libudev-zero listens for device-manager-completed events on group 0x4. */
++#define UDEV_MONITOR_GROUP	0x4
+ 
+ #define HOTPLUG_RULES_EVENTS	(IN_CREATE | IN_CLOSE_WRITE | IN_MOVED_TO | \
+ 				 IN_DELETE | IN_MOVED_FROM | IN_DELETE_SELF | \
+@@ -54,6 +56,8 @@
+ 	struct blob_attr *msg;
+ 	struct blob_attr *data;
+ 	int timeout;
++	char *uevent;
++	size_t uevent_len;
+ 
+ 	void (*handler)(struct blob_attr *msg, struct blob_attr *data);
+ 	void (*start)(struct blob_attr *msg, struct blob_attr *data);
+@@ -85,6 +89,11 @@
+ static char *rule_file;
+ static struct blob_buf script;
+ static struct cmd_queue *current;
++
++static void hotplug_handler(struct uloop_fd *u, unsigned int ev);
++static struct uloop_fd hotplug_fd = {
++	.cb = hotplug_handler,
++};
+ 
+ static void queue_add(struct cmd_handler *h, struct blob_attr *msg, struct blob_attr *data);
+ static void handle_button_complete(struct blob_attr *msg, struct blob_attr *data, int ret);
+@@ -378,9 +387,33 @@
+ 	},
+ };
+ 
++static void hotplug_broadcast(struct cmd_queue *c)
++{
++	struct sockaddr_nl nls = {
++		.nl_family = AF_NETLINK,
++		.nl_groups = UDEV_MONITOR_GROUP,
++	};
++
++	/* ESRCH is normal when no libudev-zero clients are listening. */
++	if (sendto(hotplug_fd.fd, c->uevent, c->uevent_len, MSG_DONTWAIT,
++		   (struct sockaddr *)&nls, sizeof(nls)) < 0 && errno != ESRCH)
++		ERROR("Failed to rebroadcast hotplug event: %m\n");
++}
++
+ static void queue_next(void)
+ {
+ 	struct cmd_queue *c;
++
++	/* These barriers run in the parent after preceding helpers finish. */
++	while (!queue_proc.pending && !list_empty(&cmd_queue)) {
++		c = list_first_entry(&cmd_queue, struct cmd_queue, list);
++		if (!c->uevent)
++			break;
++
++		list_del(&c->list);
++		hotplug_broadcast(c);
++		free(c);
++	}
+ 
+ 	if (queue_proc.pending || list_empty(&cmd_queue))
+ 		return;
+@@ -683,11 +716,33 @@
+ {
+ 	int i = 0;
+ 	static char buf[4096];
+-	int len = recv(u->fd, buf, sizeof(buf) - 1, MSG_DONTWAIT);
+-	if (len < 1)
+-		return;
+-
+-	buf[len] = '\0';
++	struct sockaddr_nl nls = {};
++	struct iovec iov = { .iov_base = buf, .iov_len = sizeof(buf) };
++	struct msghdr msg = {
++		.msg_name = &nls,
++		.msg_namelen = sizeof(nls),
++		.msg_iov = &iov,
++		.msg_iovlen = 1,
++	};
++	struct cmd_queue *c;
++	char *uevent;
++	int len = recvmsg(u->fd, &msg, MSG_DONTWAIT);
++
++	/* Never process userspace rebroadcasts, including our own. */
++	if (len < 1 || (msg.msg_flags & MSG_TRUNC) ||
++	    msg.msg_namelen < sizeof(nls) || nls.nl_pid ||
++	    nls.nl_groups != 1 || buf[len - 1] != '\0')
++		return;
++
++	/* Keep the original NUL-separated payload before parsing mutates it. */
++	c = calloc_a(sizeof(*c), &uevent, len, NULL);
++	if (c) {
++		c->uevent = uevent;
++		c->uevent_len = len;
++		memcpy(uevent, buf, len);
++	} else {
++		ERROR("Failed to queue hotplug rebroadcast: out of memory\n");
++	}
+ 
+ 	blob_buf_init(&b, 0);
+ 	while (i < len) {
+@@ -703,11 +758,13 @@
+ 	hotplug_ubus_event(b.head);
+ 	hotplug_handler_debug(b.head);
+ 	json_script_run(&jctx, rule_file, b.head);
+-}
+-
+-static struct uloop_fd hotplug_fd = {
+-	.cb = hotplug_handler,
+-};
++
++	/* Device creation is synchronous; exec/firmware helpers are queued. */
++	if (c) {
++		list_add_tail(&c->list, &cmd_queue);
++		queue_next();
++	}
++}
+ 
+ void hotplug_last_event(uloop_timeout_handler handler)
+ {
+@@ -726,7 +783,7 @@
+ 	rule_file = strdup(rules);
+ 	nls.nl_family = AF_NETLINK;
+ 	nls.nl_pid = 0;
+-	nls.nl_groups = -1;
++	nls.nl_groups = 1;
+ 
+ 	if ((hotplug_fd.fd = socket(PF_NETLINK, SOCK_DGRAM | SOCK_CLOEXEC, NETLINK_KOBJECT_UEVENT)) == -1) {
+ 		ERROR("Failed to open hotplug socket: %m\n");
