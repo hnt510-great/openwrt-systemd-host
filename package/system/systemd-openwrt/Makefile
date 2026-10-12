@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=systemd-openwrt
-PKG_RELEASE:=2
+PKG_RELEASE:=3
 PKG_LICENSE:=GPL-2.0-only
 PKG_CONFIG_DEPENDS:=CONFIG_TARGET_ROOTFS_PERSIST_VAR
 
@@ -9,6 +9,8 @@ include $(INCLUDE_DIR)/package.mk
 
 SYSTEMD_LINGER_PATH:=$(if $(CONFIG_TARGET_ROOTFS_PERSIST_VAR),/var,/tmp)/lib/systemd/linger
 SYSTEMD_LINGER_UNIT:=$(if $(CONFIG_TARGET_ROOTFS_PERSIST_VAR),var,tmp)-lib-systemd-linger.mount
+SYSTEMD_JOURNAL_PATH:=$(if $(CONFIG_TARGET_ROOTFS_PERSIST_VAR),/var,/tmp)/log/journal
+SYSTEMD_JOURNAL_UNIT:=$(if $(CONFIG_TARGET_ROOTFS_PERSIST_VAR),var,tmp)-log-journal.mount
 
 define Package/systemd-openwrt
   SECTION:=base
@@ -43,6 +45,17 @@ define Package/systemd-openwrt/install
 	$(INSTALL_DATA) ./files/openwrt-*.service ./files/dbus.service $(1)/usr/lib/systemd/system/
 	$(INSTALL_DATA) ./files/dbus.socket $(1)/usr/lib/systemd/system/
 	$(INSTALL_DATA) ./files/journald.conf $(1)/etc/systemd/journald.conf.d/openwrt.conf
+	# /var usually aliases /tmp; keep the journal on the persistent root/extroot.
+	$(INSTALL_DIR) $(1)/srv/journal $(1)/usr/lib/systemd/system/systemd-journal-flush.service.d
+	chmod 2755 $(1)/srv/journal
+	$(INSTALL_DATA) ./files/journal.mount $(1)/usr/lib/systemd/system/$(SYSTEMD_JOURNAL_UNIT)
+	$(SED) 's,^Where=.*,Where=$(SYSTEMD_JOURNAL_PATH),' $(1)/usr/lib/systemd/system/$(SYSTEMD_JOURNAL_UNIT)
+	$(INSTALL_DATA) ./files/journal-flush.conf $(1)/usr/lib/systemd/system/systemd-journal-flush.service.d/openwrt.conf
+	$(SED) 's,var-log-journal.mount,$(SYSTEMD_JOURNAL_UNIT),g' \
+		$(1)/usr/lib/systemd/system/systemd-journal-flush.service.d/openwrt.conf
+	$(INSTALL_DATA) ./files/openwrt-journal-rotate.timer $(1)/usr/lib/systemd/system/
+	$(INSTALL_DIR) $(1)/etc/systemd/system/timers.target.wants
+	$(LN) /usr/lib/systemd/system/openwrt-journal-rotate.timer $(1)/etc/systemd/system/timers.target.wants/
 	$(INSTALL_DATA) ./files/system.conf $(1)/etc/systemd/system.conf.d/openwrt.conf
 	$(INSTALL_DATA) ./files/logind.conf $(1)/etc/systemd/logind.conf.d/openwrt.conf
 	$(INSTALL_DIR) $(1)/etc/pam.d

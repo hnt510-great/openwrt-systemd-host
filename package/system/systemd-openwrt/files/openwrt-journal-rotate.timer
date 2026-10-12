@@ -1,0 +1,9 @@
+[Unit]
+Description=Periodically expire old OpenWrt journal files
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=1day
+
+[Install]
+WantedBy=timers.target

@@ -37,7 +37,8 @@ sysctl and logd. Udev, its generators, and systemd's competing sysctl/module
 units are disabled. Native units should use explicit paths and service
 dependencies; udev-backed `.device` dependencies are outside this integration.
 `logread` retains router logs, while `journalctl` records native unit output.
-Journald uses volatile storage limited to 32 MiB; systemd watchdog handling is
+Journald uses persistent storage on root/extroot with bounded disk usage; see
+[journal storage and cleanup](journald.md). Systemd watchdog handling is
 disabled so procd remains the watchdog owner.
 
 The package excludes networkd, resolved and timesyncd. Native mode includes
