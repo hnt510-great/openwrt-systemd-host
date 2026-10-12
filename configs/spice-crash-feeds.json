@@ -1,0 +1,8 @@
+{
+  "packages": {
+    "base": "a0ad6205e6de38788ae6d0a275dd823d9adf2fc5",
+    "patch": "patches/feeds/0004-packages-spice-crash-fixes.patch",
+    "apply": "git apply",
+    "commit": "6704d62c82b4da5cda884ac7cca422b206b8672d"
+  }
+}

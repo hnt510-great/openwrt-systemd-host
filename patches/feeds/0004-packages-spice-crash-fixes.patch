@@ -1,0 +1,284 @@
+diff --git a/utils/qemu/Makefile b/utils/qemu/Makefile
+index 3b5b4c7..b3be30d 100644
+--- a/utils/qemu/Makefile
++++ b/utils/qemu/Makefile
+@@ -10,7 +10,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=qemu
+ PKG_VERSION:=11.1.1
+-PKG_RELEASE:=2
++PKG_RELEASE:=3
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://download.qemu.org/
+ PKG_HASH:=079ffbff8a7111bbc89022107cbabf3bbfd614d5fc9d7cc675991196aca12482
+@@ -457,6 +457,7 @@ CONFIGURE_ARGS +=			\
+ 	--disable-selinux		\
+ 	--disable-oss			\
+ 	--disable-alsa			\
++	--disable-pipewire		\
+ 	--disable-pa			\
+ 	--disable-vduse-blk-export	\
+ 	--disable-libdw			\
+diff --git a/utils/qemu/patches/0005-spice-defer-scanout-until-gl-draw-done.patch b/utils/qemu/patches/0005-spice-defer-scanout-until-gl-draw-done.patch
+new file mode 100644
+index 0000000..0fdff9a
+--- /dev/null
++++ b/utils/qemu/patches/0005-spice-defer-scanout-until-gl-draw-done.patch
+@@ -0,0 +1,226 @@
++Subject: ui/spice: defer scanout replacement until GL draw completion
++
++The display reset/modeset path can replace or disable a scanout while
++spice-server still has a GL draw cookie outstanding. The server aborts in
++spice_qxl_gl_scanout(). Retain/coalesce exported scanout fds, apply the latest
++scanout from the completion BH before unblocking the renderer, and close
++superseded or shutdown-pending fds. Do not fake completion or disable GL.
++
++--- a/ui/spice-display.c
+++++ b/ui/spice-display.c
++@@ -785,11 +785,37 @@
++ 
++ #ifdef HAVE_SPICE_GL
++ 
+++/* QEMU may reset/change scanout while the client still owns a GL draw. */
+++struct SpiceGLScanout {
+++    int fd[DMABUF_MAX_PLANES];
+++    uint32_t width, height;
+++    uint32_t offset[DMABUF_MAX_PLANES], stride[DMABUF_MAX_PLANES];
+++    uint32_t num_planes, format;
+++    uint64_t modifier;
+++    int y_0_top;
+++    bool have_monitor_config;
+++    int monitor_x, monitor_y, monitor_width, monitor_height;
+++};
+++
+++static void spice_gl_apply_pending_scanout(SimpleSpiceDisplay *ssd);
+++static void spice_gl_discard_pending_scanout(SimpleSpiceDisplay *ssd);
+++
++ static void qemu_spice_gl_monitor_config(SimpleSpiceDisplay *ssd,
++                                          int x, int y, int w, int h)
++ {
++     QXLMonitorsConfig *config;
++     QXLCookie *cookie;
+++
+++    if (ssd->pending_scanout) {
+++        struct SpiceGLScanout *scanout = ssd->pending_scanout;
+++
+++        scanout->have_monitor_config = true;
+++        scanout->monitor_x = x;
+++        scanout->monitor_y = y;
+++        scanout->monitor_width = w;
+++        scanout->monitor_height = h;
+++        return;
+++    }
++ 
++     config = g_malloc0(sizeof(QXLMonitorsConfig) + sizeof(QXLHead));
++     config->count = 1;
++@@ -826,6 +852,8 @@
++ {
++     SimpleSpiceDisplay *ssd = opaque;
++ 
+++    ssd->gl_draw_pending = false;
+++    spice_gl_apply_pending_scanout(ssd);
++     qemu_spice_gl_block(ssd, false);
++ }
++ 
++@@ -840,6 +868,7 @@
++     uint64_t cookie;
++ 
++     cookie = (uintptr_t)qxl_cookie_new(QXL_COOKIE_TYPE_GL_DRAW_DONE, 0);
+++    ssd->gl_draw_pending = true;
++     spice_qxl_gl_draw_async(&ssd->qxl, x, y, w, h, cookie);
++ }
++ 
++@@ -964,7 +993,7 @@
++     return ret;
++ }
++ 
++-static void spice_server_gl_scanout(QXLInstance *qxl,
+++static void spice_server_gl_scanout_now(QXLInstance *qxl,
++                                     const int *fd,
++                                     uint32_t width, uint32_t height,
++                                     const uint32_t *offset,
++@@ -986,6 +1015,78 @@
++ #endif
++ }
++ 
+++static void spice_gl_discard_pending_scanout(SimpleSpiceDisplay *ssd)
+++{
+++    struct SpiceGLScanout *scanout = ssd->pending_scanout;
+++
+++    if (!scanout) {
+++        return;
+++    }
+++    for (uint32_t i = 0; i < scanout->num_planes; i++) {
+++        close(scanout->fd[i]);
+++    }
+++    g_clear_pointer(&ssd->pending_scanout, g_free);
+++}
+++
+++static void spice_gl_apply_pending_scanout(SimpleSpiceDisplay *ssd)
+++{
+++    struct SpiceGLScanout *scanout = ssd->pending_scanout;
+++
+++    if (!scanout) {
+++        return;
+++    }
+++    /* Ownership of the latest scanout fds now passes to the SPICE server. */
+++    ssd->pending_scanout = NULL;
+++    spice_server_gl_scanout_now(&ssd->qxl,
+++                               scanout->num_planes ? scanout->fd : NULL,
+++                               scanout->width, scanout->height,
+++                               scanout->offset, scanout->stride,
+++                               scanout->num_planes, scanout->format,
+++                               scanout->modifier, scanout->y_0_top);
+++    if (scanout->have_monitor_config) {
+++        qemu_spice_gl_monitor_config(ssd, scanout->monitor_x, scanout->monitor_y,
+++                                    scanout->monitor_width,
+++                                    scanout->monitor_height);
+++    }
+++    g_free(scanout);
+++}
+++
+++static void spice_server_gl_scanout(SimpleSpiceDisplay *ssd,
+++                                    const int *fd,
+++                                    uint32_t width, uint32_t height,
+++                                    const uint32_t *offset,
+++                                    const uint32_t *stride,
+++                                    uint32_t num_planes, uint32_t format,
+++                                    uint64_t modifier, int y_0_top)
+++{
+++    struct SpiceGLScanout *scanout;
+++
+++    spice_gl_discard_pending_scanout(ssd);
+++    if (!ssd->gl_draw_pending) {
+++        spice_server_gl_scanout_now(&ssd->qxl, fd, width, height, offset,
+++                                   stride, num_planes, format, modifier,
+++                                   y_0_top);
+++        return;
+++    }
+++
+++    /* Keep the exported fds alive until GL_DRAW_DONE, including a reset's
+++     * disable. Never discard the outstanding cookie or unblock early.
+++     */
+++    scanout = g_new0(struct SpiceGLScanout, 1);
+++    scanout->width = width;
+++    scanout->height = height;
+++    scanout->num_planes = num_planes;
+++    scanout->format = format;
+++    scanout->modifier = modifier;
+++    scanout->y_0_top = y_0_top;
+++    for (uint32_t i = 0; i < num_planes; i++) {
+++        scanout->fd[i] = fd[i];
+++        scanout->offset[i] = offset[i];
+++        scanout->stride[i] = stride[i];
+++    }
+++    ssd->pending_scanout = scanout;
+++}
+++
++ static void spice_gl_switch(DisplayChangeListener *dcl,
++                             struct DisplaySurface *new_surface)
++ {
++@@ -1025,7 +1126,7 @@
++                                     fourcc);
++ 
++         /* note: spice server will close the fd */
++-        spice_server_gl_scanout(&ssd->qxl, fd,
+++        spice_server_gl_scanout(ssd, fd,
++                                 surface_width(ssd->ds),
++                                 surface_height(ssd->ds),
++                                 offset, stride, num_planes,
++@@ -1064,7 +1165,7 @@
++             qemu_spice_gl_block(ssd, false);
++         }
++     }
++-    spice_server_gl_scanout(&ssd->qxl, NULL, 0, 0, NULL, NULL, 0, DRM_FORMAT_INVALID,
+++    spice_server_gl_scanout(ssd, NULL, 0, 0, NULL, NULL, 0, DRM_FORMAT_INVALID,
++                             DRM_FORMAT_MOD_INVALID, false);
++     qemu_spice_gl_monitor_config(ssd, 0, 0, 0, 0);
++     ssd->have_surface = false;
++@@ -1108,7 +1209,7 @@
++         }
++     } else {
++         /* note: spice server will close the fd */
++-        spice_server_gl_scanout(&ssd->qxl, fd, backing_width, backing_height,
+++        spice_server_gl_scanout(ssd, fd, backing_width, backing_height,
++                                 (uint32_t *)offset, (uint32_t *)stride,
++                                 num_planes, fourcc, modifier, y_0_top);
++         qemu_spice_gl_monitor_config(ssd, x, y, w, h);
++@@ -1210,7 +1311,7 @@
++         return false;
++     }
++ 
++-    spice_server_gl_scanout(&ssd->qxl, fds,
+++    spice_server_gl_scanout(ssd, fds,
++                             surface_width(ssd->ds),
++                             surface_height(ssd->ds),
++                             (uint32_t *)offsets, (uint32_t *)strides,
++@@ -1282,7 +1383,7 @@
++                     return;
++                 }
++ 
++-                spice_server_gl_scanout(&ssd->qxl, fds, width, height, offsets, strides,
+++                spice_server_gl_scanout(ssd, fds, width, height, offsets, strides,
++                                         num_planes, fourcc, modifier, false);
++             }
++         } else {
++@@ -1301,7 +1402,7 @@
++ 
++             trace_qemu_spice_gl_forward_dmabuf(ssd->qxl.id, width, height);
++             /* note: spice server will close the fd, so hand over a dup */
++-            spice_server_gl_scanout(&ssd->qxl, fds, width, height,
+++            spice_server_gl_scanout(ssd, fds, width, height,
++                                     offsets, strides, num_planes,
++                                     fourcc,
++                                     qemu_dmabuf_get_modifier(dmabuf),
++@@ -1460,6 +1561,7 @@
++         g_clear_pointer(&ssd->mirror, pixman_image_unref);
++         g_clear_pointer(&ssd->buf, g_free);
++ #ifdef HAVE_SPICE_GL
+++        spice_gl_discard_pending_scanout(ssd);
++         g_clear_pointer(&ssd->gl_unblock_bh, qemu_bh_delete);
++         g_clear_pointer(&ssd->gl_unblock_timer, timer_free);
++         g_clear_pointer(&ssd->gls, qemu_gl_fini_shader);
++--- a/include/ui/spice-display.h
+++++ b/include/ui/spice-display.h
++@@ -125,6 +125,8 @@
++     int gl_updates;
++     bool have_scanout;
++     bool have_surface;
+++    bool gl_draw_pending;
+++    struct SpiceGLScanout *pending_scanout;
++ 
++     QemuDmaBuf *guest_dmabuf;
++     bool guest_dmabuf_refresh;
+diff --git a/utils/qemu/patches/0006-spice-avoid-broken-input-cleanup.patch b/utils/qemu/patches/0006-spice-avoid-broken-input-cleanup.patch
+new file mode 100644
+index 0000000..069782b
+--- /dev/null
++++ b/utils/qemu/patches/0006-spice-avoid-broken-input-cleanup.patch
+@@ -0,0 +1,25 @@
++Subject: ui/spice: avoid freeing unsupported input interfaces on shutdown
++
++Based on Fiona Ebner's Proxmox workaround for released spice-server versions
++without upstream c3efe69e (inputs: Fix keyboard and mouse state leaks on
++interface removal). Removing mouse/keyboard returns an error but QEMU frees
++the callback structures anyway, causing use-after-free in server teardown.
++Keep those interfaces alive until process exit as QEMU before 11.1 did.
++
++Reference: https://git.proxmox.com/?p=pve-qemu.git;a=blob_plain;f=debian/patches/pve/0046-ui-spice-core-work-around-broken-input-cleanup-in-li.patch;hb=HEAD
++
++--- a/ui/spice-core.c
+++++ b/ui/spice-core.c
++@@ -1016,7 +1016,11 @@
++     }
++ 
++     qemu_spice_display_cleanup();
++-    qemu_spice_input_cleanup();
+++    /* Released spice-server versions cannot detach keyboard/mouse inputs.
+++     * Keep their callbacks alive until spice_server_destroy() below.
+++     * QEMU 11.1 added this cleanup; older QEMU also left inputs attached.
+++     * See Proxmox's workaround for spice-server <= 0.16.0.
+++     */
++     migration_remove_notifier(&migration_state);
++     g_clear_pointer(&spice_consoles, g_slist_free);
++     g_clear_pointer(&auth_passwd, g_free);
