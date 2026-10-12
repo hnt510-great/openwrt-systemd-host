@@ -1,0 +1,43 @@
+--- a/src/libostree/ostree-sysroot-deploy.c
++++ b/src/libostree/ostree-sysroot-deploy.c
+@@ -3308,7 +3308,7 @@
+ gboolean
+ _ostree_sysroot_run_in_deployment (int deployment_dfd, const char *const *bwrap_argv,
+                                    const gchar *const *child_argv, gint *exit_status,
+-                                   gchar **stdout, GError **error)
++                                   gchar **stdout_buf, GError **error)
+ {
+   static const gchar *const COMMON_ARGV[] = { "/usr/bin/bwrap",
+                                               "--dev",
+@@ -3383,7 +3383,7 @@
+   g_ptr_array_add (args, NULL);
+ 
+   return g_spawn_sync (NULL, (char **)args->pdata, NULL, 0, &child_setup_fchdir,
+-                       (gpointer)(uintptr_t)deployment_dfd, stdout, NULL, exit_status, error);
++                       (gpointer)(uintptr_t)deployment_dfd, stdout_buf, NULL, exit_status, error);
+ }
+ 
+ #ifdef HAVE_SELINUX
+@@ -3397,7 +3397,7 @@
+   GLNX_AUTO_PREFIX_ERROR ("Finalizing SELinux policy", error);
+   struct stat stbuf;
+   gint exit_status;
+-  g_autofree gchar *stdout = NULL;
++  g_autofree gchar *stdout_buf = NULL;
+ 
+   if (!glnx_fstatat_allow_noent (deployment_dfd, "etc/selinux/config", &stbuf, AT_SYMLINK_NOFOLLOW,
+                                  error))
+@@ -3413,11 +3413,11 @@
+    */
+   static const gchar *const SEMODULE_HELP_ARGV[] = { "semodule", "--help", NULL };
+   if (!_ostree_sysroot_run_in_deployment (deployment_dfd, NULL, SEMODULE_HELP_ARGV, &exit_status,
+-                                          &stdout, error))
++                                          &stdout_buf, error))
+     return FALSE;
+   if (!g_spawn_check_exit_status (exit_status, error))
+     return glnx_prefix_error (error, "failed to run semodule");
+-  if (!strstr (stdout, "--refresh"))
++  if (!strstr (stdout_buf, "--refresh"))
+     {
+       ot_journal_print (LOG_INFO, "semodule does not have --refresh");
+       return TRUE;

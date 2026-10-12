@@ -1,0 +1,7 @@
+[
+	[ "if", [ "eq", "DEVNAME", "fuse" ], [
+		[ "makedev", "/dev/fuse", "0666" ],
+		[ "exec", "/bin/chmod", "0666", "/dev/fuse" ],
+		[ "return" ]
+	] ]
+]

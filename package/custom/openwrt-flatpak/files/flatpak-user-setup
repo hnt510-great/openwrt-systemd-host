@@ -1,0 +1,40 @@
+#!/bin/sh
+set -eu
+fail() { echo "flatpak-user-setup: $*" >&2; exit 1; }
+[ "$(id -u)" = 0 ] || fail 'Run as root'
+[ "$#" = 1 ] || fail 'Usage: flatpak-user-setup USER'
+name=$1
+case "$name" in ''|*[!a-zA-Z0-9_-]*) fail 'Invalid account name';; esac
+account=$(awk -F: -v name="$name" '$1 == name { print; exit }' /etc/passwd)
+[ -n "$account" ] || fail 'Account does not exist'
+uid=$(printf '%s\n' "$account" | cut -d: -f3)
+gid=$(printf '%s\n' "$account" | cut -d: -f4)
+home=$(printf '%s\n' "$account" | cut -d: -f6)
+shell=$(printf '%s\n' "$account" | cut -d: -f7)
+case "$uid:$gid" in *[!0-9:]*) fail 'Invalid account IDs';; esac
+[ "$uid" -ge 1000 ] && [ "$gid" -gt 0 ] || fail 'An ordinary account is required'
+case "$home" in /*) ;; *) fail 'An absolute home directory is required';; esac
+case "$shell" in */false|*/nologin) fail 'A login shell is required';; esac
+[ -d "$home" ] && [ -x "$shell" ] || fail 'Create the home directory and login shell first'
+umask 077
+# Only root controls repository parents; the final directory belongs to the user.
+for path in /srv /srv/flatpak /srv/flatpak/users; do
+	[ ! -L "$path" ] || fail "Refusing symbolic link: $path"
+	[ -e "$path" ] || mkdir -m 0755 "$path"
+	[ -d "$path" ] || fail "Not a directory: $path"
+	[ "$(stat -c %u "$path")" = 0 ] || fail "Parent must belong to root: $path"
+	mode=$(stat -c %a "$path")
+	[ "$((0$mode & 0022))" = 0 ] || fail "Parent must not be group/world writable: $path"
+done
+repo="/srv/flatpak/users/$uid"
+[ ! -L "$repo" ] || fail 'Refusing a linked repository'
+if [ -e "$repo" ]; then
+	[ -d "$repo" ] && [ "$(stat -c %u "$repo")" = "$uid" ] || fail 'Repository ownership conflict'
+else
+	mkdir -m 0700 "$repo"
+	chown "$uid:$gid" "$repo"
+fi
+chmod 0700 "$repo"
+# All writes below the user-controlled home run without root privileges.
+su -s /bin/sh -c "exec /usr/libexec/flatpak-user-link '$repo'" "$name"
+printf 'Ready for %s. Add Flathub and install applications using flatpak --user.\n' "$name"

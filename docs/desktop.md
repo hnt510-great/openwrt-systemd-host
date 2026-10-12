@@ -25,6 +25,9 @@ Images containing Firefox ESR also show a browser icon in the panel.
 Click it to browse as the desktop user; Firefox does not start automatically.
 See [Firefox setup, updates and profile backups](firefox.md).
 
+Images with `openwrt-flatpak` support ordinary-user Wayland applications from
+Flathub. See [Flatpak setup, storage and upgrades](flatpak.md).
+
 Connect a TLS-capable VNC viewer, such as [TigerVNC](https://tigervnc.org/doc/vncviewer.html), to `LAN_IP::5900`.
 Authenticate with the desktop account's username and password. Use a client
 that supports VeNCrypt/X509Plain, rather than a password-only VNC client.

@@ -1,0 +1,20 @@
+--- a/data/meson.build
++++ b/data/meson.build
+@@ -7,6 +7,8 @@
+ install_data('its/metainfo.loc',
+               install_dir: join_paths(get_option('datadir'), 'gettext', 'its'))
+ 
++# Library-only builds do not need metadata for the uninstalled CLI.
++if get_option('tools')
+ # Do not rely on an exe wrapper for rel-info, use the system one in that case
+ if meson.is_cross_build()
+     dependency('appstream', version: '>=' + as_version, native: true,
+@@ -41,6 +43,8 @@
+            metainfo_i18n]
+ )
+ 
++endif
++
+ # install appstream.conf default template
+ install_data('appstream.conf',
+              install_dir: as_data_installdir)

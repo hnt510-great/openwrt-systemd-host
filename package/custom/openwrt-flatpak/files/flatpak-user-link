@@ -1,0 +1,23 @@
+#!/bin/sh
+set -eu
+fail() { echo "flatpak-user-link: $*" >&2; exit 1; }
+[ "$#" = 1 ] || fail 'Expected repository path'
+[ "$(id -u)" -ge 1000 ] || fail 'An ordinary account is required'
+repo=$1
+case "$repo" in /*) ;; *) fail 'An absolute repository path is required';; esac
+[ -d "$repo" ] && [ ! -L "$repo" ] || fail 'Repository is unavailable'
+[ "$(stat -c %u "$repo")" = "$(id -u)" ] || fail 'Repository belongs to another user'
+[ -n "${HOME:-}" ] && [ -d "$HOME" ] || fail 'Home directory is unavailable'
+umask 077
+mkdir -p "$HOME/.local/share" "$HOME/.var/app"
+link="$HOME/.local/share/flatpak"
+if [ -L "$link" ]; then
+	[ "$(readlink "$link")" = "$repo" ] || fail 'Existing repository link points elsewhere'
+	exit 0
+fi
+if [ -e "$link" ]; then
+	[ -d "$link" ] || fail 'Existing repository path is not a directory'
+	# rmdir succeeds only for an empty directory, including hidden entries.
+	rmdir "$link" || fail 'Refusing to replace an existing nonempty repository'
+fi
+ln -s "$repo" "$link"

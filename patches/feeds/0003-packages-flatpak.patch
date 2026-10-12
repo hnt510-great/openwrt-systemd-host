@@ -1,0 +1,99 @@
+From a0ad6205e6de38788ae6d0a275dd823d9adf2fc5 Mon Sep 17 00:00:00 2001
+From: hnt510 <hnt510@gmail.com>
+Date: Mon, 12 Oct 2026 15:54:52 +0800
+Subject: [PATCH] flatpak: enable GnuPG verification and user FUSE mounts
+
+Remove the static EXTERN_UNLESS_MAIN_MODULE override that splits GnuPG
+2.5 option globals between objects, and package gpgconf for Flatpak.
+Add an opt-in FUSE3_UTILS_SETUID setting for document-portal mounts;
+its default remains disabled.
+
+Validated with the complete native-systemd x86_64/glibc firmware build,
+signed Flathub installation/update/reinstallation, and ordinary-user
+file grants in an isolated QEMU VM. See main-tree Flatpak validation.
+---
+ utils/fuse3/Makefile  | 15 +++++++++++++--
+ utils/gnupg2/Makefile |  6 ++++--
+ 2 files changed, 17 insertions(+), 4 deletions(-)
+
+diff --git a/utils/fuse3/Makefile b/utils/fuse3/Makefile
+index 5a4a1da..2dfa2b1 100644
+--- a/utils/fuse3/Makefile
++++ b/utils/fuse3/Makefile
+@@ -10,7 +10,7 @@ include $(INCLUDE_DIR)/kernel.mk
+ 
+ PKG_NAME:=fuse3
+ PKG_VERSION:=3.18.2
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PKG_SOURCE:=fuse-$(PKG_VERSION).tar.gz
+ PKG_SOURCE_URL:=https://github.com/libfuse/libfuse/releases/download/fuse-$(PKG_VERSION)
+@@ -20,7 +20,7 @@ PKG_BUILD_DIR:=$(BUILD_DIR)/fuse-$(PKG_VERSION)
+ PKG_MAINTAINER:=Alexandru Ardelean <ardeleanalex@gmail.com>
+ PKG_CPE_ID:=cpe:/a:fuse_project:fuse
+ 
+-PKG_CONFIG_DEPENDS:=CONFIG_PACKAGE_fuse3-utils
++PKG_CONFIG_DEPENDS:=CONFIG_PACKAGE_fuse3-utils CONFIG_FUSE3_UTILS_SETUID
+ 
+ include $(INCLUDE_DIR)/package.mk
+ include $(INCLUDE_DIR)/meson.mk
+@@ -71,6 +71,16 @@ $(call Package/fuse3/Default/description)
+  - mount.fuse3
+ endef
+ 
++define Package/fuse3-utils/config
++	config FUSE3_UTILS_SETUID
++		bool "Allow ordinary users to mount FUSE filesystems"
++		depends on PACKAGE_fuse3-utils
++		default n
++		help
++		  Install fusermount3 setuid root. Required by the Flatpak
++		  document portal for ordinary-user file access.
++endef
++
+ MESON_ARGS += \
+ 	-Ddisable-mtab=true \
+ 	-Dudevrulesdir=/dev/null \
+@@ -95,6 +105,7 @@ endef
+ define Package/fuse3-utils/install
+ 	$(INSTALL_DIR) $(1)/usr/bin
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/bin/fusermount3 $(1)/usr/bin/
++	$(if $(CONFIG_FUSE3_UTILS_SETUID),chmod 4755 $(1)/usr/bin/fusermount3)
+ 	$(INSTALL_DIR) $(1)/usr/sbin
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/sbin/mount.fuse3 $(1)/usr/sbin/
+ endef
+diff --git a/utils/gnupg2/Makefile b/utils/gnupg2/Makefile
+index 9834fa2..588c5e2 100644
+--- a/utils/gnupg2/Makefile
++++ b/utils/gnupg2/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=gnupg
+ PKG_VERSION:=2.5.21
+-PKG_RELEASE:=1
++PKG_RELEASE:=3
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.bz2
+ PKG_SOURCE_URL:=https://gnupg.org/ftp/gcrypt/gnupg
+@@ -107,7 +107,8 @@ CONFIGURE_ARGS += \
+ 	--disable-tests \
+ 	--disable-zip
+ 
+-TARGET_CFLAGS += $(if $(filter-out 5 6 7 8 9,$(word 1,$(subst ., ,$(call qstrip,$(CONFIG_GCC_VERSION))))),-DEXTERN_UNLESS_MAIN_MODULE=static)
++# GnuPG 2.5 defines globals in its main modules and uses extern elsewhere.
++# Overriding this macro with static splits parsed options between objects.
+ 
+ define Package/gnupg2/install
+ 	$(INSTALL_DIR) $(1)/usr/bin
+@@ -126,6 +127,7 @@ endef
+ 
+ define Package/gnupg2-utils/install
+ 	$(INSTALL_DIR) $(1)/usr/bin $(1)/usr/sbin
++	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/gpgconf $(1)/usr/bin
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/gpgtar $(1)/usr/bin
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/kbxutil $(1)/usr/bin
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/gpg-wks-server $(1)/usr/bin
+-- 
+2.47.3
+

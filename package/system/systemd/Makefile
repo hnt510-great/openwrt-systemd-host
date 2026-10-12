@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=systemd
 PKG_VERSION:=262
-PKG_RELEASE:=2
+PKG_RELEASE:=3
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/systemd/systemd/tar.gz/refs/tags/v$(PKG_VERSION)?
 PKG_HASH:=6aa77506c0644aa67f940a48e3d3a7368601f787e4f249139516d353f107bcab
@@ -70,6 +70,11 @@ define Build/InstallDev
 	$(CP) $(PKG_INSTALL_DIR)/usr/include/systemd/*.h $(1)/usr/include/systemd/
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libsystemd.so* $(1)/usr/lib/
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/libsystemd.pc $(1)/usr/lib/pkgconfig/
+	# Keep the development metadata relocatable by OpenWrt's pkg-config wrapper.
+	awk '/^libdir=/ { print "libdir=" sprintf("%c", 36) "{prefix}/lib"; next } \
+		/^includedir=/ { print "includedir=" sprintf("%c", 36) "{prefix}/include"; next } \
+		{ print }' $(1)/usr/lib/pkgconfig/libsystemd.pc > $(1)/usr/lib/pkgconfig/libsystemd.pc.tmp
+	mv $(1)/usr/lib/pkgconfig/libsystemd.pc.tmp $(1)/usr/lib/pkgconfig/libsystemd.pc
 endef
 
 define Package/libsystemd/install

@@ -1,0 +1,12 @@
+{
+  "packages": {
+    "base": "89fb86f4ab2b22b6019769fc5a919556e82d77b8",
+    "commit": "a0ad6205e6de38788ae6d0a275dd823d9adf2fc5",
+    "patch": "patches/feeds/0003-packages-flatpak.patch"
+  },
+  "video": {
+    "base": "ec363f088caa2c14d937610c91c6e0ac47ac0dfb",
+    "commit": "288abd790da3944875ca0b714d64036773448b3d",
+    "patch": "patches/feeds/0004-video-flatpak.patch"
+  }
+}

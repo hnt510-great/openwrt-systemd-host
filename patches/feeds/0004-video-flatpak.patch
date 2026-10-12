@@ -1,0 +1,311 @@
+From 288abd790da3944875ca0b714d64036773448b3d Mon Sep 17 00:00:00 2001
+From: hnt510 <hnt510@gmail.com>
+Date: Mon, 12 Oct 2026 15:55:32 +0800
+Subject: [PATCH] weston: share local input seat with mirrored VNC clients
+
+Route mirrored VNC keyboard and pointer input through the local seat so
+GTK applications receive remote input. Track each client's held keys
+and buttons and release them on disconnect; retain a private seat for
+standalone VNC and local-seat removal.
+
+Validated with the complete native-systemd desktop image and GTK4
+Calculator input through local and TLS VNC sessions. Disconnect cleanup
+and matching local/VNC display output passed in the isolated VM.
+---
+ frameworks/weston/Makefile                    |   2 +-
+ ...are-input-seat-for-mirrored-desktops.patch | 270 ++++++++++++++++++
+ 2 files changed, 271 insertions(+), 1 deletion(-)
+ create mode 100644 frameworks/weston/patches/002-vnc-share-input-seat-for-mirrored-desktops.patch
+
+diff --git a/frameworks/weston/Makefile b/frameworks/weston/Makefile
+index db405e2..b5e57c1 100644
+--- a/frameworks/weston/Makefile
++++ b/frameworks/weston/Makefile
+@@ -1,7 +1,7 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=weston
+-PKG_RELEASE:=2
++PKG_RELEASE:=3
+ 
+ PKG_VERSION:=16.0.0
+ PKG_MAJOR_VERSION:=$(firstword $(subst .,$(space),$(PKG_VERSION)))
+diff --git a/frameworks/weston/patches/002-vnc-share-input-seat-for-mirrored-desktops.patch b/frameworks/weston/patches/002-vnc-share-input-seat-for-mirrored-desktops.patch
+new file mode 100644
+index 0000000..3e83622
+--- /dev/null
++++ b/frameworks/weston/patches/002-vnc-share-input-seat-for-mirrored-desktops.patch
+@@ -0,0 +1,270 @@
++--- a/libweston/backend-vnc/vnc.c
+++++ b/libweston/backend-vnc/vnc.c
++@@ -98,6 +98,9 @@
++ struct vnc_peer {
++ 	struct vnc_backend *backend;
++ 	struct weston_seat *seat;
+++	struct weston_seat *input_seat;
+++	struct wl_listener input_seat_destroy;
+++	struct wl_array pressed_keys;
++ 	struct nvnc_client *client;
++ 
++ 	enum nvnc_button_mask last_button_mask;
++@@ -291,6 +294,84 @@
++ 	DRM_FORMAT_ARGB8888,
++ };
++ 
+++/* Mirrored desktops share the local input seat. GTK uses a single default
+++ * seat, so forwarding to a separate per-client seat leaves GTK apps without
+++ * remote input. The peer retains its private seat for standalone VNC and
+++ * for fallback when the local seat disappears.
+++ */
+++static void
+++vnc_input_seat_destroyed(struct wl_listener *listener, void *data)
+++{
+++	struct vnc_peer *peer = wl_container_of(listener, peer, input_seat_destroy);
+++
+++	(void)data;
+++	wl_list_remove(&peer->input_seat_destroy.link);
+++	peer->input_seat = peer->seat;
+++	peer->pressed_keys.size = 0;
+++	peer->last_button_mask = 0;
+++}
+++
+++static void
+++vnc_share_mirror_seat(struct vnc_peer *peer)
+++{
+++	struct weston_seat *seat;
+++
+++	if (!peer->backend->output->base.mirror_of)
+++		return;
+++
+++	wl_list_for_each(seat, &peer->backend->compositor->seat_list, link) {
+++		if (seat == peer->seat || strcmp(seat->seat_name, "VNC Client") == 0)
+++			continue;
+++
+++		weston_seat_init_pointer(seat);
+++		if (weston_seat_init_keyboard(seat, peer->backend->xkb_keymap) < 0) {
+++			weston_seat_release_pointer(seat);
+++			return;
+++		}
+++		peer->input_seat = seat;
+++		peer->input_seat_destroy.notify = vnc_input_seat_destroyed;
+++		wl_signal_add(&seat->destroy_signal, &peer->input_seat_destroy);
+++		return;
+++	}
+++}
+++
+++static void
+++vnc_send_key(struct vnc_peer *peer, uint32_t key,
+++	     enum wl_keyboard_key_state state,
+++	     enum weston_key_state_update update)
+++{
+++	struct weston_key_event event;
+++	struct timespec time;
+++	uint32_t *held, *last;
+++	bool found = false;
+++
+++	wl_array_for_each(held, &peer->pressed_keys) {
+++		if (*held != key)
+++			continue;
+++		found = true;
+++		if (state == WL_KEYBOARD_KEY_STATE_RELEASED) {
+++			last = (uint32_t *)((char *)peer->pressed_keys.data +
+++				peer->pressed_keys.size) - 1;
+++			*held = *last;
+++			peer->pressed_keys.size -= sizeof(*held);
+++		}
+++		break;
+++	}
+++	if (!found && state == WL_KEYBOARD_KEY_STATE_PRESSED) {
+++		held = wl_array_add(&peer->pressed_keys, sizeof(*held));
+++		if (!held)
+++			return;
+++		*held = key;
+++	}
+++	if (!found && state == WL_KEYBOARD_KEY_STATE_RELEASED &&
+++	    peer->input_seat != peer->seat)
+++		return;
+++
+++	weston_compositor_get_time(&time);
+++	weston_key_event_init(&event, &time, peer->input_seat, key, state, update);
+++	notify_key(&event);
+++}
+++
++ static void
++ vnc_handle_key_event(struct nvnc_client *client, uint32_t keysym,
++ 		     bool is_pressed)
++@@ -336,9 +417,18 @@
++ 		return;
++ 	}
++ 
+++	/* Do not release a Shift key already held by the local keyboard. */
+++	if (needs_shift) {
+++		struct weston_keyboard *keyboard = weston_seat_get_keyboard(peer->input_seat);
+++
+++		if (keyboard && xkb_state_mod_name_is_active(keyboard->xkb_state.state,
+++				"Shift", XKB_STATE_MODS_DEPRESSED) > 0)
+++			needs_shift = false;
+++	}
+++
++ 	/* emulate lshift press */
++ 	if (needs_shift) {
++-		weston_key_event_init(&key_event, &time, peer->seat,
+++		weston_key_event_init(&key_event, &time, peer->input_seat,
++ 				      KEY_LEFTSHIFT,
++ 				      WL_KEYBOARD_KEY_STATE_PRESSED,
++ 				      STATE_UPDATE_AUTOMATIC);
++@@ -346,13 +436,11 @@
++ 	}
++ 
++ 	/* send detected key code */
++-	weston_key_event_init(&key_event, &time, peer->seat,
++-			      key, state, state_update);
++-	notify_key(&key_event);
+++	vnc_send_key(peer, key, state, state_update);
++ 
++ 	/* emulate lshift release */
++ 	if (needs_shift) {
++-		weston_key_event_init(&key_event, &time, peer->seat,
+++		weston_key_event_init(&key_event, &time, peer->input_seat,
++ 				      KEY_LEFTSHIFT,
++ 				      WL_KEYBOARD_KEY_STATE_RELEASED,
++ 				      STATE_UPDATE_AUTOMATIC);
++@@ -366,19 +454,13 @@
++ {
++ 	struct vnc_peer *peer = nvnc_client_get_userdata(client);
++ 	enum wl_keyboard_key_state state;
++-	struct timespec time;
++-	struct weston_key_event key_event;
++-
++-	weston_compositor_get_time(&time);
++ 
++ 	if (is_pressed)
++ 		state = WL_KEYBOARD_KEY_STATE_PRESSED;
++ 	else
++ 		state = WL_KEYBOARD_KEY_STATE_RELEASED;
++ 
++-	weston_key_event_init(&key_event, &time, peer->seat,
++-			      key, state, STATE_UPDATE_AUTOMATIC);
++-	notify_key(&key_event);
+++	vnc_send_key(peer, key, state, STATE_UPDATE_AUTOMATIC);
++ }
++ 
++ static void
++@@ -452,7 +534,7 @@
++ 
++ 		pos = weston_coord_global_from_output_point(x, y, &output->base);
++ 
++-		weston_pointer_motion_event_init(&event, &time, peer->seat,
+++		weston_pointer_motion_event_init(&event, &time, peer->input_seat,
++ 						 WESTON_POINTER_MOTION_ABS,
++ 						 &pos, NULL, NULL);
++ 		notify_motion(&event);
++@@ -461,7 +543,7 @@
++ 	changed_button_mask = peer->last_button_mask ^ button_mask;
++ 
++ 	if (changed_button_mask & NVNC_BUTTON_LEFT) {
++-		weston_pointer_button_event_init(&button_event, &time, peer->seat,
+++		weston_pointer_button_event_init(&button_event, &time, peer->input_seat,
++ 						 BTN_LEFT,
++ 						 (button_mask & NVNC_BUTTON_LEFT) ?
++ 						 WL_POINTER_BUTTON_STATE_PRESSED :
++@@ -470,7 +552,7 @@
++ 	}
++ 
++ 	if (changed_button_mask & NVNC_BUTTON_MIDDLE) {
++-		weston_pointer_button_event_init(&button_event, &time, peer->seat,
+++		weston_pointer_button_event_init(&button_event, &time, peer->input_seat,
++ 						 BTN_MIDDLE,
++ 						 (button_mask & NVNC_BUTTON_MIDDLE) ?
++ 						 WL_POINTER_BUTTON_STATE_PRESSED :
++@@ -479,7 +561,7 @@
++ 	}
++ 
++ 	if (changed_button_mask & NVNC_BUTTON_RIGHT) {
++-		weston_pointer_button_event_init(&button_event, &time, peer->seat,
+++		weston_pointer_button_event_init(&button_event, &time, peer->input_seat,
++ 						 BTN_RIGHT,
++ 						 (button_mask & NVNC_BUTTON_RIGHT) ?
++ 						 WL_POINTER_BUTTON_STATE_PRESSED :
++@@ -499,7 +581,7 @@
++ 		if (button_mask & NVNC_SCROLL_DOWN)
++ 			value = DEFAULT_AXIS_STEP_DISTANCE;
++ 
++-		weston_pointer_axis_event_init(&weston_event, &time, peer->seat,
+++		weston_pointer_axis_event_init(&weston_event, &time, peer->input_seat,
++ 					       WL_POINTER_AXIS_VERTICAL_SCROLL,
++ 					       value, false, 0);
++ 		notify_axis(&weston_event);
++@@ -507,7 +589,7 @@
++ 
++ 	peer->last_button_mask = button_mask;
++ 
++-	notify_pointer_frame(peer->seat);
+++	notify_pointer_frame(peer->input_seat);
++ }
++ 
++ static void
++@@ -535,10 +617,42 @@
++ 	struct vnc_peer *peer = userdata;
++ 	struct vnc_output *output = peer->backend->output;
++ 
+++	struct weston_key_event key_event;
+++	struct weston_pointer_button_event button_event;
+++	struct timespec time;
+++	uint32_t *held;
+++	const uint32_t masks[] = { NVNC_BUTTON_LEFT, NVNC_BUTTON_MIDDLE, NVNC_BUTTON_RIGHT };
+++	const uint32_t buttons[] = { BTN_LEFT, BTN_MIDDLE, BTN_RIGHT };
+++	size_t i;
+++
+++	/* A disconnected client must not leave modifiers or buttons depressed
+++	 * on the shared local seat.
+++	 */
+++	weston_compositor_get_time(&time);
+++	wl_array_for_each(held, &peer->pressed_keys) {
+++		weston_key_event_init(&key_event, &time, peer->input_seat, *held,
+++			WL_KEYBOARD_KEY_STATE_RELEASED, STATE_UPDATE_AUTOMATIC);
+++		notify_key(&key_event);
+++	}
+++	for (i = 0; i < ARRAY_LENGTH(masks); i++) {
+++		if (!(peer->last_button_mask & masks[i]))
+++			continue;
+++		weston_pointer_button_event_init(&button_event, &time, peer->input_seat,
+++			buttons[i], WL_POINTER_BUTTON_STATE_RELEASED);
+++		notify_button(&button_event);
+++	}
+++	notify_pointer_frame(peer->input_seat);
+++	if (peer->input_seat != peer->seat) {
+++		wl_list_remove(&peer->input_seat_destroy.link);
+++		weston_seat_release_keyboard(peer->input_seat);
+++		weston_seat_release_pointer(peer->input_seat);
+++	}
+++	wl_array_release(&peer->pressed_keys);
++ 	wl_list_remove(&peer->link);
++ 	weston_seat_release_keyboard(peer->seat);
++ 	weston_seat_release_pointer(peer->seat);
++ 	weston_seat_release(peer->seat);
+++	free(peer->seat);
++ 	free(peer);
++ 	weston_log("VNC Client disconnected\n");
++ 
++@@ -555,7 +669,7 @@
++ 	struct vnc_peer *peer;
++ 
++ 	wl_list_for_each(peer, &output->peers, link) {
++-		pointer = weston_seat_get_pointer(peer->seat);
+++		pointer = weston_seat_get_pointer(peer->input_seat);
++ 		break;
++ 	}
++ 
++@@ -807,6 +921,9 @@
++ 	weston_seat_init(peer->seat, backend->compositor, seat_name);
++ 	weston_seat_init_pointer(peer->seat);
++ 	weston_seat_init_keyboard(peer->seat, backend->xkb_keymap);
+++	peer->input_seat = peer->seat;
+++	wl_array_init(&peer->pressed_keys);
+++	vnc_share_mirror_seat(peer);
++ 
++ 	if (wl_list_empty(&output->peers))
++ 		weston_output_power_on(&output->base);
+-- 
+2.47.3
+

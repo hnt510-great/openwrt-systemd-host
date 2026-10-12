@@ -1,0 +1,2 @@
+# Ordinary-user document portal mounts require access to /dev/fuse.
+KERNEL=="fuse", SUBSYSTEM=="misc", MODE="0666"
