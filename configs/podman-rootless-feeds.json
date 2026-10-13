@@ -1,0 +1,8 @@
+{
+  "packages": {
+    "url": "https://github.com/openwrt/packages.git",
+    "base": "89a5990d1db4dfe315a0f940988a4c898a54e374",
+    "commit": "dbe0dfd40d4436915da27acd7b0cfd540ea18975",
+    "patch": "patches/feeds/0007-packages-podman-rootless.patch"
+  }
+}

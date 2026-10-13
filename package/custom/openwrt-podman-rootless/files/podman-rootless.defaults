@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+for file in /etc/subuid /etc/subgid; do
+	[ -e "$file" ] || touch "$file"
+	chown root:root "$file"
+	chmod 0644 "$file"
+done
+grep -q '^podman:' /etc/group || /usr/sbin/groupadd -r podman
+/etc/init.d/podman-rootless enable
+/etc/init.d/podman-rootless start

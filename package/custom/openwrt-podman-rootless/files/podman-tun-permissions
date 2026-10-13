@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+[ -c /dev/net/tun ] || exit 0
+grep -q '^podman:' /etc/group || exit 0
+chgrp podman /dev/net/tun
+chmod 0660 /dev/net/tun
