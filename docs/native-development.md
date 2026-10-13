@@ -60,3 +60,37 @@ bzip2 没有上游 pkg-config 文件，使用 `#include <bzlib.h>` 和 `-lbz2`�
 程序与 CMake 构建运行检查，包括 LZ4 压缩往返、Netlink 对象和
 socket、systemd API、UCI 上下文以及 libubox JSON 处理。
 镜像 SHA256 校验和开发包 APK 签名校验通过；未刷写实际设备。
+
+## 解析器和内核构建工具
+
+当前桌面镜像配置还选择 `flex`、`bison`、`bc` 和 `pahole`。
+其他配置可以合并 `configs/native-build-tools.config` 后运行
+`make defconfig`。`bison` 包包含 `/usr/share/bison` 的 skeleton 和 m4
+数据，并依赖 `m4`；运行时使用 `/usr/bin/m4`，因此设备上可以直接
+生成 C/C++ 解析器，不会引用宿主 staging 路径。
+
+`package/devel/pahole` 是目标包，与 `tools/dwarves` 的宿主构建分开。
+它复用宿主包的 dwarves 1.31 源码和校验和，支持当前 glibc 固件，
+动态使用目标 `libdw`、`libelf`、`libbpf` 和 zlib；私有 dwarves 库链接
+到命令中。它依赖 `binutils`，默认使用 `/usr/bin/objcopy` 添加 BTF
+段，保留上游 `LLVM_OBJCOPY` 环境变量覆盖。它可检查 DWARF 结构
+布局并生成内核构建使用的 BTF。
+上游构建选项见 [dwarves README](https://github.com/acmel/dwarves/tree/v1.31)。
+
+独立 packages feed 的 Bison 修复保存在
+`patches/feeds/0006-packages-bison-native-data.patch`，基于 feed 提交
+`a551dd96e41ecfcdae329bafb8c79466abaa45ce`。提交与来源记录在 `configs/native-build-tools-feeds.json`。当前 feed 已应用此修改，
+不要重复应用。窄范围构建命令为：
+
+```sh
+make -j8 package/feeds/packages/flex/compile \
+  package/feeds/packages/bison/compile package/feeds/packages/bc/compile \
+  package/devel/pahole/compile V=s
+```
+
+在匹配的设备上运行 `sh scripts/test-native-build-tools.sh`，验证实际
+lexer/parser 生成、编译和运行，bc 小数运算，以及 DWARF/BTF 往返。
+该检查需要已有的 GCC 和 readelf，仅使用自动清理的临时目录。
+
+2026-10-13 的镜像和物理设备检查结果见
+[构建工具验证记录](native-build-tools-validation.md)。

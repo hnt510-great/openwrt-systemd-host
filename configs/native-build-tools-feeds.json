@@ -1,0 +1,8 @@
+{
+  "packages": {
+    "url": "https://github.com/openwrt/packages.git",
+    "base": "a551dd96e41ecfcdae329bafb8c79466abaa45ce",
+    "commit": "89a5990d1db4dfe315a0f940988a4c898a54e374",
+    "patch": "patches/feeds/0006-packages-bison-native-data.patch"
+  }
+}
