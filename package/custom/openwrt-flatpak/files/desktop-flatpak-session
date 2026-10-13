@@ -14,6 +14,11 @@ if [ "${1:-}" != --monitor ]; then
 	compositor_pid=$PPID
 	systemctl --user stop openwrt-flatpak-session-monitor.service 2>/dev/null || :
 	systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_DATA_DIRS DBUS_SESSION_BUS_ADDRESS
+	if [ -n "${DISPLAY:-}" ]; then
+		systemctl --user import-environment DISPLAY
+	else
+		systemctl --user unset-environment DISPLAY 2>/dev/null || :
+	fi
 	exec systemd-run --user --quiet --collect --unit=openwrt-flatpak-session-monitor \
 		--property=Type=exec /usr/libexec/desktop-flatpak-session --monitor "$compositor_pid"
 fi
@@ -22,7 +27,7 @@ case "$compositor_pid" in ''|*[!0-9]*) exit 1;; esac
 cleanup() {
 	systemctl --user stop xdg-desktop-portal.service xdg-desktop-portal-gtk.service \
 		openwrt-flatpak-session.target 2>/dev/null || :
-	systemctl --user unset-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP 2>/dev/null || :
+	systemctl --user unset-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP DISPLAY 2>/dev/null || :
 }
 trap cleanup EXIT
 trap 'exit 0' HUP INT TERM

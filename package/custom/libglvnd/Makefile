@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=libglvnd
 PKG_VERSION:=1.7.0
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/NVIDIA/libglvnd/tar.gz/refs/tags/
 PKG_SOURCE_URL_FILE:=v$(PKG_VERSION)
@@ -11,11 +11,12 @@ PKG_LICENSE:=MIT
 PKG_LICENSE_FILES:=README.md
 PKG_INSTALL:=1
 PKG_BUILD_PARALLEL:=1
+PKG_BUILD_DEPENDS:=xorgproto
 
 include $(INCLUDE_DIR)/package.mk
 include $(INCLUDE_DIR)/meson.mk
 
-MESON_ARGS += -Dx11=disabled -Dglx=disabled -Degl=true -Dhgl=false \
+MESON_ARGS += -Dx11=enabled -Dglx=enabled -Degl=true -Dhgl=false \
 	-Dgles1=true -Dgles2=true
 
 define Package/libglvnd
@@ -24,7 +25,7 @@ define Package/libglvnd
   SUBMENU:=Video
   TITLE:=Vendor-neutral EGL and OpenGL dispatch
   URL:=https://github.com/NVIDIA/libglvnd
-  DEPENDS:=+libpthread
+  DEPENDS:=+libpthread +libX11 +libXext
 endef
 
 define Build/InstallDev

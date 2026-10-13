@@ -1,0 +1,8 @@
+{
+  "video": {
+    "url": "https://github.com/openwrt/video.git",
+    "base": "288abd790da3944875ca0b714d64036773448b3d",
+    "patch": "patches/feeds/0005-video-appimage.patch",
+    "commit": "0a739dd83c5f995aac767cc32a46749d67a306e4"
+  }
+}

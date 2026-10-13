@@ -1,0 +1,118 @@
+diff --git a/frameworks/weston/Makefile b/frameworks/weston/Makefile
+index b5e57c1..a48bc84 100644
+--- a/frameworks/weston/Makefile
++++ b/frameworks/weston/Makefile
+@@ -1,7 +1,7 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=weston
+-PKG_RELEASE:=3
++PKG_RELEASE:=4
+ 
+ PKG_VERSION:=16.0.0
+ PKG_MAJOR_VERSION:=$(firstword $(subst .,$(space),$(PKG_VERSION)))
+@@ -15,7 +15,7 @@ PKG_LICENSE_FILES:=COPYING
+ 
+ PKG_INSTALL:=1
+ PKG_BUILD_DEPENDS:=wayland/host
+-PKG_CONFIG_DEPENDS:=CONFIG_WESTON_VNC
++PKG_CONFIG_DEPENDS:=CONFIG_WESTON_VNC CONFIG_WESTON_XWAYLAND
+ 
+ include $(INCLUDE_DIR)/package.mk
+ include $(INCLUDE_DIR)/meson.mk
+@@ -30,7 +30,8 @@ define Package/weston
+ 	+libgst1allocators +libgst1app +libgst1video +libgstreamer1 +libinput \
+ 	+libmesa +libpango +libseat +libwayland +libwebp +libxkbcommon +pixman \
+ 	+seatd +vulkan-loader +wayland-protocols +xkeyboard-config \
+-	+WESTON_VNC:libaml +WESTON_VNC:libneatvnc +WESTON_VNC:libpam
++	+WESTON_VNC:libaml +WESTON_VNC:libneatvnc +WESTON_VNC:libpam \
++	+WESTON_XWAYLAND:xwayland +WESTON_XWAYLAND:libxcb +WESTON_XWAYLAND:libXcursor
+ endef
+ 
+ define Package/weston/description
+@@ -41,6 +42,11 @@ config WESTON_VNC
+ 	bool "Enable authenticated TLS VNC backend"
+ 	depends on PACKAGE_weston
+ 	default n
++
++config WESTON_XWAYLAND
++	bool "Enable X11 applications through Xwayland"
++	depends on PACKAGE_weston
++	default n
+ endef
+ 
+ MESON_ARGS += \
+@@ -52,7 +58,7 @@ MESON_ARGS += \
+ 	-Dbackend-vnc=$(if $(CONFIG_WESTON_VNC),true,false) \
+ 	-Dbackend-x11=false \
+ 	-Dbackend-wayland=true \
+-	-Dxwayland=false \
++	-Dxwayland=$(if $(CONFIG_WESTON_XWAYLAND),true,false) \
+ 	-Dcolor-management-lcms=false \
+ 	-Dsystemd=false \
+ 	-Ddeprecated-pipewire=false \
+diff --git a/libs/cairo/Makefile b/libs/cairo/Makefile
+index 97a8529..cf55070 100644
+--- a/libs/cairo/Makefile
++++ b/libs/cairo/Makefile
+@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=cairo
+ PKG_VERSION:=1.18.4
+-PKG_RELEASE:=2
++PKG_RELEASE:=3
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://cairo.freedesktop.org/releases/
+@@ -21,7 +21,7 @@ define Package/libcairo
+   SUBMENU:=Video
+   TITLE:=cairo
+   URL:=https://cairo.freedesktop.org/
+-  DEPENDS:=+libpng +libfreetype +fontconfig +libmesa +pixman +glib2 +libjpeg +zlib +liblzo +libX11 +libXext +libXrender
++  DEPENDS:=+libpng +libfreetype +fontconfig +libmesa +pixman +glib2 +libjpeg +zlib +liblzo +libX11 +libXext +libXrender +libxcb
+ endef
+ 
+ define Package/libcairo/description
+@@ -33,7 +33,7 @@ MESON_ARGS += \
+ 	-Dfontconfig=enabled \
+ 	-Dfreetype=enabled \
+ 	-Dpng=enabled \
+-	-Dxcb=disabled \
++	-Dxcb=enabled \
+ 	-Dxlib=enabled \
+ 	-Dxlib-xcb=disabled \
+ 	-Dzlib=enabled
+diff --git a/libs/mesa/Makefile b/libs/mesa/Makefile
+index 7cd7e84..6a17a2e 100644
+--- a/libs/mesa/Makefile
++++ b/libs/mesa/Makefile
+@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=mesa
+ PKG_VERSION:=26.2.2
+-PKG_RELEASE:=4
++PKG_RELEASE:=5
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://archive.mesa3d.org/
+@@ -138,7 +138,8 @@ endef
+ define Package/libmesa-virtualization
+ $(call Package/libmesa/Default)
+   TITLE+= (Intel, VirtIO and software rendering)
+-  DEPENDS+=+accel-support +libdrm-intel +libglvnd @TARGET_x86_64 @MESA_USE_LLVM
++  DEPENDS+=+accel-support +libdrm-intel +libglvnd +libX11 +libXext \
++	+libXfixes +libXxf86vm +libxcb +libxshmfence @TARGET_x86_64 @MESA_USE_LLVM
+   VARIANT:=virtualization
+ endef
+ 
+@@ -570,8 +571,8 @@ MESON_HOST_ARGS += \
+ endif
+ 
+ MESON_ARGS += \
+-	-Dplatforms=wayland \
+-	-Dglx=disabled \
++	-Dplatforms=$(if $(filter virtualization,$(BUILD_VARIANT)),wayland$(comma)x11,wayland) \
++	-Dglx=$(if $(filter virtualization,$(BUILD_VARIANT)),dri,disabled) \
+ 	-Degl=enabled \
+ 	-Dgbm=enabled \
+ 	-Dgles1=enabled \

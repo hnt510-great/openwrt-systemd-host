@@ -33,6 +33,15 @@ icon=/usr/share/weston/terminal.png
 path=/usr/bin/weston-terminal
 
 EOF
+if [ -x /usr/bin/Xwayland ]; then
+	# Weston reserves DISPLAY before launching desktop clients and starts
+	# the X server on demand. Do not start a second X server here.
+	for module in /usr/lib/libweston-*/xwayland.so; do
+		[ -f "$module" ] || continue
+		sed -i '/^idle-time=0$/a xwayland=true' "$XDG_RUNTIME_DIR/weston.ini"
+		break
+	done
+fi
 if [ -x /usr/libexec/virt-manager-launch ]; then
 	cat >> "$XDG_RUNTIME_DIR/weston.ini" <<EOF
 [launcher]

@@ -1,0 +1,19 @@
+From: OpenWrt desktop integration
+Subject: [PATCH] cups: retain local queue state when DNS-SD is disabled
+
+cups_enum_dests also copies and frees local queues in a build without
+DNS-SD. Keep the corresponding fields in the non-DNS-SD enumeration data
+structure, matching the DNS-SD structure. The structure is zero-initialized
+before use, so the existing cleanup also handles an empty local queue list.
+
+--- a/cups/dest.c
++++ b/cups/dest.c
+@@ -126,6 +126,8 @@ typedef struct _cups_getdata_s
+ {
+   int		num_dests;		/* Number of destinations */
+   cups_dest_t	*dests;			/* Destinations */
++  int		num_local;		/* Number of local cupsd queues */
++  cups_dest_t	*local_dests;		/* Local cupsd queues */
+   char		def_name[1024],		/* Default printer name, if any */
+ 		*def_instance;		/* Default printer instance, if any */
+ } _cups_getdata_t;

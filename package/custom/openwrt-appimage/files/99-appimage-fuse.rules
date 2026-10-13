@@ -1,0 +1,2 @@
+# AppImages mount their payload as the ordinary desktop user.
+KERNEL=="fuse", SUBSYSTEM=="misc", MODE="0666"
