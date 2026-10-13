@@ -1,0 +1,12 @@
+#!/bin/sh
+
+# Change login defaults only when zsh is included in the image.
+# /bin/sh and the preinit failsafe shell remain BusyBox ash.
+[ -x /usr/bin/zsh ] || exit 0
+[ -x /usr/sbin/usermod ] && [ -x /usr/sbin/useradd ] || exit 1
+
+grep -qxF /usr/bin/zsh /etc/shells || printf '%s\n' /usr/bin/zsh >> /etc/shells || exit 1
+/usr/sbin/usermod -s /usr/bin/zsh root || exit 1
+/usr/sbin/useradd -D -s /usr/bin/zsh || exit 1
+
+exit 0

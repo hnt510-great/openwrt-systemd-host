@@ -2,7 +2,9 @@
 
 The native x86_64/glibc/APK image includes systemd with polkit and PAM,
 logind, PAM-enabled OpenSSH, BusyBox PAM console login, and a user D-Bus
-service. It creates no ordinary account, password, key or service grant.
+service. The base packages create no ordinary account, password, key or
+service grant. This checkout's personal firmware overlay provisions the
+[desktop-user sudo account](multiuser.md) on first boot.
 The existing seatd backend continues to control desktop display/input devices.
 Logind tracks sessions; this integration does not provide udev device ACLs.
 

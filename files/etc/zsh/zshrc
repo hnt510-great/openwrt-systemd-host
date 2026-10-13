@@ -1,0 +1,2 @@
+# /etc/profile supplies an ash prompt; use native zsh prompt expansion.
+PROMPT='%n@%m:%~%# '

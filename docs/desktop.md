@@ -8,12 +8,13 @@ password, or TLS private key is embedded in the firmware.
 After flashing, connect a monitor and bring up the LAN. As root:
 
 ```sh
-useradd -m -U -s /bin/ash alice
+useradd -m -U alice
 passwd alice
 desktop-setup alice
 ```
 
 Use an existing ordinary account instead of creating a new one if appropriate.
+Images containing zsh use `/usr/bin/zsh` for root and newly created users.
 The account must have UID >= 1000, a non-root primary group, a home, a login
 shell, and an unlocked password.
 Setup adds only the `video` group; sudo access remains a separate choice.

@@ -1,14 +1,16 @@
 # 普通用户、SSH 与 sudo
 
 当前构建配置包含 Shadow 用户管理工具和 sudo。已有的 OpenSSH 配置允许
-普通用户使用密码或各自的公钥登录。固件不预设普通用户或密码。
+普通用户使用密码或各自的公钥登录。本 checkout 的个人固件首次启动会创建
+`desktop-user` 用户、使用指定的初始密码并加入 sudo 组，详见
+[个人账号配置](multiuser.md)。基础软件包本身不预设普通用户或密码。
 首次启动会将新密码的默认哈希设为 SHA512，以兼容 Shadow、OpenSSH、sudo
 和 BusyBox 登录使用的密码验证实现。
 
 刷机后以 root 执行，以下以 `alice` 为例：
 
 ```sh
-useradd -m -U -s /bin/ash alice
+useradd -m -U alice
 passwd alice
 ```
 
@@ -17,6 +19,10 @@ passwd alice
 ```sh
 ssh alice@路由器地址
 ```
+
+包含 zsh 的固件首次启动会将 root 登录 shell 和 `useradd` 默认 shell 设为
+`/usr/bin/zsh`。已有普通用户可用 `usermod -s /usr/bin/zsh 用户名` 切换，
+重新登录后生效。`/bin/sh` 和 failsafe 恢复 shell 继续使用 BusyBox ash。
 
 需要管理员权限时，root 可将该用户加入 sudo 组：
 
