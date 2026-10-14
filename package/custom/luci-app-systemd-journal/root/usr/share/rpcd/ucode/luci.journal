@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: Apache-2.0
+'use strict';
+
+import { popen } from 'fs';
+
+const MAX_OUTPUT = 262144;
+
+function quote(s) {
+	return "'" + replace(s, "'", "'\\''") + "'";
+}
+
+const methods = {
+	read: {
+		args: { boot: '', unit: '', priority: '', lines: 0 },
+		call: function(req) {
+			let a = req.args;
+			let unit = type(a.unit) == 'string' ? match(a.unit, /^[A-Za-z0-9_.@:\\-]+$/) : null;
+			if (!(a.boot in [ 'current', 'previous', 'all' ]) ||
+				!(a.priority in [ 'all', '0', '1', '2', '3', '4', '5', '6', '7' ]) ||
+				type(a.lines) != 'int' || !(a.lines in [ 100, 300, 1000 ]) || type(a.unit) != 'string' ||
+				length(a.unit) > 256 ||
+				(length(a.unit) && (!unit || length(unit[0]) != length(a.unit))))
+				return { success: false, error: 'Invalid journal filter.' };
+
+			let args = [ '--no-pager', '--quiet', '--output=short-iso', '--lines=' + a.lines ];
+			if (a.boot != 'all')
+				push(args, '--boot=' + (a.boot == 'current' ? '0' : '-1'));
+			if (length(a.unit))
+				push(args, '--unit=' + a.unit);
+			if (a.priority != 'all')
+				push(args, '--priority=' + a.priority);
+
+			// Fixed read-only options, quoted values, finite runtime and output size.
+			let p = popen('LC_ALL=C SYSTEMD_COLORS=0 /usr/bin/timeout -k 1 4 ' +
+				'/usr/bin/journalctl ' + join(' ', map(args, quote)) + ' 2>&1', 'r');
+			if (!p)
+				return { success: false, error: 'Unable to execute journalctl.' };
+			let output = p.read(MAX_OUTPUT + 1) || '';
+			let code = p.close();
+			let truncated = length(output) > MAX_OUTPUT;
+			if (!truncated && code != 0)
+				return { success: false, error: (code == 124 || code == 137)
+					? 'Journal query timed out. Narrow the filters and retry.'
+					: (trim(output) || 'Unable to read the journal.') };
+			return { success: true, log: substr(output, 0, MAX_OUTPUT), truncated };
+		}
+	}
+};
+
+return { 'luci.journal': methods };

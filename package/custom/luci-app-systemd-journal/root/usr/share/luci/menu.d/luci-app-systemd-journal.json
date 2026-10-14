@@ -1,0 +1,11 @@
+{
+	"admin/status/logs/journal": {
+		"title": "Systemd Journal",
+		"order": 3,
+		"action": { "type": "view", "path": "status/systemd-journal" },
+		"depends": {
+			"acl": [ "luci-app-systemd-journal" ],
+			"fs": { "/usr/bin/journalctl": "executable" }
+		}
+	}
+}
