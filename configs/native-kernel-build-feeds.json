@@ -1,0 +1,8 @@
+{
+  "packages": {
+    "url": "https://github.com/openwrt/packages.git",
+    "base": "fd8d8c511220b59903221058e804994517a5719c",
+    "patch": "patches/feeds/0010-packages-gcc-native-limits.patch",
+    "commit": "61e48d2072af5e8efe06f6258df43a8087259a25"
+  }
+}

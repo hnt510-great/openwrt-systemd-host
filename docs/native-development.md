@@ -94,3 +94,43 @@ lexer/parser 生成、编译和运行，bc 小数运算，以及 DWARF/BTF 往�
 
 2026-10-13 的镜像和物理设备检查结果见
 [构建工具验证记录](native-build-tools-validation.md)。
+
+
+## Mainline x86_64 kernel builds
+
+`configs/native-build-tools.config` now includes GCC/binutils/make, the
+`native-libs-dev` headers and linker metadata, Bash, Git with HTTPS and CA
+certificates, Perl with File/Getopt modules, Python, awk, and compression tools.
+The desktop profile already selects these dependencies. Kernel host tools use
+libc, libelf/gelf, OpenSSL and zlib development files from the target packages;
+the kernel's own internal headers come from the cloned kernel source.
+
+The [upstream build requirements](https://docs.kernel.org/process/changes.html)
+describe configuration-dependent tools such as Rust, LLVM, and pahole.
+
+Native GCC release 8 restores the upstream `limitx.h + glimits.h + limity.h`
+wrapper during packaging. Cross-building native GCC can otherwise leave only
+its integer limits in `<limits.h>`, hiding glibc/POSIX `PATH_MAX`, `NAME_MAX`,
+and `MB_LEN_MAX`. This causes Kconfig compilation to fail before defconfig.
+The feed change is exported in
+`patches/feeds/0010-packages-gcc-native-limits.patch`; its base is recorded in
+`configs/native-kernel-build-feeds.json`. It is already applied locally.
+
+Use a writable build disk with at least 20 GiB free, rather than `/tmp` or the
+firmware's small overlay. For a 12-vCPU VM with 10 GiB RAM:
+
+```sh
+cd /srv/kernel-build
+git clone --depth=1 https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git linux
+cd linux
+git rev-parse HEAD
+make -j12 ARCH=x86_64 x86_64_defconfig
+make -j12 ARCH=x86_64
+```
+
+The build produces `arch/x86/boot/bzImage`, `vmlinux`, `System.map`, and kernel
+modules. Building these artifacts does not install the new kernel or replace
+the running OpenWrt kernel. An unmodified x86_64 defconfig disables Rust and
+BTF; the existing pahole smoke check separately exercises BTF generation.
+See [native kernel build validation](native-kernel-build-validation.md) for
+the tested commit, actual missing dependencies, and final-image acceptance.

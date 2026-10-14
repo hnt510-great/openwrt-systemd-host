@@ -6,6 +6,19 @@ workdir=$(mktemp -d "${TMPDIR:-/tmp}/native-build-tools.XXXXXX")
 trap 'rm -rf "$workdir"' EXIT HUP INT TERM
 cd "$workdir"
 
+# Kconfig includes limits.h directly. Native GCC must chain its own integer
+# limits to the target libc header, rather than hiding POSIX limits.
+cat > limits.c <<'EOF'
+#include <limits.h>
+_Static_assert(PATH_MAX > 0, "libc PATH_MAX is missing");
+_Static_assert(NAME_MAX > 0, "libc NAME_MAX is missing");
+_Static_assert(MB_LEN_MAX > 1, "libc multibyte limits are missing");
+_Static_assert(INT_MAX == __INT_MAX__, "GCC integer limits are missing");
+int main(void) { return 0; }
+EOF
+gcc -Wall -Wextra -Werror limits.c -o limits
+./limits
+
 flex --version
 bison --version | head -n 1
 bc --version | head -n 1
@@ -52,4 +65,4 @@ pahole -C native_tools_layout layout.o
 pahole -J layout.o
 readelf -S layout.o | grep -q '\.BTF'
 pahole -F btf -C native_tools_layout layout.o
-printf '%s\n' 'PASS: lexer/parser, bc arithmetic, DWARF layout and BTF encoding'
+printf '%s\n' 'PASS: libc/GCC limits, lexer/parser, bc arithmetic, DWARF layout and BTF encoding'

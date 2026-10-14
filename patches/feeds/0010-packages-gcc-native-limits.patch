@@ -1,0 +1,25 @@
+diff --git a/devel/gcc/Makefile b/devel/gcc/Makefile
+index 44516b6..c7a2367 100644
+--- a/devel/gcc/Makefile
++++ b/devel/gcc/Makefile
+@@ -24,7 +24,7 @@ PKG_NAME:=gcc
+ GCC_VERSION:=$(call qstrip,$(CONFIG_GCC_VERSION))
+ PKG_VERSION:=$(firstword $(subst +, ,$(GCC_VERSION)))
+ GCC_MAJOR_VERSION:=$(word 1,$(subst ., ,$(PKG_VERSION)))
+-PKG_RELEASE:=7
++PKG_RELEASE:=8
+ GCC_DIR:=$(PKG_NAME)-$(PKG_VERSION)
+ 
+ PKG_SOURCE_URL:=@GNU/gcc/gcc-$(PKG_VERSION)
+@@ -216,6 +216,11 @@ define Package/gcc/install
+ 	ln -s $(REAL_GNU_TARGET_NAME)-gcc $(1)/usr/bin/cc
+ 	ln -s $(REAL_GNU_TARGET_NAME)-gcc $(1)/usr/bin/$(REAL_GNU_TARGET_NAME)-gcc-$(PKG_VERSION)
+ 	cp -ar $(PKG_INSTALL_DIR)/usr/lib/gcc $(1)/usr/lib
++	# Cross-building native GCC can miss the target libc limits.h probe.
++	# Restore GCC's standard wrapper so limits.h also exports libc/POSIX limits.
++	cat $(PKG_BUILD_DIR)/gcc/limitx.h $(PKG_BUILD_DIR)/gcc/glimits.h \
++		$(PKG_BUILD_DIR)/gcc/limity.h > \
++		$(1)/usr/lib/gcc/$(REAL_GNU_TARGET_NAME)/$(PKG_VERSION)/include/limits.h
+ 	cp -ar $(TOOLCHAIN_ROOT_DIR)/include $(1)/usr
+ 	cp -a $(TOOLCHAIN_ROOT_DIR)/lib/*.{o,so*} $(1)/usr/lib/$(PKG_NAME)/$(REAL_GNU_TARGET_NAME)/$(PKG_VERSION)
+ 	cp -a $(TOOLCHAIN_ROOT_DIR)/lib/*nonshared*.a  $(1)/usr/lib/$(PKG_NAME)/$(REAL_GNU_TARGET_NAME)/$(PKG_VERSION)
