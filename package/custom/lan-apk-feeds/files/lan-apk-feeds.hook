@@ -1,0 +1,4 @@
+#!/bin/sh
+[ "$1" = post-commit ] || exit 0
+[ -z "$IPKG_INSTROOT" ] || exit 0
+exec /usr/sbin/lan-apk-feeds-sync

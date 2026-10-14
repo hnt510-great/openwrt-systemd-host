@@ -1,0 +1,4 @@
+{
+  "base_url": "http://192.0.2.164:8088",
+  "destination": "/srv/openwrt-feeds"
+}

@@ -1,0 +1,79 @@
+#!/bin/sh
+# Select this installation's ABI; never follow a server-wide "latest" feed.
+set -eu
+set -f
+root=
+if [ "$#" -gt 0 ]; then
+	[ "$#" = 2 ] && [ "$1" = --root ] || {
+		echo 'Usage: lan-apk-feeds-sync [--root ROOT]' >&2; exit 1;
+	}
+	root=${2%/}
+fi
+fail() { echo "lan-apk-feeds-sync: $*" >&2; exit 1; }
+base_url=
+repositories=
+while IFS= read -r line || [ -n "$line" ]; do
+	case "$line" in
+		''|'#'*) ;;
+		base_url=*) base_url=${line#base_url=} ;;
+		repositories=*) repositories=${line#repositories=} ;;
+		*) fail 'Unknown configuration entry' ;;
+	esac
+done < "$root/etc/lan-apk-feeds.conf"
+base_url=${base_url%/}
+case "$base_url" in http://?*|https://?*) ;; *) fail 'Invalid base_url' ;; esac
+case "$base_url" in *[!A-Za-z0-9.:/_~-]*) fail 'Invalid base_url characters' ;; esac
+[ -n "$repositories" ] || fail 'No repositories configured'
+for repo in $repositories; do
+	case "$repo" in *[!A-Za-z0-9_-]*) fail 'Invalid repository name' ;; esac
+done
+# Read the installed database directly: safe even in APK's post-commit hook.
+# Reject ambiguous/missing records rather than reusing a stale ABI.
+kernel=$(awk '
+	BEGIN { RS=""; FS="\n" }
+	{ name=""; version=""; for(i=1;i<=NF;i++) {
+		if ($i ~ /^P:/) name=substr($i,3)
+		if ($i ~ /^V:/) version=substr($i,3)
+	} if (name=="kernel") { count++; result=version } }
+	END { if (count==1 && result!="") print result; else exit 1 }
+' "$root/lib/apk/db/installed") || fail 'Expected exactly one installed kernel'
+case "$kernel" in ''|*[!A-Za-z0-9._~+-]*) fail 'Invalid installed kernel version' ;; esac
+repo_dir=$root/etc/apk/repositories.d
+mkdir -p "$repo_dir"
+list=$repo_dir/lan-local.list
+marker='# Managed by lan-apk-feeds-sync.'
+# Adopt the previous manually configured LAN list, but never overwrite an
+# unrelated repository file. Subsequent runs own the marked generated file.
+if [ -f "$list" ] && ! grep -qxF "$marker" "$list"; then
+	while IFS= read -r line || [ -n "$line" ]; do
+		case "$line" in
+			''|'#'*|"$base_url"/abi/*/packages.adb) ;;
+			*) fail "Refusing to overwrite unmanaged $list" ;;
+		esac
+	done < "$list"
+fi
+work=$(mktemp -d "$repo_dir/.lan-apk-feeds.XXXXXX")
+trap 'rm -rf "$work"' EXIT
+trap 'exit 1' HUP INT TERM
+{
+	printf '%s\n# Installed kernel: %s\n' "$marker" "$kernel"
+	for repo in $repositories; do
+		printf '%s/abi/%s/%s/packages.adb\n' "$base_url" "$kernel" "$repo"
+	done
+} > "$work/lan-local.list"
+# Migrate only the old local custom-feed URL; retain other feeds and comments.
+custom=$repo_dir/customfeeds.list
+if [ -f "$custom" ]; then
+	while IFS= read -r line || [ -n "$line" ]; do
+		case "$line" in "$base_url"/abi/*/custom/packages.adb) ;; *) printf '%s\n' "$line" ;; esac
+	done < "$custom" > "$work/customfeeds.list"
+	if ! cmp -s "$custom" "$work/customfeeds.list"; then
+		chmod 0644 "$work/customfeeds.list"
+		mv "$work/customfeeds.list" "$custom"
+	fi
+fi
+if ! cmp -s "$list" "$work/lan-local.list"; then
+	chmod 0644 "$work/lan-local.list"
+	mv "$work/lan-local.list" "$list"
+fi
+printf 'LAN APK feeds: kernel=%s\n' "$kernel"

@@ -3,6 +3,13 @@
 Validated on 2026-10-14 using the rebuilt x86-64/glibc native-systemd image.
 The additions and package scope are described in [desktop-kernel.md](desktop-kernel.md).
 
+A later rebuild added automatic LAN APK feed selection. Its current image
+SHA256 is `a3e7dec7bf301901bf8a9713e15a85621844d94ada81ea8191e21e27d745755c`. Fresh boot,
+APK hook, real reboot with a restored old feed list, and the existing native
+systemd/desktop-kernel smoke checks passed. See
+[LAN APK feed validation](lan-apk-feeds.md#automatic-abi-selection-validation-on-2026-10-14)
+for that image and evidence. The detailed record below describes the earlier
+kernel-feature image.
 
 Firmware:
 
