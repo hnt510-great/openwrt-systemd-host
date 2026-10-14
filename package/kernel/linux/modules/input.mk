@@ -38,6 +38,22 @@ endef
 $(eval $(call KernelPackage,hid-generic))
 
 
+define KernelPackage/hid-multitouch
+  SUBMENU:=$(INPUT_MODULES_MENU)
+  TITLE:=HID multitouch panels
+  DEPENDS:=+kmod-hid
+  KCONFIG:=CONFIG_HID_MULTITOUCH
+  FILES:=$(LINUX_DIR)/drivers/hid/hid-multitouch.ko
+  AUTOLOAD:=$(call AutoProbe,hid-multitouch)
+endef
+
+define KernelPackage/hid-multitouch/description
+ Kernel support for HID multitouch touchscreens and touchpads
+endef
+
+$(eval $(call KernelPackage,hid-multitouch))
+
+
 define KernelPackage/uhid
   SUBMENU:=$(INPUT_MODULES_MENU)
   TITLE:=User-space HID device support
