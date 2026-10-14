@@ -133,7 +133,8 @@ including when the OS database has no matching VirtIO-GPU entry. Guests must
 supply the corresponding VirtIO drivers; for Windows, prepare those drivers
 before selecting VirtIO disk, NIC or video.
 
-For a SPICE GL console, first enable the desktop's GPU renderer as root:
+New desktop configurations use the GPU renderer. For a SPICE GL console on
+an existing desktop saved with `pixman`, enable the GPU renderer as root:
 
 ```sh
 uci set desktop.main.renderer='gl'
@@ -141,7 +142,7 @@ uci commit desktop
 /etc/init.d/desktop restart
 ```
 
-Restart the manager after reconnecting to the desktop. The default `pixman`
+Restart the manager after reconnecting to the desktop. A `pixman`
 desktop makes GTK use softpipe; it cannot display the accelerated DMA buffers
 in the tested virtual GPU setup. Selecting a guest render node does not change
 the desktop renderer. The GL desktop uses the same authenticated TLS VNC mirror.
@@ -158,7 +159,14 @@ error; the application does not silently disable acceleration.
 SPICE GL is local and uses UNIX sockets/file descriptors through libvirt,
 including the Listen None mode. It is not a LAN SPICE server. Remote desktop
 access continues through the Weston TLS mirror. Both QEMU and the desktop
-client use EGL; the Weston desktop defaults to pixman with an explicit GL option.
+client use EGL; the Weston desktop defaults to GL, with an explicit pixman
+option for software composition.
+
+Windows Setup and the standard VirtIO Windows display driver provide 2D
+output. Enabling the host renderer or the VM's 3D checkbox does not install
+an accelerated Windows driver. Experimental Windows 3D drivers require a
+separate compatibility and rendering test; a visible installer is only a
+2D console check.
 
 `virt-manager-setup USER` grants render-group membership as well as VM
 management. Revoke removes render membership only if this helper added it;

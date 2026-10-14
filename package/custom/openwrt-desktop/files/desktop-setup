@@ -6,7 +6,7 @@ set -eu
 [ "$#" = 1 ] || { printf 'Usage: desktop-setup USER\n' >&2; exit 1; }
 user="$1"
 desktop_validate_user "$user"
-usermod -a -G video "$user"
+usermod -a -G video,render "$user"
 
 mkdir -p /etc/desktop/tls
 chmod 0755 /etc/desktop /etc/desktop/tls

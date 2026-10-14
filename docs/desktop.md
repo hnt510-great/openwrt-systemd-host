@@ -1,7 +1,8 @@
 # Local desktop and LAN VNC
 
 This image includes a lightweight Weston desktop and graphical terminal.
-VNC mirrors one connected local display. The desktop uses CPU rendering;
+VNC mirrors one connected local display. The desktop defaults to GPU rendering
+through EGL/GBM, allowing SPICE OpenGL consoles to import GPU buffers;
 the existing Intel DRM driver handles the monitor. The desktop package does not provision accounts or supply passwords or TLS
 private keys; local image overlays may provision existing accounts.
 
@@ -17,7 +18,7 @@ Use an existing ordinary account instead of creating a new one if appropriate.
 Images containing zsh use `/usr/bin/zsh` for root and newly created users.
 The account must have UID >= 1000, a non-root primary group, a home, a login
 shell, and an unlocked password.
-Setup adds only the `video` group; sudo access remains a separate choice.
+Setup adds the `video` and `render` groups; sudo access remains a separate choice.
 The desktop starts automatically on subsequent boots when a display and LAN
 address are available. The terminal and VNC session run as this user, with terminals starting in the home directory.
 Click the terminal icon in the top panel to open a terminal window.
@@ -158,11 +159,11 @@ SSH and LuCI remain available when the desktop is stopped. Missing accounts,
 passwords, monitors, seatd, or LAN addresses prevent session startup. Crashes
 are retried five times with a delay, then reported by procd.
 
-## Optional GPU desktop for SPICE GL
+## GPU desktop for SPICE GL
 
-The default compositor renderer remains `pixman`. To display accelerated
-SPICE DMA buffers, use an authorized desktop account with render-node access
-(see `virt-manager-setup USER`) and explicitly select the GL renderer:
+The default compositor renderer is `gl`. `desktop-setup USER` grants the
+render-node access it requires. Existing saved configurations retain their
+renderer on package upgrades; migrate an existing `pixman` desktop as root:
 
 ```sh
 uci set desktop.main.renderer='gl'
@@ -174,5 +175,7 @@ Reconnect and restart desktop applications. Weston uses EGL/GBM on the local
 DRM device, and the authenticated TLS VNC mirror remains available. EGL
 startup failures stay in the desktop service log; there is no automatic
 software fallback. To return to software composition, set the option to
-`pixman` and restart. Existing configurations without `renderer` retain
-pixman. The option is passed identically by systemd and procd service paths.
+`pixman` and restart. Software composition cannot import the SPICE GL buffers
+in the tested Intel setup; disable SPICE OpenGL when using it. Configurations
+without `renderer` use GL. The option is passed identically by systemd and
+procd service paths.

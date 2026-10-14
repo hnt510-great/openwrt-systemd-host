@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openwrt-desktop
-PKG_RELEASE:=11
+PKG_RELEASE:=12
 PKG_CONFIG_DEPENDS:=CONFIG_OPENWRT_SYSTEMD CONFIG_WESTON_RDP
 PKG_LICENSE:=MIT
 
@@ -11,7 +11,7 @@ define Package/openwrt-desktop
   SECTION:=utils
   CATEGORY:=Utilities
   TITLE:=Local Weston desktop with LAN VNC and optional RDP
-  DEPENDS:=@TARGET_x86_64 +input-support +video-support +weston +@WESTON_VNC +seatd +libpam \
+  DEPENDS:=@TARGET_x86_64 +input-support +video-support +accel-support +weston +@WESTON_VNC +seatd +libpam \
 	+kmod-input-evdev +dejavu-fonts-ttf-DejaVuSans \
 	+dejavu-fonts-ttf-DejaVuSansMono +openssl-util \
 	+shadow-usermod +shadow-useradd +shadow-passwd +tar +WESTON_RDP:winpr-hash

@@ -66,16 +66,20 @@ class DesktopRdpConfiguration(unittest.TestCase):
             session = tmp / 'session'
             session.write_text(script)
             env = dict(os.environ, HOME=str(tmp), XDG_RUNTIME_DIR=str(tmp), USER='alice')
-            for enabled, mode in [('0', 'preferred'), ('1', '1280x720')]:
+            for renderer, enabled, mode in [('pixman', '0', 'preferred'),
+                                            ('pixman', '1', '1280x720'),
+                                            ('gl', '0', 'preferred'),
+                                            ('gl', '1', '1920x1080')]:
                 result = subprocess.run(
                     ['sh', str(session), 'HDMI-A-1', '192.0.2.1', '5901', 'key', 'cert',
-                     'pixman', enabled, '3390', '30', mode], env=env, capture_output=True, text=True,
+                     renderer, enabled, '3390', '30', mode], env=env, capture_output=True, text=True,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
                 args = json.loads(result.stdout)
                 config = (tmp / 'weston.ini').read_text()
                 self.assertIn('--address=192.0.2.1', args)
                 self.assertIn('--port=5901', args)
+                self.assertIn('--renderer=' + renderer, args)
                 self.assertIn('mirror-of=HDMI-A-1', config)
                 self.assertIn('name=HDMI-A-1\nmode=' + mode, config)
                 if enabled == '1':
@@ -87,6 +91,13 @@ class DesktopRdpConfiguration(unittest.TestCase):
                 else:
                     self.assertIn('--backends=drm,vnc', args)
                     self.assertNotIn('[rdp]', config)
+
+            result = subprocess.run(
+                ['sh', str(session), 'HDMI-A-1', '192.0.2.1', '5901', 'key', 'cert'],
+                env=env, capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('--renderer=gl', json.loads(result.stdout))
 
 
 if __name__ == '__main__':
