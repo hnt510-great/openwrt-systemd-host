@@ -1,0 +1,77 @@
+diff --git a/utils/kmod/Makefile b/utils/kmod/Makefile
+index 3abd289..89adafb 100644
+--- a/utils/kmod/Makefile
++++ b/utils/kmod/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=kmod
+ PKG_VERSION:=32
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=@KERNEL/linux/utils/kernel/kmod
+diff --git a/utils/kmod/patches/011-fix-basename-lifetimes.patch b/utils/kmod/patches/011-fix-basename-lifetimes.patch
+new file mode 100644
+index 0000000..1f72d10
+--- /dev/null
++++ b/utils/kmod/patches/011-fix-basename-lifetimes.patch
+@@ -0,0 +1,58 @@
++Use basename pointers into the original immutable path rather than a freed
++temporary buffer. The POSIX basename compatibility patch freed its strdup
++before using the returned pointer, corrupting short module names in depmod
++and configuration filenames in libkmod.
++
++--- a/shared/util.c
+++++ b/shared/util.c
++@@ -173,11 +173,9 @@ char *modname_normalize(const char *modn
++ char *path_to_modname(const char *path, char buf[static PATH_MAX], size_t *len)
++ {
++-	char *modname;
++-	char *pathc = strdup(path);
+++	const char *modname = strrchr(path, '/');
++ 
++-	modname = basename(pathc);
++-	free(pathc);
++-	if (modname == NULL || modname[0] == '\0')
+++	modname = modname ? modname + 1 : path;
+++	if (modname[0] == '\0')
++ 		return NULL;
++ 
++ 	return modname_normalize(modname, buf, len);
++--- a/libkmod/libkmod-config.c
+++++ b/libkmod/libkmod-config.c
++@@ -795,9 +795,8 @@ static int conf_files_insert_sorted(stru
++ 	bool is_single = false;
++ 
++ 	if (name == NULL) {
++-		char *pathc = strdup(path);
++-		name = basename(pathc);
++-		free(pathc);
+++		name = strrchr(path, '/');
+++		name = name ? name + 1 : path;
++ 		is_single = true;
++ 	}
++ 
++--- a/tools/depmod.c
+++++ b/tools/depmod.c
++@@ -758,17 +758,15 @@ static int cfg_files_insert_sorted(struc
++ 	struct cfg_file **files, *f;
++ 	size_t i, n_files, namelen, dirlen;
++ 	void *tmp;
++-	char *dirc;
++ 
++ 	dirlen = strlen(dir);
++ 	if (name != NULL)
++ 		namelen = strlen(name);
++ 	else {
++-		dirc = strdup(dir);
++-		name = basename(dirc);
+++		name = strrchr(dir, '/');
+++		name = name ? name + 1 : dir;
++ 		namelen = strlen(name);
++ 		dirlen -= namelen + 1;
++-		free(dirc);
++ 	}
++ 
++ 	n_files = *p_n_files;

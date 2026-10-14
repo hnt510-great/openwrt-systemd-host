@@ -1,0 +1,12 @@
+{
+  "packages": {
+    "base": "dbe0dfd40d4436915da27acd7b0cfd540ea18975",
+    "patch": "patches/feeds/0008-packages-kmod-glibc.patch",
+    "paths": [
+      "utils/kmod/Makefile",
+      "utils/kmod/patches/011-fix-basename-lifetimes.patch"
+    ],
+    "state": "committed locally",
+    "commit": "53d7fb3c6e3767d5218a6e26abce8f6eeca5f352"
+  }
+}

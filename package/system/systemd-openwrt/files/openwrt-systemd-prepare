@@ -15,4 +15,9 @@ fi
 [ -d /run ] && [ ! -L /run ] || exit 1
 [ -L /var/run ] && [ "$(readlink /var/run)" = /run ] || exit 1
 /usr/lib/systemd/systemd --version >/dev/null || exit 1
+# Full kmod/libkmod needs indexes before systemd can request modules.
+# Run on the target after mounting the overlay, never on the build host.
+if [ -x /usr/sbin/depmod ]; then
+	/usr/sbin/depmod -a || exit 1
+fi
 exit 0

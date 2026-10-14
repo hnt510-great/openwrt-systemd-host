@@ -1,0 +1,7 @@
+#!/bin/sh
+# Refresh full kmod's indexes after online package installation/removal.
+[ "$1" = post-commit ] || exit 0
+[ -z "$IPKG_INSTROOT" ] || exit 0
+[ -f /etc/openwrt-systemd ] || exit 0
+[ -x /usr/sbin/depmod ] || exit 0
+exec /usr/sbin/depmod -a

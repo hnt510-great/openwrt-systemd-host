@@ -60,8 +60,10 @@ endef
 
 define Package/kernel/install
 	$(INSTALL_DIR) $(1)/$(MODULES_SUBDIR)
+	$(INSTALL_DATA) $(LINUX_DIR)/modules.order $(1)/$(MODULES_SUBDIR)
+	$(SED) 's,.*/,,' $(1)/$(MODULES_SUBDIR)/modules.order
 	$(INSTALL_DATA) $(LINUX_DIR)/modules.builtin $(1)/$(MODULES_SUBDIR)
-	$(SED) 's,.*/,,' $(1)/$(MODULES_SUBDIR)/modules.builtin
+	$(if $(CONFIG_OPENWRT_SYSTEMD),,$(SED) 's,.*/,,' $(1)/$(MODULES_SUBDIR)/modules.builtin)
 	strings $(LINUX_DIR)/modules.builtin.modinfo | \
 		grep -E -v "\.(file$(if CONFIG_MODULE_STRIPPED,|parmtype))=" | \
 		tr '\n' '\0' > $(1)/$(MODULES_SUBDIR)/modules.builtin.modinfo

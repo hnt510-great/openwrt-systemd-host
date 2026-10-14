@@ -51,6 +51,14 @@ boot() {
 	# get executed because of '/sbin/kmodloader' kmod loading.
 	[ -f /etc/board.json ] && /sbin/wifi config
 
+	# Native init prepares libkmod's indexes before handing off to systemd.
+	# Recovery also needs them when the full kmod tools are installed.
+	if [ -f /etc/openwrt-systemd ] &&
+	   [ "$(cat /proc/1/comm)" != systemd ] &&
+	   [ -x /usr/sbin/depmod ]; then
+		/usr/sbin/depmod -a
+	fi
+
 	/sbin/kmodloader
 
 	uci_apply_defaults
