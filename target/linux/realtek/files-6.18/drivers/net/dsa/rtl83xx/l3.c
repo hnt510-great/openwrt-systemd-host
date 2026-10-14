@@ -161,22 +161,11 @@ struct otto_l3_walk_data {
 	int port;
 };
 
-static void otto_l3_838x_route_read(struct otto_l3_ctrl *ctrl, int idx, struct otto_l3_route *rt)
-{
-	u32 data[2];
-
-	otto_table_read(RTL8380_TBL_ROUTING, idx, &data);
-
-	rt->nh.gw = data[0];
-	rt->nh.gw <<= 32;
-	rt->nh.gw |= data[1];
-}
-
-static void otto_l3_838x_route_write(struct otto_l3_ctrl *ctrl, int idx, struct otto_l3_route *rt)
+static int otto_l3_838x_route_write(struct otto_l3_ctrl *ctrl, int idx, struct otto_l3_route *rt)
 {
 	u32 data[2] = { rt->nh.gw >> 32, rt->nh.gw };
 
-	otto_table_write(RTL8380_TBL_ROUTING, idx, &data);
+	return otto_table_write(RTL8380_TBL_ROUTING, idx, &data);
 }
 
 /* A ROUTING row holds a gateway's MAC and the switch MAC entry to route with
@@ -233,7 +222,7 @@ static int otto_l3_839x_set_smac(struct otto_l3_ctrl *ctrl, u32 idx, u64 mac)
  * switch's MACs (SWITCHMAC): a frame for another station with the same
  * destination goes its way. Without a route, the row is cleared.
  */
-static void otto_l3_839x_route_write(struct otto_l3_ctrl *ctrl, int idx, struct otto_l3_route *rt)
+static int otto_l3_839x_route_write(struct otto_l3_ctrl *ctrl, int idx, struct otto_l3_route *rt)
 {
 	struct rtl838x_switch_priv *priv = ctrl->priv;
 	struct pie_rule pr = {};
@@ -280,12 +269,16 @@ static void otto_l3_839x_route_write(struct otto_l3_ctrl *ctrl, int idx, struct 
 	err = rtl839x_pie_l3_rule_write(priv, idx, &pr);
 	if (err)
 		dev_err(ctrl->dev, "L3 rule %d not written: %d\n", idx, err);
+
+	return err;
 }
 
 /* A rule holds nothing its route does not, and counts its packets apart from
  * it, so a move writes the routes again at their new rows. The routes still
  * name the rows they leave. The ranges overlap by one row per insertion or
- * removal, so the copy runs away from the direction of travel.
+ * removal, so the copy runs away from the direction of travel. A rule that
+ * was not written may be half written, so a failed write leaves the block
+ * half shifted wherever it happens.
  */
 static int otto_l3_839x_route_rows_move(struct otto_l3_ctrl *ctrl, int dst, int src, int count)
 {
@@ -300,7 +293,8 @@ static int otto_l3_839x_route_rows_move(struct otto_l3_ctrl *ctrl, int dst, int 
 			}
 		}
 
-		otto_l3_839x_route_write(ctrl, dst + i, at);
+		if (otto_l3_839x_route_write(ctrl, dst + i, at))
+			return -EIO;
 	}
 
 	return 0;
@@ -315,6 +309,39 @@ static int otto_l3_839x_v6_slot_to_row(struct otto_l3_ctrl *ctrl, int slot)
 static int otto_l3_839x_v6_row_to_slot(struct otto_l3_ctrl *ctrl, int row)
 {
 	return MAX_ROUTES - 1 - row;
+}
+
+/* The rule otto_l3_839x_route_write() wrote for the route, read back: its
+ * destination and mask, and where it sends the frame
+ */
+static int otto_l3_839x_route_matches(struct otto_l3_ctrl *ctrl, int row,
+				      struct otto_l3_route *rt)
+{
+	struct rtl838x_switch_priv *priv = ctrl->priv;
+	bool fwd = rt->attr.action == ROUTE_ACT_FORWARD;
+	struct pie_rule pr;
+	int err;
+
+	err = rtl839x_pie_rule_read(priv, row, &pr);
+	if (err)
+		return err;
+
+	if (!pr.valid || !pr.fwd_sel ||
+	    pr.fwd_act != (fwd ? PIE_ACT_ROUTE_UC : PIE_ACT_REDIRECT_TO_PORT) ||
+	    pr.fwd_data != (fwd ? rt->nh.l2_id : priv->r->cpu_port))
+		return 0;
+
+	if (rt->attr.type == ROUTE_TYPE_IP6UC) {
+		struct in6_addr ones, mask;
+
+		memset(&ones, 0xff, sizeof(ones));
+		ipv6_addr_prefix(&mask, &ones, rt->prefix_len);
+		return pr.frame_type == 3 && ipv6_addr_equal(&pr.dip6, &rt->dst_ip6) &&
+		       ipv6_addr_equal(&pr.dip6_m, &mask);
+	}
+
+	return pr.frame_type == 2 && pr.dip == rt->dst_ip &&
+	       pr.dip_m == inet_make_mask(rt->prefix_len);
 }
 
 static void otto_l3_839x_setup_port_macs(struct otto_l3_ctrl *ctrl)
@@ -771,27 +798,31 @@ static bool otto_l3_930x_route_decode(const u32 *data, struct otto_l3_route *rt)
 	return true;
 }
 
-/* Read a prefix route entry from the L3_PREFIX_ROUTE_IPUC table
- * We currently only support IPv4 and IPv6 unicast route
- */
-static void otto_l3_930x_route_read(struct otto_l3_ctrl *ctrl, int idx, struct otto_l3_route *rt)
+static int otto_l3_930x_route_matches(struct otto_l3_ctrl *ctrl, int row,
+				      struct otto_l3_route *rt)
 {
+	struct otto_l3_route entry;
 	u32 data[11];
+	int err;
 
-	dev_dbg(ctrl->dev, "%s\n", __func__);
+	err = otto_table_read(RTL9300_TBL_L3_PREFIX_ROUTE_IPUC, row, &data);
+	if (err)
+		return err;
 
-	otto_table_read(RTL9300_TBL_L3_PREFIX_ROUTE_IPUC, idx, &data);
-	if (!otto_l3_930x_route_decode(data, rt)) {
-		if (rt->attr.valid)
-			dev_warn(ctrl->dev, "route type not supported\n");
-		return;
-	}
+	/* The next hop index a row carries is the one the route wrote: its
+	 * own id once its gateway answered, and zero on a row that only
+	 * traps, which the SDK keeps for exactly that. Comparing it with the
+	 * route's own next hop tells two routes for one destination apart,
+	 * whatever their action. A row that is not unicast decodes as none.
+	 */
+	if (!otto_l3_930x_route_decode(data, &entry) || entry.attr.type != rt->attr.type ||
+	    entry.prefix_len != rt->prefix_len || entry.nh.id != rt->nh.id)
+		return 0;
 
-	dev_dbg(ctrl->dev, "index %d is valid: %d\n", idx, rt->attr.valid);
-	dev_dbg(ctrl->dev, "next_hop: %d, hit: %d, action :%d, ttl_dec %d, ttl_check %d, dst_null %d\n",
-		rt->nh.id, rt->attr.hit, rt->attr.action,
-		rt->attr.ttl_dec, rt->attr.ttl_check, rt->attr.dst_null);
-	dev_dbg(ctrl->dev, "GW: %pI4, prefix_len: %d\n", &rt->dst_ip, rt->prefix_len);
+	if (rt->attr.type == ROUTE_TYPE_IP6UC)
+		return ipv6_addr_equal(&entry.dst_ip6, &rt->dst_ip6);
+
+	return entry.dst_ip == rt->dst_ip;
 }
 
 static void otto_l3_930x_net6_mask(int prefix_len, struct in6_addr *ip6_m)
@@ -917,7 +948,7 @@ static int otto_l3_930x_v6_row_to_slot(struct otto_l3_ctrl *ctrl, int row)
 /* Write a prefix route into the routing table CAM at position idx
  * Currently only IPv4 and IPv6 unicast routes are supported
  */
-static void otto_l3_930x_route_write(struct otto_l3_ctrl *ctrl, int idx, struct otto_l3_route *rt)
+static int otto_l3_930x_route_write(struct otto_l3_ctrl *ctrl, int idx, struct otto_l3_route *rt)
 {
 	struct in6_addr ip6_m;
 	u32 data[11];
@@ -979,7 +1010,7 @@ static void otto_l3_930x_route_write(struct otto_l3_ctrl *ctrl, int idx, struct 
 	case ROUTE_TYPE_IP4MC:
 	case ROUTE_TYPE_IP6MC:
 		dev_warn(ctrl->dev, "route type not supported\n");
-		return;
+		return -EOPNOTSUPP;
 	}
 	data[10] = v;
 
@@ -987,7 +1018,7 @@ static void otto_l3_930x_route_write(struct otto_l3_ctrl *ctrl, int idx, struct 
 		 data[0], data[1], data[2], data[3], data[4], data[5],
 		 data[6], data[7], data[8], data[9], data[10]);
 
-	otto_table_write(RTL9300_TBL_L3_PREFIX_ROUTE_IPUC, idx, &data);
+	return otto_table_write(RTL9300_TBL_L3_PREFIX_ROUTE_IPUC, idx, &data);
 }
 
 static int otto_l3_port_lower_walk(struct net_device *lower, struct netdev_nested_priv *_priv)
@@ -1679,47 +1710,24 @@ static bool otto_l3_local_covers(struct otto_l3_ctrl *ctrl, struct otto_l3_route
  * covers the same address answers as well. The SDK reads the entry back and
  * compares it with the route it asked for before touching it.
  */
-static bool otto_l3_route_is_at(struct otto_l3_ctrl *ctrl, int id, struct otto_l3_route *r)
+static int otto_l3_route_matches(struct otto_l3_ctrl *ctrl, int row, struct otto_l3_route *r)
 {
-	struct otto_l3_route entry;
+	if (row < FIRST_PREFIX_ROW)
+		return 0;
 
-	if (id < FIRST_PREFIX_ROW)
-		return false;
-
-	ctrl->cfg->route_read(ctrl, id, &entry);
-	/* The next hop index a row carries is the one the route wrote: its
-	 * own id once its gateway answered, and zero on a row that only
-	 * traps, which the SDK keeps for exactly that. Comparing it with the
-	 * route's own next hop tells two routes for one destination apart,
-	 * whatever their action.
-	 * It is read after the type: the reader leaves it untouched on a
-	 * multicast row, and the type comparison is what stops it being read
-	 * there.
-	 */
-	if (!entry.attr.valid || entry.attr.type != r->attr.type ||
-	    entry.prefix_len != r->prefix_len ||
-	    entry.nh.id != r->nh.id)
-		return false;
-
-	switch (r->attr.type) {
-	case ROUTE_TYPE_IP4UC:
-		return entry.dst_ip == r->dst_ip;
-	case ROUTE_TYPE_IP6UC:
-		return ipv6_addr_equal(&entry.dst_ip6, &r->dst_ip6);
-	}
-
-	return false;
+	return ctrl->cfg->route_matches(ctrl, row, r);
 }
 
 /* Once the rows are not where the list says, the row a prefix route was given
- * may hold another route by now. A route whose row no longer reads back as it
- * is left as it is, so that nothing is written over the other one; a route
- * whose row still does is updated as before, and its removal still finds it.
+ * may hold another route by now. A route whose row no longer reads back as it,
+ * or cannot be read, is left as it is, so that nothing is written over the
+ * other one; a route whose row still does is updated as before, and its
+ * removal still finds it.
  */
 static bool otto_l3_row_frozen(struct otto_l3_ctrl *ctrl, struct otto_l3_route *r)
 {
 	return ctrl->prefix_rows_stale && !r->is_host_route && r->row >= FIRST_PREFIX_ROW &&
-	       !otto_l3_route_is_at(ctrl, r->row, r);
+	       otto_l3_route_matches(ctrl, r->row, r) != 1;
 }
 
 /* Writes a route to its host slot or prefix row, taking a free slot or placing
@@ -1900,7 +1908,7 @@ static void otto_l3_switch_mac_put(struct otto_l3_ctrl *ctrl, int idx)
 /* A route the switch cannot route keeps to the CPU, its next hop as it was */
 static void otto_l3_route_trap_sw(struct otto_l3_ctrl *ctrl, struct otto_l3_route *r)
 {
-	if (r->attr.action == ROUTE_ACT_TRAP2CPU)
+	if (r->attr.action == ROUTE_ACT_TRAP2CPU || otto_l3_row_frozen(ctrl, r))
 		return;
 
 	r->attr.action = ROUTE_ACT_TRAP2CPU;
@@ -2542,9 +2550,13 @@ static void otto_l3_route_free(struct otto_l3_ctrl *ctrl, struct otto_l3_route *
 	list_for_each_entry_safe(s, tmp, &r->srcs, list)
 		kfree(s);
 
+	/* On RTL930x a prefix route's id is also the next hop row it routes
+	 * through, which a row left in hardware may still name while the rows
+	 * are stale
+	 */
 	if (r->is_host_route)
 		clear_bit(r->id - MAX_ROUTES, ctrl->host_route_use_bm);
-	else
+	else if (!ctrl->prefix_rows_stale)
 		clear_bit(r->id, ctrl->route_use_bm);
 
 	if (IS_REACHABLE(CONFIG_IPV6) && r->f6i) {
@@ -2560,6 +2572,7 @@ static void otto_l3_route_remove(struct otto_l3_ctrl *ctrl, struct otto_l3_route
 {
 	char dst[INET6_ADDRSTRLEN + sizeof("/128")];
 	int id;
+	int found;
 
 	if (otto_l3_host_shadowed(ctrl, r)) {
 		/* The entry for the address is the local route's */
@@ -2580,23 +2593,25 @@ static void otto_l3_route_remove(struct otto_l3_ctrl *ctrl, struct otto_l3_route
 		/* If there is a HW representation of the route, delete it */
 		if (r->row >= FIRST_PREFIX_ROW) {
 			/* The route was written at the row we recorded, and one
-			 * that could not be placed has none. Where the hardware
-			 * looks a route up, ask it when the route is not where
-			 * we put it.
+			 * that could not be placed has none. A row is only
+			 * cleared while it reads back as the route; where the
+			 * hardware looks a route up, ask it when the route is not
+			 * where we put it.
 			 */
 			id = r->row;
-			if (ctrl->cfg->route_lookup_hw && !otto_l3_route_is_at(ctrl, id, r)) {
+			found = otto_l3_route_matches(ctrl, id, r);
+			if (!found && ctrl->cfg->route_lookup_hw) {
 				id = ctrl->cfg->route_lookup_hw(ctrl, r);
-				if (id != -ETIMEDOUT && !otto_l3_route_is_at(ctrl, id, r)) {
-					if (id >= FIRST_PREFIX_ROW)
-						dev_err(ctrl->dev,
-							"prefix route %s: row %d holds another route\n",
-							otto_l3_route_dst(r, dst, sizeof(dst)), id);
-					id = -1;
-				}
+				if (id != -ETIMEDOUT)
+					found = otto_l3_route_matches(ctrl, id, r);
+			}
+			if (!found && id >= FIRST_PREFIX_ROW) {
+				dev_err(ctrl->dev, "prefix route %s: row %d holds another route\n",
+					otto_l3_route_dst(r, dst, sizeof(dst)), id);
+				id = -1;
 			}
 
-			if (id >= FIRST_PREFIX_ROW) {
+			if (found > 0) {
 				dev_dbg(ctrl->dev, "Got id for prefix route: %d\n", id);
 				r->attr.valid = false;
 				ctrl->cfg->route_write(ctrl, id, r);
@@ -2608,6 +2623,15 @@ static void otto_l3_route_remove(struct otto_l3_ctrl *ctrl, struct otto_l3_route
 				dev_err(ctrl->dev,
 					"prefix route %s: hardware lookup timed out, no prefix route will be placed again\n",
 					otto_l3_route_dst(r, dst, sizeof(dst)));
+			} else if (found < 0) {
+				/* A row that could not be read may hold the route:
+				 * it stays as it is, and so do the egress interface,
+				 * DMAC and switch MAC entries it names
+				 */
+				ctrl->prefix_rows_stale = true;
+				dev_err(ctrl->dev,
+					"prefix route %s: row %d not read: %d, no prefix route will be placed again\n",
+					otto_l3_route_dst(r, dst, sizeof(dst)), id, found);
 			} else {
 				dev_err(ctrl->dev, "prefix route %s was not in hardware\n",
 					otto_l3_route_dst(r, dst, sizeof(dst)));
@@ -2631,18 +2655,21 @@ static void otto_l3_route_teardown(struct otto_l3_ctrl *ctrl, struct otto_l3_rou
 	 */
 	otto_l3_route_remove(ctrl, r);
 
-	if (r->nh.l2_installed)
-		otto_l2_nexthop_del(priv, &r->nh);
-
-	dev_dbg(ctrl->dev, "releasing packet counter %d\n", r->pr.packet_cntr);
-	otto_stats_packet_cntr_free(priv, r->pr.packet_cntr);
-
-	/* Once the rows are not where the list says, after a failed move or a
-	 * lookup that timed out, the row of a prefix route may still be in
-	 * hardware and route through its egress interface and its gateway's
-	 * DMAC entry: it keeps them for good.
+	/* Once the rows are not where the list says, after a failed move, a
+	 * lookup that timed out or a row that could not be read, the row of a
+	 * prefix route may still be in hardware, and so may a copy a failed
+	 * move left behind. Everything such a row routes through stays for
+	 * good: its gateway's L2 entry, its packet counter, its egress
+	 * interface, its gateway's DMAC entry and its switch MAC entry, and
+	 * otto_l3_route_free() keeps its id.
 	 */
 	if (r->is_host_route || !ctrl->prefix_rows_stale) {
+		if (r->nh.l2_installed)
+			otto_l2_nexthop_del(priv, &r->nh);
+
+		dev_dbg(ctrl->dev, "releasing packet counter %d\n", r->pr.packet_cntr);
+		otto_stats_packet_cntr_free(priv, r->pr.packet_cntr);
+
 		otto_l3_route_put_intf(ctrl, r);
 		otto_l3_dmac_put(ctrl, r->nh.dmac_id);
 		otto_l3_switch_mac_put(ctrl, r->switch_mac_id);
@@ -4545,7 +4572,6 @@ static void otto_l3_930x_dbgfs_init(struct otto_l3_ctrl *ctrl)
 }
 
 const struct otto_l3_config otto_l3_838x_cfg = {
-	.route_read = otto_l3_838x_route_read,
 	.route_write = otto_l3_838x_route_write,
 };
 
@@ -4558,6 +4584,7 @@ const struct otto_l3_config otto_l3_839x_cfg = {
 	.route_rows_move = otto_l3_839x_route_rows_move,
 	.v6_slot_to_row = otto_l3_839x_v6_slot_to_row,
 	.v6_row_to_slot = otto_l3_839x_v6_row_to_slot,
+	.route_matches = otto_l3_839x_route_matches,
 	.route_write = otto_l3_839x_route_write,
 	.setup = otto_l3_839x_setup,
 	.dbgfs_init = otto_l3_839x_dbgfs_init,
@@ -4581,7 +4608,7 @@ const struct otto_l3_config otto_l3_930x_cfg = {
 	.route_rows_move = otto_l3_930x_route_rows_move,
 	.v6_slot_to_row = otto_l3_930x_v6_slot_to_row,
 	.v6_row_to_slot = otto_l3_930x_v6_row_to_slot,
-	.route_read = otto_l3_930x_route_read,
+	.route_matches = otto_l3_930x_route_matches,
 	.route_write = otto_l3_930x_route_write,
 	.setup = otto_l3_930x_setup,
 	.dbgfs_init = otto_l3_930x_dbgfs_init,
