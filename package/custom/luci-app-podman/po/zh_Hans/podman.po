@@ -1,0 +1,252 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: zh_Hans\n"
+
+msgid "Actions"
+msgstr "操作"
+
+msgid "Allow LuCI administrators to manage selected existing rootless accounts. Enroll accounts with podman-rootless-setup USER first."
+msgstr "允许 LuCI 管理员管理所选的已有 rootless 账号。请先执行 podman-rootless-setup USER 配置账号。"
+
+msgid "Allowed accounts"
+msgstr "允许管理的账号"
+
+msgid "An operation is already running in this page."
+msgstr "此页面已有操作正在执行。"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Cgroup manager"
+msgstr "Cgroup 管理器"
+
+msgid "Close"
+msgstr "关闭"
+
+msgid "Command arguments (one per line)"
+msgstr "命令参数（每行一个）"
+
+msgid "Completed"
+msgstr "已完成"
+
+msgid "Configuration"
+msgstr "配置"
+
+msgid "Container logs"
+msgstr "容器日志"
+
+msgid "Containers"
+msgstr "容器"
+
+msgid "Create"
+msgstr "创建"
+
+msgid "Created"
+msgstr "创建时间"
+
+msgid "Driver"
+msgstr "驱动"
+
+msgid "Each account has its own containers, images, networks and volumes. Operations run as the selected ordinary user."
+msgstr "每个账号的容器、镜像、网络和存储卷相互独立。所有操作均以所选普通用户身份执行。"
+
+msgid "Environment (one KEY=value per line)"
+msgstr "环境变量（每行一个 KEY=value）"
+
+msgid "Failed (exit code %s)"
+msgstr "失败（退出码 %s）"
+
+msgid "ID"
+msgstr "ID"
+
+msgid "Image"
+msgstr "镜像"
+
+msgid "Images"
+msgstr "镜像"
+
+msgid "Inspect"
+msgstr "详情"
+
+msgid "Interface"
+msgstr "接口"
+
+msgid "Logs"
+msgstr "日志"
+
+msgid "Mount point"
+msgstr "挂载点"
+
+msgid "Name"
+msgstr "名称"
+
+msgid "Network (empty uses the rootless default)"
+msgstr "网络（留空使用 rootless 默认网络）"
+
+msgid "Networks"
+msgstr "网络"
+
+msgid "No resources found."
+msgstr "未找到资源。"
+
+msgid "No rootless account is allowed. Enroll an existing account with podman-rootless-setup, then select it in Configuration."
+msgstr "尚未允许任何 rootless 账号。请先使用 podman-rootless-setup 配置已有账号，再到配置页面选择该账号。"
+
+msgid "OCI runtime"
+msgstr "OCI 运行时"
+
+msgid "Only ordinary accounts with at least 65536 subordinate UIDs and GIDs are listed. A user runtime directory and, with systemd cgroups, the user bus are required. Log in through SSH/PAM, or enable persistent access with loginctl enable-linger USER."
+msgstr "仅列出拥有至少 65536 个 subordinate UID 和 GID 的普通账号。需要用户运行时目录；systemd cgroup 模式还需要用户总线。请通过 SSH/PAM 登录，或执行 loginctl enable-linger USER 启用持久访问。"
+
+msgid "Operation running…"
+msgstr "操作执行中…"
+
+msgid "Operations continue if this dialog is closed. Image pulls can take up to five minutes."
+msgstr "关闭对话框后操作仍会继续。镜像拉取最长可执行五分钟。"
+
+msgid "Overview"
+msgstr "概览"
+
+msgid "Pause"
+msgstr "暂停"
+
+msgid "Permission denied."
+msgstr "权限不足。"
+
+msgid "Pod (optional)"
+msgstr "Pod（可选）"
+
+msgid "Podman operation"
+msgstr "Podman 操作"
+
+msgid "Podman operation failed."
+msgstr "Podman 操作失败。"
+
+msgid "Podman request failed."
+msgstr "Podman 请求失败。"
+
+msgid "Podman version"
+msgstr "Podman 版本"
+
+msgid "Pods"
+msgstr "Pod"
+
+msgid "Ports"
+msgstr "端口"
+
+msgid "Published ports (one per line)"
+msgstr "发布端口（每行一个）"
+
+msgid "Pull image"
+msgstr "拉取镜像"
+
+msgid "Pull the image first. Create makes a stopped container; use Start afterward. Each command argument occupies one line, without shell quoting."
+msgstr "请先拉取镜像。创建的容器处于停止状态，之后可点击启动。命令参数每行一个，无需 Shell 引号。"
+
+msgid "Refresh"
+msgstr "刷新"
+
+msgid "Remove"
+msgstr "删除"
+
+msgid "Remove %s from account %s? Removal is permanent. Running containers and resources in use will not be forcibly removed."
+msgstr "确定删除资源 %s（账号 %s）？删除不可恢复；运行中的容器及正在使用的资源不会被强制删除。"
+
+msgid "Remove resource"
+msgstr "删除资源"
+
+msgid "Restart"
+msgstr "重启"
+
+msgid "Restart policy"
+msgstr "重启策略"
+
+msgid "Restart policy applies while Podman is running. Boot autostart requires separate user service configuration. Rootless ports below 1024 may be restricted by the host."
+msgstr "重启策略用于运行期间。开机自启需另行配置用户服务。主机可能限制 rootless 使用低于 1024 的端口。"
+
+msgid "Rootless"
+msgstr "非特权运行"
+
+msgid "Rootless Podman"
+msgstr "Rootless Podman"
+
+msgid "Rootless account"
+msgstr "Rootless 账号"
+
+msgid "Running"
+msgstr "运行中"
+
+msgid "Runtime path"
+msgstr "运行时路径"
+
+msgid "Size"
+msgstr "大小"
+
+msgid "Start"
+msgstr "启动"
+
+msgid "State"
+msgstr "状态"
+
+msgid "Status"
+msgstr "运行状态"
+
+msgid "Stop"
+msgstr "停止"
+
+msgid "Storage driver"
+msgstr "存储驱动"
+
+msgid "Storage path"
+msgstr "存储路径"
+
+msgid "Tags"
+msgstr "标签"
+
+msgid "Unable to list accounts."
+msgstr "无法读取账号列表。"
+
+msgid "Unavailable"
+msgstr "不可用"
+
+msgid "Unpause"
+msgstr "恢复"
+
+msgid "Updated"
+msgstr "更新于"
+
+msgid "Volumes"
+msgstr "存储卷"
+
+msgid "Volumes (one per line)"
+msgstr "存储卷（每行一个）"
+
+msgid "Loading…"
+msgstr "加载中…"
+
+msgid "Account changed. Refresh and try again."
+msgstr "账号已切换，请刷新后重试。"
+
+msgid "Infra image (optional)"
+msgstr "Infra 镜像（可选）"
+
+msgid "Infra command (optional)"
+msgstr "Infra 命令（可选）"
+
+msgid "An empty infra image creates a pod that groups containers without sharing namespaces. Add containers before starting it. Specify an infra image to share network, IPC and UTS namespaces."
+msgstr "Infra 镜像留空时，Pod 仅用于分组，容器不会共享命名空间。请先加入容器再启动 Pod。指定 Infra 镜像后可共享网络、IPC 和 UTS 命名空间。"
+
+
+msgid "Container image"
+msgstr "容器镜像"
+
+msgid "Container state"
+msgstr "容器状态"
+
+msgid "Runtime status"
+msgstr "运行状态"
+
+msgid "Image reference"
+msgstr "镜像名称"
+

@@ -1,0 +1,252 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: \n"
+
+msgid "Actions"
+msgstr ""
+
+msgid "Allow LuCI administrators to manage selected existing rootless accounts. Enroll accounts with podman-rootless-setup USER first."
+msgstr ""
+
+msgid "Allowed accounts"
+msgstr ""
+
+msgid "An operation is already running in this page."
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
+
+msgid "Cgroup manager"
+msgstr ""
+
+msgid "Close"
+msgstr ""
+
+msgid "Command arguments (one per line)"
+msgstr ""
+
+msgid "Completed"
+msgstr ""
+
+msgid "Configuration"
+msgstr ""
+
+msgid "Container logs"
+msgstr ""
+
+msgid "Containers"
+msgstr ""
+
+msgid "Create"
+msgstr ""
+
+msgid "Created"
+msgstr ""
+
+msgid "Driver"
+msgstr ""
+
+msgid "Each account has its own containers, images, networks and volumes. Operations run as the selected ordinary user."
+msgstr ""
+
+msgid "Environment (one KEY=value per line)"
+msgstr ""
+
+msgid "Failed (exit code %s)"
+msgstr ""
+
+msgid "ID"
+msgstr ""
+
+msgid "Image"
+msgstr ""
+
+msgid "Images"
+msgstr ""
+
+msgid "Inspect"
+msgstr ""
+
+msgid "Interface"
+msgstr ""
+
+msgid "Logs"
+msgstr ""
+
+msgid "Mount point"
+msgstr ""
+
+msgid "Name"
+msgstr ""
+
+msgid "Network (empty uses the rootless default)"
+msgstr ""
+
+msgid "Networks"
+msgstr ""
+
+msgid "No resources found."
+msgstr ""
+
+msgid "No rootless account is allowed. Enroll an existing account with podman-rootless-setup, then select it in Configuration."
+msgstr ""
+
+msgid "OCI runtime"
+msgstr ""
+
+msgid "Only ordinary accounts with at least 65536 subordinate UIDs and GIDs are listed. A user runtime directory and, with systemd cgroups, the user bus are required. Log in through SSH/PAM, or enable persistent access with loginctl enable-linger USER."
+msgstr ""
+
+msgid "Operation running…"
+msgstr ""
+
+msgid "Operations continue if this dialog is closed. Image pulls can take up to five minutes."
+msgstr ""
+
+msgid "Overview"
+msgstr ""
+
+msgid "Pause"
+msgstr ""
+
+msgid "Permission denied."
+msgstr ""
+
+msgid "Pod (optional)"
+msgstr ""
+
+msgid "Podman operation"
+msgstr ""
+
+msgid "Podman operation failed."
+msgstr ""
+
+msgid "Podman request failed."
+msgstr ""
+
+msgid "Podman version"
+msgstr ""
+
+msgid "Pods"
+msgstr ""
+
+msgid "Ports"
+msgstr ""
+
+msgid "Published ports (one per line)"
+msgstr ""
+
+msgid "Pull image"
+msgstr ""
+
+msgid "Pull the image first. Create makes a stopped container; use Start afterward. Each command argument occupies one line, without shell quoting."
+msgstr ""
+
+msgid "Refresh"
+msgstr ""
+
+msgid "Remove"
+msgstr ""
+
+msgid "Remove %s from account %s? Removal is permanent. Running containers and resources in use will not be forcibly removed."
+msgstr ""
+
+msgid "Remove resource"
+msgstr ""
+
+msgid "Restart"
+msgstr ""
+
+msgid "Restart policy"
+msgstr ""
+
+msgid "Restart policy applies while Podman is running. Boot autostart requires separate user service configuration. Rootless ports below 1024 may be restricted by the host."
+msgstr ""
+
+msgid "Rootless"
+msgstr ""
+
+msgid "Rootless Podman"
+msgstr ""
+
+msgid "Rootless account"
+msgstr ""
+
+msgid "Running"
+msgstr ""
+
+msgid "Runtime path"
+msgstr ""
+
+msgid "Size"
+msgstr ""
+
+msgid "Start"
+msgstr ""
+
+msgid "State"
+msgstr ""
+
+msgid "Status"
+msgstr ""
+
+msgid "Stop"
+msgstr ""
+
+msgid "Storage driver"
+msgstr ""
+
+msgid "Storage path"
+msgstr ""
+
+msgid "Tags"
+msgstr ""
+
+msgid "Unable to list accounts."
+msgstr ""
+
+msgid "Unavailable"
+msgstr ""
+
+msgid "Unpause"
+msgstr ""
+
+msgid "Updated"
+msgstr ""
+
+msgid "Volumes"
+msgstr ""
+
+msgid "Volumes (one per line)"
+msgstr ""
+
+msgid "Loading…"
+msgstr ""
+
+msgid "Account changed. Refresh and try again."
+msgstr ""
+
+msgid "Infra image (optional)"
+msgstr ""
+
+msgid "Infra command (optional)"
+msgstr ""
+
+msgid "An empty infra image creates a pod that groups containers without sharing namespaces. Add containers before starting it. Specify an infra image to share network, IPC and UTS namespaces."
+msgstr ""
+
+
+msgid "Container image"
+msgstr ""
+
+msgid "Container state"
+msgstr ""
+
+msgid "Runtime status"
+msgstr ""
+
+msgid "Image reference"
+msgstr ""
+

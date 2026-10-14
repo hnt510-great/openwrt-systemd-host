@@ -1,0 +1,3 @@
+config podman 'main'
+	# Explicitly allow existing rootless accounts through the Configuration page.
+	# list users 'alice'

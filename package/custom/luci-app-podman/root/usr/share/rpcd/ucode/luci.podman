@@ -1,0 +1,184 @@
+// SPDX-License-Identifier: Apache-2.0
+'use strict';
+
+import { readfile, popen, mkdtemp, writefile, glob, stat, lstat, unlink, rmdir } from 'fs';
+import { cursor } from 'uci';
+
+const CONFIG = 'luci_podman';
+const JOBS = '/tmp/luci-podman-';
+const JOB_UID = 0;
+
+function failure(error) { return { success: false, error: error }; }
+function quote(s) { return "'" + replace(s, "'", "'\\''") + "'"; }
+function text(s, max) {
+	return type(s) == 'string' && length(s) > 0 && length(s) <= max && index(s, '\x00') < 0;
+}
+function name(s) { return text(s, 128) && replace(s, /[a-zA-Z0-9_.-]/g, '') == '' && !!match(s, /^[a-zA-Z0-9]/); }
+function image(s) { return text(s, 512) && replace(s, /[a-zA-Z0-9_./:@-]/g, '') == '' && !!match(s, /^[a-zA-Z0-9]/); }
+function accounts() {
+	let result = [];
+	let ctx = cursor();
+	let allowed = ctx.get(CONFIG, 'main', 'users') || [];
+	if (type(allowed) != 'array') allowed = [ allowed ];
+	ctx.unload();
+	for (let line in split(readfile('/etc/passwd') || '', '\n')) {
+		let p = split(line, ':');
+		if (length(p) != 7 || !name(p[0]) || +p[2] < 1000 || +p[3] <= 0 || substr(p[5], 0, 1) != '/') continue;
+		let mapped = true;
+		for (let path in [ '/etc/subuid', '/etc/subgid' ]) {
+			let found = false;
+			for (let entry in split(readfile(path) || '', '\n')) {
+				let m = split(entry, ':');
+				if (length(m) == 3 && (m[0] == p[0] || m[0] == p[2]) && +m[2] >= 65536) found = true;
+			}
+			mapped = mapped && found;
+		}
+		if (mapped) push(result, { user: p[0], uid: +p[2], home: p[5], allowed: p[0] in allowed,
+			runtime: stat('/run/user/' + p[2])?.type == 'directory' });
+	}
+	return result;
+}
+function permitted(user) { return text(user, 128) && length(filter(accounts(), (a) => a.user == user && a.allowed)) == 1; }
+function command(user, args) {
+	return '/usr/libexec/podman-luci-exec ' + join(' ', map([ user, ...args ], quote));
+}
+function run(user, args, json_output) {
+	let p = popen('/usr/bin/timeout -k 1 5 ' + command(user, args) + ' 2>&1', 'r');
+	if (!p) return failure('Unable to execute Podman.');
+	let output = p.read(524288) || '';
+	let overflow = p.read(1);
+	let code = p.close();
+	if (overflow) return failure('Podman output exceeds 512 KiB. Use the command line to inspect this resource.');
+	if (code != 0) return failure(code == 124 || code == 137 ? 'Podman timed out. Refresh before retrying.' : trim(output));
+	if (!json_output) return { success: true, data: output };
+	try { return { success: true, data: json(output) }; }
+	catch (e) { return failure('Invalid JSON returned by Podman: ' + substr(output, 0, 256)); }
+}
+function cleanup() {
+	for (let dir in glob(JOBS + '*')) {
+		let st = lstat(dir);
+		if (st?.type != 'directory' || st.uid != JOB_UID) continue;
+		if (time() - (stat(dir)?.mtime || time()) < 3600) continue;
+		for (let file in [ 'owner', 'output', 'code', 'code.new' ]) unlink(dir + '/' + file);
+		rmdir(dir);
+	}
+}
+function job(user, args) {
+	cleanup();
+	let live = filter(glob(JOBS + '*'), (d) => lstat(d)?.uid == JOB_UID && lstat(d)?.type == 'directory' && !stat(d + '/code'));
+	if (length(live) >= 4) return failure('Four operations are already running. Wait for them to finish.');
+	let dir = mkdtemp(JOBS + 'XXXXXX');
+	if (!dir || !writefile(dir + '/owner', user)) return failure('Unable to create operation directory.');
+	let cmd = '/usr/libexec/podman-luci-job ' + join(' ', map([ dir, user, ...args ], quote));
+	if (system(cmd + ' </dev/null >/dev/null 2>&1 &') != 0) return failure('Unable to start operation.');
+	return { success: true, job: substr(dir, length(JOBS)) };
+}
+function options(raw) {
+	try { let o = json(raw); return type(o) == 'object' ? o : null; }
+	catch (e) { return null; }
+}
+function strings(value, max) {
+	return value == null || (type(value) == 'array' && length(value) <= 64 &&
+		length(filter(value, (v) => !text(v, max))) == 0);
+}
+
+const methods = {
+	accounts: { call: () => ({ success: true, accounts: accounts() }) },
+	list: {
+		args: { user: 'string', resource: 'string' },
+		call: (req) => {
+			let a = req.args;
+			if (!permitted(a.user)) return failure('Select an allowed rootless account in Configuration.');
+			let commands = {
+				info: [ 'info', '--format=json' ], containers: [ 'ps', '--all', '--format=json' ],
+				pods: [ 'pod', 'ps', '--format=json' ], images: [ 'images', '--format=json' ],
+				networks: [ 'network', 'ls', '--format=json' ], volumes: [ 'volume', 'ls', '--format=json' ]
+			};
+			if (!exists(commands, a.resource)) return failure('Invalid resource.');
+			return run(a.user, commands[a.resource], true);
+		}
+	},
+	detail: {
+		args: { user: 'string', resource: 'string', id: 'string', logs: false },
+		call: (req) => {
+			let a = req.args;
+			if (!permitted(a.user) || !name(a.id) || !(a.resource in [ 'container', 'pod', 'image', 'network', 'volume' ])) return failure('Invalid account or resource.');
+			if (a.logs && a.resource == 'container') return run(a.user, [ 'logs', '--tail=200', a.id ], false);
+			return run(a.user, [ a.resource, 'inspect', a.id ], true);
+		}
+	},
+	action: {
+		args: { user: 'string', resource: 'string', action: 'string', id: 'string', options: 'string' },
+		call: (req) => {
+			let a = req.args;
+			if (!permitted(a.user)) return failure('Account is not allowed.');
+			let actions = {
+				container: [ 'start', 'stop', 'restart', 'pause', 'unpause', 'rm' ],
+				pod: [ 'start', 'stop', 'restart', 'rm' ], image: [ 'rm' ], network: [ 'rm' ], volume: [ 'rm' ]
+			};
+			if (exists(actions, a.resource) && a.action in actions[a.resource]) {
+				if (!name(a.id)) return failure('Invalid resource identifier.');
+				let args = [ a.resource, a.action ];
+				if (a.resource == 'container' && a.action in [ 'stop', 'restart' ]) push(args, '--time=10');
+				push(args, a.id);
+				return job(a.user, args);
+			}
+			let o = options(a.options);
+			if (!o) return failure('Invalid options.');
+			if (a.resource == 'image' && a.action == 'pull') {
+				if (!image(o.image) || index(o.image, '/') < 0) return failure('Use a fully qualified image name, e.g. docker.io/library/alpine:3.23.');
+				return job(a.user, [ 'pull', o.image ]);
+			}
+			if (a.action != 'create' || !name(o.name)) return failure('Invalid action or name.');
+			if (a.resource in [ 'network', 'volume' ]) return job(a.user, [ a.resource, 'create', o.name ]);
+			if (a.resource == 'pod') {
+				let args = [ 'pod', 'create', '--name', o.name ];
+				if (o.infra_image) {
+					if (!image(o.infra_image) || (o.infra_command && !text(o.infra_command, 4096))) return failure('Invalid infra image or command.');
+					push(args, '--infra-image', o.infra_image);
+					if (o.infra_command) push(args, '--infra-command', o.infra_command);
+				}
+				else push(args, '--infra=false', '--share=');
+				return job(a.user, args);
+			}
+			if (a.resource != 'container' || !image(o.image) || !strings(o.command, 4096) ||
+				!strings(o.ports, 128) || !strings(o.env, 4096) || !strings(o.volumes, 4096) ||
+				(o.network && !name(o.network)) || (o.pod && !name(o.pod)) ||
+				!(o.restart in [ null, '', 'no', 'on-failure', 'always', 'unless-stopped' ])) return failure('Invalid container options.');
+			let args = [ 'create', '--pull=never', '--name', o.name ];
+			for (let port in o.ports || []) {
+				if (!match(port, /^([0-9.]+:)?[0-9]+:[0-9]+(\/(tcp|udp))?$/)) return failure('Invalid port mapping. Use HOST:CONTAINER[/tcp|udp].');
+				push(args, '--publish', port);
+			}
+			for (let env in o.env || []) {
+				if (!match(env, /^[a-zA-Z_][a-zA-Z0-9_]*=/)) return failure('Environment variables require KEY=value.');
+				push(args, '--env', env);
+			}
+			for (let volume in o.volumes || []) {
+				if (!match(volume, /^(\/[^:]+|[a-zA-Z0-9][a-zA-Z0-9_.-]*):\/[^:]+(:(ro|rw))?$/)) return failure('Invalid volume. Use NAME:/path[:ro|rw] or /host:/path[:ro|rw].');
+				push(args, '--volume', volume);
+			}
+			if (o.network) push(args, '--network', o.network);
+			if (o.pod) push(args, '--pod', o.pod);
+			if (o.restart) push(args, '--restart', o.restart);
+			push(args, o.image, ...(o.command || []));
+			return job(a.user, args);
+		}
+	},
+	job: {
+		args: { user: 'string', job: 'string' },
+		call: (req) => {
+			let a = req.args;
+			if (!permitted(a.user) || !text(a.job, 6) || length(a.job) != 6 || !match(a.job, /^[a-zA-Z0-9]+$/)) return failure('Invalid operation.');
+			let dir = JOBS + a.job;
+			let st = lstat(dir);
+			if (st?.type != 'directory' || st.uid != JOB_UID || (st.mode & 0077)) return failure('Invalid operation directory.');
+			if (readfile(dir + '/owner') != a.user) return failure('Operation expired or belongs to another account.');
+			let code = readfile(dir + '/code');
+			return { success: true, done: code != null, code: code == null ? null : +trim(code),
+				output: substr(readfile(dir + '/output') || '', -32768) };
+		}
+	}
+};
+
+return { 'luci.podman': methods };

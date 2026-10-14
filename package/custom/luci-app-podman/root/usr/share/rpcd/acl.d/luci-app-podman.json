@@ -1,0 +1,28 @@
+{
+	"luci-app-podman": {
+		"description": "Manage explicitly allowed rootless Podman accounts",
+		"read": {
+			"ubus": {
+				"luci.podman": [
+					"accounts",
+					"list",
+					"detail",
+					"job"
+				]
+			},
+			"uci": [
+				"luci_podman"
+			]
+		},
+		"write": {
+			"ubus": {
+				"luci.podman": [
+					"action"
+				]
+			},
+			"uci": [
+				"luci_podman"
+			]
+		}
+	}
+}

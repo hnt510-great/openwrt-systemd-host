@@ -1,0 +1,13 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# All arguments are constructed by the rpcd plugin; no command is evaluated.
+umask 077
+job=$1
+shift
+# Bound pull/create output and runtime. The result is atomically published.
+(
+	ulimit -f 2048
+	/usr/bin/timeout -k 2 300 /usr/libexec/podman-luci-exec "$@" >"$job/output" 2>&1
+	printf '%s\n' "$?" >"$job/code.new"
+	mv "$job/code.new" "$job/code"
+) </dev/null
