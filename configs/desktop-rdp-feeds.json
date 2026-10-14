@@ -1,0 +1,12 @@
+{
+  "video": {
+    "base": "0a739dd83c5f995aac767cc32a46749d67a306e4",
+    "commit": "10def1395db3df5d5129c9d75c6f7059b0f4a007",
+    "patch": "patches/feeds/0009-video-weston-rdp.patch",
+    "paths": [
+      "frameworks/weston/Makefile",
+      "frameworks/weston/patches/003-rdp-authenticated-local-desktop-sharing.patch"
+    ],
+    "state": "committed locally"
+  }
+}

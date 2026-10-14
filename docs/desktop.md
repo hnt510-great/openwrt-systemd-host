@@ -2,8 +2,8 @@
 
 This image includes a lightweight Weston desktop and graphical terminal.
 VNC mirrors one connected local display. The desktop uses CPU rendering;
-the existing Intel DRM driver handles the monitor. No desktop account,
-password, or TLS private key is embedded in the firmware.
+the existing Intel DRM driver handles the monitor. The desktop package does not provision accounts or supply passwords or TLS
+private keys; local image overlays may provision existing accounts.
 
 After flashing, connect a monitor and bring up the LAN. As root:
 
@@ -63,6 +63,81 @@ uci set desktop.main.output='HDMI-A-1'
 uci commit desktop
 /etc/init.d/desktop restart
 ```
+
+To lower the shared desktop resolution, select a mode supported by the monitor:
+
+```sh
+uci set desktop.main.mode='1280x720'
+uci commit desktop
+/etc/init.d/desktop restart
+```
+
+This changes the physical monitor and both remote mirrors. `mode` defaults to
+`preferred`; it also accepts `WIDTHxHEIGHT` or `WIDTHxHEIGHT@REFRESH`. Save open
+work before restarting the desktop. The setting persists across boots.
+
+## Optional live desktop sharing over RDP
+
+Images built with `WESTON_RDP` include FreeRDP 3 and the native Weston RDP
+backend. RDP shares the same local desktop and applications as VNC. Configure
+the ordinary desktop account first, then run as root:
+
+```sh
+desktop-setup alice
+desktop-rdp-setup alice
+```
+
+The second command prompts twice for a separate, nonempty RDP password.
+Enabling RDP for the first time restarts the desktop and closes its applications;
+save work first. Subsequent password changes do not restart the desktop.
+Use the desktop username and this RDP password, rather than the Linux login
+password. Changing the Linux password does not change the RDP password.
+Existing authenticated connections remain connected until disconnected.
+
+Connect Windows Remote Desktop (`mstsc`) to `LAN_IP:3389`, or choose RDP/NLA
+in Remmina. For FreeRDP 3 on Linux:
+
+```sh
+xfreerdp3 /v:LAN_IP:3389 /u:alice /sec:nla /cert:tofu
+```
+
+Enter the password at the client prompt. Verify the certificate fingerprint
+printed by setup through a trusted SSH connection before accepting it. For
+managed clients, trust the public desktop certificate instead of accepting
+an unverified certificate. NLA is mandatory; anonymous TLS and legacy RDP
+security are rejected. Only the user running the desktop may connect.
+
+RDP binds to the LAN IPv4 address and retains the local monitor's resolution.
+It uses Weston's RemoteFX/NSCodec or bitmap encoding and defaults to 30 Hz;
+delivered frame rate and latency depend on CPU, resolution, client, and network.
+It supports screen sharing, keyboard/mouse control, and clipboard text. VNC
+remains available. The service requires a connected monitor and does not
+create independent remote login sessions or redirect audio.
+
+Additional settings in `/etc/config/desktop` are:
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `rdp_enabled` | `0` | Enable after setting the RDP password |
+| `rdp_port` | `3389` | LAN TCP port, 1024–65535, different from VNC |
+| `rdp_refresh_rate` | `30` | Refresh rate, 1–60 Hz |
+
+The private NTLM credential file is `/etc/desktop/rdp/USER.sam`, owned by the
+desktop user with mode 0600. It is preserved with `/etc/desktop/` during upgrades
+that retain configuration. The RDP package supplies no preset RDP password, credential hash, or private
+TLS key. Configuration changes require a
+desktop restart. To disable RDP and retain VNC:
+
+```sh
+uci set desktop.main.rdp_enabled='0'
+uci commit desktop
+/etc/init.d/desktop restart
+```
+
+On native systemd, read Weston logs with `journalctl _UID=$(id -u alice)`;
+in procd recovery, use `logread -e weston`. See
+[RDP build and runtime validation](desktop-rdp-validation.md) for tested
+behavior and performance boundaries.
 
 With `output=auto`, the first connected DRM connector in pathname order is
 shared. Other monitors can be separate local outputs. Remote resizing is

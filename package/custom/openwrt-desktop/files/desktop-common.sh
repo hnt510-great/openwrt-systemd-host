@@ -1,4 +1,26 @@
 # Shared POSIX helpers; sourced by the root-only setup and service scripts.
+desktop_validate_mode() {
+	[ "$1" = preferred ] && return 0
+	case "$1" in ''|*[!0-9x@]*) desktop_error 'Invalid desktop display mode'; return 1 ;; esac
+	printf '%s\n' "$1" | awk -F '[x@]' '
+		/^[1-9][0-9]*x[1-9][0-9]*(@[1-9][0-9]*)?$/ {
+			valid = $1 >= 320 && $1 <= 16384 && $2 >= 200 && $2 <= 16384 &&
+				(NF == 2 || ($3 >= 1 && $3 <= 240))
+		}
+		END { exit !valid }
+	' || { desktop_error 'Invalid desktop display mode'; return 1; }
+}
+
+desktop_validate_rdp() {
+	case "$1:$2" in *[!0-9:]*|:*|*:) desktop_error 'Invalid RDP port or refresh rate'; return 1 ;; esac
+	[ "$1" -ge 1024 ] && [ "$1" -le 65535 ] && [ "$1" -ne "$3" ] || {
+		desktop_error 'RDP port must be between 1024 and 65535 and differ from VNC'; return 1;
+	}
+	[ "$2" -ge 1 ] && [ "$2" -le 60 ] || {
+		desktop_error 'RDP refresh rate must be between 1 and 60'; return 1;
+	}
+}
+
 desktop_error() {
 	logger -t openwrt-desktop "$*"
 	printf '%s\n' "$*" >&2

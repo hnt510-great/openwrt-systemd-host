@@ -1,0 +1,785 @@
+diff --git a/frameworks/weston/Makefile b/frameworks/weston/Makefile
+index a48bc84..4b2e592 100644
+--- a/frameworks/weston/Makefile
++++ b/frameworks/weston/Makefile
+@@ -1,7 +1,7 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=weston
+-PKG_RELEASE:=4
++PKG_RELEASE:=5
+ 
+ PKG_VERSION:=16.0.0
+ PKG_MAJOR_VERSION:=$(firstword $(subst .,$(space),$(PKG_VERSION)))
+@@ -15,7 +15,7 @@ PKG_LICENSE_FILES:=COPYING
+ 
+ PKG_INSTALL:=1
+ PKG_BUILD_DEPENDS:=wayland/host
+-PKG_CONFIG_DEPENDS:=CONFIG_WESTON_VNC CONFIG_WESTON_XWAYLAND
++PKG_CONFIG_DEPENDS:=CONFIG_WESTON_VNC CONFIG_WESTON_RDP CONFIG_WESTON_XWAYLAND
+ 
+ include $(INCLUDE_DIR)/package.mk
+ include $(INCLUDE_DIR)/meson.mk
+@@ -31,6 +31,7 @@ define Package/weston
+ 	+libmesa +libpango +libseat +libwayland +libwebp +libxkbcommon +pixman \
+ 	+seatd +vulkan-loader +wayland-protocols +xkeyboard-config \
+ 	+WESTON_VNC:libaml +WESTON_VNC:libneatvnc +WESTON_VNC:libpam \
++	+WESTON_RDP:libfreerdp3 \
+ 	+WESTON_XWAYLAND:xwayland +WESTON_XWAYLAND:libxcb +WESTON_XWAYLAND:libXcursor
+ endef
+ 
+@@ -43,6 +44,11 @@ config WESTON_VNC
+ 	depends on PACKAGE_weston
+ 	default n
+ 
++config WESTON_RDP
++	bool "Enable authenticated RDP desktop sharing"
++	depends on PACKAGE_weston
++	default n
++
+ config WESTON_XWAYLAND
+ 	bool "Enable X11 applications through Xwayland"
+ 	depends on PACKAGE_weston
+@@ -54,7 +60,7 @@ MESON_ARGS += \
+ 	-Dbackend-drm=true \
+ 	-Dbackend-headless=false \
+ 	-Dbackend-pipewire=false \
+-	-Dbackend-rdp=false \
++	-Dbackend-rdp=$(if $(CONFIG_WESTON_RDP),true,false) \
+ 	-Dbackend-vnc=$(if $(CONFIG_WESTON_VNC),true,false) \
+ 	-Dbackend-x11=false \
+ 	-Dbackend-wayland=true \
+diff --git a/frameworks/weston/patches/003-rdp-authenticated-local-desktop-sharing.patch b/frameworks/weston/patches/003-rdp-authenticated-local-desktop-sharing.patch
+new file mode 100644
+index 0000000..3da586f
+--- /dev/null
++++ b/frameworks/weston/patches/003-rdp-authenticated-local-desktop-sharing.patch
+@@ -0,0 +1,728 @@
++Subject: [PATCH] rdp: share the local desktop with mandatory NLA
++
++Keep listener settings independent from VNC and route mirrored input to
++the local seat. Require TLS/NLA credentials and limit login to the desktop
++owner.
++
++---
++diff --git a/frontend/main.c b/frontend/main.c
++--- a/frontend/main.c
+++++ b/frontend/main.c
++@@ -93,6 +93,7 @@
++ 	struct wl_listener head_destroy_listener;
++ 	struct wl_listener resized_listener;
++ 	struct wet_compositor *wet;
+++	struct weston_head *mirror_head;
++ };
++ 
++ /** User data for each weston_output */
++@@ -2437,40 +2438,25 @@
++ }
++ 
++ static struct weston_head *
++-wet_config_find_head_to_mirror(struct weston_output *output,
++-			       struct wet_compositor *wet)
++-{
++-	struct weston_head *head = NULL;
++-	struct weston_config_section *section = NULL;
++-
++-	do {
++-		char *mof_name = NULL;
++-		char *remote_output_name = NULL;
++-
++-		/* do we have a mirror-of key at all? */
++-		if (wet_config_find_output_mirror(output, wet, &mof_name,
++-						  &remote_output_name,
++-						  &section))
++-			break;
++-
++-		assert(mof_name);
++-
++-		/* do we have a matching output between signal event and the
++-		 * output to mirror ? */
++-		if (strcmp(mof_name, output->name)) {
++-			free(mof_name);
++-			free(remote_output_name);
++-			continue;
++-		}
++-
++-		/* grab the output name of this 'remote_output_name' */
++-		head = wet_head_find_by_name(wet, remote_output_name);
++-
++-		free(mof_name);
++-		free(remote_output_name);
++-	} while (!head);
++-
++-	return head;
+++wet_config_find_next_head_to_mirror(struct weston_output *output,
+++				  struct wet_compositor *wet,
+++				  struct weston_config_section **section)
+++{
+++	char *source_name;
+++	char *remote_name;
+++	struct weston_head *head;
+++
+++	while (!wet_config_find_output_mirror(output, wet, &source_name,
+++					     &remote_name, section)) {
+++		head = NULL;
+++		if (!strcmp(source_name, output->name))
+++			head = wet_head_find_by_name(wet, remote_name);
+++		free(source_name);
+++		free(remote_name);
+++		if (head)
+++			return head;
+++	}
+++	return NULL;
++ }
++ 
++ static bool
++@@ -3204,14 +3190,16 @@
++ 	struct wet_output *output;
++ 	struct wet_compositor *wet;
++ 	struct weston_head *head = NULL;
+++	struct weston_config_section *section = NULL;
++ 
++ 	output = wl_container_of(listener, output, output_destroy_listener);
++ 	assert(output->output == data);
++ 
++ 	wet = output->layoutput->compositor;
++-	head = wet_config_find_head_to_mirror(output->output, wet);
++-	if (head && !wet->compositor->shutting_down) {
++-		simple_head_disable(head);
+++	while (!wet->compositor->shutting_down &&
+++	       (head = wet_config_find_next_head_to_mirror(output->output, wet, &section))) {
+++		if (weston_head_is_enabled(head))
+++			simple_head_disable(head);
++ 	}
++ 
++ 
++@@ -3292,12 +3280,12 @@
++ 	struct weston_output *output = data;
++ 	struct wet_head_tracker *head_track =
++ 		container_of(listener, struct wet_head_tracker, resized_listener);
++-	struct wet_compositor *wet = head_track->wet;
++ 	struct weston_mode mode;
++ 	int scale = 1;
++ 
++-	head_to_mirror = wet_config_find_head_to_mirror(output, wet);
++-	if (!head_to_mirror)
+++	head_to_mirror = head_track->mirror_head;
+++	if (!head_to_mirror || !head_to_mirror->output ||
+++	    head_to_mirror->output->mirror_of != output)
++ 		return;
++ 
++ 	weston_output_set_position(head_to_mirror->output, output->pos);
++@@ -3314,14 +3302,12 @@
++ 	struct wet_compositor *wet =
++ 		container_of(listener, struct wet_compositor, output_created_listener);
++ 	struct weston_output *output = data;
++-	struct weston_head *head = NULL;
++-	struct weston_head *head_to_mirror =
++-		weston_output_get_first_head(output);
+++	struct weston_head *head;
+++	struct weston_head *head_to_mirror = weston_output_get_first_head(output);
+++	struct weston_config_section *section = NULL;
++ 	struct wet_head_tracker *head_track;
++-
++ 	struct wet_backend *wb;
++ 
++-	/* just ignore events from other remote backends */
++ 	switch (weston_get_backend_type(output->backend)) {
++ 	case WESTON_BACKEND_RDP:
++ 	case WESTON_BACKEND_VNC:
++@@ -3331,24 +3317,25 @@
++ 		break;
++ 	}
++ 
++-	head = wet_config_find_head_to_mirror(output, wet);
++-	if (!head)
++-		return;
++-
++-	wb = wet_get_backend_from_head(wet, head);
++-	assert(wb);
++-
++-	simple_head_enable(wet, wb, head, head_to_mirror,
++-			   wet_output_overlap_pre_enable,
++-			   wet_output_overlap_post_enable);
++-	weston_head_reset_device_changed(head);
++-
++-	head_track = wet_head_tracker_from_head(head);
++-	head_track->wet = wet;
++-	head_track->resized_listener.notify = simple_heads_output_sharing_resize;
++-
++-	wl_signal_add(&wet->compositor->output_resized_signal,
++-		      &head_track->resized_listener);
+++	/* One physical output may be shared by both VNC and RDP. */
+++	while ((head = wet_config_find_next_head_to_mirror(output, wet, &section))) {
+++		if (weston_head_is_enabled(head))
+++			continue;
+++		wb = wet_get_backend_from_head(wet, head);
+++		assert(wb);
+++		simple_head_enable(wet, wb, head, head_to_mirror,
+++				   wet_output_overlap_pre_enable,
+++				   wet_output_overlap_post_enable);
+++		if (!weston_head_is_enabled(head))
+++			continue;
+++		weston_head_reset_device_changed(head);
+++		head_track = wet_head_tracker_from_head(head);
+++		head_track->wet = wet;
+++		head_track->mirror_head = head;
+++		head_track->resized_listener.notify = simple_heads_output_sharing_resize;
+++		wl_signal_add(&wet->compositor->output_resized_signal,
+++			      &head_track->resized_listener);
+++	}
++ }
++ 
++ static struct wet_output *
++@@ -4529,6 +4516,10 @@
++ 	config.renderer = renderer;
++ 
++ 	section = weston_config_get_section(wc, "rdp", NULL, NULL);
+++	/* Remote backends must not consume each other's address/port options. */
+++	weston_config_section_get_string(section, "address",
+++					 &config.bind_address, config.bind_address);
+++	weston_config_section_get_int(section, "port", &config.port, config.port);
++ 	weston_config_section_get_int(section, "refresh-rate",
++ 				      &config.refresh_rate,
++ 				      RDP_DEFAULT_FREQ);
++@@ -4548,6 +4539,7 @@
++ 	free(config.rdp_key);
++ 	free(config.server_cert);
++ 	free(config.server_key);
+++	free(config.nla_ntlm_db);
++ 
++ 	if (!wb)
++ 		return -1;
++diff --git a/libweston/backend-rdp/rdp.h b/libweston/backend-rdp/rdp.h
++--- a/libweston/backend-rdp/rdp.h
+++++ b/libweston/backend-rdp/rdp.h
++@@ -165,6 +165,9 @@
++ 	NSC_CONTEXT *nsc_context;
++ 
++ 	struct rdp_peers_item item;
+++	struct weston_seat *private_seat;
+++	struct wl_listener input_seat_destroy;
+++	struct wl_array pressed_keys;
++ 
++ 	bool button_state[5];
++ 
++diff --git a/libweston/backend-rdp/rdp.c b/libweston/backend-rdp/rdp.c
++--- a/libweston/backend-rdp/rdp.c
+++++ b/libweston/backend-rdp/rdp.c
++@@ -24,6 +24,7 @@
++  */
++ 
++ #include "config.h"
+++#include <pwd.h>
++ 
++ #include <assert.h>
++ #include <drm_fourcc.h>
++@@ -267,6 +268,8 @@
++ 	struct rdp_output *output = rdp_get_first_output(context->rdpBackend);
++ 	rdpSettings *settings = peer->context->settings;
++ 
+++	if (!output || !output->buffer)
+++		return;
++ 	if (freerdp_settings_get_bool(settings, FreeRDP_RemoteFxCodec))
++ 		rdp_peer_refresh_rfx(region, output->buffer->shadow_surface, peer);
++ 	else if (freerdp_settings_get_bool(settings, FreeRDP_NSCodec))
++@@ -311,7 +314,7 @@
++ 					       output_base,
++ 					       &damage);
++ 		wl_list_for_each(peer, &b->peers, link) {
++-			if ((peer->flags & RDP_PEER_ACTIVATED) &&
+++			if ((peer->flags & RDP_PEER_ACTIVATED) && peer->peer->activated &&
++ 			    (peer->flags & RDP_PEER_OUTPUT_ENABLED)) {
++ 				rdp_peer_refresh_region(&transformed_damage, peer->peer);
++ 			}
++@@ -738,6 +741,7 @@
++ 	free(b->server_cert);
++ 	free(b->server_key);
++ 	free(b->rdp_key);
+++	free(b->nla_ntlm_db);
++ 	free(b);
++ }
++ 
++@@ -782,9 +786,145 @@
++ }
++ 
++ 
+++/* Mirrored clients use the local seat so existing GTK/Xwayland windows
+++ * receive input. A peer still owns its private seat for standalone use.
+++ */
+++static void
+++rdp_send_key(RdpPeerContext *ctx, uint32_t key,
+++	     enum wl_keyboard_key_state state)
+++{
+++	struct weston_key_event event;
+++	struct timespec time;
+++	uint32_t *held, *last;
+++	bool found = false;
+++
+++	if (!ctx->item.seat)
+++		return;
+++	wl_array_for_each(held, &ctx->pressed_keys) {
+++		if (*held != key)
+++			continue;
+++		found = true;
+++		if (state == WL_KEYBOARD_KEY_STATE_RELEASED) {
+++			last = (uint32_t *)((char *)ctx->pressed_keys.data +
+++				ctx->pressed_keys.size) - 1;
+++			*held = *last;
+++			ctx->pressed_keys.size -= sizeof(*held);
+++		}
+++		break;
+++	}
+++	if (!found && state == WL_KEYBOARD_KEY_STATE_RELEASED)
+++		return;
+++	if (!found && state == WL_KEYBOARD_KEY_STATE_PRESSED) {
+++		struct weston_keyboard *keyboard = weston_seat_get_keyboard(ctx->item.seat);
+++
+++		/* Do not take ownership of a key already held locally. */
+++		if (ctx->item.seat != ctx->private_seat && keyboard) {
+++			wl_array_for_each(held, &keyboard->keys) {
+++				if (*held == key)
+++					return;
+++			}
+++		}
+++		held = wl_array_add(&ctx->pressed_keys, sizeof(*held));
+++		if (!held)
+++			return;
+++		*held = key;
+++	}
+++	clock_gettime(CLOCK_MONOTONIC, &time);
+++	weston_key_event_init(&event, &time, ctx->item.seat, key, state,
+++			      STATE_UPDATE_AUTOMATIC);
+++	notify_key(&event);
+++}
+++
+++static void
+++rdp_input_seat_destroyed(struct wl_listener *listener, void *data)
+++{
+++	RdpPeerContext *ctx = wl_container_of(listener, ctx, input_seat_destroy);
+++
+++	(void)data;
+++	wl_list_remove(&ctx->input_seat_destroy.link);
+++	ctx->item.seat = ctx->private_seat;
+++	weston_seat_init_keyboard(ctx->private_seat, NULL);
+++	weston_seat_init_pointer(ctx->private_seat);
+++	ctx->pressed_keys.size = 0;
+++	memset(ctx->button_state, 0, sizeof(ctx->button_state));
+++}
+++
+++static void
+++rdp_share_mirror_seat(RdpPeerContext *ctx, struct weston_output *output)
+++{
+++	struct weston_seat *seat;
+++
+++	if (!output->mirror_of)
+++		return;
+++	wl_list_for_each(seat, &ctx->rdpBackend->compositor->seat_list, link) {
+++		if (seat == ctx->private_seat ||
+++		    strcmp(seat->seat_name, "VNC Client") == 0 ||
+++		    strncmp(seat->seat_name, "RDP ", 4) == 0)
+++			continue;
+++		weston_seat_init_pointer(seat);
+++		if (weston_seat_init_keyboard(seat, NULL) < 0) {
+++			weston_seat_release_pointer(seat);
+++			return;
+++		}
+++		/* An unused keyboard would become a second Xwayland master device. */
+++		if (ctx->private_seat->keyboard_device_count)
+++			weston_seat_release_keyboard(ctx->private_seat);
+++		ctx->item.seat = seat;
+++		ctx->input_seat_destroy.notify = rdp_input_seat_destroyed;
+++		wl_signal_add(&seat->destroy_signal, &ctx->input_seat_destroy);
+++		return;
+++	}
+++}
+++
+++static void
+++rdp_release_input(RdpPeerContext *ctx)
+++{
+++	struct weston_key_event key_event;
+++	struct weston_pointer_button_event button_event;
+++	struct timespec time;
+++	uint32_t *held;
+++	unsigned int i;
+++
+++	if (ctx->item.seat) {
+++		clock_gettime(CLOCK_MONOTONIC, &time);
+++		wl_array_for_each(held, &ctx->pressed_keys) {
+++			weston_key_event_init(&key_event, &time, ctx->item.seat, *held,
+++				WL_KEYBOARD_KEY_STATE_RELEASED, STATE_UPDATE_AUTOMATIC);
+++			notify_key(&key_event);
+++		}
+++		for (i = 0; i < ARRAY_LENGTH(ctx->button_state); i++) {
+++			if (!ctx->button_state[i])
+++				continue;
+++			weston_pointer_button_event_init(&button_event, &time,
+++				ctx->item.seat, BTN_LEFT + i,
+++				WL_POINTER_BUTTON_STATE_RELEASED);
+++			notify_button(&button_event);
+++		}
+++		notify_pointer_frame(ctx->item.seat);
+++		if (ctx->item.seat != ctx->private_seat) {
+++			wl_list_remove(&ctx->input_seat_destroy.link);
+++			weston_seat_release_keyboard(ctx->item.seat);
+++			weston_seat_release_pointer(ctx->item.seat);
+++		}
+++	}
+++	wl_array_release(&ctx->pressed_keys);
+++	if (ctx->private_seat) {
+++		if (ctx->private_seat->keyboard_device_count)
+++			weston_seat_release_keyboard(ctx->private_seat);
+++		if (ctx->private_seat->pointer_device_count)
+++			weston_seat_release_pointer(ctx->private_seat);
+++		weston_seat_release(ctx->private_seat);
+++		free(ctx->private_seat);
+++	}
+++	ctx->item.seat = NULL;
+++	ctx->private_seat = NULL;
+++}
+++
++ static BOOL
++ rdp_peer_context_new(freerdp_peer* client, RdpPeerContext* context)
++ {
+++	wl_list_init(&context->item.link);
+++	wl_array_init(&context->pressed_keys);
++ 	context->item.peer = client;
++ 	context->item.flags = RDP_PEER_OUTPUT_ENABLED;
++ 
++@@ -857,12 +997,7 @@
++ 
++ 	rdp_destroy_dispatch_task_event_source(context);
++ 
++-	if (context->item.flags & RDP_PEER_ACTIVATED) {
++-		weston_seat_release_keyboard(context->item.seat);
++-		weston_seat_release_pointer(context->item.seat);
++-		weston_seat_release(context->item.seat);
++-		free(context->item.seat);
++-	}
+++	rdp_release_input(context);
++ 
++ 	Stream_Free(context->encode_stream, TRUE);
++ 	nsc_context_free(context->nsc_context);
++@@ -1087,18 +1222,12 @@
++ static void
++ rdp_full_refresh(freerdp_peer *peer, struct rdp_output *output)
++ {
++-	pixman_box32_t box;
++-	pixman_region32_t damage;
++-
++-	box.x1 = 0;
++-	box.y1 = 0;
++-	box.x2 = output->base.current_mode->width;
++-	box.y2 = output->base.current_mode->height;
++-	pixman_region32_init_with_extents(&damage, &box);
++-
++-	rdp_peer_refresh_region(&damage, peer);
++-
++-	pixman_region32_fini(&damage);
+++	(void)peer;
+++	/* Input synchronization can arrive during connection finalization.
+++	 * Queue repaint after FreeRDP has sent the protocol control messages.
+++	 */
+++	if (output && output->buffer && output->base.current_mode)
+++		weston_output_damage(&output->base);
++ }
++ 
++ static BOOL
++@@ -1125,6 +1254,11 @@
++ 	output = rdp_get_first_output(b);
++ 	settings = client->context->settings;
++ 
+++	if (!output || !output->buffer || !output->base.current_mode) {
+++		weston_log("RDP has no enabled output to share\n");
+++		return FALSE;
+++	}
+++
++ 	if (!freerdp_settings_get_bool(settings, FreeRDP_SurfaceCommandsEnabled)) {
++ 		weston_log("client doesn't support required SurfaceCommands\n");
++ 		return FALSE;
++@@ -1170,7 +1304,10 @@
++ 			} else {
++ 				freerdp_settings_set_uint32(settings, FreeRDP_DesktopWidth, mode->width);
++ 				freerdp_settings_set_uint32(settings, FreeRDP_DesktopHeight, mode->height);
++-				client->context->update->DesktopResize(client->context);
+++				if (!client->context->update->DesktopResize(client->context))
+++					return FALSE;
+++				/* Finish resize/reactivation before exposing a frame or seat. */
+++				return TRUE;
++ 			}
++ 		}
++ 	} else {
++@@ -1221,7 +1358,11 @@
++ 	weston_seat_init(peersItem->seat, b->compositor, seat_name);
++ 	weston_seat_init_keyboard(peersItem->seat, keymap);
++ 	xkb_keymap_unref(keymap);
++-	weston_seat_init_pointer(peersItem->seat);
+++
+++	peerCtx->private_seat = peersItem->seat;
+++	rdp_share_mirror_seat(peerCtx, weston_output);
+++	if (peerCtx->item.seat == peerCtx->private_seat)
+++		weston_seat_init_pointer(peerCtx->private_seat);
++ 
++ 	/* Initialize RDP clipboard after seat is initialized */
++ 	if (freerdp_settings_get_bool(settings, FreeRDP_RedirectClipboard))
++@@ -1235,7 +1376,7 @@
++ 	pointer_system.type = SYSPTR_NULL;
++ 	pointer->PointerSystem(client->context, &pointer_system);
++ 
++-	rdp_full_refresh(client, output);
+++	weston_output_damage(&output->base);
++ 
++ 	return TRUE;
++ 
++@@ -1253,6 +1394,37 @@
++ }
++ 
++ static BOOL
+++xf_peer_logon(freerdp_peer *client, const SEC_WINNT_AUTH_IDENTITY *identity,
+++	      BOOL automatic)
+++{
+++	struct passwd *pw;
+++	const char *username;
+++	char *decoded = NULL;
+++	bool allowed;
+++
+++	if (!automatic)
+++		return FALSE;
+++	/* Recent FreeRDP stores decoded CredSSP credentials in settings;
+++	 * older versions populate the callback identity instead.
+++	 */
+++	username = freerdp_settings_get_string(client->context->settings, FreeRDP_Username);
+++	if ((!username || !*username) && identity->User && identity->UserLength) {
+++		if (identity->Flags & SEC_WINNT_AUTH_IDENTITY_UNICODE)
+++			decoded = ConvertWCharNToUtf8Alloc(
+++				identity->User, identity->UserLength, NULL);
+++		else
+++			decoded = strndup((const char *)identity->User, identity->UserLength);
+++		username = decoded;
+++	}
+++	if (!username || !*username)
+++		return FALSE;
+++	pw = getpwnam(username);
+++	allowed = pw && pw->pw_uid >= 1000 && pw->pw_uid == getuid();
+++	free(decoded);
+++	return allowed;
+++}
+++
+++static BOOL
++ xf_peer_post_connect(freerdp_peer *client)
++ {
++ 	return TRUE;
++@@ -1263,10 +1435,28 @@
++ {
++ 	struct weston_coord_global pos;
++ 	struct timespec time;
+++	struct rdp_output *output;
++ 	int sx, sy;
++ 
++ 	if (!peerContext->item.seat)
++ 		return FALSE;
+++
+++	/* Mirrored client coordinates are relative to this output, even when
+++	 * the selected local monitor is not at the desktop origin.
+++	 */
+++	output = rdp_get_first_output(peerContext->rdpBackend);
+++	if (!output)
+++		return FALSE;
+++	if (output->base.mirror_of) {
+++		struct weston_pointer_motion_event event;
+++
+++		pos = weston_coord_global_from_output_point(x, y, &output->base);
+++		clock_gettime(CLOCK_MONOTONIC, &time);
+++		weston_pointer_motion_event_init(&event, &time, peerContext->item.seat,
+++					 WESTON_POINTER_MOTION_ABS, &pos, NULL, NULL);
+++		notify_motion(&event);
+++		return TRUE;
+++	}
++ 
++ 	/* (TS_POINTERX_EVENT):The xy-coordinate of the pointer relative to the top-left
++ 	 *                     corner of the server's desktop combined all monitors */
++@@ -1285,7 +1475,7 @@
++ 		struct weston_pointer_motion_event event;
++ 
++ 		pos.c = weston_coord(sx, sy);
++-		weston_compositor_get_time(&time);
+++		clock_gettime(CLOCK_MONOTONIC, &time);
++ 
++ 		weston_pointer_motion_event_init(&event, &time,
++ 						 peerContext->item.seat,
++@@ -1407,7 +1597,7 @@
++ 			  ivalue, *accumWheelRotationPrecise, *accumWheelRotationDiscrete);
++ 
++ 	if (abs(*accumWheelRotationPrecise) >= 12) {
++-		weston_compositor_get_time(&time);
+++		clock_gettime(CLOCK_MONOTONIC, &time);
++ 
++ 		weston_pointer_axis_event_init(&weston_event,
++ 					       &time, peerContext->item.seat,
++@@ -1445,8 +1635,9 @@
++ 	 * the RDP client.
++ 	 */
++ 	if (!(flags & (PTR_FLAGS_WHEEL | PTR_FLAGS_HWHEEL))) {
+++		/* Dispatch motion before buttons for Xwayland clients. */
++ 		if (rdp_translate_and_notify_mouse_position(peerContext, x, y))
++-			need_frame = true;
+++			notify_pointer_frame(peerContext->item.seat);
++ 	}
++ 
++ 	if (flags & PTR_FLAGS_BUTTON1)
++@@ -1465,7 +1656,7 @@
++ 	if (button) {
++ 		struct weston_pointer_button_event button_event;
++ 
++-		weston_compositor_get_time(&time);
+++		clock_gettime(CLOCK_MONOTONIC, &time);
++ 
++ 		weston_pointer_button_event_init(&button_event, &time,
++ 						 peerContext->item.seat,
++@@ -1499,11 +1690,12 @@
++ 	RdpPeerContext *peerContext = (RdpPeerContext *)input->context;
++ 	uint32_t button = 0;
++ 	bool need_frame = false;
++-	struct rdp_output *output;
++ 	struct timespec time;
++-	struct weston_coord_global pos;
++ 
++ 	dump_mouseinput(peerContext, flags, x, y, true);
+++
+++	if (rdp_translate_and_notify_mouse_position(peerContext, x, y))
+++		notify_pointer_frame(peerContext->item.seat);
++ 
++ 	if (flags & PTR_XFLAGS_BUTTON1)
++ 		button = BTN_SIDE;
++@@ -1518,7 +1710,7 @@
++ 
++ 	if (button) {
++ 		struct weston_pointer_button_event button_event;
++-		weston_compositor_get_time(&time);
+++		clock_gettime(CLOCK_MONOTONIC, &time);
++ 
++ 		weston_pointer_button_event_init(&button_event, &time,
++ 						 peerContext->item.seat,
++@@ -1529,19 +1721,6 @@
++ 		need_frame = true;
++ 	}
++ 
++-	output = rdp_get_first_output(peerContext->rdpBackend);
++-	if (x < output->base.width && y < output->base.height) {
++-		struct weston_pointer_motion_event event;
++-
++-		weston_compositor_get_time(&time);
++-		pos.c = weston_coord(x, y);
++-
++-		weston_pointer_motion_event_init(&event, &time, peerContext->item.seat,
++-						 WESTON_POINTER_MOTION_ABS,
++-						 &pos, NULL, NULL);
++-		notify_motion(&event);
++-		need_frame = true;
++-	}
++ 
++ 	if (need_frame)
++ 		notify_pointer_frame(peerContext->item.seat);
++@@ -1567,7 +1746,7 @@
++ 			  flags & KBD_SYNC_KANA_LOCK ? 1 : 0);
++ 
++ 	keyboard = weston_seat_get_keyboard(peerCtx->item.seat);
++-	if (keyboard) {
+++	if (keyboard && peerCtx->item.seat == peerCtx->private_seat) {
++ 		uint32_t value = 0;
++ 
++ 		if (flags & KBD_SYNC_NUM_LOCK)
++@@ -1594,8 +1773,6 @@
++ 	RdpPeerContext *peerContext = (RdpPeerContext *)input->context;
++ 	bool send_release_key = false;
++ 	int notify = 0;
++-	struct timespec time;
++-	struct weston_key_event key_event;
++ 
++         rdp_debug_verbose(peerContext->rdpBackend, "RDP backend: %s flags:0x%x, code:0x%x\n",
++ 			  __func__, flags, code);
++@@ -1660,18 +1837,11 @@
++ 
++ 		/*weston_log("code=%x ext=%d vk_code=%x scan_code=%x\n", code, (flags & KBD_FLAGS_EXTENDED) ? 1 : 0,
++ 				vk_code, scan_code);*/
++-		weston_compositor_get_time(&time);
++-
++-		weston_key_event_init(&key_event, &time, peerContext->item.seat,
++-				      scan_code - 8, keyState,
++-				      STATE_UPDATE_AUTOMATIC);
++-		notify_key(&key_event);
+++
+++		rdp_send_key(peerContext, scan_code - 8, keyState);
++ 
++ 		if (send_release_key) {
++-			weston_key_event_init(&key_event, &time, peerContext->item.seat,
++-					      scan_code - 8, WL_KEYBOARD_KEY_STATE_RELEASED,
++-					      STATE_UPDATE_AUTOMATIC);
++-			notify_key(&key_event);
+++			rdp_send_key(peerContext, scan_code - 8, WL_KEYBOARD_KEY_STATE_RELEASED);
++ 		}
++ 	}
++ 
++@@ -1915,6 +2085,15 @@
++ 	}
++ #endif
++ 
+++	/* NLA establishes its own TLS transport; never negotiate anonymous TLS
+++	 * or legacy RDP security for the shared desktop.
+++	 */
+++	if (!freerdp_settings_set_bool(settings, FreeRDP_RdpSecurity, FALSE) ||
+++	    !freerdp_settings_set_bool(settings, FreeRDP_TlsSecurity, FALSE) ||
+++	    !freerdp_settings_set_bool(settings, FreeRDP_NlaSecurity, TRUE) ||
+++	    !freerdp_settings_set_bool(settings, FreeRDP_ExtSecurity, FALSE))
+++		goto error_initialize;
+++	client->Logon = xf_peer_logon;
++ 	if (!client->Initialize(client)) {
++ 		weston_log("peer initialization failed\n");
++ 		goto error_initialize;
++@@ -2050,7 +2229,11 @@
++ 	b->audio_in_teardown = config->audio_in_teardown;
++ 	b->audio_out_setup = config->audio_out_setup;
++ 	b->audio_out_teardown = config->audio_out_teardown;
++-	b->nla_ntlm_db = config->nla_ntlm_db;
+++	b->nla_ntlm_db = strdup(config->nla_ntlm_db);
+++	if (!b->nla_ntlm_db) {
+++		free(b);
+++		return NULL;
+++	}
++ 
++ 	b->debug = weston_compositor_add_log_scope(compositor,
++ 						   "rdp-backend",
++@@ -2103,8 +2286,8 @@
++ 				b->nla_enabled = 1;
++ 				rdp_debug(b, "NLA support activated\n");
++ 			} else {
++-				b->nla_enabled = 0;
++-				rdp_debug(b, "NLA credential file ('%s') not found, fall back to TLS Security.\n", b->nla_ntlm_db);
+++				weston_log("RDP NLA credential file is missing\n");
+++				goto err_free_strings;
++ 			}
++ 		}
++ 	}
++@@ -2222,6 +2405,7 @@
++ 	if (b->verbose)
++ 		weston_log_scope_destroy(b->verbose);
++ 	free(b->rdp_key);
+++	free(b->nla_ntlm_db);
++ 	free(b->server_cert);
++ 	free(b->server_key);
++ 	free(b);
++@@ -2286,6 +2470,14 @@
++ 	config_init_to_defaults(&config);
++ 	memcpy(&config, config_base, config_base->struct_size);
++ 
+++	if (!config.server_cert || !config.server_key || !config.nla_ntlm_db ||
+++	    access(config.server_cert, R_OK) || access(config.server_key, R_OK) ||
+++	    access(config.nla_ntlm_db, R_OK) || config.rdp_key || config.vmconnect ||
+++	    config.external_listener_fd >= 0 || config.env_socket) {
+++		weston_log("RDP requires readable TLS and NLA credentials\n");
+++		return -1;
+++	}
+++
++ 	b = rdp_backend_create(compositor, &config);
++ 	if (b == NULL)
++ 		return -1;

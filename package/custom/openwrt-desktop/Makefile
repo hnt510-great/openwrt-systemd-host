@@ -1,8 +1,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openwrt-desktop
-PKG_RELEASE:=9
-PKG_CONFIG_DEPENDS:=CONFIG_OPENWRT_SYSTEMD
+PKG_RELEASE:=11
+PKG_CONFIG_DEPENDS:=CONFIG_OPENWRT_SYSTEMD CONFIG_WESTON_RDP
 PKG_LICENSE:=MIT
 
 include $(INCLUDE_DIR)/package.mk
@@ -10,11 +10,11 @@ include $(INCLUDE_DIR)/package.mk
 define Package/openwrt-desktop
   SECTION:=utils
   CATEGORY:=Utilities
-  TITLE:=Local Weston terminal desktop with LAN VNC
+  TITLE:=Local Weston desktop with LAN VNC and optional RDP
   DEPENDS:=@TARGET_x86_64 +input-support +video-support +weston +@WESTON_VNC +seatd +libpam \
 	+kmod-input-evdev +dejavu-fonts-ttf-DejaVuSans \
 	+dejavu-fonts-ttf-DejaVuSansMono +openssl-util \
-	+shadow-usermod +shadow-useradd +shadow-passwd +tar
+	+shadow-usermod +shadow-useradd +shadow-passwd +tar +WESTON_RDP:winpr-hash
 endef
 
 define Package/openwrt-desktop/description
@@ -39,6 +39,7 @@ define Package/openwrt-desktop/install
 	$(INSTALL_DATA) ./files/weston-remote-access $(1)/etc/pam.d/weston-remote-access
 	$(if $(CONFIG_OPENWRT_SYSTEMD),$(INSTALL_DATA) ./files/openwrt-desktop.pam $(1)/etc/pam.d/openwrt-desktop)
 	$(INSTALL_BIN) ./files/desktop-setup $(1)/usr/sbin/desktop-setup
+	$(if $(CONFIG_WESTON_RDP),$(INSTALL_BIN) ./files/desktop-rdp-setup $(1)/usr/sbin/desktop-rdp-setup)
 	$(INSTALL_BIN) ./files/desktop-dbus-session $(1)/usr/libexec/
 	$(INSTALL_BIN) ./files/desktop-session $(1)/usr/libexec/desktop-session
 	$(INSTALL_DATA) ./files/desktop-common.sh $(1)/usr/libexec/desktop-common.sh
