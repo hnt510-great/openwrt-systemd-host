@@ -306,6 +306,7 @@ endef
 
 define Package/hwclock
 $(call Package/util-linux/Default)
+  ALTERNATIVES:=200:/usr/sbin/hwclock:/usr/bin/util-linux-hwclock
   TITLE:=query or set the hardware clock
   LICENSE:=GPL-3.0-or-later
   LICENSE_FILES:=Documentation/licenses/COPYING.GPL-3.0-or-later
@@ -881,9 +882,36 @@ define Package/getopt/install
 endef
 
 define Package/hwclock/install
-	$(INSTALL_DIR) $(1)/usr/sbin
-	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/hwclock $(1)/usr/sbin/
+	$(INSTALL_DIR) $(1)/usr/bin
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/hwclock $(1)/usr/bin/util-linux-hwclock
 endef
+
+# Keep BusyBox applets available as fallbacks for recovery images.
+define Package/hexdump
+$(call Package/util-linux/Default)
+  DEPENDS+=+libncurses
+  TITLE:=Display file contents in hexadecimal
+  ALTERNATIVES:=200:/usr/bin/hexdump:/usr/bin/util-linux-hexdump
+endef
+
+define Package/setsid
+$(call Package/util-linux/Default)
+  TITLE:=Run a program in a new session
+  ALTERNATIVES:=200:/usr/bin/setsid:/usr/bin/util-linux-setsid
+endef
+
+define Package/hexdump/install
+	$(INSTALL_DIR) $(1)/usr/bin
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/hexdump $(1)/usr/bin/util-linux-hexdump
+endef
+
+define Package/setsid/install
+	$(INSTALL_DIR) $(1)/usr/bin
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/setsid $(1)/usr/bin/util-linux-setsid
+endef
+
+$(eval $(call BuildPackage,hexdump))
+$(eval $(call BuildPackage,setsid))
 
 define Package/ipcs/install
 	$(INSTALL_DIR) $(1)/usr/bin

@@ -1,0 +1,26 @@
+{
+  "packages": {
+    "url": "https://github.com/openwrt/packages.git",
+    "base": "61e48d2072af5e8efe06f6258df43a8087259a25",
+    "commit": "07cec2d2d25fd0bf3be937687f4d02ecce1adc25",
+    "patch": "patches/feeds/0011-packages-cli-utils.patch",
+    "commits": [
+      {
+        "commit": "7ae9607e420041169f0c3687f0a266956f998094",
+        "subject": "openssh: install ssh-copy-id with client utilities"
+      },
+      {
+        "commit": "9265ca3740b33ccbcb1bc076629f63eb219c60ae",
+        "subject": "net-tools: add standalone ifconfig package"
+      },
+      {
+        "commit": "bb467e3a50651188fbf350f23dc6ca2379745e35",
+        "subject": "procps-ng: expose pidof as a standalone package"
+      },
+      {
+        "commit": "07cec2d2d25fd0bf3be937687f4d02ecce1adc25",
+        "subject": "ncat: retain single-address receive-only listeners"
+      }
+    ]
+  }
+}

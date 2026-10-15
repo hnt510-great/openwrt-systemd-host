@@ -1,0 +1,7 @@
+Standalone utilities take precedence through APK alternatives. BusyBox stays
+installed as a fallback; removing a replacement restores its original applet.
+
+Keep /bin/sh and /bin/ash on BusyBox for OpenWrt shell extensions. Keep login,
+sulogin, cron/crontab, udhcpc, ntpd, lock, netmsg, fsync, resize, start-stop-daemon,
+pivot_root and switch_root for their existing callers and recovery paths.
+No daemons are restarted and no clock or network configuration is changed.

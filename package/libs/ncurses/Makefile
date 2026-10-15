@@ -26,6 +26,7 @@ PKG_INSTALL:=1
 PKG_BUILD_PARALLEL:=1
 
 PKG_BUILD_DEPENDS:=ncurses/host
+PKG_CONFIG_DEPENDS:=CONFIG_PACKAGE_ncurses-utils
 
 include $(INCLUDE_DIR)/package.mk
 include $(INCLUDE_DIR)/host-build.mk
@@ -55,6 +56,16 @@ define Package/libncurses-dev
   TITLE:=Development files for the ncurses library
 endef
 
+define Package/ncurses-utils
+  SECTION:=utils
+  CATEGORY:=Utilities
+  TITLE:=Terminal tools from ncurses
+  DEPENDS:=+libncurses
+  URL:=https://invisible-island.net/ncurses/
+  ALTERNATIVES:=300:/usr/bin/clear:/usr/libexec/clear-ncurses \
+    300:/usr/bin/reset:/usr/libexec/reset-ncurses
+endef
+
 define Package/libncurses/config
         source "$(SOURCE)/Config.in"
 endef
@@ -71,7 +82,7 @@ CONFIGURE_ARGS += \
 	--without-debug \
 	--without-manpages \
 	--without-profile \
-	--without-progs \
+	$(if $(CONFIG_PACKAGE_ncurses-utils),--with-progs,--without-progs) \
 	--without-tests \
 	--disable-big-core \
 	--disable-home-terminfo \
@@ -113,6 +124,21 @@ MAKE_FLAGS += \
 	HOSTCCFLAGS="" \
 	PKG_CONFIG_LIBDIR=/usr/lib/pkgconfig \
 	libs
+
+define Build/Compile
+	$(call Build/Compile/Default)
+ifneq ($(CONFIG_PACKAGE_ncurses-utils),)
+	$(MAKE_VARS) $(MAKE) -C $(PKG_BUILD_DIR)/progs clear tput tset
+endif
+endef
+
+define Package/ncurses-utils/install
+	$(INSTALL_DIR) $(1)/usr/bin $(1)/usr/libexec
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/progs/clear $(1)/usr/libexec/clear-ncurses
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/progs/tset $(1)/usr/libexec/reset-ncurses
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/progs/tset $(1)/usr/bin/tset
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/progs/tput $(1)/usr/bin/tput
+endef
 
 define Build/Install/Default
 	$(MAKE_VARS) \
@@ -209,5 +235,6 @@ endef
 
 $(eval $(call HostBuild))
 $(eval $(call BuildPackage,terminfo))
+$(eval $(call BuildPackage,ncurses-utils))
 $(eval $(call BuildPackage,libncurses))
 $(eval $(call BuildPackage,libncurses-dev))

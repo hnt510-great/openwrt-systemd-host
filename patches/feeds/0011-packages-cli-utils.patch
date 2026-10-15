@@ -1,0 +1,102 @@
+diff --git a/net/net-tools/Makefile b/net/net-tools/Makefile
+index b28b789..8131cc5 100644
+--- a/net/net-tools/Makefile
++++ b/net/net-tools/Makefile
+@@ -69,6 +69,19 @@ define Package/net-tools-route/description
+ 	functionality of the net-tools variant (e.g. AF_X25).
+ endef
+ 
++define Package/net-tools-ifconfig
++  SECTION:=net
++  CATEGORY:=Network
++  TITLE:=net-tools - ifconfig utility
++  URL:=https://net-tools.sourceforge.io/
++  ALTERNATIVES:=300:/sbin/ifconfig:/usr/libexec/net-tools-ifconfig
++endef
++
++define Package/net-tools-ifconfig/install
++	$(INSTALL_DIR) $(1)/usr/libexec
++	$(INSTALL_BIN) $(PKG_BUILD_DIR)/ifconfig $(1)/usr/libexec/net-tools-ifconfig
++endef
++
+ define Build/Configure
+ 	# Failed configure.sh leaves stub config.h around.
+ 	rm -f $(PKG_BUILD_DIR)/config.h
+@@ -91,5 +104,6 @@ define Package/net-tools-route/install
+ endef
+ 
+ $(eval $(call BuildPackage,mii-tool))
++$(eval $(call BuildPackage,net-tools-ifconfig))
+ $(eval $(call BuildPackage,net-tools-netstat))
+ $(eval $(call BuildPackage,net-tools-route))
+diff --git a/net/nmap/Makefile b/net/nmap/Makefile
+index 4770949..c1624f7 100644
+--- a/net/nmap/Makefile
++++ b/net/nmap/Makefile
+@@ -14,7 +14,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=nmap
+ PKG_VERSION:=7.991
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ PKG_MAINTAINER:=Nuno Gonçalves <nunojpg@gmail.com>
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.bz2
+diff --git a/net/nmap/patches/110-ncat-recv-only-single-listener.patch b/net/nmap/patches/110-ncat-recv-only-single-listener.patch
+new file mode 100644
+index 0000000..160ac8b
+--- /dev/null
++++ b/net/nmap/patches/110-ncat-recv-only-single-listener.patch
+@@ -0,0 +1,18 @@
++From: OpenWrt developers
++Subject: ncat: keep a single receive-only listener in the event loop
++
++With --recv-only stdin is not added to client_fdlist. A listener bound to
++one explicit address therefore has only one descriptor and must not be
++mistaken for an idle stdin-only list before its first connection arrives.
++
++--- a/ncat/ncat_listen.c
+++++ b/ncat/ncat_listen.c
++@@ -336,7 +336,7 @@ int ncat_listen()
++ 
++     init_fdlist(&broadcast_fdlist, o.conn_limit);
++ 
++-    while (!breakloop && (client_fdlist.nfds > 1 || get_conn_count() > 0)) {
+++    while (!breakloop && (client_fdlist.nfds > (o.recvonly ? 0 : 1) || get_conn_count() > 0)) {
++         long usec_wait = -1;
++         tvp = NULL;
++         /* We pass these temporary descriptor sets to fselect, since fselect
+diff --git a/net/openssh/Makefile b/net/openssh/Makefile
+index c909de6..969616a 100644
+--- a/net/openssh/Makefile
++++ b/net/openssh/Makefile
+@@ -10,7 +10,7 @@ include $(TOPDIR)/rules.mk
+ PKG_NAME:=openssh
+ PKG_REALVERSION:=10.6p1
+ PKG_VERSION:=10.6_p1
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ PKG_CONFIG_DEPENDS:=CONFIG_OPENWRT_SYSTEMD
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_REALVERSION).tar.gz
+@@ -225,6 +225,7 @@ endef
+ define Package/openssh-client-utils/install
+ 	$(INSTALL_DIR) $(1)/usr/bin
+ 	$(INSTALL_BIN) $(foreach bin,add agent keyscan keysign,$(PKG_BUILD_DIR)/ssh-$(bin)) $(1)/usr/bin/
++	$(INSTALL_BIN) $(PKG_BUILD_DIR)/contrib/ssh-copy-id $(1)/usr/bin/
+ endef
+ 
+ define Package/openssh-keygen/install
+diff --git a/utils/procps-ng/Makefile b/utils/procps-ng/Makefile
+index 70844e2..bdc1261 100644
+--- a/utils/procps-ng/Makefile
++++ b/utils/procps-ng/Makefile
+@@ -30,7 +30,7 @@ CONFIGURE_ARGS += --enable-skill
+ 
+ # most of these have alternatives provided by busybox applets
+ PROCPS_APPLETS := \
+-    free kill pgrep pkill pmap ps pwdx skill slabtop \
++    free kill pgrep pidof pkill pmap ps pwdx skill slabtop \
+     snice sysctl tload top uptime vmstat w watch
+ 
+ # procps-ng will be configured with "--bindir=/usr/bin --sbindir=/usr/sbin" and
