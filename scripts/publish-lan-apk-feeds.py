@@ -25,8 +25,11 @@ def is_custom_origin(origin):
 
 
 def dump_index(apk, index):
-    return json.loads(subprocess.check_output(
+    result = json.loads(subprocess.check_output(
         [str(apk), 'adbdump', '--format', 'json', str(index)]))
+    if 'info' not in result:
+        result.setdefault('packages', [])
+    return result
 
 
 def verify(apk, keys, files):
@@ -35,9 +38,9 @@ def verify(apk, keys, files):
                        check=True, capture_output=True)
 
 
-def index_repository(apk, tree, keys, repo, changed=None):
+def index_repository(apk, tree, keys, repo, changed=None, allow_empty=False):
     packages = sorted(repo.glob('*.apk'))
-    if not packages:
+    if not packages and not allow_empty:
         raise ValueError(f'No APKs in {repo}')
     verify(apk, keys, packages if changed is None else changed)
     # Unlink an index reused from an older snapshot before mkndx writes it.
@@ -45,6 +48,8 @@ def index_repository(apk, tree, keys, repo, changed=None):
     index.unlink(missing_ok=True)
     subprocess.run([str(apk), 'mkndx', '--keys-dir', str(keys),
                     '--sign-key', str(tree / 'private-key.pem'),
+                    # apk 3 cannot read a completely empty ADB root object.
+                    *(['--description', 'OpenWrt empty ABI userspace view'] if not packages else []),
                     '--output', str(index), *map(str, packages)],
                    check=True, capture_output=True)
     verify(apk, keys, [index])
@@ -74,6 +79,8 @@ def parse_args():
                         help='Publish new/changed APKs; retain previously published packages')
     parser.add_argument('--dry-run', action='store_true',
                         help='Stage and verify changes without switching the active feed')
+    parser.add_argument('--kernel-upgrade-view', action='store_true',
+                        help='Keep new kernel packages in the independent kernel channel')
     args = parser.parse_args()
     defaults = json.loads(args.config.read_text()) if args.config else {}
     args.kernel = args.kernel or defaults.get('kernel')
@@ -109,6 +116,7 @@ def publish(args):
     tree = Path(__file__).resolve().parent.parent
     source_root = (args.source_root or tree).resolve()
     apk = tree / 'staging_dir/host/bin/apk'
+    kernel_upgrade_view = getattr(args, 'kernel_upgrade_view', False)
     args.kernel = args.kernel or detect_kernel(source_root, apk)
     sources = [('target', source_root / 'bin/systemd/targets/x86/64-glibc/packages')]
     package_root = source_root / 'bin/systemd/packages/x86_64'
@@ -136,11 +144,20 @@ def publish(args):
         source_files = {}
         for name, source in sources:
             packages = sorted(source.glob('*.apk'))
-            if not packages:
+            if not packages and not kernel_upgrade_view:
                 if args.incremental and old and name in old['repositories']:
                     continue
                 raise ValueError(f'No APKs in {source}')
             for package in packages:
+                if kernel_upgrade_view and package.name.startswith(
+                        ('kernel-', 'kmod-', 'linux-image-')):
+                    continue
+                # Immutable payloads belong to the multi-generation channel.
+                # ABI-specific views retain only their logical trackers, whose
+                # exact global kernel dependency this publisher checks below.
+                if '-owrt-' in package.name and package.name.startswith(
+                        ('linux-image-', 'kmod-', 'kernel-dev-headers-')):
+                    continue
                 source_files[f'{name}/{package.name}'] = (package, sha256(package))
         changes = sorted(path for path, (_, digest) in source_files.items()
                          if not args.incremental or previous_hashes.get(path) != digest)
@@ -186,7 +203,8 @@ def publish(args):
             for repo in sorted(payload.iterdir()):
                 if repo.name in changed_files or not (repo / 'packages.adb').exists():
                     indexes[repo.name] = index_repository(apk, tree, keys, repo,
-                                                         changed_files.get(repo.name))
+                                                         changed_files.get(repo.name),
+                                                         allow_empty=kernel_upgrade_view)
                     affected.add(repo.name)
                 else:
                     indexes[repo.name] = dump_index(apk, repo / 'packages.adb')
@@ -262,7 +280,7 @@ def publish(args):
                         manifest['kernel_packages'][path] = digest
                 manifest['repositories'][name] = {'packages': len(index['packages']),
                                                   'index_sha256': sha256(repo / 'packages.adb')}
-            if kernel_versions != [args.kernel]:
+            if kernel_versions != [args.kernel] and not (kernel_upgrade_view and not kernel_versions):
                 raise ValueError(f'Expected exactly kernel {args.kernel}, found {kernel_versions}')
             if old:
                 for path, digest in old['kernel_packages'].items():

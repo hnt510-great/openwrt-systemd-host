@@ -3,5 +3,4 @@
 set -eu
 feed_tree=$(CDPATH= cd "$(dirname "$0")/.." && pwd)
 cd "$feed_tree"
-make "$@"
-exec "$feed_tree/scripts/publish-changed-feeds.sh"
+exec python3 "$feed_tree/scripts/build-and-publish.py" build "$@"

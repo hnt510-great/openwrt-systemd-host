@@ -51,6 +51,25 @@ Make arguments are forwarded unchanged; package compilation targets also work.
 Publication runs only after make succeeds. Ordinary `make` keeps its existing
 behavior. Source APKs and indexes under `bin/` are not modified.
 
+When `CONFIG_OPENWRT_KERNEL_UPGRADE=y`, this command also publishes the protected
+kernel channel. Full/default builds reuse the sequence and kernel timestamp for
+unchanged kernel inputs. Pure userspace changes therefore keep the existing
+kernel generation. Relevant kernel/module/config/toolchain changes automatically
+reserve a new publication sequence in `.config` and rebuild matching modules,
+even if the ABI hash stays the same. Missing local input history conservatively
+reserves a new generation. Both feed types pass signature, generation, completeness and
+immutability preflight before publication. Userspace views are published first;
+the kernel channel is exposed last. Existing ABI-local kernel packages and old
+generations are retained. Stale kernel outputs are filtered rather than deleted.
+See [the kernel upgrade guide](kernel-upgrade.md#build-and-publish).
+
+In this mode, `publish-changed-feeds.sh` also handles both feed types, without
+advancing the sequence. Package-only builds require a completed matching kernel
+generation; kernel/module changes should use a full build so the sequence advances
+when needed. Unchanged inputs also reuse the same sequence after a failed build.
+There is no router installation or reboot in either wrapper. The following
+ABI-specific details also describe the original behavior with the feature off.
+
 The wrapper uses `configs/lan-apk-feeds.json` for the destination and LAN URL.
 It detects the ABI from the completed build's `kernel.version` and cross-checks
 the kernel APK metadata when present. With no metadata file, it reads the
@@ -111,7 +130,9 @@ python3 scripts/publish-lan-apk-feeds.py --config configs/lan-apk-feeds.json
 
 Full mode uses the current build outputs as the complete package set. It
 retains the kernel-file preservation checks, so review errors before trying
-to remove any published kernel-dependent package.
+to remove any published kernel-dependent package. This low-level command is for
+the legacy ABI-specific workflow; use the combined wrappers when kernel upgrades
+are enabled.
 
 Snapshots live in `/srv/openwrt-feeds/public/snapshots/`. Each successful
 publication atomically switches `/srv/openwrt-feeds/public/abi/KERNEL` to the
