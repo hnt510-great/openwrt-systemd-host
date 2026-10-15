@@ -1,0 +1,874 @@
+#!/usr/bin/python3
+"""Protected OpenWrt kernel generations. Never writes the original vmlinuz."""
+import argparse
+import fcntl
+import gzip
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+
+
+class KernelError(RuntimeError):
+    pass
+
+
+DEPMOD_INDEXES = {'modules.dep', 'modules.dep.bin', 'modules.alias', 'modules.alias.bin',
+                  'modules.softdep', 'modules.symbols', 'modules.symbols.bin',
+                  'modules.devname', 'modules.weakdep'}
+
+
+def sha256(path):
+    with Path(path).open('rb') as stream:
+        digest = hashlib.sha256()
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(block)
+        return digest.hexdigest()
+
+
+def identifier(value):
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._+-]{0,126}', value):
+        raise KernelError('Invalid generation identifier')
+    return value
+
+
+def atomic(path, content, mode=0o600):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(prefix='.' + path.name + '.', dir=path.parent)
+    try:
+        os.fchmod(fd, mode)
+        with os.fdopen(fd, 'wb') as stream:
+            stream.write(content.encode() if isinstance(content, str) else content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(name, path)
+        directory = os.open(path.parent, os.O_DIRECTORY)
+        try:
+            try:
+                os.fsync(directory)
+            except OSError as exc:
+                if exc.errno != 22:  # FAT kernels may reject directory fsync.
+                    raise
+        finally:
+            os.close(directory)
+    finally:
+        if os.path.exists(name):
+            os.unlink(name)
+
+
+def json_write(path, data):
+    atomic(path, json.dumps(data, sort_keys=True, indent=2) + '\n')
+
+
+def inventory(root):
+    return {str(p.relative_to(root)):
+            {'link': os.readlink(p)} if p.is_symlink() else {'sha256': sha256(p)}
+            for p in sorted(root.rglob('*')) if p.is_file() or p.is_symlink()}
+
+
+def verify_files(root, files):
+    root = Path(root)
+    for name, expected in files.items():
+        relative = Path(name)
+        if relative.is_absolute() or '..' in relative.parts:
+            raise KernelError('Unsafe manifest path')
+        path = root / relative
+        if not path.parent.resolve().is_relative_to(root.resolve()):
+            raise KernelError('Manifest escapes installation root')
+        if 'link' in expected:
+            valid = path.is_symlink() and os.readlink(path) == expected['link']
+        else:
+            valid = path.is_file() and not path.is_symlink() and sha256(path) == expected['sha256']
+        if not valid:
+            raise KernelError('Missing or changed generation file: ' + name)
+
+
+def cpio_archive(root):
+    """Deterministic newc, with root ownership and no target cpio dependency."""
+    output = bytearray()
+    paths = [root] + sorted(root.rglob('*'))
+    for inode, path in enumerate(paths + [None], 1):
+        if path is None:
+            name, mode, content, links = 'TRAILER!!!', 0, b'', 1
+        else:
+            name = '.' if path == root else str(path.relative_to(root))
+            info = path.lstat()
+            mode = info.st_mode
+            links = 2 if stat.S_ISDIR(mode) else 1
+            content = (os.readlink(path).encode() if path.is_symlink() else
+                       path.read_bytes() if stat.S_ISREG(mode) else b'')
+        encoded = name.encode() + b'\0'
+        fields = [inode, mode, 0, 0, links, 0, len(content), 0, 0, 0, 0, len(encoded), 0]
+        output.extend(('070701' + ''.join(f'{field:08x}' for field in fields)).encode())
+        output.extend(encoded)
+        output.extend(b'\0' * (-len(output) % 4))
+        output.extend(content)
+        output.extend(b'\0' * (-len(output) % 4))
+    output.extend(b'\0' * (-len(output) % 512))
+    return bytes(output)
+
+
+class KernelManager:
+    def __init__(self, root='/', runner=None):
+        self.root = Path(root).resolve()
+        self.policy = self.path('/etc/openwrt-kernel')
+        self.boot = self.path('/boot')
+        self.runner = runner or self._run
+
+    def path(self, name):
+        return self.root / name.lstrip('/')
+
+    @staticmethod
+    def _run(args, **kwargs):
+        return subprocess.check_output(args, text=True, timeout=30, **kwargs).strip()
+
+    def command(self, *args):
+        return self.runner(list(args))
+
+    def state(self):
+        try:
+            result = json.loads((self.policy / 'state.json').read_text())
+        except (OSError, ValueError) as exc:
+            raise KernelError('Missing/invalid kernel state; run kernelctl migrate') from exc
+        if result.get('schema') != 1:
+            raise KernelError('Unsupported kernel state')
+        for name in result['generations']:
+            identifier(name)
+        for key in ('known_good', 'previous_good', 'pending'):
+            if result.get(key) and result[key] not in result['generations']:
+                raise KernelError('State references missing ' + key)
+        return result
+
+    def save(self, state):
+        json_write(self.policy / 'state.json', state)
+
+    def installed(self):
+        database = self.path('/usr/lib/apk/db/installed')
+        if not database.exists():
+            database = self.path('/lib/apk/db/installed')
+        result = {}
+        for record in database.read_text().split('\n\n'):
+            fields = dict(line.split(':', 1) for line in record.splitlines()
+                          if len(line) > 2 and line[1] == ':' and line[0] in 'PVC')
+            if 'P' in fields:
+                result[fields['P']] = fields
+        return result
+
+    def release(self):
+        return self.command('uname', '-r')
+
+    def boot_mount(self):
+        if self.boot.is_symlink():
+            raise KernelError('/boot must be a verified mount, not a symlink')
+        mounts = self.path('/proc/self/mountinfo').read_text().splitlines()
+        records = [line.split() for line in mounts if line.split()[4] == '/boot']
+        if not records or 'rw' not in records[-1][5].split(','):
+            raise KernelError('/boot is not mounted read/write')
+        record = records[-1]
+        separator = record.index('-')
+        if record[separator + 1] not in ('vfat', 'ext4', 'ext2') or record[3] != '/boot':
+            raise KernelError('Unsupported /boot layout; expected OpenWrt boot subdirectory bind mount')
+        device = record[separator + 2]
+        uuid = self.command('blkid', '-s', 'UUID', '-o', 'value', device)
+        if not re.fullmatch(r'[A-Za-z0-9-]+', uuid):
+            raise KernelError('Invalid boot filesystem UUID')
+        return uuid
+
+    def space(self, required):
+        # Leave emergency headroom; never delete a generation to make room.
+        if shutil.disk_usage(self.boot).free < required + 8 * 1024 * 1024:
+            raise KernelError('Insufficient boot space; protected kernels will not be removed')
+
+    def bootargs(self):
+        args = shlex.split(self.path('/proc/cmdline').read_text())
+        args = [a for a in args if not a.startswith(('BOOT_IMAGE=', 'openwrt.init=', 'failsafe=', 'firmware_class.path='))
+                and a not in ('noinitrd', 'quiet')]
+        if not any(a.startswith('root=') for a in args):
+            raise KernelError('No root locator in running command line')
+        if any(not re.fullmatch(r'[A-Za-z0-9_./:=,@%+~-]+', a) for a in args):
+            raise KernelError('Unsupported quoting in boot arguments')
+        return ' '.join(args)
+
+    def protect(self):
+        records = self.installed()
+        lines = []
+        for name, record in sorted(records.items()):
+            if (name.startswith('linux-image-') and name != 'linux-image-openwrt') or (
+                    name.startswith(('kmod-', 'kernel-dev-headers-')) and '-owrt-' in name):
+                if not record.get('C'):
+                    raise KernelError('No installed checksum for ' + name)
+                lines.append(name + '><' + record['C'])
+        atomic(self.policy / 'protected', '\n'.join(lines) + '\n')
+
+    def check(self, generation=None):
+        state = self.state()
+        self.boot_mount()
+        baseline = state['generations'][state['rescue']]
+        if sha256(self.boot / 'vmlinuz') != baseline['kernel_sha256']:
+            raise KernelError('Original bootable vmlinuz changed')
+        for name in ([generation] if generation else state['generations']):
+            entry = state['generations'][identifier(name)]
+            if entry.get('legacy'):
+                verify_files(self.path('/usr/lib/modules') / entry['release'],
+                             {p: value for p, value in entry['modules'].items() if p not in DEPMOD_INDEXES})
+                verify_files(self.root, entry.get('firmware_files', {}))
+            elif entry.get('ready'):
+                verify_files(self.root, entry['files'])
+                directory = self.boot / 'kernels' / name
+                verify_files(directory, entry['boot_files'])
+        return state
+
+    def migrate(self):
+        if (self.policy / 'state.json').exists():
+            state = self.check()
+            if state.get('phase') == 'adopting':
+                return self.finish_migrate(state)
+            self.install_grub_modules()
+            self.dispatcher(state)
+            self.enroll()
+            return state
+        self.boot_mount()
+        self.space((self.boot / 'vmlinuz').stat().st_size)
+        for capability in ('apk-policy', 'kmodloader-policy'):
+            if self.path('/usr/share/openwrt-kernel/' + capability).read_text().strip() != '1':
+                raise KernelError('Required kernel transaction support is missing: ' + capability)
+        release = identifier(self.release())
+        records = self.installed()
+        if 'kernel' not in records:
+            raise KernelError('Installed kernel ABI unavailable')
+        args = self.bootargs()
+        baseline = self.health()
+        config_path = self.path('/proc/config.gz')
+        if not config_path.exists():
+            raise KernelError('Load the running configs module before adoption')
+        config = gzip.decompress(config_path.read_bytes()).decode()
+        name = identifier('legacy-' + release)
+        destination = self.path('/usr/lib/openwrt-kernel') / name
+        if destination.exists():
+            raise KernelError('Incomplete adoption exists; inspect before retrying')
+        destination.mkdir(parents=True)
+        shutil.copytree(self.path('/usr/lib/modules') / release, destination / 'modules', symlinks=True)
+        for directory in ('modules.d', 'modules-boot.d', 'modprobe.d'):
+            source = self.path('/run/openwrt-kernel') / directory
+            if not source.is_dir():
+                source = self.path('/etc') / directory
+            if source.exists():
+                shutil.copytree(source, destination / directory, symlinks=False)
+        snapshot = self.boot / 'grub/grub.cfg.rescue'
+        if snapshot.exists():
+            raise KernelError('Existing rescue GRUB configuration must be inspected')
+        atomic(snapshot, (self.boot / 'grub/grub.cfg').read_bytes(), 0o644)
+        required = ('CONFIG_BLK_DEV_INITRD', 'CONFIG_DEVTMPFS', 'CONFIG_CGROUPS',
+                    'CONFIG_CGROUP_PIDS', 'CONFIG_MEMCG', 'CONFIG_SECCOMP', 'CONFIG_NAMESPACES',
+                    'CONFIG_USER_NS', 'CONFIG_NET_NS', 'CONFIG_EXT4_FS', 'CONFIG_F2FS_FS',
+                    'CONFIG_OVERLAY_FS', 'CONFIG_SQUASHFS', 'CONFIG_BLK_DEV_NVME',
+                    'CONFIG_ATA', 'CONFIG_SATA_AHCI', 'CONFIG_SCSI', 'CONFIG_BLK_DEV_SD',
+                    'CONFIG_USB_STORAGE', 'CONFIG_VIRTIO_BLK', 'CONFIG_KVM',
+                    'CONFIG_KVM_INTEL', 'CONFIG_KVM_AMD', 'CONFIG_KVM_HYPERV')
+        required = [symbol for symbol in required if symbol + '=y' in config.splitlines()]
+        state = {'schema': 1, 'phase': 'adopting', 'rescue': name, 'known_good': name,
+                 'previous_good': None, 'pending': None, 'bootargs': args,
+                 'health': baseline, 'required_config': required, 'generations': {name: {
+                     'legacy': True, 'ready': True, 'release': release,
+                     'abi': records['kernel']['V'], 'kernel_sha256': sha256(self.boot / 'vmlinuz'),
+                     'modules': inventory(destination / 'modules'),
+                     'firmware_files': self.freeze_firmware(name)}}}
+        # Legacy files remain present when the old package ownership is retired.
+        atomic(self.policy / 'legacy-release', release + '\n')
+        self.save(state)
+        self.protect()
+        return self.finish_migrate(state)
+
+    def finish_migrate(self, state):
+        self.install_grub_modules()
+        environment = self.boot / 'grub/grubenv'
+        if not environment.exists():
+            self.command('grub-editenv', str(environment), 'create')
+        self.setenv(saved_entry='owrt-rescue')
+        self.dispatcher(state)
+        self.prepare()
+        self.enroll()
+        state['phase'] = 'ready'
+        self.save(state)
+        return state
+
+    def enroll(self):
+        # The image builder pins the initial ABI. The rolling kernel tracker
+        # owns the exact ABI after adoption; keep all other world constraints.
+        world = self.path('/etc/apk/world')
+        lines = world.read_text().splitlines()
+        updated = ['kernel' if re.fullmatch(r'kernel(?:[<>=~].*)?', line) else line
+                   for line in lines]
+        if 'linux-image-openwrt' not in updated:
+            updated.append('linux-image-openwrt')
+        if updated != lines:
+            atomic(world, '\n'.join(updated) + '\n', stat.S_IMODE(world.stat().st_mode))
+
+    def install_grub_modules(self):
+        source = self.path('/usr/share/openwrt-kernel/grub')
+        if not source.is_dir():
+            raise KernelError('Matching GRUB modules are not installed')
+        for architecture in source.iterdir():
+            for module in architecture.iterdir():
+                if module.suffix not in ('.mod', '.lst'):
+                    continue
+                destination = self.boot / 'grub' / architecture.name / module.name
+                if destination.exists() and sha256(destination) != sha256(module):
+                    raise KernelError('Refusing to replace existing GRUB module: ' + str(destination))
+                if not destination.exists():
+                    atomic(destination, module.read_bytes(), 0o644)
+
+    def setenv(self, **values):
+        self.command('grub-editenv', str(self.boot / 'grub/grubenv'), 'set',
+                     *[k + '=' + str(v) for k, v in values.items()])
+        os.sync()
+
+    def dispatcher(self, state):
+        uuid = self.boot_mount()
+        original = (self.boot / 'grub/grub.cfg.rescue').read_text()
+        terminal = '\n'.join(line for line in original.splitlines()
+                             if line.startswith(('serial ', 'terminal_input ', 'terminal_output ')))
+        args = state['bootargs']
+        # Direct rescue entries are parsed BEFORE any mutable generation file.
+        config = terminal + '\n' + f'''search --fs-uuid --set=root {uuid}
+set prefix=($root)/boot/grub
+set default=owrt-rescue
+set fallback=owrt-rescue
+set timeout=8
+menuentry 'OpenWrt original kernel (rescue)' --id=owrt-rescue {{
+ linux /boot/vmlinuz {args} firmware_class.path=/usr/lib/openwrt-kernel/{state['rescue']}/firmware openwrt.init=systemd noinitrd
+}}
+menuentry 'OpenWrt original kernel (procd recovery)' --id=owrt-rescue-procd {{
+ linux /boot/vmlinuz {args} firmware_class.path=/usr/lib/openwrt-kernel/{state['rescue']}/firmware openwrt.init=procd noinitrd
+}}
+menuentry 'OpenWrt original kernel (failsafe)' --id=owrt-rescue-failsafe {{
+ linux /boot/vmlinuz {args} firmware_class.path=/usr/lib/openwrt-kernel/{state['rescue']}/firmware failsafe=true noinitrd
+}}
+insmod loadenv
+if load_env; then
+ if [ -n "$saved_entry" ]; then set default=$saved_entry; fi
+ if [ -n "$next_entry" ]; then
+  set trial=$next_entry
+  set next_entry=
+  if save_env next_entry; then set default=$trial; fi
+ fi
+fi
+if [ -f $prefix/openwrt.cfg ]; then source $prefix/openwrt.cfg; fi
+'''
+        atomic(self.boot / 'grub/grub.cfg', config, 0o644)
+
+    def grub_config(self, state):
+        content = '# Generated by kernelctl. Original rescue entries are in grub.cfg.\n'
+        for name, entry in sorted(state['generations'].items()):
+            if entry.get('legacy') or not entry.get('ready'):
+                continue
+            for suffix, flag in (('', 'openwrt.init=systemd'),
+                                 ('-procd', 'openwrt.init=procd'), ('-failsafe', 'failsafe=true')):
+                content += f'''menuentry 'OpenWrt {name}{suffix}' --id=owrt-{name}{suffix} {{
+ linux /boot/kernels/{name}/vmlinuz {state['bootargs']} firmware_class.path=/usr/lib/openwrt-kernel/{name}/firmware {flag}
+ initrd /boot/kernels/{name}/initramfs.gz
+}}
+'''
+        return content
+
+    def prepare(self):
+        release = self.release()
+        if not (self.policy / 'state.json').exists():
+            selected = json.loads(self.path('/usr/share/openwrt-kernel/selected.json').read_text())
+            if identifier(selected['generation']) != release:
+                raise KernelError('Initial image generation differs from running kernel')
+            state = {'rescue': None, 'generations': {}}
+        else:
+            state = self.state()
+        legacy = state['generations'].get(state['rescue'], {'release': None})
+        if release == legacy['release']:
+            base = self.path('/usr/lib/openwrt-kernel') / state['rescue']
+        else:
+            base = self.path('/usr/lib/modules') / identifier(release) / 'openwrt'
+        firmware_name = state['rescue'] if release == legacy['release'] else identifier(release)
+        parameter = self.path('/sys/module/firmware_class/parameters/path')
+        firmware = self.path('/usr/lib/openwrt-kernel') / firmware_name / 'firmware'
+        if parameter.exists() and firmware.is_dir():
+            parameter.write_text(str(firmware))
+        runtime = self.path('/run/openwrt-kernel')
+        for directory in ('modules.d', 'modules-boot.d', 'modprobe.d'):
+            target = runtime / directory
+            target.mkdir(parents=True, exist_ok=True)
+            for old in target.iterdir():
+                if old.is_symlink():
+                    old.unlink()
+            for source in (base / directory,
+                           self.path('/usr/lib/modules') / release / 'openwrt' / directory,
+                           self.path('/etc') / directory):
+                if source.is_dir():
+                    for item in sorted(source.iterdir()):
+                        link = target / item.name
+                        if link.is_symlink():
+                            link.unlink()
+                        if not link.exists():
+                            link.symlink_to(item.resolve())
+        # libkmod already searches /run/modprobe.d; preserve local overrides.
+        modprobe = self.path('/run/modprobe.d')
+        modprobe.mkdir(parents=True, exist_ok=True)
+        for item in (runtime / 'modprobe.d').iterdir():
+            link = modprobe / item.name
+            if link.is_symlink():
+                link.unlink()
+            if not link.exists():
+                link.symlink_to(item.resolve())
+
+    def health(self):
+        if self.path('/proc/1/comm').read_text().strip() != 'systemd':
+            raise KernelError('Native systemd is not PID 1')
+        self.command('systemctl', 'is-active', 'openwrt-ubusd', 'openwrt-procd', 'openwrt-services')
+        interfaces = json.loads(self.command('ubus', 'call', 'network.interface', 'dump'))['interface']
+        up = sorted(i['interface'] for i in interfaces if i.get('up') and i['interface'] != 'loopback')
+        if 'lan' not in up:
+            raise KernelError('LAN is not healthy in ubus')
+        lan = next(i for i in interfaces if i['interface'] == 'lan')
+        device = lan.get('l3_device')
+        if not device or not re.fullmatch(r'[A-Za-z0-9_.:-]+', device):
+            raise KernelError('LAN has no usable layer-3 device')
+        if self.path('/sys/class/net/' + device + '/carrier').read_text().strip() != '1':
+            raise KernelError('LAN lost its carrier')
+        addresses = sorted(a['address'] for a in lan.get('ipv4-address', []))
+        if not addresses:
+            raise KernelError('LAN has no IPv4 address')
+        self.command('nft', 'list', 'ruleset')
+        self.command('/etc/init.d/dnsmasq', 'status')
+        self.command('nft', 'list', 'table', 'inet', 'fw4')
+        self.command('/etc/init.d/sshd', 'status')
+        mounts = [line.split() for line in self.path('/proc/mounts').read_text().splitlines()
+                  if line.split()[1] == '/overlay']
+        if not mounts or mounts[-1][2] not in ('ext4', 'f2fs', 'btrfs', 'xfs'):
+            raise KernelError('Persistent overlay is missing')
+        overlay = [mounts[-1][0]]
+        routes = self.command('ip', '-4', 'route', 'show', 'default')
+        routes6 = self.command('ip', '-6', 'route', 'show', 'default')
+        kvm = self.path('/dev/kvm').exists()
+        if kvm:
+            fd = os.open(self.path('/dev/kvm'), os.O_RDWR | os.O_CLOEXEC)
+            try:
+                if fcntl.ioctl(fd, 0xAE00, 0) != 12:
+                    raise KernelError('KVM API mismatch')
+                vm = fcntl.ioctl(fd, 0xAE01, 0)
+                os.close(vm)
+            finally:
+                os.close(fd)
+            self.command('virsh', '-c', 'qemu:///system', 'list', '--all')
+        return {'interfaces': up, 'overlay': overlay, 'default_route': bool(routes),
+                'ipv6_default_route': bool(routes6), 'lan_device': device,
+                'lan_addresses': addresses, 'kvm': kvm}
+
+    def confirm(self, duration=120):
+        state = self.check()
+        name = state.get('pending')
+        if not name or self.release() != state['generations'][name]['release']:
+            raise KernelError('Running kernel is not the pending candidate')
+        if 'failsafe=' in self.path('/proc/cmdline').read_text():
+            raise KernelError('Failsafe cannot promote a candidate')
+        deadline = time.monotonic() + duration
+        while True:
+            actual, expected = self.health(), state['health']
+            if not self.matches_baseline(actual, expected):
+                raise KernelError('Candidate failed baseline health checks')
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(min(5, max(0, deadline - time.monotonic())))
+        self.setenv(saved_entry='owrt-' + name, next_entry='')
+        state['previous_good'] = state['known_good']
+        state['known_good'], state['pending'] = name, None
+        self.save(state)
+        self.protect()
+        return state
+
+    @staticmethod
+    def matches_baseline(actual, expected):
+        return (set(expected['interfaces']).issubset(actual['interfaces']) and
+                actual['overlay'] == expected['overlay'] and
+                (not expected['default_route'] or actual['default_route']) and
+                (not expected.get('ipv6_default_route') or actual['ipv6_default_route']) and
+                (not expected.get('lan_addresses') or expected['lan_addresses'] == actual['lan_addresses']) and
+                (not expected['kvm'] or actual['kvm']))
+
+    def bootstrap(self, generation, destination):
+        """Freeze target tools/libraries and matching early modules into a cpio."""
+        release = generation
+        with tempfile.TemporaryDirectory(prefix='kernel-initramfs-', dir=self.path('/tmp')) as temp:
+            root = Path(temp)
+            for directory in ('dev', 'proc', 'sys', 'run', 'newroot', 'usr/bin', 'usr/sbin', 'usr/lib', 'etc'):
+                (root / directory).mkdir(parents=True, exist_ok=True)
+            for link, target in (('bin', 'usr/bin'), ('sbin', 'usr/sbin'), ('lib', 'usr/lib')):
+                (root / link).symlink_to(target)
+            copied = set()
+
+            def copy_binary(binary):
+                source = self.path(binary).resolve()
+                if source in copied:
+                    return '/' + source.relative_to(self.root).as_posix()
+                if not source.is_file() or not source.is_relative_to(self.root):
+                    raise KernelError('Bootstrap binary escapes root: ' + binary)
+                copied.add(source)
+                relative = source.relative_to(self.root)
+                target = root / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+                # ldd only inspects the trusted installed target tools, on target.
+                for library in re.findall(r'(?:=>\s*)?(/[^\s()]+)', self.command('ldd', str(source))):
+                    library_source = self.path(library)
+                    library_target = root / library.lstrip('/')
+                    library_target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(library_source.resolve(), library_target)
+                return '/' + relative.as_posix()
+
+            kmodloader = copy_binary('/usr/sbin/kmodloader')
+            blkid = copy_binary('/usr/sbin/blkid')
+            for applet in ('sh', 'mount', 'umount', 'mkdir', 'cat', 'head', 'ln', 'sleep', 'switch_root'):
+                executable = shutil.which(applet, path='/usr/sbin:/usr/bin:/sbin:/bin')
+                if not executable:
+                    raise KernelError('Missing bootstrap tool: ' + applet)
+                binary = copy_binary(executable)
+                link = root / 'usr/bin' / applet
+                if not link.exists():
+                    link.symlink_to(binary)
+            if kmodloader != '/usr/sbin/kmodloader':
+                (root / 'usr/sbin/kmodloader').symlink_to(kmodloader)
+            if blkid != '/usr/sbin/blkid':
+                (root / 'usr/sbin/blkid').symlink_to(blkid)
+            modules = self.path('/usr/lib/modules') / release
+            shutil.copytree(modules, root / 'usr/lib/modules' / release,
+                            symlinks=True, ignore=shutil.ignore_patterns('build', 'source'))
+            # Including the selected module tree also handles preinit hotplug.
+            early = root / 'etc/modules-boot.d'
+            early.mkdir()
+            source = modules / 'openwrt/modules-boot.d'
+            if source.exists():
+                for entry in source.iterdir():
+                    shutil.copy2(entry.resolve(), early / entry.name)
+            # The existing systemd integration owns additional NLS boot rules.
+            global_early = self.path('/etc/modules-boot.d')
+            if global_early.exists():
+                for entry in global_early.iterdir():
+                    if entry.name == '25-systemd-boot-vfat-nls':
+                        shutil.copy2(entry.resolve(), early / entry.name)
+            shutil.copy2(self.path('/usr/libexec/openwrt-kernel-init'), root / 'init')
+            firmware_root = self.path('/usr/lib/openwrt-kernel') / generation / 'firmware'
+            early_modules = set()
+            # Generic OpenWrt autoload rules may name drivers for several
+            # platforms. kmodloader skips absent names; do the same, while
+            # still resolving dependencies strictly for installed modules.
+            available = {p.name.split('.ko', 1)[0].replace('-', '_')
+                         for p in modules.rglob('*.ko*') if p.is_file()}
+            available.update(Path(line).name.removesuffix('.ko').replace('-', '_')
+                             for line in (modules / 'modules.builtin').read_text().splitlines())
+            for rule in early.iterdir():
+                for line in rule.read_text().splitlines():
+                    words = shlex.split(line, comments=True)
+                    if not words:
+                        continue
+                    if words[0].replace('-', '_') not in available:
+                        continue
+                    dependencies = self.command('modprobe', '-S', generation, '--show-depends', words[0])
+                    for dependency in dependencies.splitlines():
+                        if dependency.startswith('insmod '):
+                            early_modules.add(dependency.split()[1])
+            for module in sorted(early_modules):
+                for pattern in self.command('modinfo', '-F', 'firmware', module).splitlines():
+                    relative = Path(pattern)
+                    if relative.is_absolute() or '..' in relative.parts:
+                        raise KernelError('Unsafe firmware requirement')
+                    for suffix in ('', '.xz', '.zst'):
+                        for source in firmware_root.glob(pattern + suffix):
+                            target = root / 'usr/lib/firmware' / source.relative_to(firmware_root)
+                            target.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(source, target)
+            archive = cpio_archive(root)
+            atomic(destination, gzip.compress(archive, mtime=0), 0o644)
+
+    def activate(self):
+        state = self.check()
+        selected = json.loads(self.path('/usr/share/openwrt-kernel/selected.json').read_text())
+        name = identifier(selected['generation'])
+        current = name == state['known_good']
+        if state.get('pending') and name != state['pending']:
+            raise KernelError('Resolve existing trial before activating another kernel')
+        if state['generations'].get(name, {}).get('failed'):
+            raise KernelError('Candidate was rejected; use kernelctl retry for an explicit new trial')
+        metadata = self.path('/usr/lib/openwrt-kernel') / name
+        image = json.loads((metadata / 'image.json').read_text())
+        if image['abi'] != selected['abi'] or image['generation'] != name:
+            raise KernelError('Selected image identity mismatch')
+        if sha256(metadata / 'vmlinuz') != image['kernel_sha256']:
+            raise KernelError('Candidate kernel checksum mismatch')
+        rescue = state['generations'][state['rescue']]
+        current = current or (state['known_good'] == state['rescue'] and
+                              name == rescue['release'] and
+                              image['kernel_sha256'] == rescue['kernel_sha256'])
+        config = (metadata / 'config').read_text().splitlines()
+        for symbol in state.get('required_config', []):
+            if symbol + '=y' not in config:
+                raise KernelError('Candidate removed required built-in feature: ' + symbol)
+        files = dict(image['files'])
+        verify_files(self.root, files)
+        files.update(self.freeze_firmware(name))
+        for manifest in (metadata / 'kmods').glob('*.json'):
+            module = json.loads(manifest.read_text())
+            if module['abi'] != image['abi'] or module['release'] != name:
+                raise KernelError('Module ABI differs from candidate')
+            verify_files(self.root, module['files'])
+            files.update(module['files'])
+        records = self.installed()
+        # Every logical installed kmod must have a payload in the candidate.
+        for logical in records:
+            if logical.startswith('kmod-') and '-owrt-' not in logical and logical != 'kmod':
+                if not (metadata / 'kmods' / (logical + '.json')).exists():
+                    raise KernelError('Missing candidate payload for ' + logical)
+        if current:
+            # Installing an additional driver must retain its immutable
+            # payload too, and expose its autoload rules to the running kernel.
+            entry = state['generations'][state['known_good']]
+            if entry.get('legacy'):
+                entry['modules'] = {p: value for p, value in
+                    inventory(self.path('/usr/lib/modules') / name).items() if p not in DEPMOD_INDEXES}
+            else:
+                entry['files'] = files
+            self.protect()
+            self.save(state)
+            self.prepare()
+            return state
+        self.command('depmod', '-a', name)
+        self.space((metadata / 'vmlinuz').stat().st_size +
+                   sum(p.stat().st_size for p in (self.path('/usr/lib/modules') / name).rglob('*.ko')) + 4*1024*1024)
+        directory = self.boot / 'kernels' / name
+        if directory.exists():
+            saved = json.loads((directory / 'boot.json').read_text())
+            if saved['generation'] != name or saved['kernel_sha256'] != image['kernel_sha256']:
+                raise KernelError('Unfinished boot generation has different content')
+            verify_files(directory, saved['boot_files'])
+            image = saved
+        else:
+            staging = Path(tempfile.mkdtemp(prefix='.' + name + '.', dir=self.boot))
+            try:
+                atomic(staging / 'vmlinuz', (metadata / 'vmlinuz').read_bytes(), 0o644)
+                self.bootstrap(name, staging / 'initramfs.gz')
+                image['files'] = files
+                image['boot_files'] = inventory(staging)
+                image['ready'] = True
+                image['sequence'] = selected['sequence']
+                verify_files(staging, image['boot_files'])
+                json_write(staging / 'boot.json', image)
+                os.sync()
+                directory.parent.mkdir(exist_ok=True)
+                staging.rename(directory)
+                os.sync()
+            finally:
+                if staging.exists():
+                    shutil.rmtree(staging)
+        state['generations'][name] = image
+        state['pending'] = name
+        self.protect()  # Durably anchor payloads BEFORE publishing a boot entry.
+        self.save(state)
+        atomic(self.boot / 'grub/openwrt.cfg', self.grub_config(state), 0o644)
+        self.setenv(next_entry='owrt-' + name)
+        return state
+
+    def freeze_firmware(self, generation):
+        source = self.path('/usr/lib/firmware')
+        destination = self.path('/usr/lib/openwrt-kernel') / identifier(generation) / 'firmware'
+        if source.is_dir() and not destination.exists():
+            staging = Path(tempfile.mkdtemp(prefix='.firmware-', dir=destination.parent))
+            try:
+                shutil.copytree(source, staging, dirs_exist_ok=True, symlinks=False)
+                os.sync()
+                staging.rename(destination)
+            finally:
+                if staging.exists():
+                    shutil.rmtree(staging)
+        return {str((destination / name).relative_to(self.root)): expected
+                for name, expected in inventory(destination).items()} if destination.exists() else {}
+
+    def transaction(self, phase, path, errors, simulation, disabled):
+        state = self.state()
+        changes = [line.split('\t') for line in Path(path).read_text().splitlines()]
+        if any(len(change) != 5 for change in changes):
+            raise KernelError('Malformed APK transaction')
+        kernel_changes = [c for c in changes if c[0] != c[2] or c[1] != c[3] or c[4] == '1']
+        kernel_changes = [c for c in kernel_changes if any(
+            name == 'kernel' or name.startswith(('kmod-', 'linux-image-', 'kernel-dev-headers'))
+            for name in (c[0], c[2]))]
+        if not kernel_changes:
+            return
+        if state.get('phase', 'ready') != 'ready':
+            raise KernelError('Finish kernelctl migrate before upgrading kernels')
+        self.check()
+        if disabled == '1':
+            raise KernelError('Kernel transaction requires scripts and commit hooks')
+        protected = {line.split('><', 1)[0].split('=', 1)[0]
+                     for line in (self.policy / 'protected').read_text().splitlines() if line}
+        for old, version, new, next_version, reinstall in kernel_changes:
+            if old in protected and (old != new or version != next_version or reinstall == '1'):
+                raise KernelError('Refusing to alter protected payload: ' + old)
+        if phase == 'apk-pre':
+            if state.get('pending'):
+                raise KernelError('Resolve the existing kernel trial before another kernel transaction')
+            # Never silently discard a selected module when upgrading kernels.
+            for old, version, new, next_version, reinstall in kernel_changes:
+                if old.startswith('kmod-') and '-owrt-' not in old and new == '-':
+                    raise KernelError('Kernel upgrade would discard selected module: ' + old)
+            candidates = [c[2][len('linux-image-'):] for c in kernel_changes
+                          if c[2].startswith('linux-image-') and c[2] != 'linux-image-openwrt'
+                          and c[0] != c[2]]
+            available = set(self.installed()) | {c[2] for c in changes if c[2] != '-'}
+            for candidate in candidates:
+                for logical in self.installed():
+                    if logical.startswith('kmod-') and '-owrt-' not in logical and logical != 'kmod':
+                        if logical + '-' + candidate not in available:
+                            raise KernelError('Transaction lacks matching payload for ' + logical)
+            baseline = self.health()
+            if simulation != 'simulate':
+                self.space((self.boot / 'vmlinuz').stat().st_size + 16*1024*1024)
+                state['health'] = baseline
+                self.save(state)
+        elif simulation != 'simulate':
+            if errors != '0':
+                raise KernelError('APK transaction failed; candidate will not be activated')
+            self.activate()
+
+    def rollback(self):
+        state = self.check()
+        pending = state.get('pending')
+        target = state['known_good'] if pending else state.get('previous_good') or state['rescue']
+        self.setenv(saved_entry=self.entry_id(state, target), next_entry='')
+        if pending:
+            state['generations'][pending]['failed'] = True
+        else:
+            state['known_good'], state['previous_good'] = target, state['known_good']
+        state['pending'] = None
+        self.save(state)
+        return state
+
+    def retry(self):
+        state = self.check()
+        selected = json.loads(self.path('/usr/share/openwrt-kernel/selected.json').read_text())
+        name = identifier(selected['generation'])
+        if name in state['generations']:
+            state['generations'][name]['failed'] = False
+        self.save(state)
+        return self.activate()
+
+    @staticmethod
+    def entry_id(state, name):
+        return 'owrt-rescue' if name == state['rescue'] else 'owrt-' + name
+
+    def remove(self, name):
+        state = self.check()
+        identifier(name)
+        if (name in (state['rescue'], state['known_good'], state.get('previous_good'), state.get('pending'))
+                or state['generations'][name]['release'] == self.release()):
+            raise KernelError('Refusing to remove a running, rescue, pending or fallback kernel')
+        # Publish withdrawal before releasing APK's checksum pins. The caller
+        # invokes APK only AFTER releasing the policy lock (lock order matters).
+        state['generations'][name]['ready'] = False
+        atomic(self.boot / 'grub/openwrt.cfg', self.grub_config(state), 0o644)
+        self.save(state)
+        lines = (self.policy / 'protected').read_text().splitlines()
+        packages = [line.split('><', 1)[0].split('=', 1)[0] for line in lines
+                    if line.split('><', 1)[0].split('=', 1)[0].endswith('-' + name)]
+        atomic(self.policy / 'protected', '\n'.join(line for line in lines
+               if line.split('><', 1)[0].split('=', 1)[0] not in packages) + '\n')
+        return packages
+
+    def finish_remove(self, name, success):
+        state = self.state()
+        if success:
+            shutil.rmtree(self.boot / 'kernels' / identifier(name))
+            # APK owns payload files; depmod indexes and frozen firmware are
+            # manager-created. Remove only this withdrawn generation's trees.
+            for base in ('/usr/lib/modules', '/usr/lib/openwrt-kernel'):
+                directory = self.path(base) / name
+                if directory.exists():
+                    shutil.rmtree(directory)
+            del state['generations'][name]
+        else:
+            state['generations'][name]['ready'] = True
+        self.protect()
+        self.save(state)
+        atomic(self.boot / 'grub/openwrt.cfg', self.grub_config(state), 0o644)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('command', choices=['status', 'check', 'migrate', 'prepare', 'boot',
+                                         'confirm', 'rollback', 'retry', 'remove', 'apk-pre', 'apk-post'])
+    parser.add_argument('arguments', nargs='*')
+    args = parser.parse_args()
+    manager = KernelManager()
+    if args.command == 'status':
+        print(json.dumps(manager.state(), indent=2))
+        return
+    if os.geteuid() != 0:
+        raise KernelError('Run as root')
+    manager.policy.mkdir(parents=True, exist_ok=True)
+    remove_packages = None
+    # APK calls occur under its database lock; never recursively invoke APK.
+    with (manager.policy / '.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if args.command in ('apk-pre', 'apk-post'):
+            if len(args.arguments) != 4:
+                raise KernelError('Invalid transaction contract')
+            manager.transaction(args.command, *args.arguments)
+        elif args.command == 'boot':
+            existing = manager.state() if (manager.policy / 'state.json').exists() else None
+            trial = existing and existing.get('pending') and manager.release() == existing['pending']
+            if not existing or trial:
+                # network.target does not imply netifd has finished configuring
+                # interfaces. Allow startup to settle before continuous checks.
+                deadline = time.monotonic() + 90
+                while True:
+                    try:
+                        actual = manager.health()
+                        if trial and not manager.matches_baseline(actual, existing['health']):
+                            raise KernelError('Waiting for baseline interfaces and routes')
+                        break
+                    except (KernelError, OSError, subprocess.SubprocessError):
+                        if time.monotonic() >= deadline:
+                            raise
+                        time.sleep(3)
+            if not existing or existing.get('phase') == 'adopting':
+                manager.migrate()
+            manager.prepare()
+            state = manager.state()
+            if state.get('pending') and manager.release() == state['generations'][state['pending']]['release']:
+                manager.confirm()
+        elif args.command == 'remove':
+            if len(args.arguments) != 1:
+                raise KernelError('Specify a generation')
+            remove_packages = manager.remove(args.arguments[0])
+        else:
+            getattr(manager, args.command)()
+    if remove_packages is not None:
+        success = False
+        try:
+            manager.command('apk', 'del', *remove_packages)
+            success = True
+        finally:
+            with (manager.policy / '.lock').open('a') as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                manager.finish_remove(args.arguments[0], success)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (KernelError, OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
+        print('kernelctl: ' + str(exc), file=sys.stderr)
+        sys.exit(1)

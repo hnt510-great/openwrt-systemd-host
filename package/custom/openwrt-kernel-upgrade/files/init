@@ -1,0 +1,39 @@
+#!/bin/sh
+# Minimal bootstrap, NOT OpenWrt's standalone INITRAMFS root filesystem.
+# The immutable root and existing fstools extroot/preinit remain authoritative.
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+fail() { echo "kernel bootstrap: $*" >/dev/console; exec sh; }
+mount -t devtmpfs devtmpfs /dev || fail devtmpfs
+mount -t proc proc /proc || fail proc
+mount -t sysfs sysfs /sys || fail sysfs
+mkdir -p /run
+mount -t tmpfs tmpfs /run || fail run
+# Load storage/filesystem drivers before resolving a possibly asynchronous disk.
+kmodloader /etc/modules-boot.d/ || fail 'early module loading failed'
+rootpart=
+for arg in $(cat /proc/cmdline); do
+	case "$arg" in root=*) rootpart=${arg#root=} ;; esac
+done
+attempt=0
+rootdev=
+while [ "$attempt" -lt 30 ]; do
+	case "$rootpart" in
+		PARTUUID=*) rootdev=$(blkid -t "$rootpart" -o device | head -n 1) ;;
+		/dev/*) rootdev=$rootpart ;;
+		*) fail 'unsupported root locator' ;;
+	esac
+	[ -n "$rootdev" ] && [ -b "$rootdev" ] && break
+	attempt=$((attempt + 1))
+	sleep 1
+done
+[ -n "$rootdev" ] && [ -b "$rootdev" ] || fail 'root device unavailable'
+mkdir -p /newroot
+mount -o ro "$rootdev" /newroot || fail 'cannot mount existing root'
+ln -s "$rootdev" /dev/root
+mount --move /dev /newroot/dev || fail 'move dev'
+mount --move /proc /newroot/proc || fail 'move proc'
+mount --move /sys /newroot/sys || fail 'move sys'
+umount /run
+unset INITRAMFS
+exec switch_root /newroot /sbin/init
+fail 'switch_root failed'

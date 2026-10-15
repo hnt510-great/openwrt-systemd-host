@@ -53,6 +53,9 @@ boot() {
 
 	# Native init prepares libkmod's indexes before handing off to systemd.
 	# Recovery also needs them when the full kmod tools are installed.
+	if [ -f /etc/openwrt-kernel/state.json ] || [ -f /usr/share/openwrt-kernel/selected.json ]; then
+		/usr/sbin/kernelctl prepare || return 1
+	fi
 	if [ -f /etc/openwrt-systemd ] &&
 	   [ "$(cat /proc/1/comm)" != systemd ] &&
 	   [ -x /usr/sbin/depmod ]; then

@@ -46,6 +46,27 @@ menu "Global build settings"
 		  and a GRUB recovery entry. Packages use a merged /usr layout and
 		  are written to bin/systemd. Flash firmware from procd recovery.
 
+	config OPENWRT_KERNEL_UPGRADE
+		bool "Experimental parallel APK kernel upgrades"
+		default y
+		depends on OPENWRT_SYSTEMD && TARGET_ROOTFS_SQUASHFS
+		depends on !EXTERNAL_KERNEL_TREE && !KERNEL_GIT_CLONE_URI
+		select PACKAGE_openwrt-kernel-upgrade
+		select PACKAGE_grub2-editenv
+		help
+		  Keep independently installed kernel/module generations and a
+		  protected GRUB fallback. Existing installations require kernelctl
+		  migrate before enabling the upgrade channel. Never replaces vmlinuz.
+
+	config OPENWRT_KERNEL_SEQUENCE
+		int "Kernel upgrade publication sequence"
+		depends on OPENWRT_KERNEL_UPGRADE
+		range 1 999999
+		default 1
+		help
+		  Increase for EVERY publication, including configuration-only and
+		  external-module changes. Published generations are immutable.
+
 	config JSON_OVERVIEW_IMAGE_INFO
 		bool "Create JSON info file overview per target"
 		default y

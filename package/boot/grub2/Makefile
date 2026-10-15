@@ -7,7 +7,7 @@ include $(INCLUDE_DIR)/kernel.mk
 
 PKG_NAME:=grub
 PKG_VERSION:=2.12
-PKG_RELEASE:=2
+PKG_RELEASE:=5
 
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=@GNU/grub
@@ -107,6 +107,9 @@ HOST_MAKE_FLAGS += \
 ifneq ($(BUILD_VARIANT),none)
   TARGET_CFLAGS := $(filter-out -O2 -O3 -fno-plt,$(TARGET_CFLAGS))
   MAKE_PATH := grub-core
+  # GRUB modules export ELF symbols. Linux module stripping localizes them
+  # and makes dependencies such as loadenv -> disk impossible to resolve.
+  RSTRIP:=:
 endif
 
 ifeq ($(CONFIG_arm),y)
@@ -119,6 +122,7 @@ define Host/Configure
 endef
 
 define Package/grub2/install
+	$(if $(CONFIG_OPENWRT_KERNEL_UPGRADE),$(INSTALL_DIR) $(1)/usr/share/openwrt-kernel/grub/i386-pc; $(CP) $(PKG_BUILD_DIR)/grub-core/*.mod $(PKG_BUILD_DIR)/grub-core/*.lst $(1)/usr/share/openwrt-kernel/grub/i386-pc/)
 	$(INSTALL_DIR) $(STAGING_DIR_IMAGE)/grub2
 	$(CP) $(PKG_BUILD_DIR)/grub-core/boot.img $(STAGING_DIR_IMAGE)/grub2/
 	$(CP) $(PKG_BUILD_DIR)/grub-core/cdboot.img $(STAGING_DIR_IMAGE)/grub2/
@@ -154,6 +158,7 @@ define Package/grub2/install
 endef
 
 define Package/grub2-efi/install
+	$(if $(CONFIG_OPENWRT_KERNEL_UPGRADE),$(INSTALL_DIR) $(1)/usr/share/openwrt-kernel/grub/$(CONFIG_ARCH)-efi; $(CP) $(PKG_BUILD_DIR)/grub-core/*.mod $(PKG_BUILD_DIR)/grub-core/*.lst $(1)/usr/share/openwrt-kernel/grub/$(CONFIG_ARCH)-efi/)
 	sed 's#msdos1#gpt1#g' ./files/grub-early.cfg >$(PKG_BUILD_DIR)/grub-early.cfg
 	$(STAGING_DIR_HOST)/bin/grub-mkimage \
 		-d $(PKG_BUILD_DIR)/grub-core \

@@ -1,0 +1,53 @@
+Subject: [PATCH] apk: defer managed kernel changes to the full upgrade
+
+A minimal self-upgrade can select an enrolled image while leaving same-ABI
+logical modules on their old versions. Defer such preupgrades so the normal
+full solver upgrades the image and modules together under the existing policy.
+Pure userspace preupgrades retain their normal behavior and policy checks.
+
+---
+diff --git a/src/app_upgrade.c b/src/app_upgrade.c
+--- a/src/app_upgrade.c
++++ b/src/app_upgrade.c
+@@ -81,6 +81,21 @@
+ 		return -ENOTSUP;
+ 	}
+ 	return 0;
++}
++
++/* A managed kernel and all selected modules must change in one transaction.
++ * In particular, migration can enroll a not-yet-installed image in world.
++ * The minimal preupgrade solver may add it without updating old kmod trackers.
++ */
++static bool kernel_package(const struct apk_package *pkg)
++{
++	const char *name;
++
++	if (!pkg)
++		return false;
++	name = pkg->name->name;
++	return !strcmp(name, "kernel") || !strncmp(name, "linux-image-", 12) ||
++		!strncmp(name, "kmod-", 5) || !strncmp(name, "kernel-dev-headers", 18);
+ }
+ 
+ int apk_do_preupgrade(struct apk_database *db, unsigned short solver_flags, unsigned int preupgrade_only)
+@@ -146,6 +161,19 @@
+ 	if (changeset.num_total_changes == 0)
+ 		goto ret;
+ 
++	if (faccessat(db->root_fd, "etc/openwrt-kernel/protected", F_OK, 0) == 0) {
++		apk_array_foreach(change, changeset.changes) {
++			if (change->old_pkg == change->new_pkg && !change->reinstall)
++				continue;
++			if (!kernel_package(change->old_pkg) && !kernel_package(change->new_pkg))
++				continue;
++			apk_warn(out, "Deferring preupgrade because it changes managed kernel packages; "
++				"continuing with a full upgrade.");
++			r = 0;
++			goto ret;
++		}
++	}
++
+ 	if (!preupgrade_only && db->ctx->flags & APK_SIMULATE) {
+ 		apk_warn(out, "This simulation might not reliable as a preupgrade is available.");
+ 		goto ret;

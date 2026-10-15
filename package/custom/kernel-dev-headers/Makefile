@@ -47,7 +47,7 @@ define Package/kernel-dev-headers
   SECTION:=devel
   CATEGORY:=Development
   TITLE:=Prepared Linux kernel headers for native module builds
-  VERSION:=$(KERNEL_DEV_VERSION)
+  VERSION:=$(if $(CONFIG_OPENWRT_KERNEL_UPGRADE),1000.$(CONFIG_OPENWRT_KERNEL_SEQUENCE).)$(KERNEL_DEV_VERSION)
   EXTRA_DEPENDS:=kernel (=$(KERNEL_DEV_VERSION))
   DEPENDS:=@TARGET_x86_64 @USE_GLIBC @!EXTERNAL_TOOLCHAIN \
 	+gcc +make +binutils

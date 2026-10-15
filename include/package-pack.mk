@@ -320,6 +320,10 @@ endif
 
     ifdef Package/$(1)/preinst
       APK_SCRIPTS_$(1)+=--script "pre-upgrade:$$(ADIR_$(1))/pre-upgrade"
+    else
+      ifneq ($(and $(CONFIG_OPENWRT_KERNEL_UPGRADE),$(filter kernel kernel-dev-headers kmod-%,$(1))),)
+        APK_SCRIPTS_$(1)+=--script "pre-upgrade:$$(ADIR_$(1))/pre-upgrade"
+      endif
     endif
     APK_SCRIPTS_$(1)+=--script "post-upgrade:$$(ADIR_$(1))/post-upgrade"
 
@@ -556,6 +560,15 @@ else
 	) > $$(ADIR_$(1))/pre-upgrade;
     endif
 
+    ifneq ($(and $(CONFIG_OPENWRT_KERNEL_UPGRADE),$(filter kernel kernel-dev-headers kmod-%,$(1))),)
+	( \
+		echo "#!/bin/sh"; \
+		echo 'export PKG_UPGRADE=1'; \
+		echo '[ -f /etc/openwrt-kernel/protected ] || { echo "Run kernelctl migrate before upgrading kernel trackers" >&2; exit 1; }'; \
+		$(if $(Package/$(1)/preinst),sed '/^\s*#!/d' "$$(ADIR_$(1))/preinst";) \
+	) > $$(ADIR_$(1))/pre-upgrade;
+    endif
+
 	( \
 		echo "#!/bin/sh"; \
 		echo 'export PKG_UPGRADE=1'; \
@@ -607,6 +620,7 @@ else
 	fi
 
 	$(if $(CONFIG_OPENWRT_SYSTEMD),python3 $(SCRIPT_DIR)/merge-usr.py $$(IDIR_$(1)) --package $(1) $(if $(filter base-files,$(1)),--aliases))
+	$(if $(and $(CONFIG_OPENWRT_KERNEL_UPGRADE),$(filter kernel kernel-dev-headers kmod-%,$(1))),python3 $(SCRIPT_DIR)/kernel-package.py --root "$$(IDIR_$(1))" --name "$(1)" --version "$(VERSION)" --abi "$(KERNEL_ABI_VERSION)" --generation "$(KERNEL_GENERATION)" --sequence "$(CONFIG_OPENWRT_KERNEL_SEQUENCE)" --depends "$$(Package/$(1)/DEPENDS)" --kernel "$(LINUX_DIR)/arch/x86/boot/bzImage" --config "$(LINUX_DIR)/.config" --apk "$(STAGING_DIR_HOST)/bin/apk" --output "$$(PDIR_$(1))" $(if $(CONFIG_SIGN_EACH_PACKAGE),--key "$(BUILD_KEY_APK_SEC)"))
 	SOURCE_DATE_EPOCH=0 $(FAKEROOT) $(STAGING_DIR_HOST)/bin/apk mkpkg \
 	  --info "name:$(1)$$(ABIV_$(1))" \
 	  --info "version:$(VERSION)" \
@@ -620,7 +634,7 @@ else
 	  $$(if $$(Package/$(1)/PROVIDES),--info "provides:$$(Package/$(1)/PROVIDES)") \
 	  $$(if $$(Package/$(1)/PRIORITY),--info "provider-priority:$$(Package/$(1)/PRIORITY)") \
 	  $$(APK_SCRIPTS_$(1)) \
-	  --info "depends:$$(foreach depends,$$(subst $$(comma),$$(space),$$(subst $$(space),,$$(subst $$(paren_right),,$$(subst $$(paren_left),,$$(Package/$(1)/DEPENDS))))),$$(depends))" \
+	  --info "depends:$$(foreach depends,$$(subst $$(comma),$$(space),$$(subst $$(space),,$$(subst $$(paren_right),,$$(subst $$(paren_left),,$$(Package/$(1)/DEPENDS))))),$$(depends))$(if $(and $(CONFIG_OPENWRT_KERNEL_UPGRADE),$(filter kernel-dev-headers kmod-%,$(1))), $(1)-$(KERNEL_GENERATION)=$(VERSION))" \
 	  --files "$$(IDIR_$(1))" \
 	  $(if $(CONFIG_SIGN_EACH_PACKAGE),--sign $(BUILD_KEY_APK_SEC),) \
 	  --output "$$(PACK_$(1))"

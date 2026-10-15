@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=apk
-PKG_RELEASE:=4
+PKG_RELEASE:=9
 
 PKG_SOURCE_URL=https://gitlab.alpinelinux.org/alpine/apk-tools.git
 PKG_SOURCE_PROTO:=git
@@ -28,7 +28,7 @@ define Package/apk/default
   TITLE:=apk package manager
   DEPENDS:=+zlib +wget-any
   URL:=$(PKG_SOURCE_URL)
-  PROVIDES:=apk
+  PROVIDES:=apk openwrt-kernel-policy
 endef
 
 define Package/apk-mbedtls
@@ -79,6 +79,8 @@ Package/apk-mbedtls/conffiles = $(Package/apk/conffiles)
 Package/apk-openssl/conffiles = $(Package/apk/conffiles)
 
 define Package/apk/default/install
+	$(INSTALL_DIR) $(1)/usr/share/openwrt-kernel
+	echo 1 > $(1)/usr/share/openwrt-kernel/apk-policy
 	$(INSTALL_DIR) $(1)/lib/apk/db
 
 	$(INSTALL_DIR) $(1)/usr/bin

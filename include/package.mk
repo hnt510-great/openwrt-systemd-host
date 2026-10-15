@@ -119,6 +119,12 @@ find_library_dependencies = \
 	))
 
 
+# External modules must be rebuilt even when only the generation changes.
+# Put this after package-local PKG_CONFIG_DEPENDS assignments.
+ifneq ($(LINUX_DIR),)
+  PKG_CONFIG_DEPENDS += CONFIG_OPENWRT_KERNEL_UPGRADE CONFIG_OPENWRT_KERNEL_SEQUENCE
+endif
+
 PKG_DIR_NAME:=$(lastword $(subst /,$(space),$(CURDIR)))
 STAMP_NO_AUTOREBUILD=$(wildcard $(PKG_BUILD_DIR)/.no_autorebuild)
 PREV_STAMP_PREPARED:=$(if $(STAMP_NO_AUTOREBUILD),$(wildcard $(PKG_BUILD_DIR)/.prepared*))

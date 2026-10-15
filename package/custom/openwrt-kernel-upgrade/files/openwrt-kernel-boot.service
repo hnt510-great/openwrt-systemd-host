@@ -1,0 +1,14 @@
+[Unit]
+Description=Check and confirm an OpenWrt kernel trial
+After=openwrt-services.service network.target libvirtd.service
+Requires=openwrt-services.service
+ConditionPathExists=/usr/share/openwrt-kernel/selected.json
+
+[Service]
+Type=oneshot
+ExecStartPre=/sbin/modprobe configs
+ExecStart=/usr/sbin/kernelctl boot
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

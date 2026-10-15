@@ -135,6 +135,7 @@ define rootfs_cache_restore
 endef
 
 APK_INSTALL_ARGS = \
+	$(if $(CONFIG_OPENWRT_KERNEL_UPGRADE),linux-image-openwrt) \
 	$(foreach pkg,$(shell cat $(PACKAGE_INSTALL_FILES) 2>/dev/null),$(pkg)$(call GetABISuffix,$(pkg))) \
 	base-files=$(shell cat $(STAGING_DIR)/base-files.version) \
 	libc=$(shell cat $(STAGING_DIR)/libc.version) \

@@ -1,0 +1,39 @@
+Subject: [PATCH] kmodloader: load rules for the running kernel generation
+
+--- a/kmodloader.c
++++ b/kmodloader.c
+@@ -1172,6 +1172,12 @@
+ 	if (argc > 1)
+ 		dir = argv[1];
+ 
++	/* kernelctl prepares the running release, independently of the APK tracker. */
++	if (!strcmp(dir, "/etc/modules.d/") && !access("/run/openwrt-kernel/modules.d", F_OK))
++		dir = "/run/openwrt-kernel/modules.d/";
++	else if (!strcmp(dir, "/etc/modules-boot.d/") && !access("/run/openwrt-kernel/modules-boot.d", F_OK))
++		dir = "/run/openwrt-kernel/modules-boot.d/";
++
+ 	path = malloc(strlen(dir) + 2);
+ 	if (!path) {
+ 		ULOG_ERR("out of memory\n");
+@@ -1195,6 +1201,21 @@
+ 
+ 	if (glob(path, gl_flags, NULL, &gl) < 0)
+ 		goto out;
++
++	/* Before first adoption (and during preinit), add the running image's
++	 * immutable autoload rules without requiring Python or a writable root.
++	 * Retain the global rules, including local and systemd boot additions. */
++	if (!strcmp(dir, "/etc/modules.d/") || !strcmp(dir, "/etc/modules-boot.d/")) {
++		struct utsname ver;
++		char *generation;
++		uname(&ver);
++		if (asprintf(&generation, "/usr/lib/modules/%s/openwrt/%s*", ver.release, dir + 5) < 0) {
++			ret = -1;
++			goto out;
++		}
++		glob(generation, gl_flags | GLOB_APPEND, NULL, &gl);
++		free(generation);
++	}
+ 
+ 	for (j = 0; j < gl.gl_pathc; j++) {
+ 		FILE *fp = fopen(gl.gl_pathv[j], "r");
