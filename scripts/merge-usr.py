@@ -112,8 +112,14 @@ def normalize(root, package=None, aliases=False):
             if p.suffix in (".conffiles", ".conffiles_static", ".alternatives"):
                 content = p.read_text()
                 if p.suffix == ".alternatives":
-                    content = " ".join(":".join(canonical(v) if v.startswith("/") else v
-                                                for v in item.split(":")) for item in content.split()) + "\n"
+                    lines = []
+                    for item in content.split():
+                        priority, link, target = item.split(":", 2)
+                        # APK's alternatives helper tests targets from the image
+                        # root. Relative targets are relative to the link's parent.
+                        target = posixpath.join(posixpath.dirname(link), target)
+                        lines.append(":".join((priority, canonical(link), canonical(target))))
+                    content = " ".join(lines) + "\n"
                 else:
                     lines = []
                     for line in content.splitlines():

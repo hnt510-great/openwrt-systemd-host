@@ -80,6 +80,19 @@ class MergeUsrTests(unittest.TestCase):
         merge.normalize(self.root)
         self.assertEqual(os.readlink(self.root / "usr/lib/host-link"), "/etc/passwd")
 
+    def test_relative_alternative_targets_resolve_from_link_parent(self):
+        self.file("usr/sbin/xtables-nft-multi")
+        self.file("lib/apk/packages/iptables-nft.alternatives",
+                  "300:/sbin/iptables:xtables-nft-multi "
+                  "300:/usr/sbin/iptables-save:../../sbin/xtables-nft-multi\n")
+        merge.normalize(self.root, "iptables-nft")
+        metadata = self.root / "usr/lib/apk/packages/iptables-nft.alternatives"
+        expected = ("300:/usr/sbin/iptables:/usr/sbin/xtables-nft-multi "
+                    "300:/usr/sbin/iptables-save:/usr/sbin/xtables-nft-multi\n")
+        self.assertEqual(metadata.read_text(), expected)
+        merge.normalize(self.root, "iptables-nft")
+        self.assertEqual(metadata.read_text(), expected)
+
     def test_symlink_destination_parent_is_rejected(self):
         self.file("bin/tool")
         with tempfile.TemporaryDirectory() as outside:
