@@ -262,7 +262,7 @@ def run_make(tree, arguments):
     subprocess.run(['make', *arguments], cwd=tree, check=True, umask=0o022)
 
 
-def build(tree, make_args):
+def build(tree, make_args, publish_after=True):
     for argument in make_args:
         if argument in ('-n', '--just-print', '--dry-run', '--recon', '-q', '--question', '-t', '--touch'):
             raise ValueError('A make preview/touch cannot be used for build-and-publish')
@@ -304,12 +304,15 @@ def build(tree, make_args):
                 raise ValueError('Kernel build tools changed; retry with a new generation')
             plan.update(inputs=after, phase='built')
             save_state(tree, plan)
-        return publish(tree, data)
+        if publish_after:
+            return publish(tree, data)
+        return {'status': 'built', 'tree': str(tree),
+                'sequence': plan['sequence'] if plan else None}
 
 
 def main():
-    if len(sys.argv) > 1 and sys.argv[1] == 'build':
-        result = build(TREE, sys.argv[2:])
+    if len(sys.argv) > 1 and sys.argv[1] in ('build', 'build-only'):
+        result = build(TREE, sys.argv[2:], publish_after=sys.argv[1] == 'build')
     else:
         parser = argparse.ArgumentParser(description=__doc__)
         parser.add_argument('--config', type=Path, default=TREE / 'configs/lan-apk-feeds.json')

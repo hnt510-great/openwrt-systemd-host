@@ -1,0 +1,8 @@
+{
+  "state_root": "/srv/openwrt-automation",
+  "jobs": 8,
+  "minimum_free_gib": 40,
+  "codex_timeout": 10800,
+  "build_timeout": 129600,
+  "repair_attempts": 2
+}

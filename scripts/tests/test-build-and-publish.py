@@ -448,6 +448,12 @@ class BuildPublicationTests(unittest.TestCase):
                 B.build(self.tree, ['-j16', 'package/custom/example/compile'])
         self.assertIn('SEQUENCE=1\n', (self.tree / '.config').read_text())
 
+    def test_build_only_never_publishes_before_external_validation(self):
+        with patch.object(B, 'run_make'), patch.object(B, 'publish') as publish:
+            result = B.build(self.tree, ['-j8', 'V=s'], publish_after=False)
+        self.assertEqual(result['status'], 'built')
+        publish.assert_not_called()
+
     def test_make_preview_is_rejected_without_changing_config(self):
         before = (self.tree / '.config').read_bytes()
         with self.assertRaisesRegex(ValueError, 'preview/touch'):
