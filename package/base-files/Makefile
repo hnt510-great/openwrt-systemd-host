@@ -15,7 +15,10 @@ PKG_NAME:=base-files
 PKG_FLAGS:=nonshared
 PKG_RELEASE:=$(COMMITCOUNT)
 
-PKG_FILE_DEPENDS:=./os-release.systemd $(PLATFORM_DIR)/ $(GENERIC_PLATFORM_DIR)/base-files/
+PKG_FILE_DEPENDS:= \
+	./os-release.systemd ./openwrt-release.systemd ./banner.systemd \
+	./system-description.systemd.md \
+	$(PLATFORM_DIR)/ $(GENERIC_PLATFORM_DIR)/base-files/
 PKG_BUILD_DEPENDS:=usign/host ucert/host
 PKG_LICENSE:=GPL-2.0
 
@@ -34,10 +37,24 @@ PKG_CONFIG_DEPENDS += \
 	CONFIG_PACKAGE_libvirt-daemon \
 	CONFIG_PACKAGE_openwrt-flatpak \
 	CONFIG_PACKAGE_podman \
+	CONFIG_PACKAGE_openwrt-appimage \
+	CONFIG_PACKAGE_distrobox \
+	CONFIG_PACKAGE_gcc \
+	CONFIG_PACKAGE_native-libs-dev \
 	CONFIG_PER_FEED_REPO \
 	$(foreach feed,$(FEEDS_AVAILABLE),CONFIG_FEED_$(feed))
 
 include $(INCLUDE_DIR)/package.mk
+
+# Describe capabilities included in the image, excluding packages built only as modules.
+SYSTEMD_HOST_FEATURES:=$(strip router \
+	$(if $(filter y,$(CONFIG_PACKAGE_openwrt-desktop)),desktop) \
+	$(if $(filter y,$(CONFIG_PACKAGE_libvirt-daemon)),virtualization) \
+	$(if $(filter y,$(CONFIG_PACKAGE_openwrt-flatpak)),flatpak) \
+	$(if $(filter y,$(CONFIG_PACKAGE_podman)),containers) \
+	$(if $(filter y,$(CONFIG_PACKAGE_openwrt-appimage)),appimage) \
+	$(if $(filter y,$(CONFIG_PACKAGE_distrobox)),distrobox) \
+	$(if $(and $(filter y,$(CONFIG_PACKAGE_gcc)),$(filter y,$(CONFIG_PACKAGE_native-libs-dev))),native-development))
 
 ifneq ($(DUMP),1)
   STAMP_CONFIGURED:=$(strip $(STAMP_CONFIGURED))_$(shell echo $(CONFIG_TARGET_INIT_PATH) | $(MKHASH) md5)
@@ -194,8 +211,15 @@ define Package/base-files/install
 
 ifeq ($(CONFIG_OPENWRT_SYSTEMD),y)
 	$(INSTALL_DATA) ./os-release.systemd $(1)/usr/lib/os-release
-	$(SED) 's,@OPENWRT_FEATURES@,router$(if $(filter y,$(CONFIG_PACKAGE_openwrt-desktop)), desktop)$(if $(filter y,$(CONFIG_PACKAGE_libvirt-daemon)), virtualization)$(if $(filter y,$(CONFIG_PACKAGE_openwrt-flatpak)), flatpak)$(if $(filter y,$(CONFIG_PACKAGE_podman)), containers),g' \
-		$(1)/usr/lib/os-release
+	$(INSTALL_DATA) ./openwrt-release.systemd $(1)/etc/openwrt_release
+	$(INSTALL_DATA) ./banner.systemd $(1)/etc/banner
+	$(INSTALL_DIR) $(1)/usr/share/doc/openwrt
+	$(INSTALL_DATA) ./system-description.systemd.md $(1)/usr/share/doc/openwrt/system-description.md
+	$(SED) 's,@OPENWRT_FEATURES@,$(SYSTEMD_HOST_FEATURES),g' \
+		$(1)/usr/lib/os-release \
+		$(1)/etc/openwrt_release \
+		$(1)/etc/banner \
+		$(1)/usr/share/doc/openwrt/system-description.md
 endif
 
 	$(VERSION_SED_SCRIPT) \

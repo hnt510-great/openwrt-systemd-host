@@ -1,0 +1,9 @@
+ -----------------------------------------------------
+ OpenWrt Systemd Host %V, %C
+ Router and general-purpose Linux host
+ Native systemd / glibc / APK; UCI / netifd / procd
+ Features: @OPENWRT_FEATURES@
+ System identity and capabilities: /etc/os-release
+ Agent discovery guide:
+ /usr/share/doc/openwrt/system-description.md
+ -----------------------------------------------------
