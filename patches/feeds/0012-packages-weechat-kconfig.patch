@@ -1,0 +1,30 @@
+diff --git a/net/weechat/Makefile b/net/weechat/Makefile
+index 94dfce5..0593cc4 100644
+--- a/net/weechat/Makefile
++++ b/net/weechat/Makefile
+@@ -7,7 +7,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=weechat
+ PKG_VERSION:=4.10.1
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://weechat.org/files/src/
+@@ -63,6 +63,8 @@ define Package/weechat-minimal
+   VARIANT:=minimal
+   DEFAULT_VARIANT:=1
+   PROVIDES:=weechat
++  # Keep the conflict on the default provider, which virtual users select.
++  CONFLICTS:=weechat-full
+ endef
+ 
+ define Package/weechat-minimal/description
+@@ -76,7 +78,6 @@ define Package/weechat-full
+   DEPENDS+= +libncurses
+   VARIANT:=full
+   PROVIDES:=weechat
+-  CONFLICTS:=weechat-minimal
+ endef
+ 
+ define Package/weechat-full/description

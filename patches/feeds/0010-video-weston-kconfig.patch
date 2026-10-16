@@ -1,0 +1,15 @@
+diff --git a/frameworks/weston/Makefile b/frameworks/weston/Makefile
+index 4b2e592..2e5b496 100644
+--- a/frameworks/weston/Makefile
++++ b/frameworks/weston/Makefile
+@@ -51,7 +51,9 @@ config WESTON_RDP
+ 
+ config WESTON_XWAYLAND
+ 	bool "Enable X11 applications through Xwayland"
+-	depends on PACKAGE_weston
++	# Xwayland's target constraints propagate back into PACKAGE_weston.
++	# Keep this option independent of the package to avoid a dependency cycle.
++	depends on TARGET_x86_64 && USE_GLIBC
+ 	default n
+ endef
+ 

@@ -1,0 +1,18 @@
+{
+  "packages": {
+    "base": "b81762b5e8cf26585eba91c746a91b35a56f63e9",
+    "commit": "a6fe27a4b16edc836025c2a657e3045adac9ccd7",
+    "patch": "patches/feeds/0012-packages-weechat-kconfig.patch",
+    "files": [
+      "net/weechat/Makefile"
+    ]
+  },
+  "video": {
+    "base": "10def1395db3df5d5129c9d75c6f7059b0f4a007",
+    "commit": "418eee00e60de9beb91a8902072f4fda11913886",
+    "patch": "patches/feeds/0010-video-weston-kconfig.patch",
+    "files": [
+      "frameworks/weston/Makefile"
+    ]
+  }
+}
