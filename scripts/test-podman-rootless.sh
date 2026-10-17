@@ -6,6 +6,10 @@ set -eu
 test -r /dev/net/tun && test -w /dev/net/tun
 test "$(podman info --format '{{.Host.Security.Rootless}}')" = true
 test "$(podman info --format '{{.Host.CgroupManager}}')" = systemd
+if [ -d /run/systemd/system ]; then
+	test "$(podman info --format '{{.Host.EventLogger}}')" = journald
+	test "$(podman info --format '{{.Host.LogDriver}}')" = journald
+fi
 podman unshare cat /proc/self/uid_map /proc/self/gid_map
 podman unshare awk '$1 == 1 && $3 >= 65536 { ok=1 } END { exit !ok }' /proc/self/uid_map
 podman unshare awk '$1 == 1 && $3 >= 65536 { ok=1 } END { exit !ok }' /proc/self/gid_map

@@ -3,9 +3,12 @@
 The x86_64/glibc desktop configuration includes Podman, matching glibc
 `shadow-newuidmap` and `shadow-newgidmap` packages, the TUN kernel module,
 and `openwrt-podman-rootless`. The UID/GID helpers are root-owned setuid
-executables. Native-systemd builds enable crun's systemd support and use
-the systemd cgroup manager; procd builds retain cgroupfs without the
-libsystemd dependency.
+executables. Native-systemd builds enable crun's systemd support and build
+Podman with the upstream `systemd` tag; Podman selects the systemd cgroup
+manager and journald at runtime. A procd recovery boot of the same image
+falls back to cgroupfs and file events. See
+[Desktop-style Podman](podman-systemd.md) for the native units, socket and
+linger behavior.
 
 The packaged containers.conf leaves runtime and network directories to
 Podman: rootful networks remain under `/etc/containers/networks`, while
@@ -33,6 +36,25 @@ Enrollment adds the account to the `podman` group. A boot service sets
 groups. No systemd-udevd rules are required. If an administrator unloads
 and reloads the TUN module, rerun `/etc/init.d/podman-rootless start` to
 restore the group policy on the recreated device.
+
+The package also installs `/etc/modules-boot.d/30-podman-tun`. procd's early
+kmodloader reads it before handing off to systemd, so `/dev/net/tun` exists
+before the lingering user manager and `podman-restart.service` start. Without
+it, a boot-time rootless container using slirp4netns can fail with
+`open("/dev/net/tun"): No such file or directory`.
+
+On native systemd, enrollment also enables linger for that account:
+
+```sh
+loginctl show-user alice -p Linger
+# Linger=yes
+```
+
+This lets the user manager, `podman.socket`, `podman-restart.service`,
+`podman-auto-update.timer` and health check timers run at boot without an
+SSH login. `loginctl disable-linger alice` opts the account back out. The
+helper prints a warning instead of failing account setup if logind is not
+reachable (for example, during a procd recovery boot).
 
 After changing mappings, stop your containers and, as the ordinary user,
 run `podman system migrate` to restart Podman's existing rootless namespace.
@@ -73,12 +95,15 @@ make package/custom/openwrt-podman-rootless/compile V=s
 make -j4 V=s
 ```
 
-The feed changes are captured in
+The rootless changes are captured in
 `patches/feeds/0007-packages-podman-rootless.patch`; feed base and commit
-are recorded in `configs/podman-rootless-feeds.json`. Outputs for native
-systemd are under `bin/systemd`; install matching signed glibc APKs when
-applying this repair without a router reboot. Flashing the rebuilt image
-requires a separate reboot window.
+are recorded in `configs/podman-rootless-feeds.json`. The native
+systemd/conmon/compose changes are in
+`patches/feeds/0013-packages-podman-systemd.patch`, recorded in
+`configs/podman-systemd-feeds.json`. Outputs for native systemd are under
+`bin/systemd`; install matching signed glibc APKs when applying this repair
+without a router reboot. Flashing the rebuilt image requires a separate
+reboot window.
 
 See the [2026-10-13 validation record](podman-rootless-validation.md) for
 fresh-image, VM reboot and physical-router results.

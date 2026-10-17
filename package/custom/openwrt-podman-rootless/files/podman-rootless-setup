@@ -56,4 +56,15 @@ allocate /etc/subgid gid
 grep -q '^podman:' /etc/group || /usr/sbin/groupadd -r podman
 /usr/sbin/usermod -aG podman "$user"
 /usr/libexec/podman-tun-permissions
+# Rootless Podman user units (socket, restart, auto-update, healthcheck timers)
+# need the user manager at boot. Enrollment is an explicit administrator action,
+# so opt this account in here; loginctl disable-linger still opts it back out.
+if [ -d /run/systemd/system ] && command -v loginctl >/dev/null 2>&1; then
+	if loginctl enable-linger "$user"; then
+		printf 'Enabled systemd linger for %s (user units start at boot).\n' "$user"
+	else
+		printf 'Warning: could not enable linger for %s; run: loginctl enable-linger %s\n' \
+			"$user" "$user" >&2
+	fi
+fi
 printf 'Configured %s. Log in again, then run: podman system migrate\n' "$user"

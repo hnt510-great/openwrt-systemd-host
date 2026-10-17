@@ -1,0 +1,8 @@
+{
+  "packages": {
+    "url": "https://github.com/openwrt/packages.git",
+    "base": "454b8c82dd468b3896bcabe50d34871f7614b103",
+    "commit": "ad79cb8b4cad6a77b8d9449a2f6704c1768d6242",
+    "patch": "patches/feeds/0013-packages-podman-systemd.patch"
+  }
+}

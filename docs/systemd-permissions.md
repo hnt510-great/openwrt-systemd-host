@@ -117,8 +117,11 @@ loginctl disable-linger alice
 Linger markers are persisted in `/etc/systemd/linger/` and bind-mounted at
 logind's canonical `/var/lib/systemd/linger` location (or `/tmp/lib/...` when
 `/var` is volatile). Lingering services consume resources without an active
-login; configure their resource limits explicitly. No account is opted in
-by the firmware.
+login; configure their resource limits explicitly. The base firmware opts in
+no account. An administrator who explicitly enrolls an account for rootless
+Podman with `podman-rootless-setup USER` performs that opt-in for the account
+(see [Rootless Podman](podman-rootless.md)); `loginctl disable-linger USER`
+still opts it back out.
 
 ## Recovery and build
 
