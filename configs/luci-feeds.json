@@ -1,0 +1,8 @@
+{
+  "luci": {
+    "url": "https://github.com/openwrt/luci.git",
+    "base": "816a314705c9a79a9db2a968fbd80ccdd3ae119e",
+    "commit": "5405dabc43fd3767d5036b0e15f1c0a4f91c010a",
+    "patch": "patches/feeds/0001-luci-status-cpu-stats.patch"
+  }
+}

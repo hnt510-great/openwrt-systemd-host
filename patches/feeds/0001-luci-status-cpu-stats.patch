@@ -1,0 +1,311 @@
+From 5405dabc43fd3767d5036b0e15f1c0a4f91c010a Mon Sep 17 00:00:00 2001
+From: hnt510 <hnt510@gmail.com>
+Date: Sun, 18 Oct 2026 11:30:12 +0800
+Subject: [PATCH] luci-mod-status: show CPU temperature and frequency on
+ overview
+
+Read the CPU package temperature from the coretemp/k10temp hwmon drivers,
+falling back to thermal zones, and report the average current frequency from
+the cpufreq sysfs files with a /proc/cpuinfo fallback. Append both rows to
+the System status card after the load average.
+
+Grant the status ACL read access to the required sysfs and procfs paths,
+including the symlink-resolved hwmon and cpufreq policy paths. Sample the
+frequency after the status poll burst settles so the dashboard does not
+report the boost clock caused by its own refresh. Add zh_Hans translations
+for the two new labels.
+
+Co-Authored-By: Claude Code <noreply@anthropic.com>
+---
+ modules/luci-base/po/templates/base.pot       |   8 +
+ modules/luci-base/po/zh_Hans/base.po          |   8 +
+ .../view/status/include/10_system.js          | 184 +++++++++++++++++-
+ .../rpcd/acl.d/luci-mod-status-index.json     |  16 ++
+ 4 files changed, 214 insertions(+), 2 deletions(-)
+
+diff --git a/modules/luci-base/po/templates/base.pot b/modules/luci-base/po/templates/base.pot
+index b5bec95b..2c805cb8 100644
+--- a/modules/luci-base/po/templates/base.pot
++++ b/modules/luci-base/po/templates/base.pot
+@@ -2106,6 +2106,14 @@ msgstr ""
+ msgid "CNAME or fqdn"
+ msgstr ""
+ 
++#: modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/10_system.js:259
++msgid "CPU Frequency"
++msgstr ""
++
++#: modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/10_system.js:256
++msgid "CPU Temperature"
++msgstr ""
++
+ #: modules/luci-mod-status/htdocs/luci-static/resources/view/status/processes.js:68
+ msgid "CPU usage (%)"
+ msgstr ""
+diff --git a/modules/luci-base/po/zh_Hans/base.po b/modules/luci-base/po/zh_Hans/base.po
+index 4dbb687a..75bfbe24 100644
+--- a/modules/luci-base/po/zh_Hans/base.po
++++ b/modules/luci-base/po/zh_Hans/base.po
+@@ -2184,6 +2184,14 @@ msgstr "CNAME"
+ msgid "CNAME or fqdn"
+ msgstr "CNAME 或 fqdn"
+ 
++#: modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/10_system.js:259
++msgid "CPU Frequency"
++msgstr "CPU 频率"
++
++#: modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/10_system.js:256
++msgid "CPU Temperature"
++msgstr "CPU 温度"
++
+ #: modules/luci-mod-status/htdocs/luci-static/resources/view/status/processes.js:68
+ msgid "CPU usage (%)"
+ msgstr "CPU 使用率（%）"
+diff --git a/modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/10_system.js b/modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/10_system.js
+index 3a2d2f1f..c778ba3a 100644
+--- a/modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/10_system.js
++++ b/modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/10_system.js
+@@ -25,6 +25,176 @@ var callSystemInfo = rpc.declare({
+ 	method: 'info'
+ });
+ 
++var cpuHwmonDrivers = [
++	'coretemp', 'k10temp', 'zenpower', 'cpu_thermal', 'soc_thermal'
++];
++
++function readSysfs(path) {
++	return fs.read(path).then(function(str) {
++		return (str || '').trim();
++	}).catch(function() {
++		return null;
++	});
++}
++
++function listSysfs(path) {
++	return fs.list(path).then(function(entries) {
++		return (entries || []).map(function(entry) {
++			return entry.name;
++		});
++	}).catch(function() {
++		return [];
++	});
++}
++
++function readHwmonCpuTemperature() {
++	return listSysfs('/sys/class/hwmon').then(function(entries) {
++		var hwmons = entries.filter(function(name) {
++			return /^hwmon\d+$/.test(name);
++		});
++
++		return Promise.all(hwmons.map(function(name) {
++			var dir = '/sys/class/hwmon/%s'.format(name);
++
++			return readSysfs('%s/name'.format(dir)).then(function(driver) {
++				if (cpuHwmonDrivers.indexOf(driver) < 0)
++					return null;
++
++				return readSysfs('%s/temp1_input'.format(dir)).then(function(value) {
++					var temp = parseFloat(value);
++
++					return isNaN(temp) ? null : temp / 1000;
++				});
++			});
++		}));
++	}).then(function(temps) {
++		for (var i = 0; i < temps.length; i++)
++			if (temps[i] != null)
++				return temps[i];
++
++		return null;
++	});
++}
++
++function readThermalZoneTemperature() {
++	return listSysfs('/sys/class/thermal').then(function(entries) {
++		var zones = entries.filter(function(name) {
++			return /^thermal_zone\d+$/.test(name);
++		});
++
++		return Promise.all(zones.map(function(name) {
++			var dir = '/sys/class/thermal/%s'.format(name);
++
++			return Promise.all([
++				readSysfs('%s/type'.format(dir)),
++				readSysfs('%s/temp'.format(dir))
++			]).then(function(data) {
++				var temp = parseFloat(data[1]);
++
++				if (!data[0] || isNaN(temp))
++					return null;
++
++				return { type: data[0], temp: temp / 1000 };
++			});
++		}));
++	}).then(function(zones) {
++		var valid = zones.filter(function(zone) {
++			return zone != null;
++		});
++
++		for (var i = 0; i < valid.length; i++)
++			if (/(pkg|cpu|soc|core)/i.test(valid[i].type))
++				return valid[i].temp;
++
++		return valid.length ? valid[0].temp : null;
++	});
++}
++
++function readCpuTemperature() {
++	return readHwmonCpuTemperature().then(function(temp) {
++		return (temp != null) ? temp : readThermalZoneTemperature();
++	}).catch(function() {
++		return null;
++	});
++}
++
++function parseCpuList(str) {
++	var cpus = [];
++
++	(str || '').split(',').forEach(function(range) {
++		var m = range.trim().match(/^(\d+)(?:-(\d+))?$/);
++
++		if (!m)
++			return;
++
++		var from = +m[1],
++		    to = m[2] ? +m[2] : from;
++
++		for (var i = from; i <= to && cpus.length < 1024; i++)
++			cpus.push(i);
++	});
++
++	return cpus;
++}
++
++function readProcCpuFrequency() {
++	return readSysfs('/proc/cpuinfo').then(function(content) {
++		if (!content)
++			return null;
++
++		var freqs = [];
++
++		content.split('\n').forEach(function(line) {
++			var m = line.match(/^cpu MHz\s*:\s*([\d.]+)/);
++
++			if (m)
++				freqs.push(parseFloat(m[1]));
++		});
++
++		if (!freqs.length)
++			return null;
++
++		return freqs.reduce(function(a, b) { return a + b; }, 0) / freqs.length * 1000;
++	});
++}
++
++function readCpuFrequency() {
++	/*
++	 * The status page refreshes all includes at once, and the burst of RPC
++	 * calls briefly drives every core to its boost clock. Sampling right
++	 * away would report the dashboard's own load, so give the poll burst a
++	 * moment to settle before reading the current frequency.
++	 */
++	return new Promise(function(resolve) {
++		setTimeout(resolve, 800);
++	}).then(function() {
++		return readSysfs('/sys/devices/system/cpu/online');
++	}).then(function(online) {
++		var cpus = parseCpuList(online);
++
++		return Promise.all(cpus.map(function(cpu) {
++			return readSysfs('/sys/devices/system/cpu/cpu%d/cpufreq/scaling_cur_freq'.format(cpu));
++		}));
++	}).then(function(freqs) {
++		var values = (freqs || []).map(parseFloat).filter(function(freq) {
++			return !isNaN(freq) && freq > 0;
++		});
++
++		if (!values.length)
++			return readProcCpuFrequency();
++
++		return values.reduce(function(a, b) { return a + b; }, 0) / values.length;
++	}).catch(function() {
++		return null;
++	});
++}
++
++function formatFrequency(khz) {
++	return (khz >= 1000000)
++		? '%.2f GHz'.format(khz / 1000000)
++		: '%.0f MHz'.format(khz / 1000);
++}
++
+ return baseclass.extend({
+ 	title: _('System'),
+ 
+@@ -34,7 +204,9 @@ return baseclass.extend({
+ 			L.resolveDefault(callSystemInfo(), {}),
+ 			L.resolveDefault(callLuciVersion(), { revision: _('unknown version'), branch: 'LuCI' }),
+ 			L.resolveDefault(callGetUnixtime(), 0),
+-			uci.load('system')
++			uci.load('system'),
++			readCpuTemperature(),
++			readCpuFrequency()
+ 		]);
+ 	},
+ 
+@@ -42,7 +214,9 @@ return baseclass.extend({
+ 		var boardinfo   = data[0],
+ 		    systeminfo  = data[1],
+ 		    luciversion = data[2],
+-		    unixtime    = data[3];
++		    unixtime    = data[3],
++		    cputemp     = data[5],
++		    cpufreq     = data[6];
+ 
+ 		luciversion = luciversion.branch + ' ' + luciversion.revision;
+ 
+@@ -78,6 +252,12 @@ return baseclass.extend({
+ 			) : null
+ 		];
+ 
++		if (cputemp != null)
++			fields.push(_('CPU Temperature'), '%.1f °C'.format(cputemp));
++
++		if (cpufreq != null)
++			fields.push(_('CPU Frequency'), formatFrequency(cpufreq));
++
+ 		var table = E('table', { 'class': 'table' });
+ 
+ 		for (var i = 0; i < fields.length; i += 2) {
+diff --git a/modules/luci-mod-status/root/usr/share/rpcd/acl.d/luci-mod-status-index.json b/modules/luci-mod-status/root/usr/share/rpcd/acl.d/luci-mod-status-index.json
+index b3f2cefb..ed168e13 100644
+--- a/modules/luci-mod-status/root/usr/share/rpcd/acl.d/luci-mod-status-index.json
++++ b/modules/luci-mod-status/root/usr/share/rpcd/acl.d/luci-mod-status-index.json
+@@ -4,8 +4,24 @@
+ 		"read": {
+ 			"file": {
+ 				"/etc/board.json": [ "read" ],
++				"/proc/cpuinfo": [ "read" ],
+ 				"/proc/sys/net/netfilter/nf_conntrack_count": [ "read" ],
+ 				"/proc/sys/net/netfilter/nf_conntrack_max": [ "read" ],
++				"/sys/class/hwmon": [ "list" ],
++				"/sys/class/hwmon/hwmon*/name": [ "read" ],
++				"/sys/class/hwmon/hwmon*/temp*_input": [ "read" ],
++				"/sys/class/thermal": [ "list" ],
++				"/sys/class/thermal/thermal_zone*/temp": [ "read" ],
++				"/sys/class/thermal/thermal_zone*/type": [ "read" ],
++				"/sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq": [ "read" ],
++				"/sys/devices/system/cpu/cpufreq/policy*/scaling_cur_freq": [ "read" ],
++				"/sys/devices/system/cpu/online": [ "read" ],
++				"/sys/devices/virtual/hwmon": [ "list" ],
++				"/sys/devices/*/hwmon/hwmon*/name": [ "read" ],
++				"/sys/devices/*/hwmon/hwmon*/temp*_input": [ "read" ],
++				"/sys/devices/virtual/thermal": [ "list" ],
++				"/sys/devices/*/thermal_zone*/temp": [ "read" ],
++				"/sys/devices/*/thermal_zone*/type": [ "read" ],
+ 				"/www/luci-static/resources/view/status/include": [ "list" ]
+ 			},
+ 			"ubus": {
+-- 
+2.47.3
+
