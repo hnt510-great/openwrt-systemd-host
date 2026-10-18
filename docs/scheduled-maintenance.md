@@ -1,13 +1,17 @@
 # Scheduled OpenWrt integration and publication
 
-The host user's cron checks the schedule hourly. Actual runs are anchored exactly
-72 hours apart, across month boundaries, with a nonblocking lock preventing
-overlap. The first run is scheduled three days after the next whole hour when
-initialized. A missed slot runs at the next cron check; failed attempts are
+The host user's cron checks the schedule daily at **04:00 Asia/Singapore (UTC+8)**
+with `0 4 * * *`. The host timezone is Asia/Singapore. Actual runs are anchored
+exactly 72 hours apart, across month boundaries, with a nonblocking lock preventing
+overlap. A newly initialized schedule starts three days after the next configured
+04:00 slot. A missed slot runs at the next daily 04:00 check; failed attempts are
 recorded and retried at the next scheduled slot. Manual runs preserve the cadence.
 The cron entry uses lower CPU and disk I/O priorities for background builds.
 
 Configuration: `configs/scheduled-maintenance.json`.
+`timezone` and `start_hour` control initialization; keep the host cron time in
+sync with them. Existing schedule state is retained by `--initialize`; changing
+an existing anchor requires updating its `next_run` under the scheduler lock.
 State, private input backups and per-run logs: `/srv/openwrt-automation`.
 Active workspace: `/srv/openwrt-validation/openwrt`. Main-tree and feed merges,
 automatic source repairs and image builds all run directly here, reusing its

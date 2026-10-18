@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Source preservation, recurrence, merge provenance and fail-closed publication."""
 import argparse
+from datetime import datetime
 import importlib.util
 import json
 import os
@@ -11,6 +12,7 @@ import tempfile
 import types
 import unittest
 from unittest.mock import Mock, patch
+from zoneinfo import ZoneInfo
 
 TREE = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('scheduler', TREE / 'scripts/scheduled-maintenance.py')
@@ -202,7 +204,7 @@ class ScheduledTests(unittest.TestCase):
             self.invoke(config, '--initialize')
         state = json.loads((root / 'schedule.json').read_text())
         anchor = state['next_run']
-        self.assertEqual(anchor, 10800 + S.INTERVAL)
+        self.assertEqual(anchor, datetime(1970, 1, 5, 4, tzinfo=ZoneInfo('Asia/Singapore')).timestamp())
         with patch.object(S.time, 'time', return_value=anchor + .7), patch.object(S, 'execute') as execute:
             self.invoke(config, '--scheduled')
             execute.assert_called_once()
@@ -211,6 +213,13 @@ class ScheduledTests(unittest.TestCase):
         with patch.object(S.time, 'time', return_value=anchor + 1000), patch.object(S, 'execute') as execute:
             self.invoke(config, '--scheduled')
             execute.assert_not_called()
+
+    def test_initial_schedule_uses_singapore_time_across_month_boundaries(self):
+        zone = ZoneInfo('Asia/Singapore')
+        for hour, expected_day in [(3, 3), (4, 4), (15, 4)]:
+            now = datetime(2026, 10, 31, hour, tzinfo=zone).timestamp()
+            expected = datetime(2026, 11, expected_day, 4, tzinfo=zone).timestamp()
+            self.assertEqual(S.initial_run_time(now, {}), expected)
 
     def test_failed_run_preserves_schedule_and_records_failure(self):
         config, root = self.configuration()

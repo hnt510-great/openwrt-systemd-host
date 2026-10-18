@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Every-72-hour source integration, image build, isolated VM gate and feed publication."""
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import fcntl
 import importlib.util
 import json
@@ -15,10 +15,19 @@ import sys
 import tarfile
 import tempfile
 import time
+from zoneinfo import ZoneInfo
 
 SOURCE = Path(__file__).resolve().parents[1]
 INTERVAL = 3 * 24 * 60 * 60
 REF = 'refs/automation/scheduled-input'
+
+
+def initial_run_time(now, config):
+    local = datetime.fromtimestamp(now, ZoneInfo(config.get('timezone', 'Asia/Singapore')))
+    start = local.replace(hour=config.get('start_hour', 4), minute=0, second=0, microsecond=0)
+    if start <= local:
+        start += timedelta(days=1)
+    return int(start.timestamp()) + INTERVAL
 
 
 def load(name, filename):
@@ -373,7 +382,7 @@ def main():
     parser.add_argument('--config', type=Path, default=SOURCE / 'configs/scheduled-maintenance.json')
     parser.add_argument('--scheduled', action='store_true', help='Run only when the 72-hour interval is due')
     parser.add_argument('--status', action='store_true')
-    parser.add_argument('--initialize', action='store_true', help='Anchor first run 72 hours from now')
+    parser.add_argument('--initialize', action='store_true', help='Anchor first run 72 hours after the next configured start time')
     parser.add_argument('--run-now', action='store_true', help='Run all five steps now')
     parser.add_argument('--build-worker', type=Path, help=argparse.SUPPRESS)
     parser.add_argument('--jobs', type=int, default=8)
@@ -401,8 +410,7 @@ def main():
         data = json.loads(state.read_text()) if state.exists() else {}
         if args.initialize:
             if not data:
-                next_hour = (int(time.time()) // 3600 + 1) * 3600
-                data = {'next_run': next_hour + INTERVAL, 'interval_seconds': INTERVAL}
+                data = {'next_run': initial_run_time(time.time(), config), 'interval_seconds': INTERVAL}
                 atomic_json(state, data)
         if args.status or args.initialize:
             print(json.dumps(data, indent=2))
