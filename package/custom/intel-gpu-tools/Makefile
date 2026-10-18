@@ -11,7 +11,7 @@ PKG_HASH:=5d5190debfec0ee1728430897f243d0afa271856c2cb5834a23b23f08be8d06e
 PKG_LICENSE:=MIT
 PKG_LICENSE_FILES:=COPYING
 PKG_BUILD_PARALLEL:=1
-PKG_BUILD_DEPENDS:=libkmod libdw libcairo pixman
+PKG_BUILD_DEPENDS:=kmod elfutils cairo pixman
 
 include $(INCLUDE_DIR)/package.mk
 include $(INCLUDE_DIR)/meson.mk
