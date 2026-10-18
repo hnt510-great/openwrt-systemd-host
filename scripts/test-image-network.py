@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Boot an exact image and a LAN client on private QEMU networks; emit a receipt."""
 import argparse
+import base64
 import gzip
 import hashlib
 import json
@@ -18,6 +19,17 @@ import time
 
 REQUIRED = {'native-init', 'router-services', 'wan-dhcp', 'lan-dhcp', 'dns',
             'routing-nat', 'luci-http', 'luci-auth', 'ubus-board'}
+
+
+def command_output(data, token):
+    """Decode only framed stdout/stderr, rejecting lost/interleaved bytes."""
+    label = token.encode()
+    chunks = re.findall(rb'^DATA_' + label + rb':([A-Za-z0-9+/=]*)$', data, re.M)
+    digest = re.search(rb'^HASH_' + label + rb':([a-f0-9]{64})$', data, re.M)
+    output = base64.b64decode(b''.join(chunks), validate=True)
+    if not digest or hashlib.sha256(output).hexdigest().encode() != digest[1]:
+        raise RuntimeError('Guest command output was corrupted on the console')
+    return output.decode(errors='replace').replace('\r', '')
 
 
 def sha256(path):
@@ -51,18 +63,20 @@ class Guest:
         self.socket = None
         self.process = None
         disk, variables = work / (name + '.qcow2'), work / (name + '.vars.fd')
-        subprocess.run(['/usr/bin/qemu-img', 'create', '-q', '-f', 'qcow2', '-F', 'raw',
-                        '-b', str(base), str(disk)], check=True)
-        shutil.copyfile('/usr/share/OVMF/OVMF_VARS_4M.fd', variables)
+        if not disk.exists():
+            subprocess.run(['/usr/bin/qemu-img', 'create', '-q', '-f', 'qcow2', '-F', 'raw',
+                            '-b', str(base), str(disk)], check=True)
+        if not variables.exists():
+            shutil.copyfile('/usr/share/OVMF/OVMF_VARS_4M.fd', variables)
         serial = runtime / (name + '.serial')
-        self.output = (work / (name + '.qemu.log')).open('wb')
+        self.output = (work / (name + '.qemu.log')).open('ab')
         args = ['/usr/bin/qemu-system-x86_64', '-name', 'openwrt-scheduled-' + name,
             '-machine', 'q35,accel=kvm', '-cpu', 'host', '-m', str(memory), '-smp', '2',
             '-drive', 'if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd',
             '-drive', 'if=pflash,format=raw,file=' + str(variables),
             '-drive', 'if=virtio,format=qcow2,file=' + str(disk),
             '-display', 'none', '-vga', 'std', '-monitor', 'none',
-            '-chardev', f'socket,id=serial,path={serial},server=on,wait=off,logfile={work / (name + ".serial.log")}',
+            '-chardev', f'socket,id=serial,path={serial},server=on,wait=off,logfile={work / (name + ".serial.log")},logappend=on',
             '-serial', 'chardev:serial', *netargs]
         try:
             self.process = subprocess.Popen(args, stdout=self.output, stderr=subprocess.STDOUT,
@@ -104,7 +118,14 @@ class Guest:
     def run(self, command, timeout=60):
         token = secrets.token_hex(12)
         begin, end = 'BEGIN_' + token, 'END_' + token
-        wire = "printf '\\n" + begin + "\\n'; /bin/sh -ec " + shlex.quote(command) + "; rc=$?; printf '\\n" + end + ":%s\\n' \"$rc\"\n"
+        output_path = '/tmp/scheduled-command-' + token
+        snapshot = output_path + '.snapshot'
+        wire = ("printf '\\n" + begin + "\\n'; umask 077; "
+                "/bin/sh -ec " + shlex.quote(command) + " > " + output_path + " 2>&1; rc=$?; " +
+                "cp " + output_path + " " + snapshot + "; base64 < " + snapshot +
+                " | while IFS= read -r line; do printf 'DATA_" + token + ":%s\\n' \"$line\"; done; " +
+                "printf 'HASH_" + token + ":%s\\n' \"$(sha256sum " + snapshot + " | cut -d' ' -f1)\"; " +
+                "rm -f " + output_path + " " + snapshot + "; printf '\\n" + end + ":%s\\n' \"$rc\"\n")
         self.socket.sendall(wire.encode())
         data = b''
         deadline = time.monotonic() + timeout
@@ -116,8 +137,7 @@ class Guest:
                 continue
             match = re.search(rb'\r?\n' + end.encode() + rb':(\d+)\r?\n', data)
             if match:
-                start = re.search(rb'\r?\n' + begin.encode() + rb'\r?\n', data)
-                output = data[start.end() if start else 0:match.start()].decode(errors='replace').replace('\r', '')
+                output = command_output(data[:match.start()], token)
                 with (self.work / (self.name + '.commands.log')).open('a') as log:
                     log.write(command + '\n' + output + '\nstatus=' + match[1].decode() + '\n')
                 if int(match[1]):
@@ -188,6 +208,13 @@ def disable_external_integrations(guest):
               "sleep 1; done; exit 1", timeout=200)
     guest.run("for s in passwall passwall_server; do "
               "[ ! -x /etc/init.d/$s ] || /etc/init.d/$s stop; done; true")
+    # Personal WAN integrations can time out rcS on this restricted test network.
+    # Once disabled, complete normal UCI/procd startup and require every unit.
+    guest.run("if ! systemctl is-active --quiet openwrt-services; then "
+              "systemctl reset-failed openwrt-services; systemctl restart openwrt-services; fi; "
+              "systemctl is-active --quiet openwrt-procd; systemctl is-active --quiet openwrt-services", timeout=240)
+    guest.run("for unit in openwrt-kernel-boot.service libvirtd.service; do "
+              "systemctl cat $unit >/dev/null 2>&1 && systemctl start --no-block $unit; done; true")
 
 
 def test_image(image, work):
@@ -223,16 +250,16 @@ def test_image(image, work):
             responder = shlex.join([sys.executable, str(Path(__file__).resolve()), '--wan-response', token])
             wan = ('user,id=wan,net=10.203.0.0/24,host=10.203.0.2,dns=10.203.0.3,'
                    'ipv6=off,restrict=on,guestfwd=tcp:10.203.0.100:8080-cmd:' + responder)
-            router = Guest('router', work, runtime, base,
-                ['-netdev', f'socket,id=lan,listen=127.0.0.1:{lan_port}',
+            router_net = [
+                 '-netdev', f'socket,id=lan,listen=127.0.0.1:{lan_port}',
                  '-device', 'virtio-net-pci,netdev=lan,mac=52:54:00:ed:01:01',
-                 '-netdev', wan, '-device', 'virtio-net-pci,netdev=wan,mac=52:54:00:ed:01:02'], 2048)
+                 '-netdev', wan, '-device', 'virtio-net-pci,netdev=wan,mac=52:54:00:ed:01:02']
+            router = Guest('router', work, runtime, base, router_net, 2048)
             guests.append(router)
             receipt['checks']['native-init'] = router.run('test "$(cat /proc/1/comm)" = systemd; cat /proc/1/comm') == 'systemd'
-            router.run('systemctl is-active --quiet openwrt-procd openwrt-services')
-            receipt['checks']['router-services'] = True
             # Disable external integrations only inside this disposable VM.
             disable_external_integrations(router)
+            receipt['checks']['router-services'] = True
             router.run(network_config())
             router.run("for n in $(seq 1 40); do ubus call network.interface.wan status | grep -q '\"up\": true' && ip -4 addr show dev br-lan | grep -q '192.0.2.1/24' && exit 0; sleep 2; done; exit 1", timeout=100)
             router.run("uci set dhcp.lan.interface=lan; uci set dhcp.lan.ignore=0; uci set dhcp.lan.start=100; uci set dhcp.lan.limit=20; uci add_list dhcp.@dnsmasq[0].address='/scheduler.test/10.203.0.100'; uci commit dhcp; /etc/init.d/dnsmasq restart; /etc/init.d/firewall restart")
