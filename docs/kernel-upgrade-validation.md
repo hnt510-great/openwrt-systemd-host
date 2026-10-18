@@ -257,3 +257,125 @@ module payloads/vermagic, native systemd/network/KVM operation and preservation 
 the original bootable kernel. Exact checks, evidence and the untested physical
 failed-boot/guest-OS boundaries are recorded in
 [the physical deployment report](kernel-upgrade-physical-20261015.md#subsequent-physical-g7-acceptance-2026-10-16).
+
+## Boot payload retention (2026-10-18)
+
+Host, disposable-QEMU, and real generation-upgrade validation of the automatic
+`/boot` retention policy. No production feed was modified, no image was flashed,
+and the router at `192.0.2.1` was not touched. A g17 generation was built into
+an isolated test feed to exercise a real `apk upgrade`; the production feed
+remains at sequence 16. The runtime evidence above remains the record for boot,
+trial, fallback and rollback behavior.
+
+`kernelctl` now keeps at most two versioned generations in `/boot`: the pending
+candidate plus the confirmed fallback during a trial, or the new known-good plus
+the old previous-good after promotion. Other generations are marked
+`ready: false`, their `/boot/kernels/<generation>/` payloads are removed, and
+their GRUB entries are dropped. Pruning runs before the boot-space check, from
+the live `apk-pre`/`apk-post` hooks, and at boot through the new
+`kernelctl retain` command. APK packages remain installed, and the legacy rescue
+kernel is never touched.
+
+The QEMU guest booted the existing signed image
+`bin/systemd/targets/x86/64-glibc/openwrt-x86-64-generic-squashfs-combined-efi.img.gz`
+(built 2026-10-18 02:39, before this change) with the modified `kernelctl` and
+`kernel-generation.init` injected through a small vfat payload disk. The guest
+was rebooted once; the scripts were not packaged into a new image.
+
+| Check | Result |
+|---|---|
+| `python3 -I scripts/tests/test-kernel-upgrade.py` | 39 tests passed |
+| Retention keeps candidate + known-good, withdraws previous-good and extras | Pass |
+| Pruning removes `/boot/kernels/<generation>` before the space check | Pass |
+| Orphan `/boot/kernels/*` directories are swept | Pass |
+| Rejected trial is withdrawn and removed by rollback, even while running it | Pass |
+| A running generation within the two slots is preserved | Pass |
+| Confirmation keeps exactly the new known-good and old previous-good | Pass |
+| Legacy `previous_good` reference is preserved | Pass |
+| Simulated APK transactions never prune | Pass |
+| Legacy `/boot/vmlinuz` SHA-256 unchanged throughout | Pass |
+| `finish_remove` tolerates an already-pruned boot directory | Pass |
+| QEMU `kernelctl retain` keeps exactly two fabricated generations | Pass |
+| QEMU live `apk-pre` hook prunes and withdraws an extra generation | Pass |
+| QEMU `apk-pre` simulation keeps the extra generation | Pass |
+| QEMU reboot boot-time `kernel-generation` init prunes two extras | Pass |
+| QEMU rescue `/boot/vmlinuz` unchanged and no pending trial after reboot | Pass |
+| `git diff --check` | Pass |
+
+### Real g17 generation upgrade (2026-10-18)
+
+To exercise the actual APK kernel transaction path, a g17 generation was built by
+temporarily setting `CONFIG_OPENWRT_KERNEL_SEQUENCE=17` and publishing into the
+isolated destination `/srv/openwrt-validation/g17-test-feed`. The production feed
+(`/srv/openwrt-feeds`, sequence 16) was not modified. `.config`,
+`configs/lan-apk-feeds.json` and `tmp/.kernel-publication-inputs.json` were
+restored to their sequence-16 state after the build.
+
+The disposable QEMU guest booted the existing g16 image with the modified
+`kernelctl` injected, mounted the g17 channel from a vfat payload disk, and ran a
+live upgrade against only that repository:
+
+```sh
+apk --repositories-file /dev/null \
+    --repository /mnt/kerneltest/repo/packages.adb upgrade
+```
+
+The transaction upgraded 501 packages (`kmod-*` `1000.16` to `1000.17`,
+`openwrt-kernel-upgrade` `1-r14` to `1-r15`, `linux-image-openwrt` `1-r16` to
+`1-r17`), installed the g17 image and modules, and selected g17 as the pending
+trial. A fabricated extra `/boot/kernels/<generation>` was pruned by the live
+`apk-pre` hook; the preceding `--simulate` run left it untouched. The guest was
+then rebooted and the 120-second health confirmation promoted g17.
+
+| Check | Result |
+|---|---|
+| g17 generation published to the isolated feed (509 packages, 1 image) | Pass |
+| Production kernel feed still at sequence 16 | Pass |
+| Real `apk upgrade` completed (501 packages, exit 0) | Pass |
+| Live `apk-pre` pruned the fabricated extra generation | Pass |
+| `apk upgrade --simulate` kept the extra generation | Pass |
+| g17 became the selected pending trial after the upgrade | Pass |
+| Rebooted guest ran `…-g17` and promoted it to `known_good` | Pass |
+| Legacy g16 rescue retained as `previous_good` | Pass |
+| `/boot/kernels/` contains only g17; legacy payload remains `/boot/vmlinuz` | Pass |
+| Rescue vmlinuz hash unchanged; `kernelctl check` passes | Pass |
+
+The source image's g16 kernel is adopted as the legacy rescue on first boot, so
+this first versioned upgrade legitimately has one `/boot/kernels/` directory plus
+the legacy rescue. The earlier QEMU retention run covers the steady-state case
+with two versioned `/boot/kernels/` directories.
+
+Evidence:
+
+- `/srv/openwrt-validation/g17-test-20261018/build-g17.log`
+- `/srv/openwrt-validation/g17-test-feed/public/kernel-upgrades` (sequence 17)
+- `/srv/openwrt-validation/qemu-kernel-retain-20261018/run_g17_upgrade_v3.log`
+- `/srv/openwrt-validation/qemu-kernel-retain-20261018/run_g17_verify.log`
+- `/srv/openwrt-validation/qemu-kernel-retain-20261018/vm-g17/serial.log`
+
+The host tests are reproducible with the command above. No physical device was
+flashed or touched for this change.
+
+### Packaged current-image retention (2026-10-18)
+
+The 17:38 EFI image was tested directly in an isolated QEMU/KVM guest with a
+disposable qcow2 overlay. Its SHA-256 was
+`b438fde98cf07e7fffd96af8941cc293a82d69ed914dffb40b5047ef640bc7a4`.
+The built-in `kernelctl` and `kernel-generation` init hashes matched the source;
+neither production script was injected or replaced.
+
+All 39 host tests passed. With additional generation records and boot directories
+created as test fixtures, `kernelctl retain` kept exactly two generations and
+withdrew the extra GRUB entries. A real signed APK simulation left state and
+directories unchanged. Reinstalling `linux-image-openwrt` `1-r17` then triggered
+automatic pruning through the live APK hook with the original health checks.
+After reboot, the packaged boot service pruned additional fixtures and kept the
+two selected generations. The rescue kernel hash remained unchanged and
+`kernelctl check` passed. The genuine baseline state was restored and the VM
+stopped; the original compressed image hash remained unchanged.
+
+This run tested a current-generation tracker reinstall, not a cross-generation
+upgrade or boot into a new kernel. It did not access the physical router or
+remove installed APK/module payloads. Evidence, the image receipt and test
+scripts are retained under
+`/srv/openwrt-automation/image-autoprune-20261018T181813/`.

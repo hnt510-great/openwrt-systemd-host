@@ -3,8 +3,9 @@
 This APK/GRUB mechanism installs parallel kernel generations while retaining
 OpenWrt's exact kernel ABI dependencies. It supports the existing x86_64 glibc,
 squashfs, native-systemd image and its separate persistent extroot. It does not
-flash disks, replace the original `/boot/vmlinuz`, reinstall GRUB's core, reboot,
-or prune kernels automatically.
+flash disks, replace the original `/boot/vmlinuz`, reinstall GRUB's core, or
+reboot. It keeps at most two versioned kernels in `/boot` and never removes the
+legacy rescue kernel.
 
 ## Build and publish
 
@@ -192,13 +193,41 @@ force a reboot.
 ```
 kernelctl rollback  # cancel a pending trial, or select previous confirmed kernel
 kernelctl retry     # explicitly re-arm a rejected selected candidate
+kernelctl retain    # enforce the two-generation /boot limit
 kernelctl status
 ```
 
 `kernelctl remove <generation>` explicitly withdraws a nonessential generation
 before removing its packages. It refuses the original rescue, running, pending,
-known-good and previous-good generations. Insufficient space fails safely; it
-never makes room by deleting the fallback.
+known-good and previous-good generations. Retention removes only generations
+beyond the trial/fallback pair. If the two protected generations still do not
+fit, the space check fails safely rather than deleting either of them.
+
+## Boot payload retention
+
+`/boot` keeps at most two versioned generations:
+
+- while a trial is pending: the candidate and the confirmed known-good fallback;
+- after promotion: the new known-good and the old previous-good fallback.
+
+The legacy rescue kernel (`/boot/vmlinuz` and the `owrt-rescue*` entries) is not
+counted toward the limit and is never removed.
+
+Before a new candidate's boot payload is staged, the manager withdraws every
+other generation. It sets `ready: false` in `state.json`, deletes
+`/boot/kernels/<generation>/`, and rewrites `/boot/grub/openwrt.cfg` so GRUB no
+longer lists that generation. Orphan `/boot/kernels/*` directories (for example
+after a manual deletion or an interrupted activation) are removed as well. The
+pruning happens before the boot-space calculation, so repeatedly upgrading
+kernels cannot exhaust `/boot` by retaining every generation. `kernelctl retain`
+runs at boot from `kernel-generation.init` after `prepare`, enforcing the same
+invariant after a manual change.
+
+APK packages, `/usr/lib/modules/<generation>/` and
+`/usr/lib/openwrt-kernel/<generation>/` are not removed automatically. Withdrawn
+generations remain visible in `kernelctl status` with `ready: false`; reclaim
+their package space explicitly with `kernelctl remove <generation>` once that
+generation is no longer running, rescue, pending, known-good or previous-good.
 
 ## Scope and verification
 

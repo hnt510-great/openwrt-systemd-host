@@ -118,6 +118,8 @@ def cpio_archive(root):
 
 
 class KernelManager:
+    RETAIN_GENERATIONS = 2
+
     def __init__(self, root='/', runner=None):
         self.root = Path(root).resolve()
         self.policy = self.path('/etc/openwrt-kernel')
@@ -184,7 +186,7 @@ class KernelManager:
         return uuid
 
     def space(self, required):
-        # Leave emergency headroom; never delete a generation to make room.
+        # Retention runs first; the two kept generations are never deleted to make room.
         if shutil.disk_usage(self.boot).free < required + 8 * 1024 * 1024:
             raise KernelError('Insufficient boot space; protected kernels will not be removed')
 
@@ -226,6 +228,86 @@ class KernelManager:
                 directory = self.boot / 'kernels' / name
                 verify_files(directory, entry['boot_files'])
         return state
+
+    def retention(self, state, candidate=None):
+        """Return the ordered generation names kept in /boot.
+
+        A trial keeps the candidate and the confirmed fallback; steady state keeps
+        known_good and previous_good. Failed generations are never retained, and
+        the running release is protected only while it is still a valid candidate.
+        """
+        entries = state['generations']
+        rescue = entries.get(state.get('rescue'), {})
+        legacy_release = rescue.get('release')
+        ordered = []
+
+        def usable(name):
+            entry = entries.get(name)
+            return entry is not None and not entry.get('legacy') and not entry.get('failed')
+
+        def add(name, allow_missing=False):
+            if not name or name in ordered:
+                return
+            entry = entries.get(name)
+            if entry and (entry.get('legacy') or entry.get('failed')):
+                return
+            if entry is None and not allow_missing:
+                return
+            ordered.append(name)
+
+        add(candidate, allow_missing=True)
+        add(state.get('pending'))
+        add(state.get('known_good'))
+        add(state.get('previous_good'))
+        release = self.release()
+        if release != legacy_release:
+            add(release)
+        keep = ordered[:self.RETAIN_GENERATIONS]
+        known = state.get('known_good')
+        if usable(known) and known not in keep:
+            keep.append(known)
+        return keep
+
+    def retain(self, state, candidate=None):
+        """Withdraw and remove extra /boot payloads, keeping two generations.
+
+        APK payloads stay installed; use ``kernelctl remove`` to reclaim them.
+        """
+        entries = state['generations']
+        keep = self.retention(state, candidate)
+        self.boot_mount()
+        changed = False
+        for name, entry in entries.items():
+            if entry.get('legacy') or name in keep:
+                continue
+            if entry.get('ready'):
+                entry['ready'] = False
+                changed = True
+            if state.get('previous_good') == name:
+                replacement = state.get('known_good')
+                state['previous_good'] = (replacement if replacement != name
+                                          else state.get('rescue'))
+                changed = True
+        kernels = self.boot / 'kernels'
+        legacy = {name for name, entry in entries.items() if entry.get('legacy')}
+        stale = []
+        if kernels.is_dir():
+            for directory in kernels.iterdir():
+                if (not directory.is_dir() or directory.is_symlink() or
+                        directory.name.startswith('.') or directory.name in legacy):
+                    continue
+                try:
+                    identifier(directory.name)
+                except KernelError:
+                    continue
+                if directory.name not in keep:
+                    stale.append(directory)
+        if changed:
+            self.save(state)
+            atomic(self.boot / 'grub/openwrt.cfg', self.grub_config(state), 0o644)
+        for directory in stale:
+            shutil.rmtree(directory)
+        return keep
 
     def migrate(self):
         if (self.policy / 'state.json').exists():
@@ -429,7 +511,8 @@ if [ -f $prefix/openwrt.cfg ]; then source $prefix/openwrt.cfg; fi
     def health(self):
         if self.path('/proc/1/comm').read_text().strip() != 'systemd':
             raise KernelError('Native systemd is not PID 1')
-        self.command('systemctl', 'is-active', 'openwrt-ubusd', 'openwrt-procd', 'openwrt-services')
+        for unit in ('openwrt-ubusd', 'openwrt-procd', 'openwrt-services'):
+            self.command('systemctl', 'is-active', unit)
         interfaces = json.loads(self.command('ubus', 'call', 'network.interface', 'dump'))['interface']
         up = sorted(i['interface'] for i in interfaces if i.get('up') and i['interface'] != 'loopback')
         if 'lan' not in up:
@@ -487,6 +570,7 @@ if [ -f $prefix/openwrt.cfg ]; then source $prefix/openwrt.cfg; fi
         self.setenv(saved_entry='owrt-' + name, next_entry='')
         state['previous_good'] = state['known_good']
         state['known_good'], state['pending'] = name, None
+        self.retain(state)
         self.save(state)
         self.protect()
         return state
@@ -595,14 +679,16 @@ if [ -f $prefix/openwrt.cfg ]; then source $prefix/openwrt.cfg; fi
             atomic(destination, gzip.compress(archive, mtime=0), 0o644)
 
     def activate(self):
-        state = self.check()
+        state = self.state()
         selected = json.loads(self.path('/usr/share/openwrt-kernel/selected.json').read_text())
         name = identifier(selected['generation'])
-        current = name == state['known_good']
         if state.get('pending') and name != state['pending']:
             raise KernelError('Resolve existing trial before activating another kernel')
         if state['generations'].get(name, {}).get('failed'):
             raise KernelError('Candidate was rejected; use kernelctl retry for an explicit new trial')
+        self.retain(state)
+        state = self.check()
+        current = name == state['known_good']
         metadata = self.path('/usr/lib/openwrt-kernel') / name
         image = json.loads((metadata / 'image.json').read_text())
         if image['abi'] != selected['abi'] or image['generation'] != name:
@@ -646,6 +732,9 @@ if [ -f $prefix/openwrt.cfg ]; then source $prefix/openwrt.cfg; fi
             self.prepare()
             return state
         self.command('depmod', '-a', name)
+        # The candidate is validated; retire the old fallback to free /boot
+        # before the conservative space calculation.
+        self.retain(state, candidate=name)
         self.space((metadata / 'vmlinuz').stat().st_size +
                    sum(p.stat().st_size for p in (self.path('/usr/lib/modules') / name).rglob('*.ko')) + 4*1024*1024)
         directory = self.boot / 'kernels' / name
@@ -709,14 +798,18 @@ if [ -f $prefix/openwrt.cfg ]; then source $prefix/openwrt.cfg; fi
             return
         if state.get('phase', 'ready') != 'ready':
             raise KernelError('Finish kernelctl migrate before upgrading kernels')
-        self.check()
         if disabled == '1':
             raise KernelError('Kernel transaction requires scripts and commit hooks')
+        if phase != 'apk-pre' and simulation != 'simulate' and errors != '0':
+            raise KernelError('APK transaction failed; candidate will not be activated')
         protected = {line.split('><', 1)[0].split('=', 1)[0]
                      for line in (self.policy / 'protected').read_text().splitlines() if line}
         for old, version, new, next_version, reinstall in kernel_changes:
             if old in protected and (old != new or version != next_version or reinstall == '1'):
                 raise KernelError('Refusing to alter protected payload: ' + old)
+        if simulation != 'simulate':
+            self.retain(state)
+        state = self.check()
         if phase == 'apk-pre':
             if state.get('pending'):
                 raise KernelError('Resolve the existing kernel trial before another kernel transaction')
@@ -753,6 +846,7 @@ if [ -f $prefix/openwrt.cfg ]; then source $prefix/openwrt.cfg; fi
         else:
             state['known_good'], state['previous_good'] = target, state['known_good']
         state['pending'] = None
+        self.retain(state)
         self.save(state)
         return state
 
@@ -790,7 +884,9 @@ if [ -f $prefix/openwrt.cfg ]; then source $prefix/openwrt.cfg; fi
     def finish_remove(self, name, success):
         state = self.state()
         if success:
-            shutil.rmtree(self.boot / 'kernels' / identifier(name))
+            directory = self.boot / 'kernels' / identifier(name)
+            if directory.exists():
+                shutil.rmtree(directory)
             # APK owns payload files; depmod indexes and frozen firmware are
             # manager-created. Remove only this withdrawn generation's trees.
             for base in ('/usr/lib/modules', '/usr/lib/openwrt-kernel'):
@@ -799,7 +895,9 @@ if [ -f $prefix/openwrt.cfg ]; then source $prefix/openwrt.cfg; fi
                     shutil.rmtree(directory)
             del state['generations'][name]
         else:
-            state['generations'][name]['ready'] = True
+            directory = self.boot / 'kernels' / identifier(name)
+            if directory.is_dir():
+                state['generations'][name]['ready'] = True
         self.protect()
         self.save(state)
         atomic(self.boot / 'grub/openwrt.cfg', self.grub_config(state), 0o644)
@@ -808,7 +906,8 @@ if [ -f $prefix/openwrt.cfg ]; then source $prefix/openwrt.cfg; fi
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=['status', 'check', 'migrate', 'prepare', 'boot',
-                                         'confirm', 'rollback', 'retry', 'remove', 'apk-pre', 'apk-post'])
+                                         'confirm', 'rollback', 'retry', 'remove', 'retain',
+                                         'apk-pre', 'apk-post'])
     parser.add_argument('arguments', nargs='*')
     args = parser.parse_args()
     manager = KernelManager()
@@ -849,6 +948,9 @@ def main():
             state = manager.state()
             if state.get('pending') and manager.release() == state['generations'][state['pending']]['release']:
                 manager.confirm()
+        elif args.command == 'retain':
+            if (manager.policy / 'state.json').exists():
+                manager.retain(manager.state())
         elif args.command == 'remove':
             if len(args.arguments) != 1:
                 raise KernelError('Specify a generation')

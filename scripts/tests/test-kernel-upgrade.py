@@ -116,11 +116,51 @@ class RuntimeTests(unittest.TestCase):
         with patch.object(self.manager, 'bootstrap', side_effect=bootstrap):
             return self.manager.activate()
 
+    def generation(self, name, known=False, previous=False):
+        metadata = self.root / 'usr/lib/openwrt-kernel' / name
+        (metadata / 'kmods').mkdir(parents=True, exist_ok=True)
+        (metadata / 'config').write_text('CONFIG_BLK_DEV_INITRD=y\n')
+        (metadata / 'vmlinuz').write_bytes(('kernel ' + name).encode())
+        modules = self.root / 'usr/lib/modules' / name
+        modules.mkdir(parents=True, exist_ok=True)
+        (modules / 'nic.ko').write_bytes(('module ' + name).encode())
+        boot = self.root / 'boot/kernels' / name
+        boot.mkdir(parents=True, exist_ok=True)
+        (boot / 'vmlinuz').write_bytes(('kernel ' + name).encode())
+        (boot / 'initramfs.gz').write_bytes(('initramfs ' + name).encode())
+        files = {str(path.relative_to(self.root)): {'sha256': K.sha256(path)}
+                 for path in sorted(metadata.rglob('*')) if path.is_file()}
+        files[str((modules / 'nic.ko').relative_to(self.root))] = {
+            'sha256': K.sha256(modules / 'nic.ko')}
+        state = self.manager.state()
+        state['generations'][name] = {
+            'legacy': False, 'ready': True, 'release': name, 'abi': ABI,
+            'package': 'linux-image-' + name, 'version': ABI,
+            'kernel_sha256': K.sha256(metadata / 'vmlinuz'),
+            'files': files, 'boot_files': K.inventory(boot)}
+        if known:
+            state['known_good'] = name
+            state['previous_good'] = name
+        if previous:
+            state['previous_good'] = name
+        self.manager.save(state)
+        return state
+
     def test_bad_boot_mount_refuses_without_writes(self):
         (self.root / 'proc/self/mountinfo').write_text('')
         with self.assertRaisesRegex(K.KernelError, 'not mounted'):
             self.manager.check()
         self.assertEqual(K.sha256(self.root / 'boot/vmlinuz'), self.original)
+
+    def test_health_requires_every_systemd_service(self):
+        original = self.manager.command
+        def failed_service(*args):
+            if args == ('systemctl', 'is-active', 'openwrt-services'):
+                raise K.KernelError('openwrt-services failed')
+            return original(*args)
+        with patch.object(self.manager, 'command', side_effect=failed_service):
+            with self.assertRaisesRegex(K.KernelError, 'openwrt-services failed'):
+                self.manager.health()
 
     def test_ram_overlay_cannot_qualify_as_persistent(self):
         (self.root / 'proc/mounts').write_text('tmpfs /overlay tmpfs rw 0 0\n')
@@ -246,6 +286,144 @@ class RuntimeTests(unittest.TestCase):
             with self.assertRaisesRegex(K.KernelError, 'Insufficient boot space'):
                 self.activate()
         self.assertEqual(K.sha256(self.root / 'boot/vmlinuz'), self.original)
+
+    def test_retention_keeps_trial_and_fallback(self):
+        first = '6.18.55-owrt-' + 'b' * 32 + '-r1-g2'
+        fallback = '6.18.55-owrt-' + 'c' * 32 + '-r1-g3'
+        extra = '6.18.55-owrt-' + 'd' * 32 + '-r1-g4'
+        self.generation(first, known=True)
+        self.generation(fallback, previous=True)
+        self.generation(extra)
+        self.running = first
+        keep = self.manager.retain(self.manager.state(), candidate=GEN)
+        self.assertEqual(keep[:2], [GEN, first])
+        self.assertTrue((self.root / 'boot/kernels' / first).is_dir())
+        self.assertFalse((self.root / 'boot/kernels' / fallback).exists())
+        self.assertFalse((self.root / 'boot/kernels' / extra).exists())
+        state = self.manager.state()
+        self.assertFalse(state['generations'][fallback]['ready'])
+        self.assertFalse(state['generations'][extra]['ready'])
+        self.assertEqual(state['previous_good'], first)
+        self.assertEqual(K.sha256(self.root / 'boot/vmlinuz'), self.original)
+        cfg = (self.root / 'boot/grub/openwrt.cfg').read_text()
+        self.assertIn(first, cfg)
+        self.assertNotIn(fallback, cfg)
+        self.assertNotIn(extra, cfg)
+
+    def test_retention_sweeps_orphan_boot_directory(self):
+        first = '6.18.55-owrt-' + 'b' * 32 + '-r1-g2'
+        self.generation(first, known=True)
+        self.running = first
+        orphan = self.root / 'boot/kernels' / ('6.18.55-owrt-' + 'e' * 32 + '-r1-g5')
+        orphan.mkdir(parents=True)
+        (orphan / 'vmlinuz').write_bytes(b'orphan')
+        self.manager.retain(self.manager.state())
+        self.assertFalse(orphan.exists())
+        self.assertTrue((self.root / 'boot/kernels' / first).is_dir())
+        self.assertEqual(K.sha256(self.root / 'boot/vmlinuz'), self.original)
+
+    def test_activate_prunes_previous_good_before_space_check(self):
+        first = '6.18.55-owrt-' + 'b' * 32 + '-r1-g2'
+        fallback = '6.18.55-owrt-' + 'c' * 32 + '-r1-g3'
+        self.generation(first, known=True)
+        self.generation(fallback, previous=True)
+        self.running = first
+        self.candidate()
+        with patch('shutil.disk_usage', return_value=shutil._ntuple_diskusage(100, 99, 1)):
+            with self.assertRaisesRegex(K.KernelError, 'Insufficient boot space'):
+                self.activate()
+        self.assertTrue((self.root / 'boot/kernels' / first).is_dir())
+        self.assertFalse((self.root / 'boot/kernels' / fallback).exists())
+        self.assertFalse((self.root / 'boot/kernels' / GEN).exists())
+        state = self.manager.state()
+        self.assertFalse(state['generations'][fallback]['ready'])
+        self.assertEqual(state['previous_good'], first)
+        self.assertEqual(K.sha256(self.root / 'boot/vmlinuz'), self.original)
+
+    def test_rollback_prunes_rejected_trial(self):
+        self.candidate()
+        self.activate()
+        self.assertTrue((self.root / 'boot/kernels' / GEN).is_dir())
+        self.running = GEN
+        self.manager.rollback()
+        self.assertFalse((self.root / 'boot/kernels' / GEN).exists())
+        state = self.manager.state()
+        self.assertFalse(state['generations'][GEN]['ready'])
+        self.assertTrue(state['generations'][GEN]['failed'])
+        self.assertEqual(K.sha256(self.root / 'boot/vmlinuz'), self.original)
+
+    def test_running_generation_is_never_pruned(self):
+        first = '6.18.55-owrt-' + 'b' * 32 + '-r1-g2'
+        running = '6.18.55-owrt-' + 'c' * 32 + '-r1-g3'
+        extra = '6.18.55-owrt-' + 'd' * 32 + '-r1-g4'
+        self.generation(first, known=True)
+        self.generation(running)
+        self.generation(extra)
+        self.running = running
+        keep = self.manager.retain(self.manager.state())
+        self.assertIn(running, keep)
+        self.assertTrue((self.root / 'boot/kernels' / running).is_dir())
+        self.assertTrue((self.root / 'boot/kernels' / first).is_dir())
+        self.assertFalse((self.root / 'boot/kernels' / extra).exists())
+
+    def test_confirmation_retains_new_and_old(self):
+        first = '6.18.55-owrt-' + 'b' * 32 + '-r1-g2'
+        self.generation(first, known=True)
+        self.running = first
+        self.candidate()
+        self.activate()
+        self.running = GEN
+        self.manager.confirm(duration=0)
+        state = self.manager.state()
+        self.assertEqual(state['known_good'], GEN)
+        self.assertEqual(state['previous_good'], first)
+        remaining = {path.name for path in (self.root / 'boot/kernels').iterdir()
+                     if path.is_dir()}
+        self.assertEqual(remaining, {first, GEN})
+        self.assertEqual(K.sha256(self.root / 'boot/vmlinuz'), self.original)
+
+    def test_retention_preserves_legacy_previous_good(self):
+        first = '6.18.55-owrt-' + 'b' * 32 + '-r1-g2'
+        extra = '6.18.55-owrt-' + 'd' * 32 + '-r1-g4'
+        self.generation(first, known=True)
+        self.generation(extra)
+        state = self.manager.state()
+        state['previous_good'] = state['rescue']
+        self.manager.save(state)
+        self.running = first
+        self.manager.retain(self.manager.state())
+        state = self.manager.state()
+        self.assertEqual(state['previous_good'], state['rescue'])
+        self.assertFalse(state['generations'][extra]['ready'])
+        self.assertEqual(K.sha256(self.root / 'boot/vmlinuz'), self.original)
+
+    def test_simulation_never_prunes(self):
+        first = '6.18.55-owrt-' + 'b' * 32 + '-r1-g2'
+        fallback = '6.18.55-owrt-' + 'c' * 32 + '-r1-g3'
+        extra = '6.18.55-owrt-' + 'd' * 32 + '-r1-g4'
+        self.generation(first, known=True)
+        self.generation(fallback, previous=True)
+        self.generation(extra)
+        self.running = first
+        txn = self.root / 'run/txn'
+        txn.write_text(f'kernel\t{ABI}\tkernel\t{ABI}\t1\n')
+        self.manager.transaction('apk-pre', txn, '0', 'simulate', '0')
+        self.assertTrue((self.root / 'boot/kernels' / extra).is_dir())
+        self.assertEqual(self.manager.state()['previous_good'], fallback)
+        self.manager.transaction('apk-pre', txn, '0', 'live', '0')
+        self.assertFalse((self.root / 'boot/kernels' / extra).exists())
+        self.assertEqual(self.manager.state()['previous_good'], fallback)
+
+    def test_finish_remove_failure_keeps_withdrawn_without_payload(self):
+        extra = '6.18.55-owrt-' + 'd' * 32 + '-r1-g4'
+        self.generation(extra)
+        self.manager.remove(extra)
+        shutil.rmtree(self.root / 'boot/kernels' / extra)
+        self.manager.finish_remove(extra, False)
+        state = self.manager.state()
+        self.assertFalse(state['generations'][extra]['ready'])
+        cfg = (self.root / 'boot/grub/openwrt.cfg').read_text()
+        self.assertNotIn(extra, cfg)
 
     def test_unrelated_userspace_transaction_does_not_need_boot_mount(self):
         (self.root / 'proc/self/mountinfo').write_text('')

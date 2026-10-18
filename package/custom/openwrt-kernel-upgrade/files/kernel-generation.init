@@ -4,4 +4,7 @@ start() {
 	if [ -f /etc/openwrt-kernel/state.json ] || [ -f /usr/share/openwrt-kernel/selected.json ]; then
 		/usr/sbin/kernelctl prepare
 	fi
+	if [ -f /etc/openwrt-kernel/state.json ]; then
+		/usr/sbin/kernelctl retain || true
+	fi
 }
