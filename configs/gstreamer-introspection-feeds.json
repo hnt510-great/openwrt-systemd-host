@@ -1,0 +1,8 @@
+{
+  "packages": {
+    "url": "https://github.com/openwrt/packages.git",
+    "base": "ba0780f972f10fb2ce8bfdefd3fbb6a9edd817f4",
+    "commit": "3ad57a3db691cb5fbfb2dd4f4d191c210858b73d",
+    "patch": "patches/feeds/0015-packages-gstreamer-introspection.patch"
+  }
+}

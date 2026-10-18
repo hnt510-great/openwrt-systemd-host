@@ -10,7 +10,7 @@ PKG_LICENSE:=LGPL-2.1-or-later
 PKG_LICENSE_FILES:=COPYING
 PKG_INSTALL:=1
 PKG_BUILD_PARALLEL:=1
-PKG_BUILD_DEPENDS:=glib2/host wayland/host wayland-protocols
+PKG_BUILD_DEPENDS:=glib2/host wayland/host wayland-protocols python-pyparsing/host
 
 include $(INCLUDE_DIR)/package.mk
 include $(INCLUDE_DIR)/meson.mk

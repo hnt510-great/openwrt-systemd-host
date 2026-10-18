@@ -1,0 +1,30 @@
+From 3ad57a3db691cb5fbfb2dd4f4d191c210858b73d Mon Sep 17 00:00:00 2001
+From: hnt510 <hnt510@gmail.com>
+Date: Sun, 18 Oct 2026 18:26:02 +0800
+Subject: [PATCH] gstreamer1: declare conditional introspection build
+ dependencies
+
+Expose the host scanner and target staging dependency during the package metadata scan so spice-gtk builds configure after gobject-introspection.
+---
+ multimedia/gstreamer1/Makefile | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/multimedia/gstreamer1/Makefile b/multimedia/gstreamer1/Makefile
+index 77877bf..09df48a 100644
+--- a/multimedia/gstreamer1/Makefile
++++ b/multimedia/gstreamer1/Makefile
+@@ -29,6 +29,11 @@ include $(INCLUDE_DIR)/nls.mk
+ include $(INCLUDE_DIR)/meson.mk
+ 
+ PKG_CONFIG_DEPENDS += CONFIG_PACKAGE_spice-gtk
++# The introspection include below is conditional, but the package scan runs with
++# DUMP=1, which does not load .config. Declare the build dependencies here with
++# the metadata condition syntax so the target package installs
++# gobject-introspection-1.0.pc into staging before this package configures.
++PKG_BUILD_DEPENDS += PACKAGE_spice-gtk:gobject-introspection/host PACKAGE_spice-gtk:gobject-introspection
+ ifneq ($(CONFIG_PACKAGE_spice-gtk),)
+ include $(INCLUDE_DIR)/gobject-introspection.mk
+ endif
+-- 
+2.53.0
+

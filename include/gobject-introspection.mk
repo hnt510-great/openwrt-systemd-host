@@ -1,5 +1,9 @@
 # Include after meson.mk. This integration is opt-in for x86_64/glibc packages.
-PKG_BUILD_DEPENDS += gobject-introspection/host
+# Both variants are needed: the host build supplies g-ir-scanner at build time,
+# while the target package's InstallDev publishes gobject-introspection-1.0.pc
+# and the target g-ir-* wrappers into staging. Without the plain dependency the
+# .pc is missing whenever a consumer configures before the target package.
+PKG_BUILD_DEPENDS += gobject-introspection/host gobject-introspection
 MESON_USE_STAGING_PYTHON:=1
 PYTHON_BIN:=$(STAGING_DIR_HOSTPKG)/bin/python3
 MESON_VARS += PATH="$(STAGING_DIR_HOSTPKG)/bin:$(TARGET_PATH)" \
