@@ -75,6 +75,14 @@ class MergeUsrTests(unittest.TestCase):
         self.assertFalse(os.path.lexists(self.root / "usr/bin/mount"))
         self.assertIn("100:/usr/bin/mount:/usr/bin/busybox", (self.root / "usr/lib/apk/packages/busybox.alternatives").read_text())
 
+    def test_busybox_shell_stays_direct(self):
+        self.file("bin/busybox")
+        self.link("bin/sh", "busybox")
+        self.link("bin/ash", "busybox")
+        merge.normalize(self.root, "busybox")
+        self.assertEqual(os.readlink(self.root / "usr/bin/sh"), "busybox")
+        self.assertEqual(os.readlink(self.root / "usr/bin/ash"), "busybox")
+
     def test_absolute_image_link_does_not_touch_host(self):
         self.link("lib/host-link", "/etc/passwd")
         merge.normalize(self.root)

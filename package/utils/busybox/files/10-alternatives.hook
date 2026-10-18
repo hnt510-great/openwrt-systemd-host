@@ -1,0 +1,51 @@
+#!/bin/sh
+# BusyBox ships applet symlinks in the merged-/usr layout. Unpacking a BusyBox
+# upgrade overwrites links owned by standalone providers (coreutils, procps-ng,
+# util-linux, ...), which only declare those paths through APK alternatives.
+# Re-apply the whole alternatives database after the transaction so the
+# standalone provider wins again.
+#
+# This is a single pass: update_alternatives() re-reads every alternatives file
+# for each target, which takes ~20s here. Keep the applet links in the package;
+# converting them to alternatives would remove /bin/sh before post-install
+# scripts can run.
+#
+# /bin/sh and ash are never alternatives-managed: they must always dispatch to
+# BusyBox ash, which boot and package scripts depend on.
+[ "$1" = post-commit ] || exit 0
+[ -z "$IPKG_INSTROOT" ] || exit 0
+
+entries="$(cat /lib/apk/packages/*.alternatives 2>/dev/null)"
+[ -n "$entries" ] || exit 0
+
+printf '%s\n' "$entries" | awk '
+function reserved(path) {
+	return path == "/bin/sh" || path == "/usr/bin/sh" ||
+	       path == "/bin/ash" || path == "/usr/bin/ash"
+}
+{
+	for (i = 1; i <= NF; i++) {
+		split($i, field, ":")
+		if (field[1] ~ /^[0-9]+$/ && field[2] ~ /^\// && field[3] ~ /^\// &&
+		    !reserved(field[2]))
+			print field[2], field[1], field[3]
+	}
+}' | sort -k1,1 -k2,2nr -k3,3 | {
+	link=
+	chosen=
+	while read -r next priority source; do
+		if [ "$next" != "$link" ]; then
+			[ -n "$link" ] && ln -sf "${chosen:-/bin/busybox}" "$link"
+			link="$next"
+			chosen=
+		fi
+		# Entries are sorted by priority; take the first provider that exists.
+		[ -z "$chosen" ] && [ -e "$source" ] && chosen="$source"
+	done
+	[ -n "$link" ] && ln -sf "${chosen:-/bin/busybox}" "$link"
+}
+
+[ -x /usr/bin/busybox ] || exit 0
+ln -sf /usr/bin/busybox /usr/bin/sh
+ln -sf /usr/bin/busybox /usr/bin/ash
+exit 0

@@ -8,6 +8,7 @@ import posixpath
 
 PREFIXES = {"/bin": "/usr/bin", "/sbin": "/usr/sbin", "/lib": "/usr/lib"}
 # These applets otherwise overlap standalone tools after /usr is merged.
+# sh/ash are deliberately absent: /bin/sh must keep dispatching to BusyBox ash.
 ALTERNATIVE_COMMANDS = {"dmesg", "mount", "umount", "passwd", "ping", "ping6",
                         "mkswap", "swapon", "swapoff", "reboot", "halt", "poweroff"}
 

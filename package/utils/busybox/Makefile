@@ -6,7 +6,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=busybox
 PKG_VERSION:=1.38.0
-PKG_RELEASE:=3
+PKG_RELEASE:=8
 PKG_FLAGS:=essential
 
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.bz2
@@ -153,6 +153,8 @@ define Package/busybox/install
 	$(CP) $(PKG_INSTALL_DIR)/* $(1)/
 	$(INSTALL_DIR) $(1)/etc/profile.d
 	$(INSTALL_BIN) ./files/busybox-history-file.sh $(1)/etc/profile.d
+	$(INSTALL_DIR) $(1)/lib/apk/commit_hooks.d
+	$(INSTALL_BIN) ./files/10-alternatives.hook $(1)/lib/apk/commit_hooks.d/10-alternatives
 ifneq ($(CONFIG_BUSYBOX_$(BUSYBOX_SYM)_FEATURE_SYSLOG)$(CONFIG_BUSYBOX_$(BUSYBOX_SYM)_FEATURE_SYSLOGD_CFG),)
 	touch $(1)/etc/syslog.conf
 endif
