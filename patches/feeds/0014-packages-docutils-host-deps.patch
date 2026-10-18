@@ -1,0 +1,17 @@
+diff --git a/lang/python/python-docutils/Makefile b/lang/python/python-docutils/Makefile
+index 37b4e45..8d084b8 100644
+--- a/lang/python/python-docutils/Makefile
++++ b/lang/python/python-docutils/Makefile
+@@ -12,7 +12,11 @@ PKG_LICENSE:=Public-Domain BSD-2-Clause Python-2.0.1 GPL-3.0-or-later
+ PKG_LICENSE_FILES:=COPYING.txt licenses/BSD-2-Clause.txt licenses/python-2-1-1.txt licenses/gpl-3-0.txt
+ 
+ include ../pypi.mk
+-HOST_BUILD_DEPENDS:=python3/host
++HOST_BUILD_DEPENDS:= \
++	python3/host \
++	python-build/host \
++	python-installer/host \
++	python-flit-core/host
+ 
+ include $(INCLUDE_DIR)/package.mk
+ include $(INCLUDE_DIR)/host-build.mk

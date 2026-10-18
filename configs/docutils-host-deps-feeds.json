@@ -1,0 +1,8 @@
+{
+  "packages": {
+    "url": "https://github.com/openwrt/packages.git",
+    "base": "0282caa399410100b52fd7a919de063edbe8d7ab",
+    "commit": "ba0780f972f10fb2ce8bfdefd3fbb6a9edd817f4",
+    "patch": "patches/feeds/0014-packages-docutils-host-deps.patch"
+  }
+}
