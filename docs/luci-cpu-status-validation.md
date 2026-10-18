@@ -12,9 +12,12 @@ and the authenticated LuCI page.
 | --- | --- |
 | `luci-mod-status-26.291.12612~5405dab.apk` | `fb4b9ae0520aca46755409dc650f102c0d23d4e6e19f66ccb1c8d46b530e4032` |
 | `luci-i18n-base-zh-cn-26.291.12612~5405dab.apk` | `ea9b143434ceddaa632f573c7813f7a5ab1f35b07dd90baca8caeb9aaa1fbc1a` |
+| `luci-base-26.291.13026~4f94614.apk` | `934b9df4a795114411b26900b6f4d395d25b31705eeaadd236460f04a15011c8` |
 
-Built from luci feed commit `5405dabc43fd3767d5036b0e15f1c0a4f91c010a`,
-mirrored as `patches/feeds/0001-luci-status-cpu-stats.patch`.
+Built from luci feed commits `5405dabc43fd3767d5036b0e15f1c0a4f91c010a`
+and `4f946141d805ea94b2a618836d408bfd3fee2530`, mirrored as
+`patches/feeds/0001-luci-status-cpu-stats.patch` and
+`patches/feeds/0002-luci-base-resource-version.patch`.
 
 ## Checks
 
@@ -31,6 +34,8 @@ mirrored as `patches/feeds/0001-luci-status-cpu-stats.patch`.
 | CPU frequency source | four online CPUs, `scaling_cur_freq` around 800 MHz at check time |
 | Authenticated Chinese render | `平均负载 0.16, 0.13, 0.19`; `CPU 温度 58.0 °C`; `CPU 频率 795 MHz` |
 | Poll refresh | Values and local time update on the configured 5 s `pollinterval` |
+| Cache behavior before the fix | `10_system.js?v=26.285.40306~d12d553` was served `fromDiskCache=true` on a normal reload |
+| Cache behavior after the fix | Module URL became `...?v=26.291.13026~4f94614-1792294689` and the first load was `fromDiskCache=false` |
 
 The authenticated page was rendered with headless Chrome using a temporary
 rpcd session, which was destroyed afterwards. A screenshot and the rendered
@@ -48,6 +53,13 @@ page text are in the evidence directory.
 3. Sampling the frequency immediately reported 2.5–2.9 GHz on an idle router
    because the overview's own RPC burst boosts every core. The read now waits
    800 ms, after which the same page reported 789–839 MHz.
+4. After installation the page still looked unchanged in a normal browser.
+   A warm-cache headless Chrome run showed that
+   `10_system.js?v=26.285.40306~d12d553` was loaded from disk cache: the
+   Argon theme's `luci.js` tag omitted `pkgs_update_time`, and LuCI derived
+   its resource version from that tag. The base header now passes the
+   package-aware `resource_version`, so upgrading any package changes the
+   module URL.
 
 ## Scope
 
@@ -70,3 +82,4 @@ page text are in the evidence directory.
 - `rendered-page-text.txt` — full rendered page text
 - `checks.txt` — installed versions, payload hashes and sensor sources
 - `apk-sha256.txt` — published APK checksums
+- `cache-fix.txt` — module URL and disk-cache observation before/after the fix

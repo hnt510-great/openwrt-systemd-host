@@ -1,0 +1,35 @@
+From 4f946141d805ea94b2a618836d408bfd3fee2530 Mon Sep 17 00:00:00 2001
+From: hnt510 <hnt510@gmail.com>
+Date: Sun, 18 Oct 2026 11:37:06 +0800
+Subject: [PATCH] luci-base: invalidate cached view modules on package upgrades
+
+The Argon theme loads luci.js in its header without the package database
+timestamp. The LuCI constructor derived resource_version from that first
+script tag, so dynamically required view modules were cached under an URL
+that never changed when a module package was upgraded.
+
+Pass base_url and resource_version explicitly from the base header. The
+version now always includes pkgs_update_time, so installing an updated
+luci-mod-status or any other module makes browsers fetch the new file.
+
+Co-Authored-By: Claude Code <noreply@anthropic.com>
+---
+ modules/luci-base/ucode/template/header.ut | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/modules/luci-base/ucode/template/header.ut b/modules/luci-base/ucode/template/header.ut
+index f23e5e45..4100a1a9 100644
+--- a/modules/luci-base/ucode/template/header.ut
++++ b/modules/luci-base/ucode/template/header.ut
+@@ -19,6 +19,8 @@
+ 		dispatchpath   : ctx.path,
+ 		pollinterval   : +config.main.pollinterval || 5,
+ 		ubuspath       : config.main.ubuspath || '/ubus/',
++		base_url       : resource,
++		resource_version: version.luciversion + '-' + pkgs_update_time,
+ 		sessionid      : ctx.authsession,
+ 		token          : ctx.authtoken,
+ 		nodespec       : dispatched,
+-- 
+2.47.3
+

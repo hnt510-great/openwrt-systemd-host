@@ -57,20 +57,36 @@ directory links to `cpufreq/policyN`).
 `modules/luci-base/po/zh_Hans/base.po` as `CPU 温度` and `CPU 频率`. Other
 languages fall back to English until translated upstream.
 
+## Browser cache
+
+The Argon theme loads `luci.js` in its header without the package database
+timestamp, and the LuCI constructor used to derive `resource_version` from
+that first script tag. View modules were therefore requested under
+`.../10_system.js?v=<luci-base-version>`, which did not change when only
+`luci-mod-status` was upgraded, so browsers kept serving the old file from
+disk cache even after a normal reload.
+
+The base header now passes `base_url` and
+`resource_version = luciversion + '-' + pkgs_update_time` explicitly, so the
+module URL changes whenever any package is installed or upgraded. A normal
+page reload is enough to pick up a new view module; no hard refresh is
+required.
+
 ## Feed provenance
 
 | Item | Value |
 | --- | --- |
 | Feed | `luci`, `https://github.com/openwrt/luci.git` |
 | Base | `816a314705c9a79a9db2a968fbd80ccdd3ae119e` |
-| Local commit | `5405dabc43fd3767d5036b0e15f1c0a4f91c010a` |
-| Mirror | `patches/feeds/0001-luci-status-cpu-stats.patch` |
+| Local commit | `4f946141d805ea94b2a618836d408bfd3fee2530` |
+| Mirror | `patches/feeds/0001-luci-status-cpu-stats.patch`, then `patches/feeds/0002-luci-base-resource-version.patch` |
 | Manifest | `configs/luci-feeds.json` |
 
-On a clean checkout with the recorded base:
+On a clean checkout with the recorded base, apply both patches in order:
 
 ```bash
 git -C feeds/luci am "$PWD/patches/feeds/0001-luci-status-cpu-stats.patch"
+git -C feeds/luci am "$PWD/patches/feeds/0002-luci-base-resource-version.patch"
 ./scripts/feeds install -a
 ```
 

@@ -2,7 +2,19 @@
   "luci": {
     "url": "https://github.com/openwrt/luci.git",
     "base": "816a314705c9a79a9db2a968fbd80ccdd3ae119e",
-    "commit": "5405dabc43fd3767d5036b0e15f1c0a4f91c010a",
-    "patch": "patches/feeds/0001-luci-status-cpu-stats.patch"
+    "commit": "4f946141d805ea94b2a618836d408bfd3fee2530",
+    "patch": "patches/feeds/0002-luci-base-resource-version.patch",
+    "commits": [
+      {
+        "commit": "5405dabc43fd3767d5036b0e15f1c0a4f91c010a",
+        "subject": "luci-mod-status: show CPU temperature and frequency on overview",
+        "patch": "patches/feeds/0001-luci-status-cpu-stats.patch"
+      },
+      {
+        "commit": "4f946141d805ea94b2a618836d408bfd3fee2530",
+        "subject": "luci-base: invalidate cached view modules on package upgrades",
+        "patch": "patches/feeds/0002-luci-base-resource-version.patch"
+      }
+    ]
   }
 }
