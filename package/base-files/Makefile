@@ -13,7 +13,7 @@ include $(INCLUDE_DIR)/feeds.mk
 
 PKG_NAME:=base-files
 PKG_FLAGS:=nonshared
-PKG_RELEASE:=$(COMMITCOUNT)
+PKG_RELEASE:=$(COMMITCOUNT).2
 
 PKG_FILE_DEPENDS:= \
 	./os-release.systemd ./openwrt-release.systemd ./banner.systemd \
@@ -208,6 +208,11 @@ define Package/base-files/install
 			$(CP) $(PLATFORM_SUBDIR)/base-files/* $(1)/; \
 		fi; \
 	)
+
+ifeq ($(CONFIG_USE_APK),y)
+	# Keep the mountpoint, but do not install a placeholder into read-only /rom.
+	rm -f $(1)/rom/note
+endif
 
 ifeq ($(CONFIG_OPENWRT_SYSTEMD),y)
 	$(INSTALL_DATA) ./os-release.systemd $(1)/usr/lib/os-release

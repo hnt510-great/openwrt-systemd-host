@@ -27,6 +27,10 @@ sudo apk add PACKAGE
 ```
 
 `apk update` refreshes indexes; it does not upgrade installed packages.
+
+For targeted `base-files` upgrades and handling protected configuration files,
+see [the base-files upgrade guide](base-files-upgrade.md).
+
 The router already pins
 `kernel=6.18.55~ef561c78a2b577ae422f9289311ff293-r1` in `/etc/apk/world`.
 Keep that constraint. Existing upstream snapshot URLs remain commented out
