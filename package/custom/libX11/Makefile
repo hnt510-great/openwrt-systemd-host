@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=libX11
-PKG_VERSION:=1.8.12
+PKG_VERSION:=1.8.14
 PKG_RELEASE:=1
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=https://xorg.freedesktop.org/archive/individual/lib/
-PKG_HASH:=fa026f9bb0124f4d6c808f9aef4057aad65e7b35d8ff43951cef0abe06bb9a9a
+PKG_HASH:=bbc78c46217174655c2b32b138ad119f3ac15f50808b4d0b3a2677a4b1afc950
 
 XORG_DEPENDS:=+libxcb +libpthread
 PKG_BUILD_DEPENDS:=xtrans

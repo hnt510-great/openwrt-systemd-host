@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=libXi
-PKG_VERSION:=1.8.2
+PKG_VERSION:=1.8.4
 PKG_RELEASE:=1
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=https://xorg.freedesktop.org/archive/individual/lib/
-PKG_HASH:=d0e0555e53d6e2114eabfa44226ba162d2708501a25e18d99cfb35c094c6c104
+PKG_HASH:=ddd6057b89a91903bc2f884d55c8467440906945e482c36547260dff28661afc
 
 XORG_DEPENDS:=+libX11 +libXext +libXfixes
 
