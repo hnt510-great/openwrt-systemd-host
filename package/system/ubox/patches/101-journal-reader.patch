@@ -1,0 +1,794 @@
+Subject: [PATCH] logd: read the system journal in native systemd mode
+
+Keep procd, ubus and logread compatibility while journald owns all inputs.
+The default mode retains the original syslog and kernel readers.
+
+---
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -58,6 +58,12 @@
+ 
+ ADD_EXECUTABLE(logd log/logd.c log/syslog.c)
+ TARGET_LINK_LIBRARIES(logd ubox ubus udebug)
++IF(OPENWRT_SYSTEMD)
++  FIND_LIBRARY(systemd NAMES systemd REQUIRED)
++  TARGET_SOURCES(logd PRIVATE log/journal.c)
++  TARGET_COMPILE_DEFINITIONS(logd PRIVATE OPENWRT_SYSTEMD)
++  TARGET_LINK_LIBRARIES(logd ${systemd})
++ENDIF()
+ INSTALL(TARGETS logd
+ 	RUNTIME DESTINATION sbin
+ )
+--- a/log/syslog.h
++++ b/log/syslog.h
+@@ -34,6 +34,14 @@
+ 	char data[];
+ };
+ 
++extern bool log_journal_mode;
++void log_store(const char *buf, int size, int priority, int source, const struct timespec *ts);
++#ifdef OPENWRT_SYSTEMD
++int log_journal_init(int buffer_size);
++int log_journal_write(const char *event);
++void log_journal_shutdown(void);
++#endif
++
+ void log_init(int log_size);
+ void log_shutdown(void);
+ 
+--- a/log/syslog.c
++++ b/log/syslog.c
+@@ -110,7 +110,7 @@
+ }
+ 
+ static void
+-log_add_udebug(int priority, char *buf, int size, int source)
++log_add_udebug(int priority, const char *buf, int size, int source)
+ {
+ 	regmatch_t matches[4];
+ 	struct udebug_buf *udb;
+@@ -147,7 +147,7 @@
+ log_add(char *buf, int size, int source)
+ {
+ 	regmatch_t matches[3];
+-	struct log_head *next;
++	struct timespec ts;
+ 	int priority = 0;
+ 	int ret;
+ 	char *c;
+@@ -163,11 +163,8 @@
+ 		*c = ' ';
+ 	}
+ 
+-	c = buf + size - 2;
+-	while (isspace(*c)) {
++	while (size > 1 && isspace((unsigned char)buf[size - 2]))
+ 		size--;
+-		c--;
+-	}
+ 
+ 	buf[size - 1] = 0;
+ 
+@@ -185,6 +182,18 @@
+ 		buf += SYSLOG_PADDING;
+ 	}
+ 
++	clock_gettime(CLOCK_REALTIME, &ts);
++	log_store(buf, size, priority, source, &ts);
++}
++
++void
++log_store(const char *buf, int size, int priority, int source, const struct timespec *ts)
++{
++	struct log_head *next;
++
++	if (size < 1 || size > LOG_LINE_SIZE ||
++	    (size_t)size + 2 * sizeof(struct log_head) >= (size_t)log_size)
++		return;
+ 	log_add_udebug(priority, buf, size, source);
+ 
+ 	/* debug message */
+@@ -210,8 +219,8 @@
+ 	newest->id = current_id++;
+ 	newest->priority = priority;
+ 	newest->source = source;
+-	clock_gettime(CLOCK_REALTIME, &newest->ts);
+-	strcpy(newest->data, buf);
++	newest->ts = *ts;
++	memcpy(newest->data, buf, size);
+ 
+ 	ubus_notify_log(newest);
+ 
+@@ -384,8 +393,10 @@
+ 	for (size_t i = 0; i < ARRAY_SIZE(rings); i++)
+ 		udebug_ubus_ring_init(&ud, &rings[i]);
+ 
+-	syslog_open();
+-	klog_open();
++	if (!log_journal_mode) {
++		syslog_open();
++		klog_open();
++	}
+ 	openlog("sysinit", LOG_CONS, LOG_DAEMON);
+ }
+ 
+@@ -397,8 +408,10 @@
+ 		close(syslog_fd.fd);
+ 	}
+ 
+-	ustream_free(&klog.stream);
+-	close(klog.fd.fd);
++	if (!log_journal_mode) {
++		ustream_free(&klog.stream);
++		close(klog.fd.fd);
++	}
+ 	free(log);
+ 	regfree(&pat_prio);
+ 	regfree(&pat_tstamp);
+--- a/log/logd.c
++++ b/log/logd.c
+@@ -13,6 +13,8 @@
+ 
+ #include <sys/types.h>
+ #include <pwd.h>
++#include <grp.h>
++#include <limits.h>
+ #include <stdio.h>
+ #include <unistd.h>
+ #include <syslog.h>
+@@ -30,6 +32,7 @@
+ #include "syslog.h"
+ 
+ int debug = 0;
++bool log_journal_mode;
+ static struct blob_buf b;
+ static struct ubus_auto_conn conn;
+ static struct udebug_ubus udebug;
+@@ -182,6 +185,11 @@
+ 				event[len - 1] = 0;
+ 			}
+ 
++#ifdef OPENWRT_SYSTEMD
++			if (log_journal_mode)
++				return log_journal_write(event) < 0 ?
++					UBUS_STATUS_UNKNOWN_ERROR : UBUS_STATUS_OK;
++#endif
+ 			log_add(event, len, SOURCE_SYSLOG);
+ 		}
+ 	}
+@@ -248,12 +256,29 @@
+ 	struct passwd *p = NULL;
+ 
+ 	signal(SIGPIPE, SIG_IGN);
+-	while ((ch = getopt(argc, argv, "S:")) != -1) {
++	while ((ch = getopt(argc, argv, "S:Jh")) != -1) {
+ 		switch (ch) {
++		case 'h':
++			printf("Usage: logd [-S <KiB>]"
++#ifdef OPENWRT_SYSTEMD
++			       " [-J]"
++#endif
++			       "\n");
++			return 0;
++		case 'J':
++#ifdef OPENWRT_SYSTEMD
++			log_journal_mode = true;
++			break;
++#else
++			fprintf(stderr, "logd: journal support is not compiled in\n");
++			return 1;
++#endif
+ 		case 'S':
+ 			log_size = atoi(optarg);
+ 			if (log_size < 1)
+ 				log_size = 16;
++			if (log_size > INT_MAX / 1024)
++				return 1;
+ 			break;
+ 		}
+ 	}
+@@ -261,11 +286,21 @@
+ 
+ 	uloop_init();
+ 	log_init(log_size);
+-	conn.cb = ubus_connect_handler;
+-	ubus_auto_connect(&conn);
+-	udebug_ubus_init(&udebug, &conn.ctx, "log", log_udebug_config);
++	if (!log_journal_mode) {
++		conn.cb = ubus_connect_handler;
++		ubus_auto_connect(&conn);
++		udebug_ubus_init(&udebug, &conn.ctx, "log", log_udebug_config);
++	}
+ 	p = getpwnam("logd");
++	if (log_journal_mode && !p) {
++		fprintf(stderr, "logd: missing logd user\n");
++		return 1;
++	}
+ 	if (p) {
++		if (log_journal_mode && initgroups(p->pw_name, p->pw_gid) < 0) {
++			fprintf(stderr, "initgroups() failed: %s\n", strerror(errno));
++			return 1;
++		}
+ 		if (setgid(p->pw_gid) < 0) {
+ 			fprintf(stderr, "setgid() failed: %s\n", strerror(errno));
+ 			exit(1);
+@@ -276,7 +311,26 @@
+ 			exit(1);
+ 		}
+ 	}
++#ifdef OPENWRT_SYSTEMD
++	if (log_journal_mode) {
++		int ret = log_journal_init(log_size);
++
++		if (ret < 0) {
++			fprintf(stderr, "logd: cannot open system journal: %s\n", strerror(-ret));
++			return 1;
++		}
++	}
++#endif
++	if (log_journal_mode) {
++		conn.cb = ubus_connect_handler;
++		ubus_auto_connect(&conn);
++		udebug_ubus_init(&udebug, &conn.ctx, "log", log_udebug_config);
++	}
+ 	uloop_run();
++#ifdef OPENWRT_SYSTEMD
++	if (log_journal_mode)
++		log_journal_shutdown();
++#endif
+ 	udebug_ubus_free(&udebug);
+ 	log_shutdown();
+ 	uloop_done();
+--- a/log/logread.c
++++ b/log/logread.c
+@@ -59,6 +59,10 @@
+ };
+ 
+ static struct uloop_timeout retry;
++static struct uloop_timeout read_timeout;
++static struct ustream_fd log_stream;
++static bool log_stream_open;
++static int read_status;
+ static struct uloop_fd sender;
+ static regex_t regexp_preg;
+ static const char *log_file, *log_ip, *log_port, *log_prefix, *pid_file, *hostname, *regexp_pattern;
+@@ -271,13 +275,45 @@
+ 
+ static void logread_fd_cb(struct ubus_request *req, int fd)
+ {
+-	static struct ustream_fd test_fd;
+-
+-	memset(&test_fd, 0, sizeof(test_fd));
+-
+-	test_fd.stream.notify_read = logread_fd_data_cb;
+-	test_fd.stream.notify_state = logread_fd_state_cb;
+-	ustream_fd_init(&test_fd, fd);
++	memset(&log_stream, 0, sizeof(log_stream));
++	log_stream.stream.notify_read = logread_fd_data_cb;
++	log_stream.stream.notify_state = logread_fd_state_cb;
++	ustream_fd_init(&log_stream, fd);
++	log_stream_open = true;
++}
++
++static void logread_stream_close(void)
++{
++	int fd;
++
++	if (!log_stream_open)
++		return;
++	/* Remove the old pipe watcher before reusing the ustream on reconnect. */
++	fd = log_stream.fd.fd;
++	ustream_free(&log_stream.stream);
++	close(fd);
++	log_stream_open = false;
++}
++
++static void logread_request_done(struct ubus_request *req, int status)
++{
++	uloop_timeout_cancel(&read_timeout);
++	read_status = status;
++	if (!status && log_stream_open)
++		return;
++	if (!status)
++		read_status = UBUS_STATUS_UNKNOWN_ERROR;
++	if (log_follow)
++		logd_conn_tries = LOGD_CONNECT_RETRY;
++	uloop_end();
++}
++
++static void logread_request_timeout(struct uloop_timeout *timeout)
++{
++	read_status = UBUS_STATUS_TIMEOUT;
++	if (log_follow)
++		logd_conn_tries = LOGD_CONNECT_RETRY;
++	uloop_end();
+ }
+ 
+ static void logread_setup_output(void)
+@@ -397,7 +433,7 @@
+ 	else if (log_follow)
+ 		blobmsg_add_u32(&b, "lines", 0);
+ 
+-	/* ugly ugly ugly ... we need a real reconnect logic */
++	read_timeout.cb = logread_request_timeout;
+ 	do {
+ 		struct ubus_request req = { 0 };
+ 
+@@ -410,11 +446,26 @@
+ 		logd_conn_tries = 0;
+ 		logread_setup_output();
+ 
+-		ubus_invoke_async(ctx, id, "read", b.head, &req);
++		ret = ubus_invoke_async(ctx, id, "read", b.head, &req);
++		if (ret) {
++			if (log_follow)
++				logd_conn_tries = LOGD_CONNECT_RETRY;
++			sleep(1);
++			continue;
++		}
+ 		req.fd_cb = logread_fd_cb;
++		req.complete_cb = logread_request_done;
++		read_status = UBUS_STATUS_TIMEOUT;
++		uloop_timeout_set(&read_timeout, 3000);
+ 		ubus_complete_request_async(ctx, &req);
+ 
+ 		uloop_run();
++		uloop_timeout_cancel(&read_timeout);
++		ubus_abort_request(ctx, &req);
++		logread_stream_close();
++		ret = read_status;
++		if (logd_conn_tries)
++			usleep(100000);
+ 
+ 	} while (logd_conn_tries--);
+ 
+--- /dev/null
++++ b/log/journal.c
+@@ -0,0 +1,447 @@
++// SPDX-License-Identifier: LGPL-2.1-only
++/* Journal-backed logd compatibility buffer. Journald owns all input sockets. */
++#include <errno.h>
++#include <limits.h>
++#include <poll.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/socket.h>
++#include <sys/stat.h>
++#include <sys/un.h>
++#include <syslog.h>
++#include <unistd.h>
++#include <systemd/sd-id128.h>
++#include <systemd/sd-journal.h>
++#include <libubox/uloop.h>
++#include <libubox/utils.h>
++#include "syslog.h"
++
++#define JOURNAL_BATCH 128
++
++struct journal_record {
++	struct journal_record *next;
++	struct timespec ts;
++	int priority;
++	int source;
++	size_t size;
++	char msg[LOG_LINE_SIZE];
++};
++
++static sd_journal *journal;
++static struct uloop_fd journal_fd = { .fd = -1 };
++static struct uloop_timeout journal_timer, drain_timer, path_timer;
++static char *last_cursor;
++static struct journal_path {
++	const char *name;
++	dev_t device;
++	ino_t inode;
++	bool exists;
++} journal_paths[] = {
++	{ .name = "/run/log/journal" },
++	{ .name = "/var/log/journal" },
++};
++
++static bool journal_paths_changed(void)
++{
++	struct stat st;
++	bool changed = false;
++
++	for (size_t i = 0; i < ARRAY_SIZE(journal_paths); i++) {
++		struct journal_path *path = &journal_paths[i];
++		bool exists = stat(path->name, &st) == 0;
++
++		if (exists != path->exists ||
++		    (exists && (st.st_dev != path->device || st.st_ino != path->inode)))
++			changed = true;
++		path->exists = exists;
++		if (exists) {
++			path->device = st.st_dev;
++			path->inode = st.st_ino;
++		}
++	}
++	return changed;
++}
++
++static int journal_open_reader(sd_journal **result)
++{
++	sd_journal *reader = NULL;
++	sd_id128_t boot;
++	char match[sizeof("_BOOT_ID=") + SD_ID128_STRING_MAX];
++	int ret;
++
++	ret = sd_journal_open(&reader, SD_JOURNAL_LOCAL_ONLY | SD_JOURNAL_SYSTEM);
++	if (ret < 0)
++		return ret;
++	ret = sd_id128_get_boot(&boot);
++	if (ret < 0)
++		goto out;
++	snprintf(match, sizeof(match), "_BOOT_ID=" SD_ID128_FORMAT_STR, SD_ID128_FORMAT_VAL(boot));
++	ret = sd_journal_add_match(reader, match, 0);
++	if (ret < 0)
++		goto out;
++	ret = sd_journal_set_data_threshold(reader, LOG_LINE_SIZE);
++	if (ret < 0)
++		goto out;
++	*result = reader;
++	return 0;
++out:
++	sd_journal_close(reader);
++	return ret;
++}
++
++static int journal_seek_after(sd_journal *reader, const char *cursor)
++{
++	int ret;
++
++	if (!cursor)
++		return sd_journal_seek_head(reader);
++	ret = sd_journal_seek_cursor(reader, cursor);
++	if (ret < 0)
++		return ret;
++	ret = sd_journal_next(reader);
++	if (ret <= 0)
++		return ret;
++	ret = sd_journal_test_cursor(reader, cursor);
++	if (ret < 0)
++		return ret;
++	/* If the saved record was vacuumed, include its successor. */
++	if (!ret) {
++		ret = sd_journal_previous(reader);
++		if (ret < 0)
++			return ret;
++	}
++	return 0;
++}
++
++static void journal_error(int error)
++{
++	fprintf(stderr, "logd: journal reader failed: %s\n", strerror(-error));
++	exit(1); /* procd respawns the reader; never fall back to owning /dev/log. */
++}
++
++static int journal_field(const char *name, const char **data, size_t *size)
++{
++	const void *field;
++	size_t len, prefix = strlen(name) + 1;
++	int ret = sd_journal_get_data(journal, name, &field, &len);
++
++	if (ret < 0)
++		return ret;
++	if (len < prefix)
++		return -EINVAL;
++	*data = (const char *)field + prefix;
++	*size = len - prefix;
++	return 0;
++}
++
++static int journal_number(const char *name, int fallback, int maximum)
++{
++	const char *data;
++	size_t size;
++	unsigned int value = 0;
++
++	if (journal_field(name, &data, &size) < 0 || !size || size > 10)
++		return fallback;
++	for (size_t i = 0; i < size; i++) {
++		if (data[i] < '0' || data[i] > '9' ||
++		    value > ((unsigned int)maximum - (data[i] - '0')) / 10)
++			return fallback;
++		value = value * 10 + data[i] - '0';
++		if (value > (unsigned int)maximum)
++			return fallback;
++	}
++	return value;
++}
++
++static void journal_append(struct journal_record *record, const char *data, size_t size)
++{
++	/* Keep the legacy string/line boundary without changing the journal itself. */
++	while (size-- && record->size < sizeof(record->msg) - 1) {
++		unsigned char c = *data++;
++
++		record->msg[record->size++] = (c < ' ' || c == 127) ? ' ' : c;
++	}
++	record->msg[record->size] = 0;
++}
++
++static int journal_record_read(struct journal_record *record)
++{
++	const char *data;
++	size_t size;
++	uint64_t timestamp;
++	int ret;
++
++	memset(record, 0, sizeof(*record));
++	ret = journal_field("MESSAGE", &data, &size);
++	if (ret == -ENOENT)
++		return 0;
++	if (ret < 0)
++		return ret;
++	ret = sd_journal_get_realtime_usec(journal, &timestamp);
++	if (ret < 0)
++		return ret;
++	record->ts.tv_sec = timestamp / 1000000;
++	record->ts.tv_nsec = (timestamp % 1000000) * 1000;
++	record->source = SOURCE_SYSLOG;
++	if (!journal_field("_TRANSPORT", &data, &size) &&
++	    size == 6 && !memcmp(data, "kernel", 6))
++		record->source = SOURCE_KLOG;
++	record->priority = LOG_MAKEPRI(journal_number("SYSLOG_FACILITY",
++			record->source == SOURCE_KLOG ? LOG_KERN : LOG_DAEMON >> 3, 23) << 3,
++			journal_number("PRIORITY", LOG_INFO, 7));
++
++	if (record->source != SOURCE_KLOG) {
++		if (journal_field("SYSLOG_IDENTIFIER", &data, &size) < 0 &&
++		    journal_field("_COMM", &data, &size) < 0) {
++			data = "journal";
++			size = 7;
++		}
++		/* Leave room for the PID and message even for a very long identifier. */
++		journal_append(record, data, size < 128 ? size : 128);
++		if ((journal_field("SYSLOG_PID", &data, &size) == 0 ||
++		     journal_field("_PID", &data, &size) == 0) && size && size <= 10) {
++			bool numeric = true;
++
++			for (size_t i = 0; i < size; i++)
++				if (data[i] < '0' || data[i] > '9')
++					numeric = false;
++			if (numeric) {
++				journal_append(record, "[", 1);
++				journal_append(record, data, size);
++				journal_append(record, "]", 1);
++			}
++		}
++		journal_append(record, ": ", 2);
++	}
++	ret = journal_field("MESSAGE", &data, &size);
++	if (ret < 0)
++		return ret;
++	journal_append(record, data, size);
++	record->size++; /* log_store() includes the terminating NUL. */
++	return 1;
++}
++
++static void journal_record_store(struct journal_record *record)
++{
++	log_store(record->msg, record->size, record->priority, record->source, &record->ts);
++}
++
++static void journal_watches(void);
++
++static void journal_drain(struct uloop_timeout *timeout)
++{
++	struct journal_record record;
++	char *cursor;
++	int ret, count = 0;
++
++	while (count++ < JOURNAL_BATCH) {
++		ret = sd_journal_next(journal);
++		if (ret < 0)
++			journal_error(ret);
++		if (!ret)
++			break;
++		ret = journal_record_read(&record);
++		if (ret < 0)
++			journal_error(ret);
++		if (ret)
++			journal_record_store(&record);
++		ret = sd_journal_get_cursor(journal, &cursor);
++		if (ret < 0)
++			journal_error(ret);
++		free(last_cursor);
++		last_cursor = cursor;
++	}
++	if (count > JOURNAL_BATCH)
++		uloop_timeout_set(&drain_timer, 0);
++	journal_watches();
++}
++
++static void journal_process(struct uloop_timeout *timeout)
++{
++	int ret = sd_journal_process(journal);
++
++	if (ret < 0)
++		journal_error(ret);
++	/* INVALIDATE also covers rotation, vacuum and the runtime journal flush. */
++	journal_drain(NULL);
++}
++
++static void journal_ready(struct uloop_fd *fd, unsigned int events)
++{
++	journal_process(NULL);
++}
++
++static void journal_watches(void)
++{
++	struct timespec now;
++	uint64_t deadline, usec;
++	int fd = sd_journal_get_fd(journal);
++	int events, ret;
++
++	if (fd < 0)
++		journal_error(fd);
++	if (fd != journal_fd.fd) {
++		if (journal_fd.registered)
++			uloop_fd_delete(&journal_fd);
++		journal_fd.fd = fd;
++	}
++	events = sd_journal_get_events(journal);
++	if (events < 0)
++		journal_error(events);
++	ret = uloop_fd_add(&journal_fd,
++		((events & POLLIN) ? ULOOP_READ : 0) |
++		((events & POLLOUT) ? ULOOP_WRITE : 0));
++	if (ret < 0)
++		journal_error(-errno);
++	ret = sd_journal_get_timeout(journal, &deadline);
++	if (ret < 0)
++		journal_error(ret);
++	uloop_timeout_cancel(&journal_timer);
++	if (deadline == UINT64_MAX)
++		return;
++	if (clock_gettime(CLOCK_MONOTONIC, &now) < 0)
++		journal_error(-errno);
++	usec = (uint64_t)now.tv_sec * 1000000 + now.tv_nsec / 1000;
++	usec = deadline > usec ? (deadline - usec + 999) / 1000 : 0;
++	uloop_timeout_set(&journal_timer, usec > INT_MAX ? INT_MAX : (int)usec);
++}
++
++static void journal_check_paths(struct uloop_timeout *timeout)
++{
++	sd_journal *reader = NULL;
++	int ret;
++
++	/* Inotify cannot see a bind mount covering an already-watched directory. */
++	if (journal_paths_changed()) {
++		ret = journal_open_reader(&reader);
++		if (ret >= 0)
++			ret = journal_seek_after(reader, last_cursor);
++		if (ret < 0) {
++			sd_journal_close(reader);
++			journal_error(ret);
++		}
++		uloop_timeout_cancel(&drain_timer);
++		if (journal_fd.registered)
++			uloop_fd_delete(&journal_fd);
++		sd_journal_close(journal);
++		journal = reader;
++		journal_fd.fd = -1;
++		journal_watches();
++		uloop_timeout_set(&drain_timer, 0);
++	}
++	uloop_timeout_set(&path_timer, 1000);
++}
++
++int log_journal_init(int buffer_size)
++{
++	struct journal_record record, *records = NULL, *next;
++	char *cursor = NULL;
++	size_t bytes = 0;
++	int ret;
++
++	ret = journal_open_reader(&journal);
++	if (ret < 0)
++		return ret;
++	journal_fd.fd = sd_journal_get_fd(journal);
++	if (journal_fd.fd < 0) {
++		ret = journal_fd.fd;
++		goto out;
++	}
++	ret = sd_journal_seek_tail(journal);
++	if (ret < 0)
++		goto out;
++
++	/* Seed only the newest ringful, before registering the ubus object. */
++	while ((ret = sd_journal_previous(journal)) > 0) {
++		if (!cursor) {
++			ret = sd_journal_get_cursor(journal, &cursor);
++			if (ret < 0)
++				goto out;
++		}
++		ret = journal_record_read(&record);
++		if (ret < 0)
++			goto out;
++		if (!ret)
++			continue;
++		/* A very small legacy ring may not fit a maximum-sized message. */
++		if (record.size + 2 * sizeof(struct log_head) >= (size_t)buffer_size)
++			continue;
++		bytes += sizeof(struct log_head) + ((record.size + 3) & ~3U);
++		if (bytes + sizeof(struct log_head) >= (size_t)buffer_size)
++			break;
++		next = malloc(sizeof(*next));
++		if (!next) {
++			ret = -ENOMEM;
++			goto out;
++		}
++		*next = record;
++		next->next = records;
++		records = next;
++	}
++	if (ret < 0)
++		goto out;
++	for (next = records; next; next = next->next)
++		journal_record_store(next);
++
++	if (cursor) {
++		ret = journal_seek_after(journal, cursor);
++		if (ret < 0)
++			goto out;
++		last_cursor = cursor;
++		cursor = NULL;
++	}
++	journal_fd.cb = journal_ready;
++	journal_timer.cb = journal_process;
++	drain_timer.cb = journal_drain;
++	path_timer.cb = journal_check_paths;
++	journal_paths_changed();
++	uloop_timeout_set(&path_timer, 1000);
++	journal_watches();
++	uloop_timeout_set(&drain_timer, 0);
++	ret = 0;
++out:
++	free(cursor);
++	while (records) {
++		next = records->next;
++		free(records);
++		records = next;
++	}
++	if (ret < 0)
++		log_journal_shutdown();
++	return ret;
++}
++
++int log_journal_write(const char *event)
++{
++	const struct sockaddr_un address = {
++		.sun_family = AF_UNIX,
++		.sun_path = "/run/systemd/journal/dev-log",
++	};
++	size_t size = strlen(event);
++	int fd, ret;
++
++	fd = socket(AF_UNIX, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
++	if (fd < 0)
++		return -errno;
++	ret = sendto(fd, event, size, MSG_NOSIGNAL,
++		     (const struct sockaddr *)&address, sizeof(address));
++	ret = ret < 0 ? -errno : ((size_t)ret == size ? 0 : -EIO);
++	close(fd);
++	return ret;
++}
++
++void log_journal_shutdown(void)
++{
++	uloop_timeout_cancel(&path_timer);
++	uloop_timeout_cancel(&drain_timer);
++	uloop_timeout_cancel(&journal_timer);
++	if (journal_fd.registered)
++		uloop_fd_delete(&journal_fd);
++	/* The descriptor belongs to libsystemd. */
++	sd_journal_close(journal);
++	journal = NULL;
++	journal_fd.fd = -1;
++	free(last_cursor);
++	last_cursor = NULL;
++}

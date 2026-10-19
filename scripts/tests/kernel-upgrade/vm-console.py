@@ -67,7 +67,7 @@ def connect():
         try:
             index = child.expect([r'Please press Enter to activate this console',
                                   r'[^\r\n]*login:', r'Password:',
-                                  r'root@[A-Za-z0-9_.-]+:[^\r\n]*# '], timeout=10)
+                                  r'root@[A-Za-z0-9_.()-]+:[^\r\n]*# '], timeout=10)
         except pexpect.TIMEOUT:
             child.sendline('')
             continue

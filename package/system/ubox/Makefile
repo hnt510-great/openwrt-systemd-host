@@ -1,7 +1,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=ubox
-PKG_RELEASE:=5
+PKG_RELEASE:=8
+PKG_CONFIG_DEPENDS:=CONFIG_OPENWRT_SYSTEMD
 
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL=$(PROJECT_GIT)/project/ubox.git
@@ -17,6 +18,8 @@ PKG_MAINTAINER:=John Crispin <john@phrozen.org>
 
 include $(INCLUDE_DIR)/package.mk
 include $(INCLUDE_DIR)/cmake.mk
+
+CMAKE_OPTIONS += -DOPENWRT_SYSTEMD=$(if $(CONFIG_OPENWRT_SYSTEMD),ON,OFF)
 
 define Package/ubox
   SECTION:=base
@@ -44,9 +47,9 @@ endef
 define Package/logd
   SECTION:=base
   CATEGORY:=Base system
-  DEPENDS:=+libubox +libubus +libblobmsg-json +libudebug
+  DEPENDS:=+libubox +libubus +libblobmsg-json +libudebug +OPENWRT_SYSTEMD:libsystemd
   TITLE:=OpenWrt system log implementation
-  USERID:=logd=514:logd=514
+  USERID:=logd=514:logd=514$(if $(CONFIG_OPENWRT_SYSTEMD),:systemd-journal=190)
   ALTERNATIVES:=200:/sbin/logread:/usr/libexec/logread-ubox
 endef
 
@@ -72,6 +75,10 @@ define Package/logd/install
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/logread $(1)/usr/libexec/logread-ubox
 	$(INSTALL_BIN) ./files/log.init $(1)/etc/init.d/log
 	$(INSTALL_DATA) ./files/logd.json $(1)/usr/share/acl.d
+ifneq ($(CONFIG_OPENWRT_SYSTEMD),)
+	$(INSTALL_DIR) $(1)/usr/share/logd
+	echo 'journal-reader-v1' > $(1)/usr/share/logd/journal-reader
+endif
 endef
 
 $(eval $(call BuildPackage,ubox))

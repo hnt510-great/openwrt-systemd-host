@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=systemd-openwrt
-PKG_RELEASE:=7
+PKG_RELEASE:=8
 PKG_LICENSE:=GPL-2.0-only
 PKG_CONFIG_DEPENDS:=CONFIG_TARGET_ROOTFS_PERSIST_VAR
 
@@ -17,7 +17,7 @@ define Package/systemd-openwrt
   CATEGORY:=Base system
   TITLE:=OpenWrt native systemd boot and procd compatibility
   DEPENDS:=@OPENWRT_SYSTEMD +systemd +polkit +dbus +procd +ubusd +ubus +coreutils-timeout +kmod-fs-vfat
-  DEPENDS+=+openssh-server-pam
+  DEPENDS+=+openssh-server-pam +logd
 endef
 
 define Package/systemd-openwrt/conffiles
@@ -83,7 +83,7 @@ define Package/systemd-openwrt/install
 	done
 	for unit in systemd-udevd.service systemd-udevd-control.socket systemd-udevd-kernel.socket \
 		systemd-udevd-varlink.socket systemd-udev-load-credentials.service \
-		systemd-udev-trigger.service systemd-udev-settle.service systemd-journald-dev-log.socket \
+		systemd-udev-trigger.service systemd-udev-settle.service \
 		systemd-sysctl.service systemd-modules-load.service; do \
 		$(LN) /dev/null $(1)/etc/systemd/system/$$$$unit; \
 	done

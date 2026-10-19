@@ -63,6 +63,12 @@ echo native-journal-check | systemd-cat -t openwrt-systemd-smoke
 journalctl --sync
 journalctl -b -t openwrt-systemd-smoke --no-pager | grep -q native-journal-check
 logger -t openwrt-systemd-smoke router-log-check
-logread -e router-log-check | grep -q router-log-check
+attempt=0
+until journalctl -b -t openwrt-systemd-smoke --no-pager | grep -q router-log-check &&
+	logread -e router-log-check | grep -q router-log-check; do
+	attempt=$((attempt + 1))
+	[ "$attempt" -lt 5 ] || exit 1
+	sleep 1
+done
 sysupgrade -l | grep -q /etc/machine-id
 echo 'native boot, router bridge, timer, socket, cgroup limits and both log paths passed'

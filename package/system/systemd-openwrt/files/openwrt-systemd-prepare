@@ -15,6 +15,13 @@ fi
 [ -d /run ] && [ ! -L /run ] || exit 1
 [ -L /var/run ] && [ "$(readlink /var/run)" = /run ] || exit 1
 /usr/lib/systemd/systemd --version >/dev/null || exit 1
+# Refuse a partial logging upgrade instead of letting an old logd unlink
+# journald's socket, or booting with the legacy package mask still installed.
+if [ "$(readlink /etc/systemd/system/systemd-journald-dev-log.socket)" = /dev/null ] ||
+   [ "$(cat /usr/share/logd/journal-reader 2>/dev/null)" != journal-reader-v1 ]; then
+	echo 'Native logging requires journal-capable logd and an unmasked systemd-journald-dev-log.socket; booting procd recovery' >&2
+	exit 1
+fi
 if [ -f /etc/openwrt-kernel/state.json ] || [ -f /usr/share/openwrt-kernel/selected.json ]; then
 	/usr/sbin/kernelctl prepare || exit 1
 fi
@@ -23,4 +30,5 @@ fi
 if [ -x /usr/sbin/depmod ]; then
 	/usr/sbin/depmod -a || exit 1
 fi
+touch /run/openwrt-journald-primary || exit 1
 exit 0

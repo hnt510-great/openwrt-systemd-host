@@ -36,7 +36,10 @@ OpenWrt retains netifd, firewall, DHCP/DNS, NTP, device events, module loading,
 sysctl and logd. Udev, its generators, and systemd's competing sysctl/module
 units are disabled. Native units should use explicit paths and service
 dependencies; udev-backed `.device` dependencies are outside this integration.
-`logread` retains router logs, while `journalctl` records native unit output.
+Journald owns `/dev/log` and collects syslog, kernel messages and native unit
+output. In systemd mode, procd starts `logd -J` as a journal-backed compatibility
+reader: `logread`, the existing LuCI System Log page and UCI log forwarding
+continue to work. Recovery boots retain logd's original syslog/kernel readers.
 Journald uses persistent storage on root/extroot with bounded disk usage; see
 [journal storage and cleanup](journald.md). Systemd watchdog handling is
 disabled so procd remains the watchdog owner.
