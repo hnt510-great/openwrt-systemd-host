@@ -1,0 +1,22 @@
+# Explicit adapters for the current image. Other scripts declaring USE_PROCD
+# use ubus; unknown legacy scripts are controllable but report unknown health.
+boot task
+done task
+sysfixtime task
+fstab task
+kernel-generation task
+lan-apk-feeds task
+led task
+lm-sensors task
+openssl task
+podman-rootless task
+sudo task
+sysctl task
+sysfsutils task
+wgserver task
+sysstat procd-task
+urandom_seed procd-task
+zram zram
+firewall firewall
+passwall passwall
+passwall_server passwall_server

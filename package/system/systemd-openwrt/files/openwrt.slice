@@ -1,0 +1,5 @@
+[Unit]
+Description=OpenWrt service workloads
+
+[Slice]
+TasksMax=infinity

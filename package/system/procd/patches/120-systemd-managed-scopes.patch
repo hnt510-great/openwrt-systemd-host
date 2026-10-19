@@ -1,0 +1,1065 @@
+Subject: [PATCH] procd: place native workloads in systemd scopes
+
+Keep procd lifecycle ownership and confine jail writers to delegated
+subtrees.
+
+---
+diff -ruN a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt	2026-10-18 16:43:20.734372613 +0800
++++ b/CMakeLists.txt	2026-10-19 15:45:05.264398441 +0800
+@@ -38,6 +38,11 @@
+   ADD_DEFINITIONS(-DOPENWRT_SYSTEMD)
+   FIND_LIBRARY(systemd NAMES systemd REQUIRED)
+   SET(SYSTEMD_LIB ${systemd})
++  ADD_LIBRARY(systemd-cgroup OBJECT systemd-cgroup.c)
++  ADD_EXECUTABLE(openwrt-cgroup scope-helper.c $<TARGET_OBJECTS:systemd-cgroup>)
++  TARGET_LINK_LIBRARIES(openwrt-cgroup ${systemd})
++  INSTALL(TARGETS openwrt-cgroup RUNTIME DESTINATION ${CMAKE_INSTALL_LIBEXECDIR})
++  SET(SOURCES ${SOURCES} $<TARGET_OBJECTS:systemd-cgroup>)
+ ENDIF()
+ 
+ SET(LIBS ${ubox} ${ubus} ${json} ${blobmsg_json} ${json_script} ${udebug})
+@@ -114,7 +119,10 @@
+ 
+ IF(JAIL_SUPPORT)
+ ADD_EXECUTABLE(ujail jail/jail.c jail/cgroups.c jail/cgroups-bpf.c jail/elf.c jail/fs.c jail/capabilities.c jail/landlock.c jail/netifd.c ${SOURCES_OCI_SECCOMP} ${SOURCES_JAIL_TRACE})
+-TARGET_LINK_LIBRARIES(ujail ${ubox} ${ubus} ${uci} ${blobmsg_json})
++TARGET_LINK_LIBRARIES(ujail ${ubox} ${ubus} ${uci} ${blobmsg_json} ${SYSTEMD_LIB})
++IF(OPENWRT_SYSTEMD)
++  TARGET_SOURCES(ujail PRIVATE $<TARGET_OBJECTS:systemd-cgroup>)
++ENDIF()
+ INSTALL(TARGETS ujail
+ 	RUNTIME DESTINATION ${CMAKE_INSTALL_SBINDIR}
+ )
+diff -ruN a/jail/cgroups.c b/jail/cgroups.c
+--- a/jail/cgroups.c	2026-10-07 22:29:53.000000000 +0800
++++ b/jail/cgroups.c	2026-10-19 19:03:16.988295986 +0800
+@@ -57,6 +57,15 @@
+ 
+ struct avl_tree cgvals;
+ static char *cgroup_path;
++static char *delegation_root;
++
++void cgroups_set_delegation(const char *root)
++{
++	free(delegation_root);
++	delegation_root = strdup(root);
++	if (!delegation_root)
++		exit(ENOMEM);
++}
+ static bool initialized;
+ static bool destroyed;
+ 
+@@ -342,7 +351,8 @@
+ 	sep = strrchr(cgroup_path, '/');
+ 	if (sep && sep != cgroup_path) {
+ 		*sep = '\0';
+-		(void)rmdir(cgroup_path);
++		if (!delegation_root || strcmp(cgroup_path, delegation_root))
++			(void)rmdir(cgroup_path);
+ 		*sep = '/';
+ 	}
+ }
+@@ -377,7 +387,8 @@
+ 		exit(ENOMEM);
+ 
+ 	DEBUG("recursively applying cgroup.subtree_control = \"%s\"\n", subtree_control);
+-	cdir = &cgroup_path[strlen(CGROUP_ROOT) - 2];
++	cdir = &cgroup_path[delegation_root ? strlen(delegation_root) - 1 :
++			   strlen(CGROUP_ROOT) - 2];
+ 	while ((cdir = strchr(cdir + 1, '/'))) {
+ 		*cdir = '\0';
+ 		snprintf(ent, maxlen, "%s/cgroup.subtree_control", cgroup_path);
+diff -ruN a/jail/cgroups.h b/jail/cgroups.h
+--- a/jail/cgroups.h	2026-10-07 22:29:53.000000000 +0800
++++ b/jail/cgroups.h	2026-10-19 15:45:50.818501302 +0800
+@@ -17,6 +17,7 @@
+ #include <stdbool.h>
+ #include <stdint.h>
+ 
++void cgroups_set_delegation(const char *root);
+ void cgroups_init(const char *p);
+ int parseOCIlinuxcgroups(struct blob_attr *msg, bool is_update);
+ void cgroups_create(void);
+diff -ruN a/jail/jail.c b/jail/jail.c
+--- a/jail/jail.c	2026-10-07 22:29:53.000000000 +0800
++++ b/jail/jail.c	2026-10-19 15:51:32.844231560 +0800
+@@ -73,6 +73,7 @@
+ #include "seccomp-inject.h"
+ #include "seccomp-trace.h"
+ #include "cgroups.h"
++#include "../systemd-cgroup.h"
+ #include "netifd.h"
+ #include "../stdio-fds.h"
+ 
+@@ -4774,6 +4775,52 @@
+ 	return 0;
+ }
+ 
++static int native_jail_cgroup(char *path, size_t len, const char *requested)
++{
++	char boundary[PATH_MAX], supervisor[PATH_MAX], procs[PATH_MAX], scope[64];
++	const char *relative = requested;
++	int fd, r;
++
++	r = owrt_scope_delegation(boundary, sizeof(boundary));
++	if (r < 0) {
++		r = owrt_scope_name(scope, sizeof(scope));
++		if (!r)
++			r = owrt_scope_enter(scope, opts.name ? opts.name : "jail", getpid(), true);
++		if (!r)
++			r = owrt_scope_delegation(boundary, sizeof(boundary));
++		if (r < 0)
++			return r;
++	}
++	if (snprintf(supervisor, sizeof(supervisor), "%s/supervisor", boundary) >=
++	    sizeof(supervisor) ||
++	    snprintf(procs, sizeof(procs), "%s/cgroup.procs", supervisor) >= sizeof(procs))
++		return -ENAMETOOLONG;
++	if (mkdir(supervisor, 0700) && errno != EEXIST)
++		return -errno;
++	fd = open(procs, O_WRONLY | O_CLOEXEC);
++	if (fd < 0)
++		return -errno;
++	r = dprintf(fd, "%d", getpid());
++	close(fd);
++	if (r < 0)
++		return -errno;
++
++	/* OCI labels are local to this delegated execution, never host paths. */
++	if (relative && opts.systemd_cgroup) {
++		relative = strrchr(relative, ':');
++		if (!relative || !relative[1])
++			return -EINVAL;
++		relative++;
++	}
++	if (relative && (*relative == '/' || strstr(relative, "..")))
++		return -EPERM;
++	if (snprintf(path, len, "%s/payload%s%s", boundary,
++		     relative && *relative ? "/" : "", relative ? relative : "") >= len)
++		return -ENAMETOOLONG;
++	cgroups_set_delegation(boundary);
++	return 0;
++}
++
+ static int parseOCIlinux(struct blob_attr *msg)
+ {
+ 	struct blob_attr *tb[__OCI_LINUX_MAX];
+@@ -4781,7 +4828,7 @@
+ 	int rem;
+ 	int res = 0;
+ 	char *cgpath;
+-	char cgfullpath[256] = "/sys/fs/cgroup";
++	char cgfullpath[PATH_MAX] = "/sys/fs/cgroup";
+ 	char cgleaf[200];
+ 	char *cgsep;
+ 
+@@ -4883,7 +4930,15 @@
+ 			return res;
+ 	}
+ 
+-	if (tb[OCI_LINUX_CGROUPSPATH]) {
++	if (owrt_systemd_active()) {
++		res = native_jail_cgroup(cgfullpath, sizeof(cgfullpath),
++			 tb[OCI_LINUX_CGROUPSPATH] ?
++			 blobmsg_get_string(tb[OCI_LINUX_CGROUPSPATH]) : NULL);
++		if (res) {
++			ERROR("cannot establish delegated jail cgroup: %s\n", strerror(-res));
++			return -res;
++		}
++	} else if (tb[OCI_LINUX_CGROUPSPATH]) {
+ 		cgpath = blobmsg_get_string(tb[OCI_LINUX_CGROUPSPATH]);
+ 		if (opts.systemd_cgroup) {
+ 			char *orig = strdupa(cgpath);
+diff -ruN a/procd.c b/procd.c
+--- a/procd.c	2026-10-18 16:43:20.735501817 +0800
++++ b/procd.c	2026-10-19 19:01:51.895655080 +0800
+@@ -30,6 +30,7 @@
+ #endif
+ 
+ bool procd_systemd;
++bool procd_systemd_stopping;
+ static bool systemd_ubus_ready, systemd_coldplug_ready;
+ 
+ static void systemd_ready(void)
+@@ -53,14 +54,35 @@
+ }
+ 
+ #ifdef OPENWRT_SYSTEMD
++static void systemd_drained(struct uloop_timeout *t)
++{
++	struct service *s;
++
++	avl_for_each_element(&services, s, avl)
++		if (!avl_is_empty(&s->instances.avl))
++			goto wait;
++	avl_for_each_element(&containers, s, avl)
++		if (!avl_is_empty(&s->instances.avl))
++			goto wait;
++	uloop_end();
++	return;
++wait:
++	uloop_timeout_set(t, 50);
++}
++
++static struct uloop_timeout systemd_drain = { .cb = systemd_drained };
++
+ static void systemd_stop(struct uloop_signal *signal)
+ {
++	if (procd_systemd_stopping)
++		return;
++	procd_systemd_stopping = true;
+ 	sd_notify(0, "STOPPING=1");
+ 	service_stop_all();
+ 	hotplug_shutdown();
+ 	watchdog_set_magicclose(true);
+ 	watchdog_set_stopped(true);
+-	uloop_end();
++	uloop_timeout_set(&systemd_drain, 0);
+ }
+ 
+ static struct uloop_signal systemd_term = { .signo = SIGTERM, .cb = systemd_stop };
+diff -ruN a/procd.h b/procd.h
+--- a/procd.h	2026-10-19 18:52:47.009851216 +0800
++++ b/procd.h	2026-10-19 19:01:51.895516320 +0800
+@@ -32,6 +32,7 @@
+ 
+ extern const char *ubus_socket;
+ extern bool procd_systemd;
++extern bool procd_systemd_stopping;
+ void procd_systemd_ubus_ready(void);
+ void procd_systemd_coldplug_ready(void);
+ 
+diff -ruN a/scope-helper.c b/scope-helper.c
+--- a/scope-helper.c	1970-01-01 07:30:00.000000000 +0730
++++ b/scope-helper.c	2026-10-19 18:50:31.756374465 +0800
+@@ -0,0 +1,31 @@
++// SPDX-License-Identifier: GPL-2.0-only
++#define _GNU_SOURCE
++#include <stdio.h>
++#include <string.h>
++#include <unistd.h>
++#include "systemd-cgroup.h"
++
++int main(int argc, char **argv)
++{
++	char scope[64];
++	int r;
++	bool parent = argc == 3 && !strcmp(argv[1], "enter-parent");
++	bool execute = argc >= 4 && !strcmp(argv[1], "exec");
++
++	if (!parent && !execute)
++		return 2;
++	if (owrt_systemd_active()) {
++		r = owrt_scope_name(scope, sizeof(scope));
++		if (!r)
++			r = owrt_scope_enter(scope, argv[2], parent ? getppid() : getpid(), false);
++		if (r < 0)
++			fprintf(stderr, "OpenWrt %s: inherited cgroup placement: %s\n",
++				argv[2], strerror(-r));
++	}
++	if (execute) {
++		execv(argv[3], argv + 3);
++		perror(argv[3]);
++		return 127;
++	}
++	return 0;
++}
+diff -ruN a/service/instance.c b/service/instance.c
+--- a/service/instance.c	2026-10-07 22:29:53.000000000 +0800
++++ b/service/instance.c	2026-10-19 19:14:34.128145914 +0800
+@@ -42,9 +42,13 @@
+ #include "vrf.h"
+ 
+ #define UJAIL_BIN_PATH "/sbin/ujail"
++#include "../systemd-cgroup.h"
++
+ #define CGROUP_BASEDIR "/sys/fs/cgroup/services"
+ #define CGROUP_DRAIN_TIMEOUT_MSEC 1000
+ 
++static void instance_cgroup_wait(struct service_instance *in);
++
+ enum {
+ 	INSTANCE_ATTR_COMMAND,
+ 	INSTANCE_ATTR_ENV,
+@@ -643,7 +647,7 @@
+ instance_add_cgroup(const char *service, const char *instance)
+ {
+ 	const char *cgroup_procs = "/cgroup.procs";
+-	char cgnamebuf[256];
++	char cgnamebuf[1024];
+ 	struct stat sb;
+ 	int fd, ret;
+ 
+@@ -683,11 +687,33 @@
+ static int
+ instance_set_vrf(struct service_instance *in)
+ {
+-	char cgnamebuf[256];
++	char cgnamebuf[1024];
+ 	int fd, ret;
+ 
+-	ret = snprintf(cgnamebuf, sizeof(cgnamebuf), "%s/%s/%s", CGROUP_BASEDIR,
+-		       in->srv->name, in->name);
++	if (procd_systemd) {
++		if (!in->vrf)
++			return 0;
++		ret = snprintf(cgnamebuf, sizeof(cgnamebuf), "%s/payload", in->systemd_cgroup);
++		if (ret >= (int)sizeof(cgnamebuf))
++			return -ENAMETOOLONG;
++		if (mkdir(cgnamebuf, 0700) && errno != EEXIST)
++			return -errno;
++		int group_fd = open(cgnamebuf, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
++
++		if (group_fd < 0)
++			return -errno;
++		fd = openat(group_fd, "cgroup.procs", O_WRONLY | O_CLOEXEC);
++		close(group_fd);
++		if (fd < 0)
++			return -errno;
++		ret = dprintf(fd, "%d", getpid());
++		close(fd);
++		if (ret < 0)
++			return -errno;
++	} else {
++		ret = snprintf(cgnamebuf, sizeof(cgnamebuf), "%s/%s/%s", CGROUP_BASEDIR,
++			       in->srv->name, in->name);
++	}
+ 	if (ret >= (int)sizeof(cgnamebuf))
+ 		return in->vrf ? -ENAMETOOLONG : 0;
+ 
+@@ -707,13 +733,21 @@
+ }
+ 
+ static void
+-instance_kill_cgroup(const char *service, const char *instance)
++instance_kill_cgroup(struct service_instance *in)
+ {
+-	char cgnamebuf[256];
++	char cgnamebuf[1024];
+ 	int fd, ret;
+ 
++	if (procd_systemd) {
++		in->systemd_cleaning = true;
++		ret = owrt_scope_stop(in->systemd_scope);
++		if (ret)
++			ULOG_WARN("scope cleanup %s: %s\n", in->systemd_scope, strerror(-ret));
++		return;
++	}
++
+ 	ret = snprintf(cgnamebuf, sizeof(cgnamebuf), "%s/%s/%s/cgroup.kill",
+-		       CGROUP_BASEDIR, service, instance);
++		       CGROUP_BASEDIR, in->srv->name, in->name);
+ 	if (ret >= (int)sizeof(cgnamebuf))
+ 		return;
+ 
+@@ -722,27 +756,30 @@
+ 		return;
+ 
+ 	if (write(fd, "1", 1) < 0)
+-		ULOG_WARN("failed to kill cgroup of %s::%s: %m\n", service,
+-			  instance);
++		ULOG_WARN("failed to kill cgroup of %s::%s: %m\n", in->srv->name,
++			  in->name);
+ 
+ 	close(fd);
+ }
+ 
+ static void
+-instance_rmdir_cgroup(const char *service, const char *instance)
++instance_rmdir_cgroup(struct service_instance *in)
+ {
+-	char cgnamebuf[256];
++	char cgnamebuf[1024];
+ 	char *sep;
+ 	int ret;
+ 
++	if (procd_systemd)
++		return;
++
+ 	ret = snprintf(cgnamebuf, sizeof(cgnamebuf), "%s/%s/%s", CGROUP_BASEDIR,
+-		       service, instance);
++		       in->srv->name, in->name);
+ 	if (ret >= (int)sizeof(cgnamebuf))
+ 		return;
+ 
+ 	if (rmdir(cgnamebuf) && errno == EBUSY)
+-		ULOG_WARN("failed to remove busy cgroup of %s::%s\n", service,
+-			  instance);
++		ULOG_WARN("failed to remove busy cgroup of %s::%s\n", in->srv->name,
++			  in->name);
+ 
+ 	sep = strrchr(cgnamebuf, '/');
+ 	if (sep)
+@@ -751,10 +788,10 @@
+ }
+ 
+ static void
+-instance_remove_cgroup(const char *service, const char *instance)
++instance_remove_cgroup(struct service_instance *in)
+ {
+-	instance_kill_cgroup(service, instance);
+-	instance_rmdir_cgroup(service, instance);
++	instance_kill_cgroup(in);
++	instance_rmdir_cgroup(in);
+ }
+ 
+ static void
+@@ -809,14 +846,40 @@
+ 	return kill(in->proc.pid, sig);
+ }
+ 
++struct scope_report {
++	int result;
++	char path[512];
++};
++
++static void instance_scope_report(struct uloop_fd *fd, unsigned int events)
++{
++	struct service_instance *in = container_of(fd, struct service_instance, systemd_report);
++	struct scope_report report;
++	ssize_t n = read(fd->fd, &report, sizeof(report));
++
++	(void)events;
++	if (n < 0 && errno == EAGAIN)
++		return;
++	in->systemd_placement = n == sizeof(report) && !report.result ? 1 : -1;
++	if (in->systemd_placement == 1)
++		memcpy(in->systemd_cgroup, report.path, sizeof(in->systemd_cgroup));
++	uloop_fd_delete(fd);
++	close(fd->fd);
++	fd->fd = -1;
++}
++
+ void
+ instance_start(struct service_instance *in)
+ {
++	int scope_pipe[2] = { -1, -1 };
+ 	int opipe[2] = { -1, -1 };
+ 	int epipe[2] = { -1, -1 };
+ 	sigset_t oldset;
+ 	int pid, ret;
+ 
++	if (procd_systemd_stopping)
++		return;
++
+ 	if (!avl_is_empty(&in->errors.avl)) {
+ 		LOG("Not starting instance %s::%s, an error was indicated\n", in->srv->name, in->name);
+ 		return;
+@@ -827,12 +890,21 @@
+ 		return;
+ 	}
+ 
+-	if (in->proc.pending) {
++	if (in->proc.pending || (procd_systemd && in->systemd_cleaning)) {
+ 		if (in->halt)
+ 			in->restart = true;
+ 		return;
+ 	}
+ 
++	if (procd_systemd && *in->systemd_scope) {
++		/* A daemonizing, non-respawn command can leave live workers. */
++		in->halt = true;
++		in->restart = true;
++		instance_kill_cgroup(in);
++		instance_cgroup_wait(in);
++		return;
++	}
++
+ 	instance_free_stdio(in);
+ 	if (in->_stdout.fd.fd > -2 && in->stdio_fd[1] < 0) {
+ 		if (pipe(opipe)) {
+@@ -855,11 +927,22 @@
+ 		return;
+ 
+ 	in->incarnation = ++last_incarnation;
++	if (procd_systemd) {
++		in->systemd_placement = -1;
++		*in->systemd_cgroup = '\0';
++		*in->systemd_scope = '\0';
++		if (!owrt_scope_name(in->systemd_scope, sizeof(in->systemd_scope)) &&
++		    !pipe2(scope_pipe, O_CLOEXEC | O_NONBLOCK))
++			in->systemd_placement = 0;
++	}
++
+ 
+ 	procd_signal_block(&oldset);
+ 
+ 	pid = fork();
+ 	if (pid < 0) {
++		closefd(scope_pipe[0]);
++		closefd(scope_pipe[1]);
+ 		procd_signal_restore(&oldset);
+ 		return;
+ 	}
+@@ -870,11 +953,35 @@
+ 		uloop_done();
+ 		closefd(opipe[0]);
+ 		closefd(epipe[0]);
+-		ret = instance_add_cgroup(in->srv->name, in->name);
++		if (procd_systemd) {
++			struct scope_report report = { .result = -EIO };
++
++			closefd(scope_pipe[0]);
++			if (scope_pipe[1] >= 0) {
++				report.result = owrt_scope_enter(in->systemd_scope, in->srv->name,
++							getpid(), in->has_jail || in->vrf);
++				if (!report.result)
++					report.result = owrt_scope_path(in->systemd_scope,
++							       report.path, sizeof(report.path));
++				if (write(scope_pipe[1], &report, sizeof(report)) != sizeof(report))
++					ULOG_WARN("scope placement report failed: %m\n");
++				closefd(scope_pipe[1]);
++			}
++			ret = report.result;
++			if (!ret)
++				memcpy(in->systemd_cgroup, report.path, sizeof(in->systemd_cgroup));
++		} else {
++			ret = instance_add_cgroup(in->srv->name, in->name);
++		}
+ 		if (ret)
+ 			ULOG_WARN("failed adding instance cgroup for %s: %s\n",
+ 				  in->srv->name, strerror(-ret));
+ 
++		if (procd_systemd && ret && in->bundle) {
++			ERROR("cannot delegate cgroups for %s::%s\n", in->srv->name, in->name);
++			exit(127);
++		}
++
+ 		/*
+ 		 * Never run the instance outside of its VRF. The program only
+ 		 * binds the sockets of processes inside the instance cgroup.
+@@ -893,6 +1000,13 @@
+ 
+ 	procd_signal_restore(&oldset);
+ 
++	if (procd_systemd && scope_pipe[0] >= 0) {
++		closefd(scope_pipe[1]);
++		in->systemd_report.fd = scope_pipe[0];
++		in->systemd_report.cb = instance_scope_report;
++		uloop_fd_add(&in->systemd_report, ULOOP_READ);
++	}
++
+ 	P_DEBUG(2, "Started instance %s::%s[%d]\n", in->srv->name, in->name, pid);
+ 	in->proc.pid = pid;
+ 	in->proc_pidfd = syscall(SYS_pidfd_open, pid, 0);
+@@ -1019,8 +1133,8 @@
+ 	if (in->halt) {
+ 		LOG("Instance %s::%s pid %d not stopped on SIGTERM, sending SIGKILL instead\n",
+ 				in->srv->name, in->name, in->proc.pid);
+-		if (in->has_jail)
+-			instance_kill_cgroup(in->srv->name, in->name);
++		if (in->has_jail || procd_systemd)
++			instance_kill_cgroup(in);
+ 
+ 		instance_signal(in, SIGKILL);
+ 	} else if (in->restart || in->respawn) {
+@@ -1082,7 +1196,7 @@
+ static void
+ instance_cgroup_survivors(const char *service, const char *instance)
+ {
+-	char cgnamebuf[256];
++	char cgnamebuf[1024];
+ 	char buf[128];
+ 	ssize_t len;
+ 	int fd, ret;
+@@ -1133,8 +1247,14 @@
+ 	if (in->proc.pending)
+ 		return;
+ 
++	if (procd_systemd && in->systemd_cleaning) {
++		in->systemd_cleaning = false;
++		*in->systemd_scope = '\0';
++		*in->systemd_cgroup = '\0';
++		in->systemd_placement = 0;
++	}
+ 	if (in->has_jail)
+-		instance_rmdir_cgroup(in->srv->name, in->name);
++		instance_rmdir_cgroup(in);
+ 
+ 	runtime = in->stop.tv_sec - in->start.tv_sec;
+ 
+@@ -1178,6 +1298,12 @@
+ 	populated = in->cgroup_events.fd > -1 &&
+ 		    cgroups_populated(in->cgroup_events.fd);
+ 
++	if (procd_systemd && populated && !in->proc.pending) {
++		/* Never overlap a replacement execution with surviving workers. */
++		instance_kill_cgroup(in);
++		uloop_timeout_set(&in->cgroup_timeout, CGROUP_DRAIN_TIMEOUT_MSEC);
++		return;
++	}
+ 	instance_cgroup_wait_stop(in);
+ 
+ 	if (populated && !in->proc.pending)
+@@ -1202,13 +1328,17 @@
+ static void
+ instance_cgroup_wait(struct service_instance *in)
+ {
+-	char cgnamebuf[256];
++	char cgnamebuf[1024];
+ 	int fd, ret;
+ 
+ 	instance_cgroup_wait_stop(in);
+ 
+-	ret = snprintf(cgnamebuf, sizeof(cgnamebuf), "%s/%s/%s/cgroup.events",
+-		       CGROUP_BASEDIR, in->srv->name, in->name);
++	if (procd_systemd)
++		ret = snprintf(cgnamebuf, sizeof(cgnamebuf), "%s/cgroup.events",
++			       in->systemd_cgroup);
++	else
++		ret = snprintf(cgnamebuf, sizeof(cgnamebuf), "%s/%s/%s/cgroup.events",
++			       CGROUP_BASEDIR, in->srv->name, in->name);
+ 	if (ret >= (int)sizeof(cgnamebuf)) {
+ 		instance_exit_done(in);
+ 		return;
+@@ -1236,6 +1366,8 @@
+ 
+ 	in = container_of(p, struct service_instance, proc);
+ 
++	if (in->systemd_report.fd >= 0)
++		instance_scope_report(&in->systemd_report, 0);
+ 	instance_free_pidfd(in);
+ 	clock_gettime(CLOCK_MONOTONIC, &in->stop);
+ 	runtime = in->stop.tv_sec - in->start.tv_sec;
+@@ -1251,12 +1383,13 @@
+ 
+ 	service_event("instance.stop", in->srv->name, in->name);
+ 
+-	if (!in->has_jail) {
++	if (!in->has_jail && (!procd_systemd ||
++	    (!in->halt && !in->restart && !in->respawn))) {
+ 		instance_exit_done(in);
+ 		return;
+ 	}
+ 
+-	instance_kill_cgroup(in->srv->name, in->name);
++	instance_kill_cgroup(in);
+ 	instance_cgroup_wait(in);
+ }
+ 
+@@ -1273,6 +1406,13 @@
+ instance_stop(struct service_instance *in, bool halt)
+ {
+ 	if (!in->proc.pending) {
++		if (procd_systemd && *in->systemd_scope) {
++			in->halt = halt;
++			in->restart = in->respawn = false;
++			instance_kill_cgroup(in);
++			instance_cgroup_wait(in);
++			return;
++		}
+ 		if (halt)
+ 			instance_delete(in);
+ 		return;
+@@ -2096,6 +2236,10 @@
+ instance_free(struct service_instance *in)
+ {
+ 	service_data_trigger(&in->data);
++	if (in->systemd_report.fd >= 0) {
++		uloop_fd_delete(&in->systemd_report);
++		close(in->systemd_report.fd);
++	}
+ 	instance_free_stdio(in);
+ 	instance_free_stdio_fds(in);
+ 	instance_free_notify_fd(in);
+@@ -2107,7 +2251,7 @@
+ 	trigger_del(in);
+ 	watch_del(in);
+ 	if (in->has_cgroup)
+-		instance_remove_cgroup(in->srv->name, in->name);
++		instance_remove_cgroup(in);
+ 
+ 	instance_config_cleanup(in);
+ 	free(in->config);
+@@ -2141,6 +2285,7 @@
+ 	in->config = config;
+ 	in->timeout.cb = instance_timeout;
+ 	in->proc.cb = instance_exit;
++	in->systemd_report.fd = -1;
+ 	in->cgroup_events.fd = -1;
+ 	in->cgroup_events.cb = instance_cgroup_events_cb;
+ 	in->cgroup_timeout.cb = instance_cgroup_timeout_cb;
+@@ -2194,6 +2339,11 @@
+ 
+ 	i = blobmsg_open_table(b, in->name);
+ 	blobmsg_add_u8(b, "running", in->proc.pending);
++	if (procd_systemd) {
++		blobmsg_add_string(b, "systemd_scope", in->systemd_scope);
++		blobmsg_add_string(b, "systemd_placement", in->systemd_placement > 0 ? "managed" :
++				  in->systemd_placement < 0 ? "inherited" : "pending");
++	}
+ 	if (in->proc.pending)
+ 		blobmsg_add_u32(b, "pid", in->proc.pid);
+ 	if (in->incarnation)
+diff -ruN a/service/instance.h b/service/instance.h
+--- a/service/instance.h	2026-10-07 22:29:53.000000000 +0800
++++ b/service/instance.h	2026-10-19 19:14:34.127668274 +0800
+@@ -80,6 +80,11 @@
+ 	gid_t gr_gid;
+ 
+ 	bool has_cgroup;
++	char systemd_scope[64];
++	char systemd_cgroup[512];
++	int systemd_placement;
++	bool systemd_cleaning;
++	struct uloop_fd systemd_report;
+ 	bool halt;
+ 	bool restart;
+ 	bool respawn;
+diff -ruN a/service/service.c b/service/service.c
+--- a/service/service.c	2026-10-07 22:29:53.000000000 +0800
++++ b/service/service.c	2026-10-19 15:45:05.270958619 +0800
+@@ -736,7 +736,8 @@
+ 	service_avl_stop_all(&services, &term_timeout);
+ 	procd_inittab_kill();
+ 
+-	sleep(term_timeout);
++	if (!procd_systemd)
++		sleep(term_timeout);
+ }
+ 
+ static int
+diff -ruN a/systemd-cgroup.c b/systemd-cgroup.c
+--- a/systemd-cgroup.c	1970-01-01 07:30:00.000000000 +0730
++++ b/systemd-cgroup.c	2026-10-19 19:01:51.896405450 +0800
+@@ -0,0 +1,288 @@
++// SPDX-License-Identifier: GPL-2.0-only
++#define _GNU_SOURCE
++#include <sys/socket.h>
++#include <sys/syscall.h>
++#include <unistd.h>
++#include <stdint.h>
++#include <signal.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <time.h>
++#include <systemd/sd-bus.h>
++#include <systemd/sd-daemon.h>
++#include <systemd/sd-id128.h>
++#include "systemd-cgroup.h"
++
++#define DEST "org.freedesktop.systemd1"
++#define MANAGER "/org/freedesktop/systemd1"
++#define MIFACE DEST ".Manager"
++#define UIFACE DEST ".Unit"
++#define SIFACE DEST ".Scope"
++#define CALL_TIMEOUT 2000000
++
++static int manager(sd_bus **bus)
++{
++	struct ucred peer;
++	socklen_t len = sizeof(peer);
++	int r = sd_bus_new(bus);
++
++	if (r >= 0)
++		r = sd_bus_set_address(*bus, "unix:path=/run/systemd/private");
++	if (r >= 0)
++		r = sd_bus_set_method_call_timeout(*bus, CALL_TIMEOUT);
++	if (r >= 0)
++		r = sd_bus_start(*bus);
++	if (r >= 0 && (getsockopt(sd_bus_get_fd(*bus), SOL_SOCKET, SO_PEERCRED, &peer, &len) ||
++		      peer.uid != 0 || peer.pid != 1))
++		r = -EPERM;
++	return r;
++}
++
++bool owrt_systemd_active(void)
++{
++	return sd_booted() > 0;
++}
++
++int owrt_scope_name(char *name, size_t len)
++{
++	sd_id128_t id;
++	char text[SD_ID128_STRING_MAX];
++	int r = sd_id128_randomize(&id);
++
++	if (r < 0)
++		return r;
++	return snprintf(name, len, "openwrt-%s.scope", sd_id128_to_string(id, text)) >= len ?
++		-ENAMETOOLONG : 0;
++}
++
++/* Escape a component, including dashes: they delimit slice hierarchy. */
++static int service_slice(const char *service, char slice[256])
++{
++	const unsigned char *p = (const unsigned char *)service;
++	size_t n = strlen("openwrt-");
++
++	strcpy(slice, "openwrt-");
++	if (!*p)
++		return -EINVAL;
++	for (; *p; p++) {
++		bool literal = (*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
++			       (*p >= '0' && *p <= '9') || *p == '_' || *p == '.' || *p == ':';
++		if (n + (literal ? 1 : 4) + sizeof(".slice") > 256)
++			return -ENAMETOOLONG;
++		if (literal)
++			slice[n++] = *p;
++		else
++			n += sprintf(slice + n, "\\x%02x", *p);
++	}
++	strcpy(slice + n, ".slice");
++	return 0;
++}
++
++static int prop(sd_bus_message *m, const char *key, const char *type, const void *value)
++{
++	int r = sd_bus_message_open_container(m, 'r', "sv");
++
++	if (r >= 0)
++		r = sd_bus_message_append(m, "s", key);
++	if (r >= 0)
++		r = sd_bus_message_open_container(m, 'v', type);
++	if (r >= 0) {
++		if (!strcmp(type, "as"))
++			r = sd_bus_message_append(m, "as", 1, (const char *)value);
++		else if (!strcmp(type, "ah"))
++			r = sd_bus_message_append(m, "ah", 1, *(const int *)value);
++		else
++			r = sd_bus_message_append_basic(m, *type, value);
++	}
++	if (r >= 0)
++		r = sd_bus_message_close_container(m);
++	if (r >= 0)
++		r = sd_bus_message_close_container(m);
++	return r;
++}
++
++static int unit_object(sd_bus *bus, const char *name, char **object)
++{
++	sd_bus_message *reply = NULL;
++	const char *s;
++	int r = sd_bus_call_method(bus, DEST, MANAGER, MIFACE, "GetUnit", NULL, &reply, "s", name);
++
++	if (r >= 0)
++		r = sd_bus_message_read(reply, "o", &s);
++	if (r >= 0) {
++		*object = strdup(s);
++		if (!*object)
++			r = -ENOMEM;
++	}
++	sd_bus_message_unref(reply);
++	return r;
++}
++
++int owrt_scope_enter(const char *name, const char *service, pid_t pid, bool delegate)
++{
++	sd_bus *bus = NULL;
++	sd_bus_message *m = NULL, *reply = NULL;
++	char slice[256], description[512], *object = NULL, *state = NULL;
++	const char *job;
++	uint64_t unlimited = UINT64_MAX, stop_timeout = 5000000;
++	int delegated = delegate, pidfd = -1, r, i;
++	uint32_t job_id = 0;
++	struct timespec deadline, now;
++
++	r = service_slice(service, slice);
++	if (r < 0)
++		return r;
++	pidfd = syscall(SYS_pidfd_open, pid, 0);
++	if (pidfd < 0)
++		return -errno;
++	r = manager(&bus);
++	if (r < 0)
++		goto out;
++	r = sd_bus_message_new_method_call(bus, &m, DEST, MANAGER, MIFACE, "StartTransientUnit");
++	if (r >= 0)
++		r = sd_bus_message_append(m, "ss", name, "fail");
++	if (r >= 0)
++		r = sd_bus_message_open_container(m, 'a', "(sv)");
++	snprintf(description, sizeof(description), "OpenWrt processes: %s", service);
++#define PROPERTY(key, type, value) do { if (r >= 0) r = prop(m, key, type, value); } while (0)
++	PROPERTY("Description", "s", description);
++	PROPERTY("Slice", "s", slice);
++	PROPERTY("CollectMode", "s", "inactive-or-failed");
++	PROPERTY("BindsTo", "as", "openwrt-procd.service");
++	PROPERTY("Before", "as", "openwrt-procd.service");
++	PROPERTY("Delegate", "b", &delegated);
++	PROPERTY("TasksMax", "t", &unlimited);
++	PROPERTY("TimeoutStopUSec", "t", &stop_timeout);
++	PROPERTY("OOMPolicy", "s", "continue");
++	PROPERTY("PIDFDs", "ah", &pidfd);
++#undef PROPERTY
++	if (r >= 0)
++		r = sd_bus_message_close_container(m);
++	if (r >= 0)
++		r = sd_bus_message_append(m, "a(sa(sv))", 0);
++	if (r >= 0)
++		r = sd_bus_call(bus, m, CALL_TIMEOUT, NULL, &reply);
++	if (r >= 0)
++		r = sd_bus_message_read(reply, "o", &job);
++	if (r < 0)
++		goto out;
++	if (sscanf(job, MANAGER "/job/%u", &job_id) != 1)
++		job_id = 0;
++	clock_gettime(CLOCK_MONOTONIC, &deadline);
++	deadline.tv_sec += 2;
++	r = unit_object(bus, name, &object);
++	for (i = 0; r >= 0 && i < 100; i++) {
++		free(state);
++		state = NULL;
++		r = sd_bus_get_property_string(bus, DEST, object, UIFACE,
++					       "ActiveState", NULL, &state);
++		if (r < 0 || !strcmp(state, "active"))
++			break;
++		if (!strcmp(state, "failed") || !strcmp(state, "deactivating")) {
++			r = -EIO;
++			break;
++		}
++		clock_gettime(CLOCK_MONOTONIC, &now);
++		if (now.tv_sec > deadline.tv_sec ||
++		    (now.tv_sec == deadline.tv_sec && now.tv_nsec >= deadline.tv_nsec))
++			break;
++		usleep(10000);
++	}
++	if (r >= 0 && (!state || strcmp(state, "active")))
++		r = -ETIMEDOUT;
++	if (r < 0 && job_id)
++		sd_bus_call_method(bus, DEST, MANAGER, MIFACE, "CancelJob",
++				   NULL, NULL, "u", job_id);
++out:
++	free(state);
++	free(object);
++	if (pidfd >= 0)
++		close(pidfd);
++	sd_bus_message_unref(m);
++	sd_bus_message_unref(reply);
++	sd_bus_flush_close_unref(bus);
++	return r < 0 ? r : 0;
++}
++
++int owrt_scope_path(const char *name, char *path, size_t len)
++{
++	sd_bus *bus = NULL;
++	char *object = NULL, *group = NULL;
++	int r = manager(&bus);
++
++	if (r >= 0)
++		r = unit_object(bus, name, &object);
++	if (r >= 0)
++		r = sd_bus_get_property_string(bus, DEST, object, SIFACE,
++					       "ControlGroup", NULL, &group);
++	if (r >= 0 && (!*group || snprintf(path, len, "/sys/fs/cgroup%s", group) >= len))
++		r = -ENAMETOOLONG;
++	free(object);
++	free(group);
++	sd_bus_flush_close_unref(bus);
++	return r < 0 ? r : 0;
++}
++
++int owrt_scope_stop(const char *name)
++{
++	sd_bus *bus = NULL;
++	sd_bus_error error = SD_BUS_ERROR_NULL;
++	int r;
++
++	if (!*name)
++		return 0;
++	r = manager(&bus);
++	if (r >= 0)
++		r = sd_bus_call_method(bus, DEST, MANAGER, MIFACE, "KillUnit", &error, NULL,
++				       "ssi", name, "all", SIGKILL);
++	if (sd_bus_error_has_name(&error, DEST ".NoSuchUnit"))
++		r = 0;
++	if (r >= 0)
++		sd_bus_call_method(bus, DEST, MANAGER, MIFACE, "StopUnit",
++				   NULL, NULL, "ss", name, "fail");
++	sd_bus_error_free(&error);
++	sd_bus_flush_close_unref(bus);
++	return r < 0 ? r : 0;
++}
++
++/* Only an explicitly delegated scope may serve as a direct-write boundary. */
++int owrt_scope_delegation(char *path, size_t len)
++{
++	sd_bus *bus = NULL;
++	sd_bus_message *reply = NULL;
++	char *object = NULL, *id = NULL, *group = NULL;
++	const char *p;
++	int r = manager(&bus), delegated = 0;
++
++	if (r >= 0)
++		r = sd_bus_call_method(bus, DEST, MANAGER, MIFACE, "GetUnitByPID",
++				       NULL, &reply, "u", (uint32_t)getpid());
++	if (r >= 0)
++		r = sd_bus_message_read(reply, "o", &p);
++	if (r >= 0) {
++		object = strdup(p);
++		if (!object)
++			r = -ENOMEM;
++	}
++	if (r >= 0)
++		r = sd_bus_get_property_string(bus, DEST, object, UIFACE, "Id", NULL, &id);
++	if (r >= 0 && (strncmp(id, "openwrt-", 8) || !strstr(id, ".scope")))
++		r = -EPERM;
++	if (r >= 0)
++		r = sd_bus_get_property_trivial(bus, DEST, object, SIFACE,
++					       "Delegate", NULL, 'b', &delegated);
++	if (r >= 0 && !delegated)
++		r = -EPERM;
++	if (r >= 0)
++		r = sd_bus_get_property_string(bus, DEST, object, SIFACE,
++					       "ControlGroup", NULL, &group);
++	if (r >= 0 && (!*group || snprintf(path, len, "/sys/fs/cgroup%s", group) >= len))
++		r = -ENAMETOOLONG;
++	free(object);
++	free(id);
++	free(group);
++	sd_bus_message_unref(reply);
++	sd_bus_flush_close_unref(bus);
++	return r < 0 ? r : 0;
++}
+diff -ruN a/systemd-cgroup.h b/systemd-cgroup.h
+--- a/systemd-cgroup.h	1970-01-01 07:30:00.000000000 +0730
++++ b/systemd-cgroup.h	2026-10-19 15:51:32.842798524 +0800
+@@ -0,0 +1,47 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#ifndef OPENWRT_SYSTEMD_CGROUP_H
++#define OPENWRT_SYSTEMD_CGROUP_H
++#include <stdbool.h>
++#include <stddef.h>
++#include <sys/types.h>
++#include <errno.h>
++
++#ifdef OPENWRT_SYSTEMD
++bool owrt_systemd_active(void);
++int owrt_scope_name(char *name, size_t len);
++int owrt_scope_enter(const char *name, const char *service, pid_t pid, bool delegate);
++int owrt_scope_path(const char *name, char *path, size_t len);
++int owrt_scope_stop(const char *name);
++int owrt_scope_delegation(char *path, size_t len);
++#else
++static inline bool owrt_systemd_active(void)
++{
++	return false;
++}
++
++static inline int owrt_scope_name(char *n, size_t l)
++{
++	return -EOPNOTSUPP;
++}
++
++static inline int owrt_scope_enter(const char *n, const char *s, pid_t p, bool d)
++{
++	return -EOPNOTSUPP;
++}
++
++static inline int owrt_scope_path(const char *n, char *p, size_t l)
++{
++	return -EOPNOTSUPP;
++}
++
++static inline int owrt_scope_stop(const char *n)
++{
++	return -EOPNOTSUPP;
++}
++
++static inline int owrt_scope_delegation(char *p, size_t l)
++{
++	return -EOPNOTSUPP;
++}
++#endif
++#endif

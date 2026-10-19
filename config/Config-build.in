@@ -46,6 +46,16 @@ menu "Global build settings"
 		  and a GRUB recovery entry. Packages use a merged /usr layout and
 		  are written to bin/systemd. Flash firmware from procd recovery.
 
+	config OPENWRT_SYSTEMD_SERVICE_BRIDGE
+		bool "Experimental systemctl controls for OpenWrt services"
+		depends on OPENWRT_SYSTEMD
+		default n
+		select PACKAGE_systemd-openwrt-services
+		help
+		  Expose OpenWrt init-script actions and live status as openwrt@
+		  services. Keep procd supervision, UCI/LuCI startup settings and
+		  the existing boot order. Requires root/sudo for service changes.
+
 	config OPENWRT_KERNEL_UPGRADE
 		bool "Experimental parallel APK kernel upgrades"
 		default y

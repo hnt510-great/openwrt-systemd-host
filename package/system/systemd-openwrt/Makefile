@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=systemd-openwrt
-PKG_RELEASE:=8
+PKG_RELEASE:=9
 PKG_LICENSE:=GPL-2.0-only
 PKG_CONFIG_DEPENDS:=CONFIG_TARGET_ROOTFS_PERSIST_VAR
 
@@ -44,7 +44,7 @@ define Package/systemd-openwrt/install
 	$(INSTALL_BIN) ./files/openwrt-systemd-prepare $(1)/usr/libexec/
 	$(INSTALL_DIR) $(1)/usr/lib/apk/commit_hooks.d
 	$(INSTALL_BIN) ./files/kmod-depmod.hook $(1)/usr/lib/apk/commit_hooks.d/20-kmod-depmod
-	$(INSTALL_DATA) ./files/openwrt-*.service ./files/dbus.service $(1)/usr/lib/systemd/system/
+	$(INSTALL_DATA) ./files/openwrt-*.service ./files/dbus.service ./files/openwrt.slice $(1)/usr/lib/systemd/system/
 	$(INSTALL_DATA) ./files/dbus.socket $(1)/usr/lib/systemd/system/
 	$(INSTALL_DATA) ./files/journald.conf $(1)/etc/systemd/journald.conf.d/openwrt.conf
 	# /var usually aliases /tmp; keep the journal on the persistent root/extroot.

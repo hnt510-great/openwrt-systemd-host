@@ -30,7 +30,13 @@ nonzero status, matching procd's rc queue, and reports that status in the
 journal. An active bridge means the sequence completed; check individual
 router services separately. Shutdown scripts use a bounded GNU timeout.
 Console login uses the existing OpenWrt
-login helper. Procd children stay in its delegated service cgroup.
+login helper. Procd retains supervision while daemon executions occupy systemd-managed
+scopes beneath per-service slices. See [cgroup ownership and cleanup](systemd-cgroups.md).
+
+An optional [service control bridge](systemd-service-bridge.md) exposes
+individual openwrt@NAME.service controls, shared rc.d enablement and live
+status through systemctl. It preserves the ownership and boot ordering above
+and defaults to off.
 
 OpenWrt retains netifd, firewall, DHCP/DNS, NTP, device events, module loading,
 sysctl and logd. Udev, its generators, and systemd's competing sysctl/module

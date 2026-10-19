@@ -1,0 +1,22 @@
+[Unit]
+Description=OpenWrt service control and status bridge
+Requires=openwrt-procd.service
+PartOf=openwrt-procd.service
+After=openwrt-procd.service
+Before=openwrt-services.service
+
+[Service]
+Type=notify
+ExecStart=/usr/libexec/openwrt-service-bridge daemon
+RuntimeDirectory=openwrt-service-bridge
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+TimeoutStartSec=15
+TimeoutStopSec=5
+Restart=on-failure
+# Action workers may have legacy daemon descendants. Never kill those on
+# bridge shutdown; procd and the original shutdown scripts retain ownership.
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

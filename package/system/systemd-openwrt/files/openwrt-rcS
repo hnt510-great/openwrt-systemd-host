@@ -10,10 +10,18 @@ for script in /etc/rc.d/"$prefix"[0-9][0-9]*; do
 	case "${script##*/}" in
 		[SK][0-9][0-9]dbus|K[0-9][0-9]umount) continue ;;
 	esac
-	if [ "$action" = shutdown ]; then
-		/usr/bin/timeout -s TERM 25 "$script" "$action"
+	# rc.common supplies its own hook, including for direct invocations.
+	IFS= read -r interpreter < "$script"
+	if [ "${interpreter#* /etc/rc.common}" = "$interpreter" ]; then
+		canonical="$(readlink -f "$script")"
+		set -- /usr/libexec/openwrt-cgroup exec "${canonical##*/}" "$script" "$action"
 	else
-		"$script" "$action"
+		set -- "$script" "$action"
+	fi
+	if [ "$action" = shutdown ]; then
+		/usr/bin/timeout -s TERM 25 "$@"
+	else
+		"$@"
 	fi
 	status=$?
 	[ "$status" -eq 0 ] || echo "OpenWrt rc script $script $action exited $status" >&2

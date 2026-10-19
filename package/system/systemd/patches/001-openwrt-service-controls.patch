@@ -1,0 +1,61 @@
+From: OpenWrt Systemd Host
+Subject: [PATCH] systemctl: dispatch reserved OpenWrt service controls to optional bridge
+
+Keep original init-script restart and rc.d enablement semantics, without
+restoring the removed generic SysV compatibility or changing native units.
+
+--- a/src/systemctl/systemctl.c
++++ b/src/systemctl/systemctl.c
+@@ -1092,7 +1092,52 @@
+ VERB_SCOPE(, verb_start,             "condrestart",      NULL, 2,      VERB_ANY, VERB_ONLINE_ONLY, /* help= */ NULL); /* RH */
+ VERB_SCOPE(, verb_is_active,         "check",            NULL, 2,      VERB_ANY, VERB_ONLINE_ONLY, /* help= */ NULL); /* deprecated alias of is-active */
+ 
++/* OpenWrt CLI compatibility is confined to its reserved unit namespace.
++ * The helper owns action/enablement semantics; native units remain unchanged. */
++static int openwrt_service_control(char **args) {
++        _cleanup_strv_free_ char **command = NULL;
++        bool bridge = false;
++        int r;
++
++        if (!args[0] || access("/usr/libexec/openwrt-service-bridge", X_OK) < 0)
++                return 0;
++        if (!STR_IN_SET(args[0], "start", "stop", "restart", "reload", "status",
++                        "is-active", "enable", "disable", "is-enabled"))
++                return 0;
++        STRV_FOREACH(name, args + 1)
++                if (startswith(*name, "openwrt@"))
++                        bridge = true;
++        if (!bridge)
++                return 0;
++        if (arg_runtime_scope != RUNTIME_SCOPE_SYSTEM || arg_transport != BUS_TRANSPORT_LOCAL ||
++            arg_root || arg_image || arg_runtime || arg_dry_run || arg_no_block || arg_wait)
++                return log_error_errno(SYNTHETIC_ERRNO(EOPNOTSUPP),
++                                       "OpenWrt service controls require the local system manager and synchronous actions.");
++        STRV_FOREACH(name, args + 1)
++                if (!startswith(*name, "openwrt@"))
++                        return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
++                                               "Use separate commands for native and OpenWrt units.");
++        command = strv_new("/usr/libexec/openwrt-service-bridge", "systemctl", args[0], NULL);
++        if (!command)
++                return log_oom();
++        if (arg_now && strv_extend(&command, "--now") < 0)
++                return log_oom();
++        if (arg_quiet && strv_extend(&command, "--quiet") < 0)
++                return log_oom();
++        r = strv_extend_strv(&command, args + 1, true);
++        if (r < 0)
++                return log_oom();
++        execv(command[0], command);
++        return log_error_errno(errno, "Failed to execute OpenWrt service bridge: %m");
++}
++
+ int systemctl_main(char **args) {
++        int r;
++
++        r = openwrt_service_control(args);
++        if (r < 0)
++                return r;
++
+         const Verb *verb = verbs_find_verb(args[0]);
+ 
+         if (verb && (verb->flags & VERB_ONLINE_ONLY) && arg_root)

@@ -116,6 +116,14 @@ extra_command "enable" "Enable service autostart"
 extra_command "disable" "Disable service autostart"
 extra_command "enabled" "Check if service is started on boot"
 
+# Place the shell before the script can launch background or double-forked daemons.
+# The helper exits immediately and never becomes another process supervisor.
+if [ -z "$IPKG_INSTROOT" ] && [ -d /run/systemd/system ] &&
+   [ -x /usr/libexec/openwrt-cgroup ]; then
+	rc_scope_script="$(readlink -f "$initscript")"
+	/usr/libexec/openwrt-cgroup enter-parent "${rc_scope_script##*/}" || :
+fi
+
 . "$initscript"
 
 [ -n "$USE_PROCD" ] && {
@@ -188,3 +196,19 @@ ALL_COMMANDS="${ALL_COMMANDS} ${EXTRA_COMMANDS}"
 ALL_HELP="${ALL_HELP}${EXTRA_HELP}"
 list_contains ALL_COMMANDS "$action" || action=help
 $action "$@"
+rc_status=$?
+# Preserve the original action and its result. The optional bridge observes
+# changes; it must never become a prerequisite for OpenWrt service control.
+if [ -z "$IPKG_INSTROOT" ] &&
+   [ -S /run/openwrt-service-bridge/control ] &&
+   [ -x /usr/libexec/openwrt-service-bridge ]; then
+	case "$action" in
+		boot|shutdown|start|stop|restart|reload|enable|disable)
+			rc_bridge_script="$(readlink "$initscript")"
+			/usr/libexec/openwrt-service-bridge notify \
+				"$(basename "${rc_bridge_script:-$initscript}")" "$action" "$rc_status" \
+				>/dev/null 2>&1 || :
+		;;
+	esac
+fi
+exit "$rc_status"

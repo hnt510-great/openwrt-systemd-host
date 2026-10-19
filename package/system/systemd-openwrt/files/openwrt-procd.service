@@ -9,7 +9,6 @@ Before=openwrt-services.service
 Type=notify
 NotifyAccess=main
 ExecStart=/sbin/procd --systemd -S
-Delegate=yes
 TimeoutStartSec=90
 TimeoutStopSec=30
 KillMode=control-group
