@@ -1,0 +1,60 @@
+diff --git a/net/krb5/Makefile b/net/krb5/Makefile
+index 57d8329..70d95c7 100644
+--- a/net/krb5/Makefile
++++ b/net/krb5/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=krb5
+ PKG_VERSION:=1.22.2
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PKG_MAINTAINER:=W. Michael Petullo <mike@flyn.org>
+ 
+@@ -63,6 +63,14 @@ define Package/krb5-client
+ 	TITLE:=Kerberos 5 Client
+ endef
+ 
++define Package/krb5-dev
++	SECTION:=devel
++	CATEGORY:=Development
++	SUBMENU:=Libraries
++	TITLE:=Kerberos 5 headers and native build metadata
++	DEPENDS:=+krb5-libs +libcomerr-dev
++endef
++
+ define Package/krb5/description
+   Kerberos is a network authentication protocol. 
+   It is designed to provide strong authentication for client/server applications by using secret-key cryptography.
+@@ -70,6 +78,9 @@ endef
+ 
+ CONFIGURE_PATH = ./src
+ 
++# Upstream warning-as-error policy breaks native GCC 14 builds.
++MAKE_FLAGS += WARN_CFLAGS=
++
+ CONFIGURE_VARS += \
+ 	cross_compiling=yes \
+ 	krb5_cv_attr_constructor_destructor=yes,yes \
+@@ -129,6 +140,16 @@ define Package/krb5-client/install
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/krb5-send-pr $(1)/usr/sbin
+ endef
+ 
++define Package/krb5-dev/install
++	$(INSTALL_DIR) $(1)/usr/include $(1)/usr/lib/pkgconfig $(1)/usr/bin
++	$(CP) $(PKG_INSTALL_DIR)/usr/include/. $(1)/usr/include/
++	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/*.pc $(1)/usr/lib/pkgconfig/
++	# Use the original target script; staging's copy contains cross paths.
++	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/krb5-config $(1)/usr/bin/
++	$(SED) 's,$(STAGING_DIR),,g;s,-[IL]$(TOOLCHAIN_DIR)/usr/lib,,g;s,-[IL]$(TOOLCHAIN_DIR)/lib,,g' $(1)/usr/lib/pkgconfig/*.pc $(1)/usr/bin/krb5-config
++	! grep -r -F '$(TOPDIR)/' $(1)/usr/lib/pkgconfig $(1)/usr/bin/krb5-config
++endef
++
+ # Removed some server-side software to reduce package size. This should be
+ # put in a separate package if needed.
+ define Package/krb5-server/install
+@@ -156,3 +177,4 @@ $(eval $(call BuildPackage,krb5-libs))
+ $(eval $(call BuildPackage,krb5-server))
+ $(eval $(call BuildPackage,krb5-server-extras))
+ $(eval $(call BuildPackage,krb5-client))
++$(eval $(call BuildPackage,krb5-dev))

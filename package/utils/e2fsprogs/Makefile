@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=e2fsprogs
 PKG_VERSION:=1.47.4
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=@KERNEL/linux/kernel/people/tytso/e2fsprogs/v$(PKG_VERSION)/
@@ -95,6 +95,22 @@ endef
 define Package/libcomerr/description
   This package contains libcom_err, the common error description library
   bundled with e2fsprogs.
+endef
+
+define Package/libcomerr-dev
+  SECTION:=devel
+  CATEGORY:=Development
+  SUBMENU:=Libraries
+  TITLE:=Common error library headers and linker metadata
+  DEPENDS:=+libcomerr
+endef
+
+define Package/libcomerr-dev/install
+	$(INSTALL_DIR) $(1)/usr/include/et $(1)/usr/lib/pkgconfig
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/lib/et/com_err.h $(PKG_BUILD_DIR)/lib/et/error_table.h $(1)/usr/include/et/
+	printf '%s\n' '#include <et/com_err.h>' > $(1)/usr/include/com_err.h
+	$(LN) libcom_err.so.0 $(1)/usr/lib/libcom_err.so
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/lib/et/com_err.pc $(1)/usr/lib/pkgconfig/
 endef
 
 define Package/tune2fs
@@ -324,6 +340,7 @@ define Package/lsattr/install
 endef
 
 $(eval $(call BuildPackage,libcomerr))
+$(eval $(call BuildPackage,libcomerr-dev))
 $(eval $(call BuildPackage,libss))
 $(eval $(call BuildPackage,libext2fs))
 $(eval $(call BuildPackage,libe2p))

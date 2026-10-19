@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=gettext-full
 PKG_VERSION:=0.24.2
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 PKG_SOURCE:=gettext-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=@GNU/gettext
@@ -70,6 +70,14 @@ define Package/libintl-full
   ABI_VERSION:=8
 endef
 
+define Package/gettext-tools
+  SECTION:=devel
+  CATEGORY:=Development
+  TITLE:=GNU gettext native translation tools
+  DEPENDS:=+libintl-full +libunistring +libxml2 +libattr +libacl +libncurses +libstdcpp
+  URL:=https://www.gnu.org/software/gettext/
+endef
+
 export GNULIB_SRCDIR:=$(HOST_GNULIB_SRCDIR)
 
 TARGET_CFLAGS += $(FPIC)
@@ -92,7 +100,8 @@ CONFIGURE_ARGS += \
 	--without-libexpat-prefix \
 	--with-libunistring-prefix=$(STAGING_DIR)/usr \
 	--with-libxml2-prefix=$(STAGING_DIR) \
-	--without-emacs
+	--without-emacs \
+	--without-selinux
 
 HOST_CONFIGURE_ARGS += \
 	--disable-shared \
@@ -184,5 +193,15 @@ define Package/libintl-full/install
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libintl.so.* $(1)/usr/lib/
 endef
 
+define Package/gettext-tools/install
+	$(INSTALL_DIR) $(1)/usr/bin $(1)/usr/lib $(1)/usr/share/gettext-$(PKG_VERSION)
+	$(INSTALL_BIN) $(addprefix $(PKG_INSTALL_DIR)/usr/bin/,msgfmt msgmerge xgettext msgcat msgattrib msgcmp msgcomm msgconv msgen msgexec msgfilter msggrep msginit msgunfmt msguniq gettext ngettext envsubst recode-sr-latin gettext.sh) $(1)/usr/bin/
+	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libgettextlib-*.so $(PKG_INSTALL_DIR)/usr/lib/libgettextsrc-*.so $(PKG_INSTALL_DIR)/usr/lib/libtextstyle.so.* $(1)/usr/lib/
+	$(CP) $(PKG_INSTALL_DIR)/usr/lib/gettext $(1)/usr/lib/
+	# msgfmt --xml/--desktop needs ITS rules as well as the executable.
+	$(CP) $(PKG_INSTALL_DIR)/usr/share/gettext-$(PKG_VERSION)/its $(1)/usr/share/gettext-$(PKG_VERSION)/
+endef
+
 $(eval $(call HostBuild))
 $(eval $(call BuildPackage,libintl-full))
+$(eval $(call BuildPackage,gettext-tools))

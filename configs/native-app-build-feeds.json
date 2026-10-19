@@ -1,0 +1,12 @@
+{
+  "packages": {
+    "url": "https://github.com/openwrt/packages.git",
+    "base": "3ad57a3db691cb5fbfb2dd4f4d191c210858b73d",
+    "patch": "patches/feeds/0016-packages-native-app-deps.patch",
+    "status": "committed locally",
+    "files": [
+      "net/krb5/Makefile"
+    ],
+    "commit": "47bdc161e1afd0969c2ef895f9049a1bc0aff8e3"
+  }
+}

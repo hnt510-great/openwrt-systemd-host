@@ -31,6 +31,12 @@ sudo apk add PACKAGE
 For targeted `base-files` upgrades and handling protected configuration files,
 see [the base-files upgrade guide](base-files-upgrade.md).
 
+For target-native application builds, `native-build-deps` selects the library
+headers, pkg-config metadata and build tools, including the Cockpit dependency
+stack. `cockpit-runtime-deps` keeps the runtime dependencies of a source-installed
+Cockpit in APK world. Build and publish these packages before adding them on the
+device; see [native development and migration](native-development.md#原生应用依赖与-cockpit).
+
 The router already pins
 `kernel=6.18.55~ef561c78a2b577ae422f9289311ff293-r1` in `/etc/apk/world`.
 Keep that constraint. Existing upstream snapshot URLs remain commented out
