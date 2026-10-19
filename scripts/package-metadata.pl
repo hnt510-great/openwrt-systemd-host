@@ -143,6 +143,41 @@ sub package_depends($$) {
 	return $ret;
 }
 
+# A selected dependency can repeat a condition inherited from its caller.
+# Recognize complete conjunction terms, including parenthesized conditions,
+# without treating terms inside a disjunction or negation as mandatory.
+sub condition_has_term {
+	my ($condition, $term) = @_;
+	$condition =~ s/^\s+|\s+$//g;
+	return 1 if $condition eq $term;
+
+	my $depth = 0;
+	my $start = 0;
+	my @parts;
+	my $enclosed = substr($condition, 0, 1) eq '(';
+	for (my $i = 0; $i < length($condition); $i++) {
+		my $char = substr($condition, $i, 1);
+		$depth++ if $char eq '(';
+		$depth-- if $char eq ')';
+		return 0 if !$depth && substr($condition, $i, 2) eq '||';
+		if (!$depth && substr($condition, $i, 2) eq '&&') {
+			push @parts, substr($condition, $start, $i - $start);
+			$start = $i + 2;
+			$i++;
+		}
+		if (!$depth && $i < length($condition) - 1 && $char eq ')') {
+			$enclosed = 0;
+		}
+	}
+	if (@parts) {
+		push @parts, substr($condition, $start);
+		return scalar grep { condition_has_term($_, $term) } @parts;
+	}
+	return condition_has_term(substr($condition, 1, -1), $term)
+		if $enclosed && substr($condition, -1) eq ')';
+	return 0;
+}
+
 sub mconf_depends {
 	my $pkgname = shift;
 	my $depends = shift;
@@ -240,6 +275,11 @@ sub mconf_depends {
 				$depend = "$depend if $condition";
 			} else {
 				next if $dep->{"$depend if $condition"};
+				# These kernel/IP gates are bools, so !(feature && gate) ||
+				# gate is always true. Keeping it creates spurious Kconfig
+				# edges. Do not generalize to tristates: !m || m is m.
+				next if $depend =~ /^!?(?:LINUX_\d+_\d+|IPV6)$/ &&
+					condition_has_term($condition, $depend);
 				$depend = "!($condition) || $depend" unless $dep->{$condition} eq 'select';
 			}
 		}
