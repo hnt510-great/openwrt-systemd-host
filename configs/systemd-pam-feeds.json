@@ -1,0 +1,11 @@
+{
+  "packages": {
+    "url": "https://github.com/openwrt/packages.git",
+    "base": "47bdc161e1afd0969c2ef895f9049a1bc0aff8e3",
+    "commit": "a38f0a93816693d76f8bafd288efe5f998bd5f25",
+    "patch": "patches/feeds/0017-packages-pam-logind-cycle.patch",
+    "files": [
+      "libs/libpam/Makefile"
+    ]
+  }
+}
