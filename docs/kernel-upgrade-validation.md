@@ -379,3 +379,62 @@ upgrade or boot into a new kernel. It did not access the physical router or
 remove installed APK/module payloads. Evidence, the image receipt and test
 scripts are retained under
 `/srv/openwrt-automation/image-autoprune-20261018T181813/`.
+
+### Skip same-ABI publication generations (2026-10-18)
+
+APK `3.0.5-r11` retains the installed image, logical module and header trackers
+when only the publication generation increases at the same exact OpenWrt ABI.
+The earlier same-ABI cross-generation upgrade results above predate this policy;
+such upgrades are now intentionally skipped on an enrolled installation.
+
+Validation completed:
+
+- `make package/system/apk/compile -j8 V=s`: passed, producing
+  `bin/systemd/packages/x86_64/base/apk-mbedtls-3.0.5-r11.apk`.
+- `test-kernel-apk-policy.py`: 14 tests passed with an isolated native build of
+  the patched APK, signed fixture repositories and disposable roots/chroots.
+  Coverage includes simulation, real userspace updates without kernel changes,
+  targeted image/module upgrades, matching-generation driver installation,
+  preservation of explicit world constraints, and a later ABI transition whose
+  hash sorts below the installed hash. Temporary retention pins do not enter
+  `/etc/apk/world`.
+- `test-kernel-upgrade.py`: all 39 tests passed.
+- Checkpatch (`--no-tree --no-signoff`) and `git diff --check`: passed.
+- `.config` SHA-256 remained
+  `c48968d91c5fb959f21be2d23bc2d06e63461183d4910fb5e4e92e07c0e8d9af`.
+
+Build and test logs are in `/tmp/openwrt-abi-policy.p863BX/`. This change has
+package-build and isolated transaction coverage; no new firmware image was
+built or booted in QEMU, and no feed publication or physical-router deployment
+was performed.
+
+#### Subsequent signed publication and physical deployment
+
+Published `apk-mbedtls-3.0.5-r11.apk` to the running router ABI's `base` feed
+and the kernel channel. Publication added only this support package; all prior
+APK hashes, 11 kernel images and channel sequence 18 were retained. APK SHA-256:
+`d30bf91f5c99ab8506fc5a70da1eb5f5ba632558452a72376ae50f8571b22e5f`.
+
+On the physical router, existing trust verified the package and a signed
+single-package offline index. Simulation and installation both selected only
+`apk-mbedtls`, upgrading `3.0.5-r10` to `3.0.5-r11`. The old APK added 250
+existing protected-payload constraints to world during self-upgrade; only those
+new entries were withdrawn to restore the exact original world. The separate
+protected dependency file was unchanged.
+
+The installed tool skipped a synthetic same-ABI G19 candidate in a private,
+simulation-only repository, printing `Keeping installed kernel generation: ABI
+unchanged.` No package writes occurred; the test used a temporary signing key
+and did not alter global trust or publish the candidate. The remote test
+repository was removed afterward. `kernelctl check`, `apk update` and simulation
+against the production feeds then passed; the production simulation selected
+no upgrades.
+
+Final comparison confirmed that only the APK tool's installed record changed.
+The router remained on G18 with the same boot ID, no pending kernel trial,
+unchanged kernel/GRUB/policy/configuration files and world, three active router
+service units, and no failed systemd units. No reboot was performed.
+
+Evidence: `/srv/openwrt-validation/apk-abi-policy-deploy-20261018T112854Z/receipt.json`.
+The root-only remote backup is
+`/root/apk-abi-policy-deploy-20261018T112854Z/`.

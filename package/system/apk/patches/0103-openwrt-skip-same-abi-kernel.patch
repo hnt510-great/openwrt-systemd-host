@@ -1,0 +1,152 @@
+Subject: [PATCH] apk: keep installed kernel generation when ABI is unchanged
+
+A publication sequence alone must not replace a managed kernel. Re-solve
+with transaction-local checksums for installed kernel, module and header
+trackers when a candidate only advances -gN at the same exact OpenWrt ABI.
+Exclude the unwanted image from that solve, including when requested by
+a module upgrade. Keep original world constraints and do not persist
+these extra pins, so userspace updates and real ABI transitions still work.
+Initial migration without an installed image tracker remains supported.
+
+---
+--- a/src/commit.c
++++ b/src/commit.c
+@@ -64,6 +64,106 @@
+ 	if (ferror(file)) result = -1;
+ 	fclose(file);
+ 	return result;
++}
++
++static const struct apk_dependency *kernel_image_dep(const struct apk_package *pkg)
++{
++	if (!pkg)
++		return NULL;
++	apk_array_foreach(dep, pkg->depends) {
++		if (dep->op == APK_VERSION_EQUAL &&
++		    !strncmp(dep->name->name, "linux-image-", 12) &&
++		    strcmp(dep->name->name, "linux-image-openwrt"))
++			return dep;
++	}
++	return NULL;
++}
++
++/* The publication sequence is not an ABI transition. Keep the installed
++ * trackers together when only -gN advances, using solver-only constraints.
++ * Never write these checksums into world: a later ABI change must still work.
++ */
++static bool kernel_keep_abi(struct apk_database *db, struct apk_changeset *changeset,
++			    struct apk_dependency_array *world,
++			    struct apk_dependency_array **solver_world)
++{
++	struct apk_package *tracker;
++	const struct apk_dependency *before;
++	bool keep = false, initialized = apk_array_len(*solver_world) != 0;
++
++	if (faccessat(db->root_fd, "etc/openwrt-kernel/protected", F_OK, 0) != 0)
++		return false;
++	tracker = apk_pkg_get_installed(
++		apk_db_get_name(db, APK_BLOB_STR("linux-image-openwrt")));
++	before = kernel_image_dep(tracker);
++	/* Initial migration still enrolls its first image. */
++	if (!before)
++		return false;
++	apk_array_foreach(change, changeset->changes) {
++		const struct apk_package *new = change->new_pkg;
++		struct apk_name *image;
++		apk_blob_t version;
++		const char *a, *b, *ga, *gb;
++		struct apk_dependency conflict;
++
++		if (!new || new == change->old_pkg)
++			continue;
++		if (!strcmp(new->name->name, "linux-image-openwrt")) {
++			const struct apk_dependency *after = kernel_image_dep(new);
++
++			if (!after)
++				continue;
++			image = after->name;
++			version = *after->version;
++		} else if (!strncmp(new->name->name, "linux-image-", 12)) {
++			image = new->name;
++			version = *new->version;
++		} else {
++			continue;
++		}
++		if (apk_blob_compare(*before->version, version))
++			continue;
++		a = before->name->name;
++		b = image->name;
++		ga = strrchr(a, '-');
++		gb = strrchr(b, '-');
++		if (!ga || !gb || strncmp(ga, "-g", 2) || strncmp(gb, "-g", 2) ||
++		    !ga[2] || !gb[2] || strspn(ga + 2, "0123456789") != strlen(ga + 2) ||
++		    strspn(gb + 2, "0123456789") != strlen(gb + 2) ||
++		    ga - a != gb - b || memcmp(a, b, ga - a) ||
++		    strtoul(gb + 2, NULL, 10) <= strtoul(ga + 2, NULL, 10))
++			continue;
++		if (!apk_array_len(*solver_world))
++			apk_dependency_array_copy(solver_world, world);
++		keep = true;
++		if (apk_pkg_get_installed(image))
++			continue;
++		conflict = (struct apk_dependency) {
++			.name = image,
++			.version = &apk_atom_null,
++			.op = APK_DEPMASK_ANY | APK_VERSION_CONFLICT,
++		};
++		/* Adding a driver must not introduce another same-ABI image. */
++		apk_dependency_array_add(solver_world, conflict);
++	}
++	if (!keep)
++		return false;
++	if (initialized)
++		return true;
++	apk_array_foreach_item(pkg, apk_db_sorted_installed_packages(db)) {
++		const char *name = pkg->name->name;
++		struct apk_dependency dep;
++
++		if (strcmp(name, "kernel") && strcmp(name, "linux-image-openwrt") &&
++		    strcmp(name, "kernel-dev-headers") &&
++		    (strncmp(name, "kmod-", 5) || strstr(name, "-owrt-")))
++			continue;
++		apk_dep_from_pkg(&dep, db, pkg);
++		/* Append, rather than replace, to preserve explicit world constraints. */
++		apk_dependency_array_add(solver_world, dep);
++	}
++	apk_msg(&db->ctx->out, "Keeping installed kernel generation: ABI unchanged.");
++	return true;
+ }
+ 
+ static int kernel_policy(struct apk_database *db, struct apk_changeset *changeset,
+@@ -1041,7 +1141,7 @@
+ {
+ 	struct apk_out *out = &db->ctx->out;
+ 	struct apk_changeset changeset = {};
+-	struct apk_dependency_array *retained_world;
++	struct apk_dependency_array *retained_world, *solver_world;
+ 	int r;
+ 
+ 	if (apk_db_check_world(db, world) != 0) {
+@@ -1058,12 +1158,21 @@
+ 		return -1;
+ 	}
+ 	apk_change_array_init(&changeset.changes);
++	apk_dependency_array_init(&solver_world);
+ 	r = apk_solver_solve(db, solver_flags, world, &changeset);
++	while (r == 0 && kernel_keep_abi(db, &changeset, world, &solver_world)) {
++		apk_change_array_free(&changeset.changes);
++		memset(&changeset, 0, sizeof(changeset));
++		apk_change_array_init(&changeset.changes);
++		r = apk_solver_solve(db, solver_flags, solver_world, &changeset);
++	}
+ 	if (r == 0)
+ 		r = apk_solver_commit_changeset(db, &changeset, world);
+ 	else
+-		apk_solver_print_errors(db, &changeset, world);
++		apk_solver_print_errors(db, &changeset,
++					apk_array_len(solver_world) ? solver_world : world);
+ 	apk_change_array_free(&changeset.changes);
++	apk_dependency_array_free(&solver_world);
+ 	apk_dependency_array_free(&world);
+ 	return r;
+ }

@@ -97,10 +97,16 @@ Build the kernel, packages and final image through the normal build pipeline.
 Keep the original signing key and publish a complete matching set of all selected
 modules, including out-of-tree modules and native headers.
 
-The publication sequence drives upgrades even when a new config ABI hash sorts
-below the old hash. APK may describe that ABI tracker transition as a downgrade;
-the immutable image and kmod generation still advance together. Build and runtime
-validation for this implementation is recorded in [the validation report](kernel-upgrade-validation.md).
+The publication sequence orders candidates. On an adopted installation with an
+installed image tracker, APK r11 keeps the installed kernel generation when the
+exact OpenWrt ABI is unchanged and only `-gN` increases. It retains the image,
+logical kmods and native headers together while allowing userspace upgrades.
+The additional solver constraints are temporary and are not saved in world.
+A real ABI change still upgrades the complete generation, even when the new ABI
+hash sorts below the old hash. APK may describe that ABI tracker transition as a
+downgrade; the immutable image and kmod generation still advance together.
+Build and runtime validation is recorded in
+[the validation report](kernel-upgrade-validation.md).
 
 ```
 python3 scripts/publish-kernel-upgrade-feed.py \
@@ -161,8 +167,17 @@ grub-editenv /boot/grub/grubenv list
 ```
 
 The ordinary upgrade resolves the rolling image tracker and all selected logical
-kmods into immutable generation payloads. The APK solver still enforces the exact
-OpenWrt kernel ABI. Old payloads are anchored by installed-package checksums;
+kmods into immutable generation payloads when the ABI changes. A same-ABI `gN`
+increase prints `Keeping installed kernel generation: ABI unchanged.` and keeps
+the installed kernel/module/header trackers, including for targeted tracker or
+kmod upgrades. This does not arm a new kernel trial or require a kernel reboot.
+Adding a driver must also use a payload for the retained generation; if APK's
+solver cannot select it automatically, request its matching tracker version
+explicitly. An incompatible request fails before package writes rather than
+installing another same-ABI image. Initial migration without an installed image
+tracker can still enroll its first versioned kernel.
+The APK solver still enforces the exact OpenWrt kernel ABI. Old payloads are
+anchored by installed-package checksums;
 APK cannot silently replace or remove them. The manager checks the original
 kernel, retained payloads, module completeness, built-in features and free space
 before activating anything. Disabling scripts/commit hooks is rejected for kernel
