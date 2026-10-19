@@ -115,8 +115,13 @@ python3 scripts/publish-kernel-upgrade-feed.py \
   --source bin/systemd --destination /path/to/test-feed
 ```
 
-The publisher verifies signatures and image/module identity, retains old packages,
-and atomically replaces `public/kernel-upgrades` with a signed snapshot. Serve
+The publisher verifies signatures and image/module identity, keeps only the two
+newest publication sequences with their matching images, modules, headers and
+trackers, and atomically replaces `public/kernel-upgrades` with a signed snapshot.
+Support packages keep at most two versions using APK version ordering. After a
+successful switch, obsolete kernel-channel snapshots are deleted; dry runs and
+failed validation leave the active channel intact. ABI-specific userspace feeds
+and installed router rescue generations are unaffected. Serve
 that directory through the existing feed server. It is a separate channel from
 ABI-specific userspace feeds. `lan-apk-feeds` follows the **running** kernel's ABI
 for userspace repositories and includes the kernel-upgrades channel after adoption.

@@ -660,6 +660,41 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(active.resolve(), previous)
         self.assertEqual(before, (active / 'packages.adb').read_bytes())
 
+    def test_channel_keeps_two_newest_sequences_and_their_dependency_closure(self):
+        destination = self.work / 'publications'
+        active = destination / 'public/kernel-upgrades'
+        for sequence in (8, 9, 10):
+            generation = GEN.rsplit('-g', 1)[0] + f'-g{sequence}'
+            self.split('kernel', ABI, generation, sequence)
+            self.split('kmod-nic', f'1000.{sequence}.6.18.55-r1', generation, sequence)
+            result = F.publish(self.output, destination, APK, self.key, self.work)
+            self.assertEqual(result['images'], min(sequence - 7, 2))
+        manifest = json.loads((active / 'manifest.json').read_text())
+        self.assertEqual(sorted(int(name.rsplit('-g', 1)[1]) for name in manifest['images']), [9, 10])
+        infos = [entry['info'] for entry in manifest['packages'].values()]
+        self.assertEqual(sorted(info['version'] for info in infos
+                                if info['name'] == 'linux-image-openwrt'), ['1-r10', '1-r9'])
+        self.assertFalse(any('-g8' in info['name'] or any('-g8=' in dep
+            for dep in info.get('depends', [])) for info in infos))
+        self.assertEqual(len(list((active.parent / 'kernel-snapshots').iterdir())), 1)
+        subprocess.run([str(APK), 'verify', '--keys-dir', str(self.work),
+                        str(active / 'packages.adb')], check=True, capture_output=True)
+        self.assertEqual(F.publish(self.output, destination, APK, self.key, self.work)['status'], 'unchanged')
+        before = active.resolve()
+        index_before = (active / 'packages.adb').read_bytes()
+        generation = GEN.rsplit('-g', 1)[0] + '-g11'
+        self.split('kernel', ABI, generation, 11)
+        self.split('kmod-nic', '1000.11.6.18.55-r1', generation, 11)
+        self.assertEqual(F.publish(self.output, destination, APK, self.key, self.work, True)['images'], 2)
+        self.assertEqual(active.resolve(), before)
+        self.assertEqual((active / 'packages.adb').read_bytes(), index_before)
+
+    def test_retention_uses_apk_order_for_support_package_versions(self):
+        packages = {f'grub2-{version}.apk': {'info': {'name': 'grub2', 'version': version}}
+                    for version in ('1-r8', '1-r9', '1-r10')}
+        retained, _ = F.retained_packages(packages, {}, {}, APK)
+        self.assertEqual(set(retained), {'grub2-1-r9.apk', 'grub2-1-r10.apk'})
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

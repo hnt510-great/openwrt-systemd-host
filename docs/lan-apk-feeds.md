@@ -70,7 +70,10 @@ even if the ABI hash stays the same. Missing local input history conservatively
 reserves a new generation. Both feed types pass signature, generation, completeness and
 immutability preflight before publication. Userspace views are published first;
 the kernel channel is exposed last. Existing ABI-local kernel packages and old
-generations are retained. Stale kernel outputs are filtered rather than deleted.
+generations are limited to the two newest publication sequences in the kernel
+channel, including their matching kmods, headers and trackers. Obsolete kernel
+snapshots are deleted after the signed channel switches successfully. ABI-local
+feeds remain unchanged. Stale build outputs are filtered rather than deleted.
 See [the kernel upgrade guide](kernel-upgrade.md#build-and-publish).
 
 In this mode, `publish-changed-feeds.sh` also handles both feed types, without

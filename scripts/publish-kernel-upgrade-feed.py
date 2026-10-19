@@ -2,6 +2,7 @@
 """Publish a signed, immutable multi-generation kernel channel, never a router."""
 import argparse
 import fcntl
+from functools import cmp_to_key
 import hashlib
 import json
 import os
@@ -12,6 +13,42 @@ import stat
 import subprocess
 import tempfile
 import time
+
+KEEP_GENERATIONS = 2
+
+
+def retained_packages(packages, images, image_sequences, apk):
+    """Keep the newest publication generations and their exact dependency pins."""
+    keep_images = set(sorted(images, key=image_sequences.get, reverse=True)[:KEEP_GENERATIONS])
+    retired_payloads = {entry['info']['name'] for entry in packages.values()
+        if '-owrt-' in entry['info']['name'] and
+        entry['info']['name'].startswith(('linux-image-', 'kmod-', 'kernel-dev-headers-')) and
+        not any(entry['info']['name'].endswith(image[len('linux-image-'):]) for image in keep_images)}
+    keep_abis = {images[name] for name in keep_images}
+    candidates = {}
+    for filename, entry in packages.items():
+        info = entry['info']
+        if info['name'] in retired_payloads:
+            continue
+        if info['name'] == 'kernel' and info['version'] not in keep_abis:
+            continue
+        if any(dep.split('=', 1)[0] in retired_payloads or
+               (dep.startswith('kernel=') and dep.split('=', 1)[1] not in keep_abis)
+               for dep in info.get('depends', [])):
+            continue
+        candidates[filename] = entry
+    # Support packages also need a bound; use APK ordering, not lexical order.
+    by_name = {}
+    for filename, entry in candidates.items():
+        by_name.setdefault(entry['info']['name'], []).append(filename)
+    def compare(left, right):
+        order = subprocess.check_output([str(apk), 'version', '--test',
+            candidates[left]['info']['version'], candidates[right]['info']['version']], text=True).strip()
+        return {'<': -1, '=': 0, '>': 1}[order]
+    retained = {filename for versions in by_name.values()
+                for filename in sorted(versions, key=cmp_to_key(compare), reverse=True)[:KEEP_GENERATIONS]}
+    return ({name: entry for name, entry in candidates.items() if name in retained},
+            {name: abi for name, abi in images.items() if name in keep_images})
 
 
 def digest(path):
@@ -124,6 +161,10 @@ def publish(source, destination, apk, key, keys, dry_run=False):
             incoming_sequences = [int(entry['info']['version'].split('-r')[1])
                 for filename, entry in packages.items() if filename in incoming and
                 entry['info']['name'] == 'linux-image-openwrt']
+            packages, images = retained_packages(packages, images, image_sequences, apk)
+            for path in stage.glob('*.apk'):
+                if path.name not in packages:
+                    path.unlink()
             new_images = set(images) - set(previous['images']) if previous else set(images)
             if previous and incoming_sequences and max(incoming_sequences) < previous['sequence']:
                 raise ValueError('Refusing to publish a stale kernel generation')
@@ -143,6 +184,7 @@ def publish(source, destination, apk, key, keys, dry_run=False):
             subprocess.run([str(apk), 'verify', '--keys-dir', str(keys), str(stage / 'packages.adb')],
                            check=True, capture_output=True)
             manifest = {'schema': 1, 'packages': packages, 'images': images, 'sequence': sequence,
+                        'keep_generations': KEEP_GENERATIONS,
                         'signing_key_sha256': fingerprint,
                         'index_sha256': digest(stage / 'packages.adb')}
             (stage / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
@@ -155,6 +197,11 @@ def publish(source, destination, apk, key, keys, dry_run=False):
                 pending.unlink(missing_ok=True)
                 pending.symlink_to(Path('kernel-snapshots') / final.name)
                 os.replace(pending, active)
+                # Only this channel owns these snapshots. Collect after the
+                # signed replacement is live, never during validation/dry-run.
+                for snapshot in snapshots.iterdir():
+                    if snapshot != final and snapshot.name.isdigit() and not snapshot.is_symlink():
+                        shutil.rmtree(snapshot)
             return {'status': 'dry-run' if dry_run else 'published', 'packages': len(packages),
                     'images': len(images), 'channel': str(active)}
 

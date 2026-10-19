@@ -130,14 +130,17 @@ class BuildPublicationTests(unittest.TestCase):
             subprocess.run([str(APK), 'verify', '--keys-dir', str(TREE), str(index)],
                            check=True, capture_output=True)
 
-    def test_new_generation_retains_previous_payload_and_snapshot(self):
+    def test_new_generation_retains_previous_payload_and_collects_old_snapshot(self):
         B.publish(self.tree, self.data)
         previous = self.aliases()['kernel']
-        original = (previous / 'packages.adb').read_bytes()
+        original = {p.name: p.read_bytes() for p in previous.glob('*.apk')}
         self.generation(2)
         result = B.publish(self.tree, self.data)
         self.assertEqual(result['kernel']['images'], 2)
-        self.assertEqual((previous / 'packages.adb').read_bytes(), original)
+        self.assertFalse(previous.exists())
+        active = self.server / 'public/kernel-upgrades'
+        for filename, content in original.items():
+            self.assertEqual((active / filename).read_bytes(), content)
         current = json.loads((self.server / 'public/kernel-upgrades/manifest.json').read_text())
         self.assertEqual(current['sequence'], 2)
         self.assertTrue(any('-g1-' in p for p in current['packages']))
