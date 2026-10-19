@@ -1,0 +1,517 @@
+{
+  "schema": 1,
+  "packages": {
+    "adwaita-icons": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/adwaita-icon-theme/3.38/",
+      "filename_pattern": "adwaita\\-icon\\-theme\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/adwaita-icon-theme/"
+    },
+    "appstream": {
+      "provider": "github",
+      "policy": "series",
+      "project": "ximion/appstream",
+      "catalog": "tags"
+    },
+    "at-spi2-core": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/at-spi2-core/2.60/",
+      "filename_pattern": "at\\-spi2\\-core\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/at-spi2-core/"
+    },
+    "cmake-bin": {
+      "provider": "github",
+      "policy": "series",
+      "project": "Kitware/CMake",
+      "catalog": "releases",
+      "checksums": "https://github.com/Kitware/CMake/releases/download/v{version}/cmake-{version}-SHA-256.txt"
+    },
+    "cockpit-runtime-deps": {
+      "provider": "local",
+      "reason": "Locally maintained integration package"
+    },
+    "dconf": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/dconf/0.40/",
+      "filename_pattern": "dconf\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/dconf/"
+    },
+    "distrobox": {
+      "provider": "github",
+      "policy": "series",
+      "project": "89luca89/distrobox",
+      "catalog": "tags"
+    },
+    "duktape": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://duktape.org/download",
+      "filename_pattern": "duktape\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz"
+    },
+    "firefox-esr-bin": {
+      "provider": "firefox",
+      "policy": "major"
+    },
+    "flatpak": {
+      "provider": "github",
+      "policy": "series",
+      "project": "flatpak/flatpak",
+      "catalog": "releases"
+    },
+    "freerdp": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://pub.freerdp.com/releases/",
+      "filename_pattern": "freerdp\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.gz"
+    },
+    "glib2-build-tools": {
+      "provider": "local",
+      "reason": "Locally maintained integration package"
+    },
+    "glib2-gir": {
+      "provider": "follow",
+      "recipe": "feeds/packages/libs/glib2/Makefile",
+      "same_source": true
+    },
+    "glibc-distro-compat": {
+      "provider": "local",
+      "reason": "Version follows the target kernel/libc"
+    },
+    "glibc-getent": {
+      "provider": "local",
+      "reason": "Version follows the target kernel/libc"
+    },
+    "gnu-time": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://ftp.gnu.org/gnu/time/",
+      "filename_pattern": "time\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.gz"
+    },
+    "gobject-introspection": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/gobject-introspection/1.86/",
+      "filename_pattern": "gobject\\-introspection\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/gobject-introspection/"
+    },
+    "gtk-vnc": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/gtk-vnc/1.5/",
+      "filename_pattern": "gtk\\-vnc\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/gtk-vnc/"
+    },
+    "hicolor-icon-theme": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://icon-theme.freedesktop.org/releases/",
+      "filename_pattern": "hicolor\\-icon\\-theme\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz"
+    },
+    "intel-gpu-tools": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://www.x.org/releases/individual/app/",
+      "filename_pattern": "igt\\-gpu\\-tools\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    },
+    "kbd": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://cdn.kernel.org/pub/linux/utils/kbd/",
+      "filename_pattern": "kbd\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz"
+    },
+    "kernel-dev-headers": {
+      "provider": "local",
+      "reason": "Version follows the target kernel/libc"
+    },
+    "lan-apk-feeds": {
+      "provider": "local",
+      "reason": "Locally maintained integration package"
+    },
+    "libX11": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://xorg.freedesktop.org/archive/individual/lib/",
+      "filename_pattern": "libX11\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    },
+    "libXau": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://xorg.freedesktop.org/archive/individual/lib/",
+      "filename_pattern": "libXau\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    },
+    "libXcomposite": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://xorg.freedesktop.org/archive/individual/lib/",
+      "filename_pattern": "libXcomposite\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    },
+    "libXcursor": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://xorg.freedesktop.org/archive/individual/lib/",
+      "filename_pattern": "libXcursor\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    },
+    "libXdamage": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://xorg.freedesktop.org/archive/individual/lib/",
+      "filename_pattern": "libXdamage\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    },
+    "libXdmcp": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://xorg.freedesktop.org/archive/individual/lib/",
+      "filename_pattern": "libXdmcp\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    },
+    "libXext": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://xorg.freedesktop.org/archive/individual/lib/",
+      "filename_pattern": "libXext\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    },
+    "libXfixes": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://xorg.freedesktop.org/archive/individual/lib/",
+      "filename_pattern": "libXfixes\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    },
+    "libXfont2": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://xorg.freedesktop.org/archive/individual/lib/",
+      "filename_pattern": "libXfont2\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    },
+    "libXi": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://xorg.freedesktop.org/archive/individual/lib/",
+      "filename_pattern": "libXi\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    },
+    "libXrandr": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://xorg.freedesktop.org/archive/individual/lib/",
+      "filename_pattern": "libXrandr\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    },
+    "libXrender": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://xorg.freedesktop.org/archive/individual/lib/",
+      "filename_pattern": "libXrender\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    },
+    "libXxf86vm": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://xorg.freedesktop.org/archive/individual/lib/",
+      "filename_pattern": "libXxf86vm\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    },
+    "libaml": {
+      "provider": "github",
+      "policy": "series",
+      "project": "any1/aml",
+      "catalog": "tags"
+    },
+    "libcups-runtime": {
+      "provider": "github",
+      "policy": "series",
+      "project": "OpenPrinting/cups",
+      "catalog": "releases"
+    },
+    "libfontenc": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://xorg.freedesktop.org/archive/individual/lib/",
+      "filename_pattern": "libfontenc\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    },
+    "libfyaml": {
+      "provider": "github",
+      "policy": "series",
+      "project": "pantoniou/libfyaml",
+      "catalog": "releases"
+    },
+    "libglvnd": {
+      "provider": "github",
+      "policy": "series",
+      "project": "NVIDIA/libglvnd",
+      "catalog": "tags"
+    },
+    "libgtk3": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/gtk/3.24/",
+      "filename_pattern": "gtk\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/gtk/"
+    },
+    "libneatvnc": {
+      "provider": "github",
+      "policy": "series",
+      "project": "any1/neatvnc",
+      "catalog": "tags"
+    },
+    "libosinfo": {
+      "provider": "gitlab",
+      "host": "https://gitlab.com",
+      "project": "libosinfo/libosinfo",
+      "catalog": "releases",
+      "policy": "series",
+      "source_url": "https://gitlab.com/libosinfo/libosinfo/-/releases/v{version}/downloads/"
+    },
+    "libostree": {
+      "provider": "github",
+      "policy": "stable",
+      "project": "ostreedev/ostree",
+      "catalog": "releases"
+    },
+    "libvirt": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.libvirt.org/",
+      "filename_pattern": "libvirt\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz"
+    },
+    "libvirt-glib": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://libvirt.org/sources/glib/",
+      "filename_pattern": "libvirt\\-glib\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz"
+    },
+    "libvirt-python": {
+      "provider": "follow",
+      "recipe": "package/custom/libvirt/Makefile"
+    },
+    "libvte3": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/vte/0.82/",
+      "filename_pattern": "vte\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/vte/"
+    },
+    "libxcb": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://xcb.freedesktop.org/dist/",
+      "filename_pattern": "libxcb\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    },
+    "libxcvt": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://xorg.freedesktop.org/archive/individual/lib/",
+      "filename_pattern": "libxcvt\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    },
+    "libxkbfile": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://xorg.freedesktop.org/archive/individual/lib/",
+      "filename_pattern": "libxkbfile\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    },
+    "libxshmfence": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://xorg.freedesktop.org/archive/individual/lib/",
+      "filename_pattern": "libxshmfence\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    },
+    "luci-app-podman": {
+      "provider": "local",
+      "reason": "Locally maintained integration package"
+    },
+    "luci-app-qemu": {
+      "provider": "local",
+      "reason": "Locally maintained integration package"
+    },
+    "luci-app-systemd-journal": {
+      "provider": "local",
+      "reason": "Locally maintained integration package"
+    },
+    "native-build-deps": {
+      "provider": "local",
+      "reason": "Locally maintained integration package"
+    },
+    "native-libs-dev": {
+      "provider": "local",
+      "reason": "Locally maintained integration package"
+    },
+    "node-bin": {
+      "provider": "node",
+      "policy": "major"
+    },
+    "noto-sans-cjk-sc": {
+      "provider": "github",
+      "policy": "series",
+      "project": "notofonts/noto-cjk",
+      "catalog": "tags",
+      "tag_pattern": "Sans(?P<version>[0-9]+(?:\\.[0-9]+)+)"
+    },
+    "openwrt-appimage": {
+      "provider": "local",
+      "reason": "Locally maintained integration package"
+    },
+    "openwrt-desktop": {
+      "provider": "local",
+      "reason": "Locally maintained integration package"
+    },
+    "openwrt-flatpak": {
+      "provider": "local",
+      "reason": "Locally maintained integration package"
+    },
+    "openwrt-full-utils": {
+      "provider": "local",
+      "reason": "Locally maintained integration package"
+    },
+    "openwrt-kernel-upgrade": {
+      "provider": "local",
+      "reason": "Locally maintained integration package"
+    },
+    "openwrt-podman-rootless": {
+      "provider": "local",
+      "reason": "Locally maintained integration package"
+    },
+    "osinfo-db": {
+      "provider": "gitlab",
+      "host": "https://gitlab.com",
+      "project": "libosinfo/osinfo-db",
+      "catalog": "releases",
+      "policy": "stable",
+      "source_url": "https://gitlab.com/libosinfo/osinfo-db/-/releases/v{version}/downloads/"
+    },
+    "pipewire": {
+      "provider": "github",
+      "policy": "series",
+      "project": "PipeWire/pipewire",
+      "catalog": "tags"
+    },
+    "polkit": {
+      "provider": "github",
+      "policy": "stable",
+      "project": "polkit-org/polkit",
+      "catalog": "tags"
+    },
+    "pycairo": {
+      "provider": "pypi",
+      "policy": "series",
+      "project": "pycairo"
+    },
+    "pygobject": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/pygobject/3.58/",
+      "filename_pattern": "pygobject\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.gz",
+      "series_index": "https://download.gnome.org/sources/pygobject/"
+    },
+    "python-pyparsing": {
+      "provider": "pypi",
+      "policy": "series",
+      "project": "pyparsing"
+    },
+    "python3-libxml2": {
+      "provider": "follow",
+      "recipe": "package/libs/libxml2/Makefile",
+      "same_source": true
+    },
+    "spice-gtk": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://www.spice-space.org/download/gtk/",
+      "filename_pattern": "spice\\-gtk\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz"
+    },
+    "traceroute": {
+      "provider": "sourceforge",
+      "policy": "series",
+      "project": "traceroute"
+    },
+    "util-macros": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://xorg.freedesktop.org/archive/individual/util/",
+      "filename_pattern": "util\\-macros\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    },
+    "virglrenderer": {
+      "provider": "gitlab",
+      "policy": "series",
+      "project": "virgl/virglrenderer",
+      "host": "https://gitlab.freedesktop.org"
+    },
+    "virt-manager": {
+      "provider": "github",
+      "project": "virt-manager/virt-manager",
+      "catalog": "releases",
+      "policy": "series",
+      "source_url": "https://github.com/virt-manager/virt-manager/releases/download/v{version}/"
+    },
+    "xcb-proto": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://xcb.freedesktop.org/dist/",
+      "filename_pattern": "xcb\\-proto\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    },
+    "xdg-desktop-portal": {
+      "provider": "github",
+      "policy": "series",
+      "project": "flatpak/xdg-desktop-portal",
+      "catalog": "releases"
+    },
+    "xdg-desktop-portal-gtk": {
+      "provider": "github",
+      "policy": "series",
+      "project": "flatpak/xdg-desktop-portal-gtk",
+      "catalog": "releases"
+    },
+    "xkbcomp": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://xorg.freedesktop.org/archive/individual/app/",
+      "filename_pattern": "xkbcomp\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    },
+    "xorgproto": {
+      "provider": "directory",
+      "policy": "stable",
+      "index": "https://xorg.freedesktop.org/archive/individual/proto/",
+      "filename_pattern": "xorgproto\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    },
+    "xorriso": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://www.gnu.org/software/xorriso/",
+      "filename_pattern": "xorriso\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.gz",
+      "stable_pattern": "[0-9]+\\.[0-9]+\\.[0-9]*[02468](?:_p[0-9]+)?"
+    },
+    "xtrans": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://xorg.freedesktop.org/archive/individual/lib/",
+      "filename_pattern": "xtrans\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    },
+    "xwayland": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://xorg.freedesktop.org/archive/individual/xserver/",
+      "filename_pattern": "xwayland\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
+      "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    }
+  }
+}
