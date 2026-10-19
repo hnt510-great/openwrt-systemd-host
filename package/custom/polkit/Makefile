@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=polkit
-PKG_VERSION:=127
+PKG_VERSION:=128
 PKG_RELEASE:=1
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/polkit-org/polkit/tar.gz/refs/tags/$(PKG_VERSION)?
-PKG_HASH:=9b7bc16f086479dcc626c575976568ba4a85d34297a750d8ab3d2e57f6d8b988
+PKG_HASH:=6edb06bf1448e49e428f9597a97af6a05d62146dd0b58f86eeaebcee3f5ecfaa
 PKG_LICENSE:=LGPL-2.0-or-later
 PKG_LICENSE_FILES:=COPYING
 PKG_INSTALL:=1
