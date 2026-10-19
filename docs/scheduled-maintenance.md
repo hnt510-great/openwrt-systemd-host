@@ -1,6 +1,12 @@
 # Scheduled OpenWrt integration and publication
 
-The host user's cron checks the schedule daily at **04:00 Asia/Singapore (UTC+8)**
+Automatic maintenance was disabled at the user's request on 2026-10-18. The
+marked cron job was removed, and no scheduler was running. Do not reinstall the
+cron job or start this workflow unless the user explicitly requests it again.
+Existing logs, state and backups are retained. The description below documents
+the previous schedule and the available implementation.
+
+The former host-user cron checked the schedule daily at **04:00 Asia/Singapore (UTC+8)**
 with `0 4 * * *`. The host timezone is Asia/Singapore. Actual runs are anchored
 exactly 72 hours apart, across month boundaries, with a nonblocking lock preventing
 overlap. A newly initialized schedule starts three days after the next configured
