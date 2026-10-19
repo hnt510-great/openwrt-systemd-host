@@ -1,10 +1,10 @@
 include $(TOPDIR)/rules.mk
 PKG_NAME:=osinfo-db
-PKG_VERSION:=20251212
+PKG_VERSION:=20260812
 PKG_RELEASE:=1
-PKG_SOURCE:=osinfo-db-20251212.tar.xz
-PKG_SOURCE_URL:=https://releases.pagure.org/libosinfo/
-PKG_HASH:=06379250c91306c98cb9726af44eae5909dfdd5449f90331e904ae1221d8d5e7
+PKG_SOURCE:=osinfo-db-20260812.tar.xz
+PKG_SOURCE_URL:=https://gitlab.com/libosinfo/osinfo-db/-/releases/v20260812/downloads/
+PKG_HASH:=f13ed6e1e480b5266d39cad7f0010febdf0265dfc45579de2fb34543bc6b35de
 PKG_LICENSE:=GPL-2.0-or-later
 include $(INCLUDE_DIR)/package.mk
 define Package/osinfo-db
