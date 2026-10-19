@@ -1,10 +1,10 @@
 include $(TOPDIR)/rules.mk
 PKG_NAME:=pycairo
-PKG_VERSION:=1.29.0
+PKG_VERSION:=1.29.2
 PKG_RELEASE:=1
-PKG_SOURCE:=pycairo-1.29.0.tar.gz
+PKG_SOURCE:=pycairo-1.29.2.tar.gz
 PKG_SOURCE_URL:=https://files.pythonhosted.org/packages/source/p/pycairo/
-PKG_HASH:=f3f7fde97325cae80224c09f12564ef58d0d0f655da0e3b040f5807bd5bd3142
+PKG_HASH:=3e69fff74fe64f5ba2dfa31f67c6bdf26413342574047437d2ac520d35e9a489
 PKG_LICENSE:=LGPL-2.1-or-later
 PKG_INSTALL:=1
 PKG_BUILD_PARALLEL:=1
