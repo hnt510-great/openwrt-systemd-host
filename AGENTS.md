@@ -2,38 +2,36 @@
 
 ## Project Structure & Module Organization
 
-This repository is an OpenWrt build tree. Top-level build rules live in `Makefile`, `rules.mk`, and `include/`. Package definitions are under `package/`; installed feed packages are linked under `package/feeds/`, while local additions may live in `package/custom/` or standalone package directories. Target definitions, kernel configs, and image logic are in `target/linux/<target>/`. Host tools are in `tools/`, toolchain components in `toolchain/`, helper scripts in `scripts/`, and root filesystem overlays in `files/`.
+This OpenWrt tree includes an experimental x86_64/glibc/APK native-systemd variant. Build rules live in `Makefile`, `rules.mk`, and `include/`; target/kernel definitions are in `target/linux/`. Packages live in `package/`, including local additions in `package/custom/`. Independent feed repositories live in `feeds/`, linked through `package/feeds/`.
 
-Generated or downloaded content includes `bin/`, `build_dir/`, `staging_dir/`, `tmp/`, and `dl/`. Treat these as build artifacts, not source.
+Use `tools/` for host tools, `toolchain/` for cross-compilers, `files/` for rootfs overlays, `configs/` for configuration snapshots and feed manifests, `docs/` for feature/validation guides, and `scripts/tests/` for helper tests. Treat `bin/`, `build_dir/`, `staging_dir/`, `tmp/`, and `dl/` as generated/downloaded artifacts.
 
 ## Build, Test, and Development Commands
 
-- `./scripts/feeds update -a`: fetch or update configured package feeds.
-- `./scripts/feeds install -a`: link feed packages into `package/feeds/`.
-- `make menuconfig`: select target, firmware options, and packages.
-- `make defconfig`: normalize `.config` after option changes.
-- `make prereq`: verify required host tools.
-- `make download`: prefetch source archives into `dl/`.
-- `make V=s`: build firmware with verbose output.
-- `make package/<name>/compile V=s`: build one package, for example `make package/fastfetch/compile`.
-- `make clean`: remove normal build outputs; use `dirclean` or `distclean` only when a full rebuild/reset is intended.
+Run from the repository root:
+
+- `make prereq`: check host prerequisites.
+- `./scripts/feeds update -a` / `./scripts/feeds install -a`: update feeds and link packages; inspect local feed changes first.
+- `make menuconfig` / `make defconfig`: select and normalize configuration.
+- `scripts/config/conf --fatalrecursive --defconfig=.config -w .config Config.in`: enforce strict Kconfig dependency validation.
+- `make download`: prefetch sources.
+- `make -j12 V=s`: build firmware; adjust parallelism to host capacity.
+- `make package/custom/<name>/compile V=s`: compile a local package; use its actual path for other packages.
+
+Native-systemd builds require `CONFIG_OPENWRT_SYSTEMD`, x86_64, glibc, and APK; outputs go under `bin/systemd/`. See `docs/systemd.md`. Publication is a separate action: follow `docs/lan-apk-feeds.md` and `docs/kernel-upgrade.md`.
 
 ## Coding Style & Naming Conventions
 
-Follow OpenWrt package Makefile conventions: include `$(TOPDIR)/rules.mk`, define `PKG_*` metadata, include `$(INCLUDE_DIR)/package.mk`, and finish with `$(eval $(call BuildPackage,<name>))`. Use tabs for Make recipe lines. Use `$(INSTALL_DIR)`, `$(INSTALL_BIN)`, and `$(INSTALL_DATA)` in install sections. Store patches in `patches/` with numeric prefixes such as `001-fix-build.patch`.
-
-Shell scripts should stay POSIX-compatible unless an existing script requires otherwise. For C and kernel-adjacent changes, use the local `scripts/checkpatch.pl` where practical.
+Follow nearby OpenWrt Makefiles: define `PKG_*` metadata, use package includes and `BuildPackage`, tabs in recipes, and `$(INSTALL_DIR)`, `$(INSTALL_BIN)`, and `$(INSTALL_DATA)`. Name patches `patches/001-description.patch`. Keep shell POSIX-compatible unless the script requires Bash; follow existing Python style. Use `scripts/checkpatch.pl` for relevant C/kernel patches.
 
 ## Testing Guidelines
 
-There is no single repository-wide unit test command. Validate changes with the narrowest relevant build first. For package work, run `make package/<name>/compile V=s`; for kernel or target changes, run `make target/linux/compile V=s` and an image build if output is affected. Dependency checks can use `scripts/deptest.sh <package>` after feeds are installed.
+Start with the affected package build. For kernel changes, run `make target/linux/compile V=s` and rebuild the image. Python helpers use `unittest`; run relevant `scripts/tests/test-*.py` files directly, for example `python3 scripts/tests/test-scheduled-maintenance.py`. Report skipped prerequisites. For runtime changes, boot the exact image and distinguish QEMU results from physical-device validation.
 
 ## Commit & Pull Request Guidelines
 
-Recent history uses scoped subjects such as `uhttpd: update to Git HEAD` and `build: fix apk_package_files wildcard for packages without ABI version`. Use `area: imperative summary`, keep the subject concise, and explain behavior changes, configuration impact, and test results.
-
-Pull requests should follow the OpenWrt submitting-patches guidance linked from `.github/pull_request_template`. Include affected target/package, issue links, and validation commands.
+Use `area: imperative summary`, such as `build: preserve feed fixes for scheduled Kconfig validation`. Keep main-tree and feed commits separate. Follow `.github/pull_request_template`; describe affected packages/targets, configuration impact, linked issues, and validation.
 
 ## Agent-Specific Instructions
 
-Do not edit generated build directories or revert unrelated local changes. Keep edits focused and preserve the host-versus-target build separation.
+Preserve unrelated changes, `.config`, overlays, and feed histories; never broadly reset, clean, or stage. Do not edit generated directories or commit credentials/private keys. Keep host/target dependencies separate. Retain UCI/procd service ownership and the procd-recovery flashing path. Deploy only signed APKs matching the exact kernel ABI.
