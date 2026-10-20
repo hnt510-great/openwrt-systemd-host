@@ -460,7 +460,7 @@ $(_endef)
     $$(PACK_$(1)) : $(call shexport,Package/$(1)/description)
     $$(PACK_$(1)) : export PATH=$$(TARGET_PATH_PKG)
     $$(PACK_$(1)) : export SOURCE_DATE_EPOCH=$$(PKG_SOURCE_DATE_EPOCH)
-    $(PKG_INFO_DIR)/$(1).provides $$(PACK_$(1)): $(STAMP_BUILT) $(INCLUDE_DIR)/package-pack.mk $(if $(CONFIG_OPENWRT_SYSTEMD),$(SCRIPT_DIR)/merge-usr.py)
+    $(PKG_INFO_DIR)/$(1).provides $$(PACK_$(1)): $(STAMP_BUILT) $(INCLUDE_DIR)/package-pack.mk $(if $(CONFIG_USE_APK),$(SCRIPT_DIR)/ucode-abi.py) $(if $(CONFIG_OPENWRT_SYSTEMD),$(SCRIPT_DIR)/merge-usr.py)
 	rm -rf $$(IDIR_$(1))
 ifeq ($$(CONFIG_USE_APK),)
 	$$(call remove_ipkg_files,$(1),$$(call opkg_package_files,$(call gen_package_wildcard,$(1))))
@@ -622,6 +622,7 @@ else
 
 	$(if $(CONFIG_OPENWRT_SYSTEMD),python3 $(SCRIPT_DIR)/merge-usr.py $$(IDIR_$(1)) --package $(1) $(if $(filter base-files,$(1)),--aliases))
 	$(if $(and $(CONFIG_OPENWRT_KERNEL_UPGRADE),$(filter kernel kernel-dev-headers kmod-%,$(1))),python3 $(SCRIPT_DIR)/kernel-package.py --root "$$(IDIR_$(1))" --name "$(1)" --version "$(VERSION)" --abi "$(KERNEL_ABI_VERSION)" --generation "$(KERNEL_GENERATION)" --sequence "$(CONFIG_OPENWRT_KERNEL_SEQUENCE)" --depends "$$(Package/$(1)/DEPENDS)" --kernel "$(LINUX_DIR)/arch/x86/boot/bzImage" --config "$(LINUX_DIR)/.config" --apk "$(STAGING_DIR_HOST)/bin/apk" --output "$$(PDIR_$(1))" $(if $(CONFIG_SIGN_EACH_PACKAGE),--key "$(BUILD_KEY_APK_SEC)"))
+	python3 $(SCRIPT_DIR)/ucode-abi.py --root "$$(IDIR_$(1))" --package "$(1)" --abi "$$(call GetABISuffix,libucode)" --readelf "$(TARGET_CROSS)readelf" --output "$$(ADIR_$(1))/ucode.depends"
 	SOURCE_DATE_EPOCH=0 $(FAKEROOT) $(STAGING_DIR_HOST)/bin/apk mkpkg \
 	  --info "name:$(1)$$(ABIV_$(1))" \
 	  --info "version:$(VERSION)" \
@@ -636,7 +637,7 @@ else
 	  $$(if $$(Package/$(1)/PROVIDES),--info "provides:$$(Package/$(1)/PROVIDES)") \
 	  $$(if $$(Package/$(1)/PRIORITY),--info "provider-priority:$$(Package/$(1)/PRIORITY)") \
 	  $$(APK_SCRIPTS_$(1)) \
-	  --info "depends:$$(foreach depends,$$(subst $$(comma),$$(space),$$(subst $$(space),,$$(subst $$(paren_right),,$$(subst $$(paren_left),,$$(Package/$(1)/DEPENDS))))),$$(depends))$(if $(and $(CONFIG_OPENWRT_KERNEL_UPGRADE),$(filter kernel-dev-headers kmod-%,$(1))), $(1)-$(KERNEL_GENERATION)=$(VERSION))" \
+	  --info "depends:$$(foreach depends,$$(subst $$(comma),$$(space),$$(subst $$(space),,$$(subst $$(paren_right),,$$(subst $$(paren_left),,$$(Package/$(1)/DEPENDS))))),$$(depends)) $$$$(cat "$$(ADIR_$(1))/ucode.depends")$(if $(and $(CONFIG_OPENWRT_KERNEL_UPGRADE),$(filter kernel-dev-headers kmod-%,$(1))), $(1)-$(KERNEL_GENERATION)=$(VERSION))" \
 	  --files "$$(IDIR_$(1))" \
 	  $(if $(CONFIG_SIGN_EACH_PACKAGE),--sign $(BUILD_KEY_APK_SEC),) \
 	  --output "$$(PACK_$(1))"

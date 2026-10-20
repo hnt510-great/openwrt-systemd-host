@@ -4,6 +4,7 @@ import argparse
 import datetime
 import fcntl
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -12,7 +13,12 @@ import shutil
 import subprocess
 import tempfile
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+
+_ucode_spec = importlib.util.spec_from_file_location(
+    'publish_ucode_abi', Path(__file__).with_name('ucode-abi.py'))
+UCODE = importlib.util.module_from_spec(_ucode_spec)
+_ucode_spec.loader.exec_module(UCODE)
 
 
 def sha256(path):
@@ -61,6 +67,61 @@ def package_filename(info):
     if Path(filename).name != filename:
         raise ValueError(f'Invalid package filename: {filename}')
     return filename
+
+
+def ucode_related(info):
+    return (info['name'] == 'ucode' or info['name'].startswith('ucode-mod-')
+            or re.fullmatch(r'libucode[0-9]+', info['name']) is not None
+            or any(re.match(r'^(?:libucode[0-9]*|ucode|ucode-abi)(?:[<>=~]|$)', dep)
+                   for dep in info.get('depends', [])))
+
+
+def validate_ucode_abi(apk, keys, payload, indexes, work):
+    """Validate newest solver candidates, including retained incremental APKs."""
+    selected = {}
+    for repo, index in indexes.items():
+        for info in index['packages']:
+            if not ucode_related(info):
+                continue
+            previous = selected.get(info['name'])
+            if previous:
+                order = subprocess.check_output(
+                    [str(apk), 'version', '--test', previous[1]['version'], info['version']],
+                    text=True).strip()
+                if order != '<':
+                    continue
+            selected[info['name']] = (repo, info)
+    if not selected:
+        return None
+    interpreter = selected.get('ucode')
+    if not interpreter:
+        raise ValueError('ucode ABI preflight: missing interpreter provider')
+    providers = [value.split('=', 1)[1] for value in interpreter[1].get('provides', [])
+                 if re.fullmatch(r'ucode-abi=[0-9]+', value)]
+    if len(providers) != 1:
+        raise ValueError('ucode ABI preflight: rebuild ucode with its ucode-abi provider '
+                         'and bump PKG_RELEASE')
+    abi = providers[0]
+    checked = []
+    for name, (repo, info) in sorted(selected.items()):
+        root = work / 'ucode-abi-check' / name
+        root.mkdir(parents=True)
+        package = payload / repo / package_filename(info)
+        subprocess.run([str(apk), 'extract', '--keys-dir', str(keys), '--no-chown',
+                        '--destination', str(root), str(package)],
+                       check=True, capture_output=True)
+        required = UCODE.requirements(root, name, abi)
+        dependencies = info.get('depends', [])
+        locks = [dep for dep in dependencies if dep.startswith('ucode-abi=')]
+        if locks and locks != [f'ucode-abi={abi}']:
+            raise ValueError(f'ucode ABI preflight: {name} has incompatible lock {locks}; '
+                             'rebuild and bump PKG_RELEASE')
+        if any(dep not in dependencies for dep in required):
+            raise ValueError(f'ucode ABI preflight: {name} lacks {required}; '
+                             'rebuild and bump PKG_RELEASE')
+        if required or name == 'ucode':
+            checked.append(name)
+    return {'abi': abi, 'packages': checked}
 
 
 def link_file(source, destination):
@@ -265,6 +326,9 @@ def publish(args):
                         changed_packages.append({'repository': name, 'name': info['name'],
                                                  'version': info['version'], 'filename': filename})
                         if path in previous_hashes and digest != previous_hashes[path]:
+                            if ucode_related(info):
+                                raise ValueError(f'Published ucode consumer changed: {path}; '
+                                                 'bump PKG_RELEASE and rebuild')
                             same_version_rebuilds.append(path)
                     if info['arch'] not in ('x86_64', 'all', 'noarch'):
                         raise ValueError(f'Wrong architecture: {info["name"]}')
@@ -286,6 +350,7 @@ def publish(args):
                 for path, digest in old['kernel_packages'].items():
                     if manifest['kernel_packages'].get(path) != digest:
                         raise ValueError(f'Existing ABI package changed or disappeared: {path}')
+            manifest['ucode_abi'] = validate_ucode_abi(apk, keys, payload, indexes, work)
             urls = [f'{origin}/abi/{args.kernel}/{name}/packages.adb' for name in indexes]
             (payload / 'repositories.list').write_text(
                 '# Local native-systemd/glibc feeds, pinned to kernel ABI.\n' + '\n'.join(urls) + '\n')
@@ -300,6 +365,7 @@ def publish(args):
                       'baseline_created': baseline_needed, 'source_files_examined': len(source_files),
                       'repositories': urls, 'packages': sum(r['packages'] for r in manifest['repositories'].values()),
                       'kernel_packages': len(manifest['kernel_packages'])}
+            result['ucode_abi'] = manifest['ucode_abi']
             if not args.dry_run:
                 final = snapshots / snapshot_name
                 payload.rename(final)

@@ -51,7 +51,8 @@ class PublisherTests(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
-    def make_package(self, name, version, content, *, custom=True, signed=True, depends='libc'):
+    def make_package(self, name, version, content, *, custom=True, signed=True, depends='libc',
+                     provides=''):
         payload = self.root / ('payload-' + name)
         file = payload / 'usr/share/feed-test' / name
         file.parent.mkdir(parents=True, exist_ok=True)
@@ -64,6 +65,8 @@ class PublisherTests(unittest.TestCase):
                    '--files', str(payload), '--output', str(package)]
         if signed:
             command += ['--sign-key', str(TREE / 'private-key.pem')]
+        if provides:
+            command += ['--info', 'provides:' + provides]
         subprocess.run(command, check=True, capture_output=True)
         return package
 
@@ -159,6 +162,37 @@ class PublisherTests(unittest.TestCase):
             self.assertEqual(digest(after / repository / filename), digest(new))
             self.assertEqual(digest(self.before / repository / filename), old_apk)
             self.assertEqual(digest(self.before / repository / 'packages.adb'), old_indexes[repository])
+
+    def test_ucode_abi_mismatch_does_not_switch_feed(self):
+        self.make_package('ucode', '2-r1', 'new interpreter', provides='ucode-abi=222')
+        self.make_package('ucode-mod-probe', '1-r1', 'stale plugin',
+                          depends='ucode-abi=111 libucode111')
+        self.assert_failed_publication('incompatible lock')
+
+    def test_incremental_abi_upgrade_checks_retained_consumers(self):
+        self.make_package('ucode', '1-r1', 'old interpreter', provides='ucode-abi=111')
+        plugin = self.make_package('ucode-mod-probe', '1-r1', 'old plugin',
+                                   depends='ucode-abi=111 libucode111')
+        self.publish()
+        plugin.unlink()
+        self.make_package('ucode', '2-r1', 'new interpreter', provides='ucode-abi=222')
+        self.assert_failed_publication('incompatible lock')
+        self.make_package('ucode-mod-probe', '1-r2', 'new plugin',
+                          depends='ucode-abi=222 libucode222')
+        self.assertEqual(self.publish()['ucode_abi']['abi'], '222')
+
+    def test_same_version_ucode_rebuild_is_rejected(self):
+        self.make_package('ucode', '1-r1', 'original', provides='ucode-abi=111')
+        self.publish()
+        self.make_package('ucode', '1-r1', 'different bytes', provides='ucode-abi=111')
+        self.assert_failed_publication('bump PKG_RELEASE')
+
+    def test_same_version_ucode_library_rebuild_is_rejected(self):
+        self.make_package('ucode', '1-r1', 'interpreter', provides='ucode-abi=111')
+        self.make_package('libucode111', '1-r1', 'original runtime library')
+        self.publish()
+        self.make_package('libucode111', '1-r1', 'changed runtime library')
+        self.assert_failed_publication('bump PKG_RELEASE')
 
     def test_dry_run_does_not_switch_or_retain_a_snapshot(self):
         self.make_package('feed-probe', '1.0-r2', 'preview')

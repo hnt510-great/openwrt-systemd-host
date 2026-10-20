@@ -8,7 +8,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=ucode
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL=https://github.com/ucode-lang/ucode.git
@@ -70,6 +70,7 @@ endef
 define Package/ucode
   $(Package/ucode/default)
   DEPENDS:=+libucode
+  PROVIDES:=@ucode-abi=$(PKG_ABI_VERSION)
 endef
 
 define Package/ucode/description

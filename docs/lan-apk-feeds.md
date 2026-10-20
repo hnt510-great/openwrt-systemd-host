@@ -128,6 +128,15 @@ and reported but may require an explicit reinstall on the router. The
 publisher does not change package versions, connect to the router, or install
 updates there.
 
+ucode interpreters, libraries and native consumers have a stricter rule:
+same-version content changes are rejected and require a release bump. APK
+packaging records a shared `ucode-abi` dependency for embedded runtimes and C
+modules; publication checks the newest candidates, including retained packages,
+against the interpreter provider before switching the feed. This prevents a
+new module set from being published with an old netifd/rpcd runtime. See the
+[ucode ABI repair and deployment record](ucode-abi-repair.md) for the mechanism,
+tests, migration scope and physical-router results.
+
 New/changed APKs are verified using `public-key.pem`; affected indexes are
 signed using `private-key.pem`. Architecture and every direct kernel
 dependency are checked, and the kernel package must match the configured
