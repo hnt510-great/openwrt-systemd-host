@@ -51,6 +51,7 @@ return view.extend({
 			return line.length && (!needle || line.toLowerCase().indexOf(needle) >= 0);
 		});
 		this.output.value = lines.join('\n');
+		this.output.rows = Math.max(28, lines.length + 1);
 		this.downloadButton.disabled = !lines.length;
 		if (this.scroll.checked)
 			this.output.scrollTop = this.output.scrollHeight;
@@ -96,7 +97,7 @@ return view.extend({
 		this.auto = E('input', { type: 'checkbox', checked: true });
 		this.scroll = E('input', { type: 'checkbox', checked: true });
 		this.status = E('p', { 'class': 'cbi-section-descr' }, [ _('Loading journal…') ]);
-		this.output = E('textarea', { 'class': 'cbi-input-textarea', readonly: true, rows: 28,
+		this.output = E('textarea', { id: 'syslog', 'class': 'cbi-input-textarea', readonly: true, rows: 28,
 			'aria-label': _('Systemd Journal'), wrap: 'off',
 			style: 'width:100%;font-family:monospace;white-space:pre;overflow:auto' });
 		this.refreshButton = E('button', { 'class': 'cbi-button cbi-button-action', click: refresh }, [ _('Refresh') ]);
