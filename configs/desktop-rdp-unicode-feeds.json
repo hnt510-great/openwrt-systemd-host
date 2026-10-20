@@ -1,0 +1,12 @@
+{
+  "video": {
+    "base": "418eee00e60de9beb91a8902072f4fda11913886",
+    "patch": "patches/feeds/0011-video-rdp-unicode.patch",
+    "paths": [
+      "frameworks/weston/Makefile",
+      "frameworks/weston/patches/005-rdp-unicode-keyboard.patch"
+    ],
+    "state": "committed locally",
+    "commit": "026e9a9c1200b96755f7ceffdbe4afa1bf7003b5"
+  }
+}

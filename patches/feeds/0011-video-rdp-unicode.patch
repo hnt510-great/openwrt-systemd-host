@@ -1,0 +1,355 @@
+diff --git a/frameworks/weston/Makefile b/frameworks/weston/Makefile
+index 2e5b496..6b49f25 100644
+--- a/frameworks/weston/Makefile
++++ b/frameworks/weston/Makefile
+@@ -1,7 +1,7 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=weston
+-PKG_RELEASE:=5
++PKG_RELEASE:=6
+ 
+ PKG_VERSION:=16.0.0
+ PKG_MAJOR_VERSION:=$(firstword $(subst .,$(space),$(PKG_VERSION)))
+diff --git a/frameworks/weston/patches/005-rdp-unicode-keyboard.patch b/frameworks/weston/patches/005-rdp-unicode-keyboard.patch
+new file mode 100644
+index 0000000..f427a34
+--- /dev/null
++++ b/frameworks/weston/patches/005-rdp-unicode-keyboard.patch
+@@ -0,0 +1,336 @@
++From: OpenWrt desktop maintainers
++Subject: [PATCH] rdp: deliver Unicode soft-keyboard input
++
++Translate Unicode key-downs to complete strokes. Use the current keymap
++when possible and temporarily borrow an unmapped X11-range key for other
++Unicode scalars. Decode UTF-16 pairs, ignore releases, and wait for held
++keys before changing a shared keymap. Never log typed text.
++
++---
++
++--- a/libweston/backend-rdp/rdp.c
+++++ b/libweston/backend-rdp/rdp.c
++@@ -33,6 +33,7 @@
++ #include <string.h>
++ #include <errno.h>
++ #include <linux/input.h>
+++#include <xkbcommon/xkbcommon-keysyms.h>
++ #include <unistd.h>
++ 
++ #include "rdp.h"
++@@ -841,6 +842,8 @@
++ 	RdpPeerContext *ctx = wl_container_of(listener, ctx, input_seat_destroy);
++ 
++ 	(void)data;
+++	ctx->unicode_count = 0;
+++	ctx->unicode_high_surrogate = 0;
++ 	wl_list_remove(&ctx->input_seat_destroy.link);
++ 	ctx->item.seat = ctx->private_seat;
++ 	weston_seat_init_keyboard(ctx->private_seat, NULL);
++@@ -885,6 +888,12 @@
++ 	uint32_t *held;
++ 	unsigned int i;
++ 
+++	if (ctx->unicode_timer) {
+++		wl_event_source_remove(ctx->unicode_timer);
+++		ctx->unicode_timer = NULL;
+++	}
+++	ctx->unicode_count = 0;
+++	ctx->unicode_high_surrogate = 0;
++ 	if (ctx->item.seat) {
++ 		clock_gettime(CLOCK_MONOTONIC, &time);
++ 		wl_array_for_each(held, &ctx->pressed_keys) {
++@@ -1848,17 +1857,272 @@
++ 	return TRUE;
++ }
++ 
+++/* Unicode input carries text, not a physical key held until key-up. Emit a
+++ * complete stroke on key-down and ignore key-up (including surrogate key-ups).
+++ * Reuse the current layout where possible, including Ctrl/Alt shortcuts.
+++ */
+++static bool
+++rdp_unicode_key_held(struct weston_keyboard *keyboard, uint32_t key)
+++{
+++	uint32_t *held;
+++
+++	wl_array_for_each(held, &keyboard->keys)
+++		if (*held == key)
+++			return true;
+++	return false;
+++}
+++
+++static void
+++rdp_unicode_stroke(RdpPeerContext *ctx, uint32_t key)
+++{
+++	rdp_send_key(ctx, key, WL_KEYBOARD_KEY_STATE_PRESSED);
+++	rdp_send_key(ctx, key, WL_KEYBOARD_KEY_STATE_RELEASED);
+++}
+++
+++/* Prefer a physical Shift stroke to a temporary map. This also keeps
+++ * ordinary ASCII typing compatible with X11 clients that query their keymap
+++ * asynchronously after receiving the key event.
+++ */
+++static bool
+++rdp_unicode_shifted_stroke(RdpPeerContext *ctx, struct weston_keyboard *keyboard,
+++			   xkb_keysym_t sym)
+++{
+++	struct xkb_keymap *map = keyboard->xkb_info->keymap;
+++	struct xkb_state *state;
+++	xkb_mod_index_t shift = xkb_keymap_mod_get_index(map, XKB_MOD_NAME_SHIFT);
+++	xkb_mod_mask_t depressed;
+++	xkb_keycode_t key;
+++	bool found = false;
+++
+++	if (shift == XKB_MOD_INVALID || shift >= 32 ||
+++	    rdp_unicode_key_held(keyboard, KEY_LEFTSHIFT) ||
+++	    xkb_state_key_get_one_sym(keyboard->xkb_state.state,
+++				     KEY_LEFTSHIFT + 8) != XKB_KEY_Shift_L)
+++		return false;
+++	depressed = xkb_state_serialize_mods(keyboard->xkb_state.state,
+++					   XKB_STATE_MODS_DEPRESSED);
+++	if (depressed & (1u << shift))
+++		return false;
+++	state = xkb_state_new(map);
+++	if (!state)
+++		return false;
+++	xkb_state_update_mask(state, depressed | (1u << shift),
+++		xkb_state_serialize_mods(keyboard->xkb_state.state, XKB_STATE_MODS_LATCHED),
+++		xkb_state_serialize_mods(keyboard->xkb_state.state, XKB_STATE_MODS_LOCKED),
+++		xkb_state_serialize_layout(keyboard->xkb_state.state, XKB_STATE_LAYOUT_DEPRESSED),
+++		xkb_state_serialize_layout(keyboard->xkb_state.state, XKB_STATE_LAYOUT_LATCHED),
+++		xkb_state_serialize_layout(keyboard->xkb_state.state, XKB_STATE_LAYOUT_LOCKED));
+++	for (key = xkb_keymap_min_keycode(map);
+++	     key <= xkb_keymap_max_keycode(map) && key <= 255; key++) {
+++		if (rdp_unicode_key_held(keyboard, key - 8) ||
+++		    xkb_state_key_get_one_sym(state, key) != sym)
+++			continue;
+++		rdp_send_key(ctx, KEY_LEFTSHIFT, WL_KEYBOARD_KEY_STATE_PRESSED);
+++		rdp_unicode_stroke(ctx, key - 8);
+++		rdp_send_key(ctx, KEY_LEFTSHIFT, WL_KEYBOARD_KEY_STATE_RELEASED);
+++		found = true;
+++		break;
+++	}
+++	xkb_state_unref(state);
+++	return found;
+++}
+++
+++/* Return zero while held keys prevent a safe keymap update. */
+++static int
+++rdp_unicode_emit(RdpPeerContext *ctx, uint32_t codepoint)
+++{
+++	struct weston_keyboard *keyboard = weston_seat_get_keyboard(ctx->item.seat);
+++	struct xkb_keymap *base, *map;
+++	xkb_keysym_t sym = xkb_utf32_to_keysym(codepoint);
+++	xkb_keycode_t key, spare = XKB_KEYCODE_INVALID;
+++	xkb_layout_index_t group, depressed, latched, locked;
+++	xkb_level_index_t level;
+++	const xkb_keysym_t *syms;
+++	const char *name;
+++	char *text, *end, *overlay;
+++	bool empty;
+++	int ret;
+++
+++	if (!keyboard)
+++		return -1;
+++	base = keyboard->xkb_info->keymap;
+++	/* Unicode control characters need their conventional keysyms. */
+++	switch (codepoint) {
+++	case 8:
+++		sym = XKB_KEY_BackSpace;
+++		break;
+++	case 9:
+++		sym = XKB_KEY_Tab;
+++		break;
+++	case 10:
+++	case 13:
+++		sym = XKB_KEY_Return;
+++		break;
+++	case 27:
+++		sym = XKB_KEY_Escape;
+++		break;
+++	case 127:
+++		sym = XKB_KEY_Delete;
+++		break;
+++	}
+++	if (sym == XKB_KEY_NoSymbol)
+++		return -1;
+++
+++	for (key = xkb_keymap_min_keycode(base);
+++	     key <= xkb_keymap_max_keycode(base) && key <= 255; key++) {
+++		if (!rdp_unicode_key_held(keyboard, key - 8) &&
+++		    xkb_state_key_get_one_sym(keyboard->xkb_state.state, key) == sym) {
+++			rdp_unicode_stroke(ctx, key - 8);
+++			return 1;
+++		}
+++	}
+++	if (rdp_unicode_shifted_stroke(ctx, keyboard, sym))
+++		return 1;
+++	/* Weston defers keymap changes until all keys are up. Never release a
+++	 * local user's keys or rewrite the mapping of a held remote key.
+++	 */
+++	if (keyboard->keys.size || keyboard->pending_keymap)
+++		return 0;
+++
+++	/* Stay within X11's keycode range so Xwayland gets the same text. Only
+++	 * borrow a named key with no symbols in any layout or level.
+++	 */
+++	for (key = 255; key >= 8; key--) {
+++		if (!xkb_keymap_key_get_name(base, key))
+++			continue;
+++		empty = true;
+++		for (group = 0; group < xkb_keymap_num_layouts_for_key(base, key); group++)
+++			for (level = 0; level < xkb_keymap_num_levels_for_key(base, key, group);
+++			     level++)
+++				if (xkb_keymap_key_get_syms_by_level(base, key,
+++								      group, level, &syms))
+++					empty = false;
+++		if (empty) {
+++			spare = key;
+++			break;
+++		}
+++	}
+++	if (spare == XKB_KEYCODE_INVALID)
+++		return -1;
+++	name = xkb_keymap_key_get_name(base, spare);
+++	text = xkb_keymap_get_as_string(base, XKB_KEYMAP_FORMAT_TEXT_V1);
+++	if (!text)
+++		return -1;
+++	/* V1 serialization ends with the symbols block and the keymap block. */
+++	end = strrchr(text, '}');
+++	if (!end) {
+++		free(text);
+++		return -1;
+++	}
+++	*end = '\0';
+++	end = strrchr(text, '}');
+++	if (!end) {
+++		free(text);
+++		return -1;
+++	}
+++	ret = asprintf(&overlay,
+++		"%.*s\n replace key <%s> { type=\"ONE_LEVEL\", "
+++		"symbols[Group1]=[0x%08x], repeat=no };\n%s};\n",
+++		(int)(end - text), text, name, sym, end);
+++	free(text);
+++	if (ret < 0)
+++		return -1;
+++	map = xkb_keymap_new_from_string(ctx->rdpBackend->compositor->xkb_context,
+++			overlay, XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
+++	free(overlay);
+++	if (!map)
+++		return -1;
+++
+++	/* Preserve the active layout too: Weston's keymap update retains locks
+++	 * but resets the layout group. The temporary key has just one level.
+++	 */
+++	depressed = xkb_state_serialize_layout(keyboard->xkb_state.state,
+++					       XKB_STATE_LAYOUT_DEPRESSED);
+++	latched = xkb_state_serialize_layout(keyboard->xkb_state.state, XKB_STATE_LAYOUT_LATCHED);
+++	locked = xkb_state_serialize_layout(keyboard->xkb_state.state, XKB_STATE_LAYOUT_LOCKED);
+++	xkb_keymap_ref(base);
+++	weston_seat_update_keymap(ctx->item.seat, map);
+++	if (keyboard->xkb_info->keymap == map)
+++		rdp_unicode_stroke(ctx, spare - 8);
+++	else
+++		ret = -1;
+++	weston_seat_update_keymap(ctx->item.seat, base);
+++	xkb_state_update_mask(keyboard->xkb_state.state, 0,
+++		keyboard->modifiers.mods_latched, keyboard->modifiers.mods_locked,
+++		depressed, latched, locked);
+++	notify_modifiers(ctx->item.seat,
+++		wl_display_next_serial(ctx->rdpBackend->compositor->wl_display));
+++	xkb_keymap_unref(base);
+++	xkb_keymap_unref(map);
+++	return ret < 0 ? -1 : 1;
+++}
+++
+++static int
+++rdp_unicode_flush(void *data)
+++{
+++	RdpPeerContext *ctx = data;
+++	int ret;
+++
+++	while (ctx->unicode_count && ctx->item.seat) {
+++		ret = rdp_unicode_emit(ctx, ctx->unicode_queue[0]);
+++		if (!ret) {
+++			wl_event_source_timer_update(ctx->unicode_timer, 10);
+++			return 0;
+++		}
+++		if (ret < 0)
+++			weston_log("RDP: unable to map Unicode input\n");
+++		ctx->unicode_count--;
+++		memmove(ctx->unicode_queue, ctx->unicode_queue + 1,
+++			ctx->unicode_count * sizeof(ctx->unicode_queue[0]));
+++	}
+++	return 0;
+++}
+++
+++static BOOL
+++rdp_unicode_queue(RdpPeerContext *ctx, uint32_t codepoint)
+++{
+++	if (ctx->unicode_count == ARRAY_LENGTH(ctx->unicode_queue)) {
+++		weston_log("RDP: Unicode input queue full\n");
+++		return FALSE;
+++	}
+++	if (!ctx->unicode_timer) {
+++		ctx->unicode_timer = wl_event_loop_add_timer(
+++			wl_display_get_event_loop(ctx->rdpBackend->compositor->wl_display),
+++			rdp_unicode_flush, ctx);
+++		if (!ctx->unicode_timer)
+++			return FALSE;
+++	}
+++	ctx->unicode_queue[ctx->unicode_count++] = codepoint;
+++	rdp_unicode_flush(ctx);
+++	return TRUE;
+++}
+++
++ static BOOL
++ xf_input_unicode_keyboard_event(rdpInput *input, UINT16 flags, UINT16 code)
++ {
++-	RdpPeerContext *peerContext = (RdpPeerContext *)input->context;
++-	struct rdp_backend *b = peerContext->rdpBackend;
++-
++-	rdp_debug(b, "Client sent a unicode keyboard event (flags:0x%X code:0x%X)\n", flags, code);
++-
++-	return TRUE;
++-}
++-
+++	RdpPeerContext *ctx = (RdpPeerContext *)input->context;
+++	uint32_t codepoint;
+++	uint16_t high;
+++
+++	if (!(ctx->item.flags & RDP_PEER_ACTIVATED) || !ctx->item.seat ||
+++	    (flags & KBD_FLAGS_RELEASE))
+++		return TRUE;
+++
+++	high = ctx->unicode_high_surrogate;
+++	ctx->unicode_high_surrogate = 0;
+++	if (high && code >= 0xdc00 && code <= 0xdfff) {
+++		codepoint = 0x10000 + ((high - 0xd800) << 10) + code - 0xdc00;
+++		return rdp_unicode_queue(ctx, codepoint);
+++	}
+++	if (high && !rdp_unicode_queue(ctx, 0xfffd))
+++		return FALSE;
+++	if (code >= 0xd800 && code <= 0xdbff) {
+++		ctx->unicode_high_surrogate = code;
+++		return TRUE;
+++	}
+++	codepoint = code >= 0xdc00 && code <= 0xdfff ? 0xfffd : code;
+++	return rdp_unicode_queue(ctx, codepoint);
+++}
++ 
++ static BOOL
++ xf_suppress_output(rdpContext *context, BYTE allow, const RECTANGLE_16 *area)
++--- a/libweston/backend-rdp/rdp.h
+++++ b/libweston/backend-rdp/rdp.h
++@@ -168,6 +168,10 @@
++ 	struct weston_seat *private_seat;
++ 	struct wl_listener input_seat_destroy;
++ 	struct wl_array pressed_keys;
+++	struct wl_event_source *unicode_timer;
+++	uint32_t unicode_queue[256];
+++	unsigned int unicode_count;
+++	uint16_t unicode_high_surrogate;
++ 
++ 	bool button_state[5];
++ 
