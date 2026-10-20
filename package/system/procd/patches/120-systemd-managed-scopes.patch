@@ -4,9 +4,8 @@ Keep procd lifecycle ownership and confine jail writers to delegated
 subtrees.
 
 ---
-diff -ruN a/CMakeLists.txt b/CMakeLists.txt
---- a/CMakeLists.txt	2026-10-18 16:43:20.734372613 +0800
-+++ b/CMakeLists.txt	2026-10-19 15:45:05.264398441 +0800
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
 @@ -38,6 +38,11 @@
    ADD_DEFINITIONS(-DOPENWRT_SYSTEMD)
    FIND_LIBRARY(systemd NAMES systemd REQUIRED)
@@ -31,12 +30,11 @@ diff -ruN a/CMakeLists.txt b/CMakeLists.txt
  INSTALL(TARGETS ujail
  	RUNTIME DESTINATION ${CMAKE_INSTALL_SBINDIR}
  )
-diff -ruN a/jail/cgroups.c b/jail/cgroups.c
---- a/jail/cgroups.c	2026-10-07 22:29:53.000000000 +0800
-+++ b/jail/cgroups.c	2026-10-19 19:03:16.988295986 +0800
-@@ -57,6 +57,15 @@
- 
- struct avl_tree cgvals;
+--- a/jail/cgroups.c
++++ b/jail/cgroups.c
+@@ -66,6 +66,15 @@
+ static struct avl_tree cgceil, cgprev;
+ static char cg_refused[NAME_MAX + 1];
  static char *cgroup_path;
 +static char *delegation_root;
 +
@@ -49,8 +47,8 @@ diff -ruN a/jail/cgroups.c b/jail/cgroups.c
 +}
  static bool initialized;
  static bool destroyed;
- 
-@@ -342,7 +351,8 @@
+ static bool cg_sealed;
+@@ -644,7 +653,8 @@
  	sep = strrchr(cgroup_path, '/');
  	if (sep && sep != cgroup_path) {
  		*sep = '\0';
@@ -60,7 +58,7 @@ diff -ruN a/jail/cgroups.c b/jail/cgroups.c
  		*sep = '/';
  	}
  }
-@@ -377,7 +387,8 @@
+@@ -679,7 +689,8 @@
  		exit(ENOMEM);
  
  	DEBUG("recursively applying cgroup.subtree_control = \"%s\"\n", subtree_control);
@@ -70,9 +68,8 @@ diff -ruN a/jail/cgroups.c b/jail/cgroups.c
  	while ((cdir = strchr(cdir + 1, '/'))) {
  		*cdir = '\0';
  		snprintf(ent, maxlen, "%s/cgroup.subtree_control", cgroup_path);
-diff -ruN a/jail/cgroups.h b/jail/cgroups.h
---- a/jail/cgroups.h	2026-10-07 22:29:53.000000000 +0800
-+++ b/jail/cgroups.h	2026-10-19 15:45:50.818501302 +0800
+--- a/jail/cgroups.h
++++ b/jail/cgroups.h
 @@ -17,6 +17,7 @@
  #include <stdbool.h>
  #include <stdint.h>
@@ -81,18 +78,17 @@ diff -ruN a/jail/cgroups.h b/jail/cgroups.h
  void cgroups_init(const char *p);
  int parseOCIlinuxcgroups(struct blob_attr *msg, bool is_update);
  void cgroups_create(void);
-diff -ruN a/jail/jail.c b/jail/jail.c
---- a/jail/jail.c	2026-10-07 22:29:53.000000000 +0800
-+++ b/jail/jail.c	2026-10-19 15:51:32.844231560 +0800
+--- a/jail/jail.c
++++ b/jail/jail.c
 @@ -73,6 +73,7 @@
  #include "seccomp-inject.h"
  #include "seccomp-trace.h"
  #include "cgroups.h"
 +#include "../systemd-cgroup.h"
  #include "netifd.h"
- #include "../stdio-fds.h"
- 
-@@ -4774,6 +4775,52 @@
+ #include "../jail-status.h"
+ #include "../state-file.h"
+@@ -3819,6 +3820,52 @@
  	return 0;
  }
  
@@ -145,7 +141,7 @@ diff -ruN a/jail/jail.c b/jail/jail.c
  static int parseOCIlinux(struct blob_attr *msg)
  {
  	struct blob_attr *tb[__OCI_LINUX_MAX];
-@@ -4781,7 +4828,7 @@
+@@ -3826,7 +3873,7 @@
  	int rem;
  	int res = 0;
  	char *cgpath;
@@ -154,7 +150,7 @@ diff -ruN a/jail/jail.c b/jail/jail.c
  	char cgleaf[200];
  	char *cgsep;
  
-@@ -4883,7 +4930,15 @@
+@@ -3928,7 +3975,15 @@
  			return res;
  	}
  
@@ -171,9 +167,8 @@ diff -ruN a/jail/jail.c b/jail/jail.c
  		cgpath = blobmsg_get_string(tb[OCI_LINUX_CGROUPSPATH]);
  		if (opts.systemd_cgroup) {
  			char *orig = strdupa(cgpath);
-diff -ruN a/procd.c b/procd.c
---- a/procd.c	2026-10-18 16:43:20.735501817 +0800
-+++ b/procd.c	2026-10-19 19:01:51.895655080 +0800
+--- a/procd.c
++++ b/procd.c
 @@ -30,6 +30,7 @@
  #endif
  
@@ -219,9 +214,8 @@ diff -ruN a/procd.c b/procd.c
  }
  
  static struct uloop_signal systemd_term = { .signo = SIGTERM, .cb = systemd_stop };
-diff -ruN a/procd.h b/procd.h
---- a/procd.h	2026-10-19 18:52:47.009851216 +0800
-+++ b/procd.h	2026-10-19 19:01:51.895516320 +0800
+--- a/procd.h
++++ b/procd.h
 @@ -32,6 +32,7 @@
  
  extern const char *ubus_socket;
@@ -230,9 +224,8 @@ diff -ruN a/procd.h b/procd.h
  void procd_systemd_ubus_ready(void);
  void procd_systemd_coldplug_ready(void);
  
-diff -ruN a/scope-helper.c b/scope-helper.c
---- a/scope-helper.c	1970-01-01 07:30:00.000000000 +0730
-+++ b/scope-helper.c	2026-10-19 18:50:31.756374465 +0800
+--- /dev/null
++++ b/scope-helper.c
 @@ -0,0 +1,31 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +#define _GNU_SOURCE
@@ -265,33 +258,35 @@ diff -ruN a/scope-helper.c b/scope-helper.c
 +	}
 +	return 0;
 +}
-diff -ruN a/service/instance.c b/service/instance.c
---- a/service/instance.c	2026-10-07 22:29:53.000000000 +0800
-+++ b/service/instance.c	2026-10-19 19:14:34.128145914 +0800
-@@ -42,9 +42,13 @@
- #include "vrf.h"
+--- a/service/instance.c
++++ b/service/instance.c
+@@ -39,6 +39,7 @@
+ #include "../uptime.h"
+ #include "../rcS.h"
+ #include "../utils/cgroup.h"
++#include "../systemd-cgroup.h"
+ 
+ #include "service.h"
+ #include "instance.h"
+@@ -48,6 +49,8 @@
  
  #define UJAIL_BIN_PATH "/sbin/ujail"
-+#include "../systemd-cgroup.h"
-+
  #define CGROUP_BASEDIR "/sys/fs/cgroup/services"
- #define CGROUP_DRAIN_TIMEOUT_MSEC 1000
- 
-+static void instance_cgroup_wait(struct service_instance *in);
 +
++static void instance_cgroup_wait(struct service_instance *in);
+ 
  enum {
  	INSTANCE_ATTR_COMMAND,
- 	INSTANCE_ATTR_ENV,
-@@ -643,7 +647,7 @@
+@@ -725,7 +728,7 @@
+ static int
  instance_add_cgroup(const char *service, const char *instance)
  {
- 	const char *cgroup_procs = "/cgroup.procs";
 -	char cgnamebuf[256];
 +	char cgnamebuf[1024];
- 	struct stat sb;
- 	int fd, ret;
+ 	int ret;
  
-@@ -683,11 +687,33 @@
+ 	ret = snprintf(cgnamebuf, sizeof(cgnamebuf), "%s/%s/%s", CGROUP_BASEDIR,
+@@ -744,11 +747,33 @@
  static int
  instance_set_vrf(struct service_instance *in)
  {
@@ -328,16 +323,17 @@ diff -ruN a/service/instance.c b/service/instance.c
  	if (ret >= (int)sizeof(cgnamebuf))
  		return in->vrf ? -ENAMETOOLONG : 0;
  
-@@ -707,13 +733,21 @@
+@@ -768,37 +793,48 @@
  }
  
  static void
 -instance_kill_cgroup(const char *service, const char *instance)
-+instance_kill_cgroup(struct service_instance *in)
- {
+-{
 -	char cgnamebuf[256];
++instance_kill_cgroup(struct service_instance *in)
++{
 +	char cgnamebuf[1024];
- 	int fd, ret;
+ 	int ret;
  
 +	if (procd_systemd) {
 +		in->systemd_cleaning = true;
@@ -347,29 +343,29 @@ diff -ruN a/service/instance.c b/service/instance.c
 +		return;
 +	}
 +
- 	ret = snprintf(cgnamebuf, sizeof(cgnamebuf), "%s/%s/%s/cgroup.kill",
+ 	ret = snprintf(cgnamebuf, sizeof(cgnamebuf), "%s/%s/%s",
 -		       CGROUP_BASEDIR, service, instance);
 +		       CGROUP_BASEDIR, in->srv->name, in->name);
  	if (ret >= (int)sizeof(cgnamebuf))
  		return;
  
-@@ -722,27 +756,30 @@
- 		return;
- 
- 	if (write(fd, "1", 1) < 0)
--		ULOG_WARN("failed to kill cgroup of %s::%s: %m\n", service,
--			  instance);
-+		ULOG_WARN("failed to kill cgroup of %s::%s: %m\n", in->srv->name,
-+			  in->name);
- 
- 	close(fd);
- }
- 
- static void
+ 	ret = cgroup_kill(cgnamebuf);
+ 	if (ret)
+-		ULOG_WARN("failed to kill cgroup of %s::%s: %s\n", service,
+-			  instance, strerror(-ret));
+-}
+-
+-static void
 -instance_rmdir_cgroup(const char *service, const char *instance)
-+instance_rmdir_cgroup(struct service_instance *in)
- {
+-{
 -	char cgnamebuf[256];
++		ULOG_WARN("failed to kill cgroup of %s::%s: %s\n", in->srv->name,
++			  in->name, strerror(-ret));
++}
++
++static void
++instance_rmdir_cgroup(struct service_instance *in)
++{
 +	char cgnamebuf[1024];
  	char *sep;
  	int ret;
@@ -391,22 +387,23 @@ diff -ruN a/service/instance.c b/service/instance.c
  
  	sep = strrchr(cgnamebuf, '/');
  	if (sep)
-@@ -751,10 +788,10 @@
+@@ -807,10 +843,10 @@
  }
  
  static void
 -instance_remove_cgroup(const char *service, const char *instance)
-+instance_remove_cgroup(struct service_instance *in)
- {
+-{
 -	instance_kill_cgroup(service, instance);
 -	instance_rmdir_cgroup(service, instance);
++instance_remove_cgroup(struct service_instance *in)
++{
 +	instance_kill_cgroup(in);
 +	instance_rmdir_cgroup(in);
  }
  
  static void
-@@ -809,14 +846,40 @@
- 	return kill(in->proc.pid, sig);
+@@ -1029,15 +1065,41 @@
+ 		uloop_timeout_set(&in->jail_create_timer, ms < INT_MAX ? ms : INT_MAX);
  }
  
 +struct scope_report {
@@ -435,6 +432,7 @@ diff -ruN a/service/instance.c b/service/instance.c
  instance_start(struct service_instance *in)
  {
 +	int scope_pipe[2] = { -1, -1 };
+ 	int spair[2] = { -1, -1 };
  	int opipe[2] = { -1, -1 };
  	int epipe[2] = { -1, -1 };
  	sigset_t oldset;
@@ -446,7 +444,7 @@ diff -ruN a/service/instance.c b/service/instance.c
  	if (!avl_is_empty(&in->errors.avl)) {
  		LOG("Not starting instance %s::%s, an error was indicated\n", in->srv->name, in->name);
  		return;
-@@ -827,12 +890,21 @@
+@@ -1048,9 +1110,18 @@
  		return;
  	}
  
@@ -454,23 +452,20 @@ diff -ruN a/service/instance.c b/service/instance.c
 +	if (in->proc.pending || (procd_systemd && in->systemd_cleaning)) {
  		if (in->halt)
  			in->restart = true;
- 		return;
- 	}
- 
++		return;
++	}
++
 +	if (procd_systemd && *in->systemd_scope) {
 +		/* A daemonizing, non-respawn command can leave live workers. */
 +		in->halt = true;
 +		in->restart = true;
 +		instance_kill_cgroup(in);
 +		instance_cgroup_wait(in);
-+		return;
-+	}
-+
- 	instance_free_stdio(in);
- 	if (in->_stdout.fd.fd > -2 && in->stdio_fd[1] < 0) {
- 		if (pipe(opipe)) {
-@@ -855,11 +927,22 @@
  		return;
+ 	}
+ 
+@@ -1087,11 +1158,22 @@
+ 	}
  
  	in->incarnation = ++last_incarnation;
 +	if (procd_systemd) {
@@ -490,9 +485,9 @@ diff -ruN a/service/instance.c b/service/instance.c
 +		closefd(scope_pipe[0]);
 +		closefd(scope_pipe[1]);
  		procd_signal_restore(&oldset);
- 		return;
- 	}
-@@ -870,11 +953,35 @@
+ 		closefd(spair[0]);
+ 		closefd(spair[1]);
+@@ -1110,10 +1192,34 @@
  		uloop_done();
  		closefd(opipe[0]);
  		closefd(epipe[0]);
@@ -520,16 +515,15 @@ diff -ruN a/service/instance.c b/service/instance.c
  		if (ret)
  			ULOG_WARN("failed adding instance cgroup for %s: %s\n",
  				  in->srv->name, strerror(-ret));
- 
++
 +		if (procd_systemd && ret && in->bundle) {
 +			ERROR("cannot delegate cgroups for %s::%s\n", in->srv->name, in->name);
 +			exit(127);
 +		}
-+
+ 
  		/*
  		 * Never run the instance outside of its VRF. The program only
- 		 * binds the sockets of processes inside the instance cgroup.
-@@ -893,6 +1000,13 @@
+@@ -1134,6 +1240,13 @@
  
  	procd_signal_restore(&oldset);
  
@@ -543,18 +537,18 @@ diff -ruN a/service/instance.c b/service/instance.c
  	P_DEBUG(2, "Started instance %s::%s[%d]\n", in->srv->name, in->name, pid);
  	in->proc.pid = pid;
  	in->proc_pidfd = syscall(SYS_pidfd_open, pid, 0);
-@@ -1019,8 +1133,8 @@
+@@ -1278,8 +1391,8 @@
  	if (in->halt) {
  		LOG("Instance %s::%s pid %d not stopped on SIGTERM, sending SIGKILL instead\n",
  				in->srv->name, in->name, in->proc.pid);
--		if (in->has_jail)
+-		if (in->has_cgroup)
 -			instance_kill_cgroup(in->srv->name, in->name);
-+		if (in->has_jail || procd_systemd)
++		if (in->has_cgroup || procd_systemd)
 +			instance_kill_cgroup(in);
  
  		instance_signal(in, SIGKILL);
  	} else if (in->restart || in->respawn) {
-@@ -1082,7 +1196,7 @@
+@@ -1333,7 +1446,7 @@
  static void
  instance_cgroup_survivors(const char *service, const char *instance)
  {
@@ -563,7 +557,7 @@ diff -ruN a/service/instance.c b/service/instance.c
  	char buf[128];
  	ssize_t len;
  	int fd, ret;
-@@ -1133,8 +1247,14 @@
+@@ -1406,8 +1519,14 @@
  	if (in->proc.pending)
  		return;
  
@@ -573,15 +567,15 @@ diff -ruN a/service/instance.c b/service/instance.c
 +		*in->systemd_cgroup = '\0';
 +		in->systemd_placement = 0;
 +	}
- 	if (in->has_jail)
+ 	if (in->has_cgroup)
 -		instance_rmdir_cgroup(in->srv->name, in->name);
 +		instance_rmdir_cgroup(in);
  
  	runtime = in->stop.tv_sec - in->start.tv_sec;
  
-@@ -1178,6 +1298,12 @@
+@@ -1438,6 +1557,12 @@
  	populated = in->cgroup_events.fd > -1 &&
- 		    cgroups_populated(in->cgroup_events.fd);
+ 		    cgroup_populated(in->cgroup_events.fd);
  
 +	if (procd_systemd && populated && !in->proc.pending) {
 +		/* Never overlap a replacement execution with surviving workers. */
@@ -592,7 +586,7 @@ diff -ruN a/service/instance.c b/service/instance.c
  	instance_cgroup_wait_stop(in);
  
  	if (populated && !in->proc.pending)
-@@ -1202,13 +1328,17 @@
+@@ -1462,13 +1587,17 @@
  static void
  instance_cgroup_wait(struct service_instance *in)
  {
@@ -613,7 +607,7 @@ diff -ruN a/service/instance.c b/service/instance.c
  	if (ret >= (int)sizeof(cgnamebuf)) {
  		instance_exit_done(in);
  		return;
-@@ -1236,6 +1366,8 @@
+@@ -1496,6 +1625,8 @@
  
  	in = container_of(p, struct service_instance, proc);
  
@@ -622,13 +616,14 @@ diff -ruN a/service/instance.c b/service/instance.c
  	instance_free_pidfd(in);
  	clock_gettime(CLOCK_MONOTONIC, &in->stop);
  	runtime = in->stop.tv_sec - in->start.tv_sec;
-@@ -1251,12 +1383,13 @@
+@@ -1518,12 +1649,14 @@
  
  	service_event("instance.stop", in->srv->name, in->name);
  
--	if (!in->has_jail) {
-+	if (!in->has_jail && (!procd_systemd ||
-+	    (!in->halt && !in->restart && !in->respawn))) {
+-	if (!in->has_cgroup) {
++	if ((!procd_systemd && !in->has_cgroup) ||
++	    (procd_systemd && !in->has_jail &&
++	     !in->halt && !in->restart && !in->respawn)) {
  		instance_exit_done(in);
  		return;
  	}
@@ -638,7 +633,7 @@ diff -ruN a/service/instance.c b/service/instance.c
  	instance_cgroup_wait(in);
  }
  
-@@ -1273,6 +1406,13 @@
+@@ -1531,6 +1664,13 @@
  instance_stop(struct service_instance *in, bool halt)
  {
  	if (!in->proc.pending) {
@@ -652,7 +647,7 @@ diff -ruN a/service/instance.c b/service/instance.c
  		if (halt)
  			instance_delete(in);
  		return;
-@@ -2096,6 +2236,10 @@
+@@ -2467,6 +2607,10 @@
  instance_free(struct service_instance *in)
  {
  	service_data_trigger(&in->data);
@@ -663,7 +658,7 @@ diff -ruN a/service/instance.c b/service/instance.c
  	instance_free_stdio(in);
  	instance_free_stdio_fds(in);
  	instance_free_notify_fd(in);
-@@ -2107,7 +2251,7 @@
+@@ -2479,7 +2623,7 @@
  	trigger_del(in);
  	watch_del(in);
  	if (in->has_cgroup)
@@ -672,15 +667,15 @@ diff -ruN a/service/instance.c b/service/instance.c
  
  	instance_config_cleanup(in);
  	free(in->config);
-@@ -2141,6 +2285,7 @@
- 	in->config = config;
+@@ -2519,6 +2663,7 @@
  	in->timeout.cb = instance_timeout;
+ 	in->jail_create_timer.cb = instance_jail_create_timeout;
  	in->proc.cb = instance_exit;
 +	in->systemd_report.fd = -1;
  	in->cgroup_events.fd = -1;
  	in->cgroup_events.cb = instance_cgroup_events_cb;
  	in->cgroup_timeout.cb = instance_cgroup_timeout_cb;
-@@ -2194,6 +2339,11 @@
+@@ -2573,6 +2718,11 @@
  
  	i = blobmsg_open_table(b, in->name);
  	blobmsg_add_u8(b, "running", in->proc.pending);
@@ -692,10 +687,9 @@ diff -ruN a/service/instance.c b/service/instance.c
  	if (in->proc.pending)
  		blobmsg_add_u32(b, "pid", in->proc.pid);
  	if (in->incarnation)
-diff -ruN a/service/instance.h b/service/instance.h
---- a/service/instance.h	2026-10-07 22:29:53.000000000 +0800
-+++ b/service/instance.h	2026-10-19 19:14:34.127668274 +0800
-@@ -80,6 +80,11 @@
+--- a/service/instance.h
++++ b/service/instance.h
+@@ -87,6 +87,11 @@
  	gid_t gr_gid;
  
  	bool has_cgroup;
@@ -707,10 +701,9 @@ diff -ruN a/service/instance.h b/service/instance.h
  	bool halt;
  	bool restart;
  	bool respawn;
-diff -ruN a/service/service.c b/service/service.c
---- a/service/service.c	2026-10-07 22:29:53.000000000 +0800
-+++ b/service/service.c	2026-10-19 15:45:05.270958619 +0800
-@@ -736,7 +736,8 @@
+--- a/service/service.c
++++ b/service/service.c
+@@ -817,7 +817,8 @@
  	service_avl_stop_all(&services, &term_timeout);
  	procd_inittab_kill();
  
@@ -720,9 +713,8 @@ diff -ruN a/service/service.c b/service/service.c
  }
  
  static int
-diff -ruN a/systemd-cgroup.c b/systemd-cgroup.c
---- a/systemd-cgroup.c	1970-01-01 07:30:00.000000000 +0730
-+++ b/systemd-cgroup.c	2026-10-19 19:01:51.896405450 +0800
+--- /dev/null
++++ b/systemd-cgroup.c
 @@ -0,0 +1,288 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +#define _GNU_SOURCE
@@ -1012,9 +1004,8 @@ diff -ruN a/systemd-cgroup.c b/systemd-cgroup.c
 +	sd_bus_flush_close_unref(bus);
 +	return r < 0 ? r : 0;
 +}
-diff -ruN a/systemd-cgroup.h b/systemd-cgroup.h
---- a/systemd-cgroup.h	1970-01-01 07:30:00.000000000 +0730
-+++ b/systemd-cgroup.h	2026-10-19 15:51:32.842798524 +0800
+--- /dev/null
++++ b/systemd-cgroup.h
 @@ -0,0 +1,47 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +#ifndef OPENWRT_SYSTEMD_CGROUP_H
