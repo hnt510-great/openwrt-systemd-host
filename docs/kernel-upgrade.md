@@ -213,7 +213,8 @@ force a reboot.
 ```
 kernelctl rollback  # cancel a pending trial, or select previous confirmed kernel
 kernelctl retry     # explicitly re-arm a rejected selected candidate
-kernelctl retain    # enforce the two-generation /boot limit
+kernelctl retain    # enforce the /boot limit and queue obsolete APK cleanup
+kernelctl prune     # synchronously remove withdrawn generations' APK payloads
 kernelctl status
 ```
 
@@ -223,7 +224,7 @@ known-good and previous-good generations. Retention removes only generations
 beyond the trial/fallback pair. If the two protected generations still do not
 fit, the space check fails safely rather than deleting either of them.
 
-## Boot payload retention
+## Boot and module payload retention
 
 `/boot` keeps at most two versioned generations:
 
@@ -243,11 +244,25 @@ kernels cannot exhaust `/boot` by retaining every generation. `kernelctl retain`
 runs at boot from `kernel-generation.init` after `prepare`, enforcing the same
 invariant after a manual change.
 
-APK packages, `/usr/lib/modules/<generation>/` and
-`/usr/lib/openwrt-kernel/<generation>/` are not removed automatically. Withdrawn
-generations remain visible in `kernelctl status` with `ready: false`; reclaim
-their package space explicitly with `kernelctl remove <generation>` once that
-generation is no longer running, rescue, pending, known-good or previous-good.
+Retention also queues `openwrt-kernel-prune.service` through a path unit. The
+worker removes withdrawn generations' immutable kmod, image and header APKs
+using `apk del`, then removes manager-created module indexes and frozen firmware
+from that generation's trees. Successful cleanup removes the generation record.
+Logical kmod selection packages and unrelated userspace packages are preserved.
+The rescue, running, pending, known-good, previous-good and selected tracker
+generations are excluded, even if their boot payload has been withdrawn. Unknown
+module directories and packages without a recorded generation are left alone.
+
+APK hooks only queue this work: they never recursively invoke APK while holding
+its database lock. The worker releases the kernel policy lock before invoking
+APK. Before preparing that deletion it waits for APK's database lock, so the
+original upgrade's post-hook finishes first. It uses a durable deletion plan so
+the APK pre-hook rejects solver changes outside the planned obsolete payloads.
+Failed or interrupted cleanup restores
+checksum protection on retry; no incomplete cleanup makes a generation bootable.
+The service retries failures after 30 seconds. `kernelctl prune` performs the
+same cleanup synchronously, and `kernelctl remove <generation>` remains available
+for explicit removal. APK simulations do not queue or perform cleanup.
 
 ## Scope and verification
 

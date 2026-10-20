@@ -1,0 +1,10 @@
+[Unit]
+Description=Remove withdrawn OpenWrt kernel APK payloads
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/kernelctl prune
+TimeoutStartSec=300
+Restart=on-failure
+RestartSec=30

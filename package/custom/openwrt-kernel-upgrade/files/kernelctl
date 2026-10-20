@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 """Protected OpenWrt kernel generations. Never writes the original vmlinuz."""
 import argparse
+from contextlib import contextmanager
 import fcntl
 import gzip
 import hashlib
@@ -153,6 +154,21 @@ class KernelManager:
     def save(self, state):
         json_write(self.policy / 'state.json', state)
 
+    @contextmanager
+    def locked(self, name='.lock'):
+        with (self.policy / name).open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            yield
+
+    @contextmanager
+    def apk_locked(self):
+        # Match apk_database_open(): take APK's lock BEFORE the policy lock.
+        # In particular, a queued worker must let the original post-hook finish
+        # before publishing a deletion plan that would reject that transaction.
+        with self.path('/lib/apk/db/lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            yield
+
     def installed(self):
         database = self.path('/usr/lib/apk/db/installed')
         if not database.exists():
@@ -269,10 +285,7 @@ class KernelManager:
         return keep
 
     def retain(self, state, candidate=None):
-        """Withdraw and remove extra /boot payloads, keeping two generations.
-
-        APK payloads stay installed; use ``kernelctl remove`` to reclaim them.
-        """
+        """Withdraw extra boot payloads and queue their APK payload cleanup."""
         entries = state['generations']
         keep = self.retention(state, candidate)
         self.boot_mount()
@@ -307,7 +320,64 @@ class KernelManager:
             atomic(self.boot / 'grub/openwrt.cfg', self.grub_config(state), 0o644)
         for directory in stale:
             shutil.rmtree(directory)
+        if self.prunable(state):
+            atomic(self.path('/run/openwrt-kernel-prune'), '')
         return keep
+
+    def prunable(self, state):
+        """Only recorded, withdrawn generations may lose their APK payloads."""
+        protected = {state.get(key) for key in
+                     ('rescue', 'known_good', 'previous_good', 'pending')}
+        selected = self.path('/usr/share/openwrt-kernel/selected.json')
+        if selected.exists():
+            protected.add(json.loads(selected.read_text())['generation'])
+        running = self.release()
+        return [name for name, entry in state['generations'].items()
+                if not entry.get('legacy') and not entry.get('ready')
+                and name not in protected and entry['release'] != running]
+
+    def generation_packages(self, name):
+        identifier(name)
+        return sorted(package for package in self.installed()
+                      if package == 'linux-image-' + name or
+                      (package.startswith(('kmod-', 'kernel-dev-headers-'))
+                       and package.endswith('-' + name)))
+
+    def prune(self):
+        """Run outside APK hooks and release the policy lock before taking APK's.
+
+        A durable plan lets the APK pre-hook reject unexpected solver changes
+        and lets a later invocation recover after a crash with pins released.
+        """
+        with self.locked('.prune.lock'):
+            marker = self.path('/run/openwrt-kernel-prune')
+            marker.unlink(missing_ok=True)
+            plan_path = self.policy / 'pruning.json'
+            with self.apk_locked(), self.locked():
+                # Recover pins first, including after an interrupted deletion.
+                self.protect()
+                plan_path.unlink(missing_ok=True)
+                state = self.check()
+                candidates = self.prunable(state)
+            for name in candidates:
+                with self.apk_locked(), self.locked():
+                    state = self.check()
+                    if name not in self.prunable(state):
+                        continue
+                    packages = self.generation_packages(name)
+                    json_write(plan_path, {'generation': name, 'packages': packages})
+                    self.remove(name)
+                success = False
+                try:
+                    if packages:
+                        self.command('apk', '--wait', '10', '--no-network', 'del', *packages)
+                    if self.generation_packages(name):
+                        raise KernelError('APK retained withdrawn generation: ' + name)
+                    success = True
+                finally:
+                    with self.locked():
+                        self.finish_remove(name, success, restore=False)
+                        plan_path.unlink(missing_ok=True)
 
     def migrate(self):
         if (self.policy / 'state.json').exists():
@@ -790,7 +860,8 @@ if [ -f $prefix/openwrt.cfg ]; then source $prefix/openwrt.cfg; fi
         changes = [line.split('\t') for line in Path(path).read_text().splitlines()]
         if any(len(change) != 5 for change in changes):
             raise KernelError('Malformed APK transaction')
-        kernel_changes = [c for c in changes if c[0] != c[2] or c[1] != c[3] or c[4] == '1']
+        effective = [c for c in changes if c[0] != c[2] or c[1] != c[3] or c[4] == '1']
+        kernel_changes = effective
         kernel_changes = [c for c in kernel_changes if any(
             name == 'kernel' or name.startswith(('kmod-', 'linux-image-', 'kernel-dev-headers'))
             for name in (c[0], c[2]))]
@@ -802,6 +873,17 @@ if [ -f $prefix/openwrt.cfg ]; then source $prefix/openwrt.cfg; fi
             raise KernelError('Kernel transaction requires scripts and commit hooks')
         if phase != 'apk-pre' and simulation != 'simulate' and errors != '0':
             raise KernelError('APK transaction failed; candidate will not be activated')
+        plan_path = self.policy / 'pruning.json'
+        if plan_path.exists():
+            plan = json.loads(plan_path.read_text())
+            if (plan['generation'] not in self.prunable(state) or
+                    any(old not in plan['packages'] or new != '-' or reinstall != '0'
+                        for old, version, new, next_version, reinstall in effective)):
+                raise KernelError('Transaction conflicts with kernel payload pruning; run kernelctl prune')
+            self.check()
+            # Deletion of a withdrawn generation must not activate the tracker
+            # or reject an unrelated, protected pending trial.
+            return
         protected = {line.split('><', 1)[0].split('=', 1)[0]
                      for line in (self.policy / 'protected').read_text().splitlines() if line}
         for old, version, new, next_version, reinstall in kernel_changes:
@@ -881,7 +963,7 @@ if [ -f $prefix/openwrt.cfg ]; then source $prefix/openwrt.cfg; fi
                if line.split('><', 1)[0].split('=', 1)[0] not in packages) + '\n')
         return packages
 
-    def finish_remove(self, name, success):
+    def finish_remove(self, name, success, restore=True):
         state = self.state()
         if success:
             directory = self.boot / 'kernels' / identifier(name)
@@ -894,7 +976,7 @@ if [ -f $prefix/openwrt.cfg ]; then source $prefix/openwrt.cfg; fi
                 if directory.exists():
                     shutil.rmtree(directory)
             del state['generations'][name]
-        else:
+        elif restore:
             directory = self.boot / 'kernels' / identifier(name)
             if directory.is_dir():
                 state['generations'][name]['ready'] = True
@@ -907,7 +989,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=['status', 'check', 'migrate', 'prepare', 'boot',
                                          'confirm', 'rollback', 'retry', 'remove', 'retain',
-                                         'apk-pre', 'apk-post'])
+                                         'prune', 'apk-pre', 'apk-post'])
     parser.add_argument('arguments', nargs='*')
     args = parser.parse_args()
     manager = KernelManager()
@@ -917,6 +999,9 @@ def main():
     if os.geteuid() != 0:
         raise KernelError('Run as root')
     manager.policy.mkdir(parents=True, exist_ok=True)
+    if args.command == 'prune':
+        manager.prune()
+        return
     remove_packages = None
     # APK calls occur under its database lock; never recursively invoke APK.
     with (manager.policy / '.lock').open('a') as lock:

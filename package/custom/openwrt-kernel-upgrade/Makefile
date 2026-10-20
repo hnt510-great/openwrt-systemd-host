@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openwrt-kernel-upgrade
 PKG_VERSION:=1
-PKG_RELEASE:=15
+PKG_RELEASE:=16
 PKG_LICENSE:=GPL-2.0-only
 
 include $(INCLUDE_DIR)/package.mk
@@ -30,7 +30,10 @@ define Package/openwrt-kernel-upgrade/install
 	$(INSTALL_BIN) ./files/kernel-generation.init $(1)/etc/init.d/kernel-generation
 	$(INSTALL_DIR) $(1)/usr/lib/systemd/system $(1)/etc/systemd/system/multi-user.target.wants
 	$(INSTALL_DATA) ./files/openwrt-kernel-boot.service $(1)/usr/lib/systemd/system/
+	$(INSTALL_DATA) ./files/openwrt-kernel-prune.path $(1)/usr/lib/systemd/system/
+	$(INSTALL_DATA) ./files/openwrt-kernel-prune.service $(1)/usr/lib/systemd/system/
 	$(LN) /usr/lib/systemd/system/openwrt-kernel-boot.service $(1)/etc/systemd/system/multi-user.target.wants/
+	$(LN) /usr/lib/systemd/system/openwrt-kernel-prune.path $(1)/etc/systemd/system/multi-user.target.wants/
 endef
 
 $(eval $(call BuildPackage,openwrt-kernel-upgrade))

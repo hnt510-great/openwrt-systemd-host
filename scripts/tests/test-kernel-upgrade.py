@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Exercise fail-closed activation and real signed APK payload splitting."""
 import argparse
+from contextlib import contextmanager
+import fcntl
 import gzip
 import importlib.machinery
 import importlib.util
@@ -10,6 +12,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -38,7 +41,7 @@ class RuntimeTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         for directory in ('boot/grub', 'etc/openwrt-kernel', 'usr/lib/modules/6.18.55',
-                          'usr/lib/apk/db', 'proc/self', 'proc/1', 'run', 'tmp'):
+                          'usr/lib/apk/db', 'lib/apk/db', 'proc/self', 'proc/1', 'run', 'tmp'):
             (self.root / directory).mkdir(parents=True)
         (self.root / 'boot/vmlinuz').write_bytes(b'ONLY KNOWN BOOTABLE KERNEL')
         (self.root / 'usr/lib/modules/6.18.55/nic.ko').write_bytes(b'original network driver')
@@ -408,11 +411,195 @@ class RuntimeTests(unittest.TestCase):
         txn = self.root / 'run/txn'
         txn.write_text(f'kernel\t{ABI}\tkernel\t{ABI}\t1\n')
         self.manager.transaction('apk-pre', txn, '0', 'simulate', '0')
+        self.assertFalse((self.root / 'run/openwrt-kernel-prune').exists())
         self.assertTrue((self.root / 'boot/kernels' / extra).is_dir())
         self.assertEqual(self.manager.state()['previous_good'], fallback)
         self.manager.transaction('apk-pre', txn, '0', 'live', '0')
         self.assertFalse((self.root / 'boot/kernels' / extra).exists())
         self.assertEqual(self.manager.state()['previous_good'], fallback)
+
+    def prune_fixture(self):
+        old = GEN.rsplit('-g', 1)[0] + '-g2'
+        current = GEN.rsplit('-g', 1)[0] + '-g3'
+        self.generation(old)
+        self.generation(current, known=True)
+        self.running = current
+        packages = {'kernel': ABI, 'kmod-nic': '1-r1', 'userspace': '1-r1'}
+        for name in (old, current):
+            packages.update({prefix + name: '1-r1' for prefix in
+                             ('linux-image-', 'kmod-nic-', 'kernel-dev-headers-')})
+        self.database(packages)
+        self.manager.protect()
+        self.manager.retain(self.manager.state())
+        return old, current
+
+    def prune_runner(self, args):
+        if args[0] != 'apk':
+            return self.run_command(args)
+        self.calls.append(args)
+        # The worker must release the policy lock before APK's hook takes it.
+        with (self.manager.policy / '.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with (self.root / 'lib/apk/db/lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        plan = json.loads((self.manager.policy / 'pruning.json').read_text())
+        self.assertEqual(args, ['apk', '--wait', '10', '--no-network', 'del', *plan['packages']])
+        records = self.manager.installed()
+        txn = self.root / 'run/prune.txn'
+        txn.write_text(''.join(f'{name}\t{records[name]["V"]}\t-\t-\t0\n'
+                               for name in plan['packages']))
+        pins = (self.manager.policy / 'protected').read_text()
+        for name in plan['packages']:
+            self.assertNotIn(name + '><', pins)
+        self.manager.transaction('apk-pre', txn, '0', 'live', '0')
+        self.database({name: record['V'] for name, record in records.items()
+                       if name not in plan['packages']})
+        self.manager.transaction('apk-post', txn, '0', 'live', '0')
+        return ''
+
+    def test_prune_removes_obsolete_apks_and_owned_trees(self):
+        old, current = self.prune_fixture()
+        self.assertTrue((self.root / 'run/openwrt-kernel-prune').exists())
+        self.manager.runner = self.prune_runner
+        self.manager.prune()
+        self.assertNotIn(old, self.manager.state()['generations'])
+        for base in ('boot/kernels', 'usr/lib/modules', 'usr/lib/openwrt-kernel'):
+            self.assertFalse((self.root / base / old).exists())
+            self.assertTrue((self.root / base / current).exists())
+        records = self.manager.installed()
+        self.assertIn('kmod-nic', records)
+        self.assertIn('userspace', records)
+        self.assertIn('kmod-nic-' + current, records)
+        self.assertFalse(any(name.endswith('-' + old) for name in records))
+        self.assertFalse((self.manager.policy / 'pruning.json').exists())
+        self.manager.check()
+
+    def test_queued_prune_waits_for_original_apk_before_releasing_pins(self):
+        old, current = self.prune_fixture()
+        before = (self.manager.policy / 'protected').read_bytes()
+        entered = threading.Event()
+        original_lock = self.manager.apk_locked
+        failures = []
+
+        @contextmanager
+        def waiting_lock():
+            entered.set()
+            with original_lock():
+                yield
+
+        def worker():
+            try:
+                self.manager.prune()
+            except Exception as exc:
+                failures.append(exc)
+
+        self.manager.runner = self.prune_runner
+        with (self.root / 'lib/apk/db/lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            with patch.object(self.manager, 'apk_locked', side_effect=waiting_lock):
+                thread = threading.Thread(target=worker)
+                thread.start()
+                try:
+                    self.assertTrue(entered.wait(5))
+                    self.assertFalse((self.manager.policy / 'pruning.json').exists())
+                    self.assertEqual((self.manager.policy / 'protected').read_bytes(), before)
+                finally:
+                    fcntl.flock(lock, fcntl.LOCK_UN)
+                    thread.join(5)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(failures, [])
+        self.assertNotIn(old, self.manager.state()['generations'])
+
+    def test_prune_preserves_running_failed_pending_and_selected_payloads(self):
+        old, current = self.prune_fixture()
+        state = self.manager.state()
+        state['generations'][old]['failed'] = True
+        self.manager.save(state)
+        self.running = old
+        self.assertNotIn(old, self.manager.prunable(state))
+        self.running = current
+        state['pending'] = old
+        self.assertNotIn(old, self.manager.prunable(state))
+        state['pending'] = None
+        K.json_write(self.root / 'usr/share/openwrt-kernel/selected.json',
+                     {'generation': old})
+        self.assertNotIn(old, self.manager.prunable(state))
+        self.manager.prune()
+        self.assertIn('kmod-nic-' + old, self.manager.installed())
+
+    def test_prune_permitted_during_protected_trial(self):
+        old, current = self.prune_fixture()
+        trial = GEN.rsplit('-g', 1)[0] + '-g4'
+        state = self.generation(trial)
+        state['pending'] = trial
+        self.manager.save(state)
+        self.manager.runner = self.prune_runner
+        self.manager.prune()
+        self.assertEqual(self.manager.state()['pending'], trial)
+        self.assertNotIn(old, self.manager.state()['generations'])
+
+    def test_prune_failure_restores_checksum_pins(self):
+        old, current = self.prune_fixture()
+        # A crash may have left a withdrawn boot directory on disk. A failed
+        # automatic cleanup must not republish its GRUB entry.
+        (self.root / 'boot/kernels' / old).mkdir()
+        original = self.manager.runner
+        def fail(args):
+            if args[0] == 'apk':
+                raise subprocess.CalledProcessError(1, args)
+            return original(args)
+        self.manager.runner = fail
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.manager.prune()
+        self.assertIn('kmod-nic-' + old + '><',
+                      (self.manager.policy / 'protected').read_text())
+        self.assertFalse((self.manager.policy / 'pruning.json').exists())
+        self.assertFalse(self.manager.state()['generations'][old]['ready'])
+        self.assertNotIn(old, (self.root / 'boot/grub/openwrt.cfg').read_text())
+        self.manager.runner = self.prune_runner
+        self.manager.prune()
+        self.assertNotIn(old, self.manager.state()['generations'])
+
+    def test_prune_recovers_interrupted_plan(self):
+        old, current = self.prune_fixture()
+        K.json_write(self.manager.policy / 'pruning.json',
+                     {'generation': old, 'packages': self.manager.generation_packages(old)})
+        self.manager.remove(old)
+        self.manager.runner = self.prune_runner
+        self.manager.prune()
+        self.assertNotIn(old, self.manager.state()['generations'])
+
+    def test_prune_rejects_solver_removing_userspace_or_fallback(self):
+        old, current = self.prune_fixture()
+        K.json_write(self.manager.policy / 'pruning.json',
+                     {'generation': old, 'packages': self.manager.generation_packages(old)})
+        self.manager.remove(old)
+        txn = self.root / 'run/prune.txn'
+        for extra in ('userspace', 'kmod-nic', 'linux-image-' + current):
+            txn.write_text(f'kmod-nic-{old}\t1-r1\t-\t-\t0\n{extra}\t1-r1\t-\t-\t0\n')
+            before = K.inventory(self.root)
+            with self.assertRaisesRegex(K.KernelError, 'conflicts'):
+                self.manager.transaction('apk-pre', txn, '0', 'live', '0')
+            self.assertEqual(K.inventory(self.root), before)
+
+    def test_prune_refuses_to_finalize_when_apk_keeps_payloads(self):
+        old, current = self.prune_fixture()
+        with self.assertRaisesRegex(K.KernelError, 'APK retained'):
+            self.manager.prune()
+        self.assertIn(old, self.manager.state()['generations'])
+        self.assertTrue((self.root / 'usr/lib/modules' / old).exists())
+        self.assertIn('kmod-nic-' + old + '><',
+                      (self.manager.policy / 'protected').read_text())
+
+    def test_prune_leaves_unrecorded_payloads_alone(self):
+        old, current = self.prune_fixture()
+        unknown = GEN.rsplit('-g', 1)[0] + '-g99'
+        records = {name: item['V'] for name, item in self.manager.installed().items()}
+        records['kmod-nic-' + unknown] = '1-r1'
+        self.database(records)
+        self.manager.runner = self.prune_runner
+        self.manager.prune()
+        self.assertIn('kmod-nic-' + unknown, self.manager.installed())
 
     def test_finish_remove_failure_keeps_withdrawn_without_payload(self):
         extra = '6.18.55-owrt-' + 'd' * 32 + '-r1-g4'
