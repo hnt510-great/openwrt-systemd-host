@@ -1,0 +1,13 @@
+[Unit]
+Description=Report services using obsolete executable code
+After=local-fs.target openwrt-ubusd.service
+ConditionPathIsDirectory=/run/systemd/system
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/needrestart --worker
+TimeoutStartSec=120
+UMask=0077
+# Inspection needs the host's procfs and filesystem namespace.
+Nice=10
+IOSchedulingClass=idle

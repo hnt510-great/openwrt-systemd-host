@@ -1,0 +1,11 @@
+#!/bin/sh
+[ "$1" = post-commit ] || exit 0
+[ -z "$IPKG_INSTROOT" ] || exit 0
+[ -d /run/systemd/system ] || exit 0
+# Queue and acknowledgement share a short lock; never unlink a newer request.
+/usr/sbin/needrestart --queue >/dev/null 2>&1 || {
+	printf '%s\n' 'Restart check could not be queued; run needrestart manually.'
+	exit 0
+}
+printf '%s\n' 'Restart check queued: LuCI Status > Restart Needed, or run needrestart.'
+exit 0

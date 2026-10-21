@@ -1,0 +1,178 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-needrestart\n"
+"PO-Revision-Date: 2026-10-21 00:00+0800\n"
+"Last-Translator: OpenWrt\n"
+"Language-Team: Simplified Chinese\n"
+"Language: zh_Hans\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:69
+msgid "Account"
+msgstr "账户"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:55
+msgid "Advice"
+msgstr "建议"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:43
+msgid "Affected processes and files"
+msgstr "受影响的进程和文件"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:54
+msgid "Affected services and processes"
+msgstr "受影响的服务和进程"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/include/15_needrestart.js:18
+msgid "Affected services/process groups:"
+msgstr "受影响的服务/进程组："
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/include/15_needrestart.js:19
+msgid "Changed local container images:"
+msgstr "已变更的本地容器镜像："
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:69
+msgid "Container"
+msgstr "容器"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:62
+msgid "Containers"
+msgstr "容器"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:69
+msgid "Controller"
+msgstr "控制器"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:29
+msgid ""
+"Coverage incomplete — this report cannot establish that everything is "
+"current."
+msgstr "检查范围不完整，无法根据此报告确认所有组件均已更新生效。"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:67
+msgid "Deployment controller not verified"
+msgstr "部署控制器未经验证"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:55
+msgid "Evidence and action"
+msgstr "依据与操作"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:69
+msgid "Image"
+msgstr "镜像"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/include/15_needrestart.js:21
+msgid "Incomplete coverage"
+msgstr "检查范围不完整"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:58
+msgid "Kernel"
+msgstr "内核"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/include/15_needrestart.js:20
+msgid "Kernel:"
+msgstr "内核："
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:83
+msgid "Loading restart advice…"
+msgstr "正在加载重启建议…"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:66
+msgid ""
+"Local image changed — recreation needed through the deployment controller"
+msgstr "本地镜像已变更，需要通过部署控制器重新创建容器"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:69
+msgid "Local image status"
+msgstr "本地镜像状态"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:56
+msgid "No affected processes detected within assessed coverage."
+msgstr "在已检查的范围内未发现受影响的进程。"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:70
+msgid "No inventoried running Podman containers."
+msgstr "清单中没有正在运行的 Podman 容器。"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:30
+msgid "No report yet. Select Scan now."
+msgstr "暂无报告，请点击“立即扫描”。"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/include/15_needrestart.js:15
+msgid "No restart report yet"
+msgstr "暂无重启检查报告"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:55
+msgid "Owner type"
+msgstr "归属类型"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:51
+msgid "Potentially disruptive / maintenance review"
+msgstr "可能中断服务，需在维护前评估"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:41
+msgid "Processes scanned:"
+msgstr "已扫描进程数："
+
+#: package/custom/luci-app-needrestart/root/usr/share/rpcd/acl.d/luci-app-needrestart.json:3
+msgid "Read restart advice and request read-only process scans"
+msgstr "读取重启建议并请求只读进程扫描"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:40
+msgid "Report time:"
+msgstr "报告时间："
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:98
+msgid ""
+"Reports replaced executable code, pending kernel activation, and local "
+"container image changes. No services are restarted. Script and module source "
+"changes and registry updates are not assessed."
+msgstr "报告已被替换的可执行代码、待激活的内核及本地容器镜像变更。不会重启任何服务。不检查脚本和模块源代码的变更，也不检查镜像仓库中的更新。"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:97
+#: package/custom/luci-app-needrestart/root/usr/share/luci/menu.d/luci-app-needrestart.json:3
+msgid "Restart Needed"
+msgstr "重启检查"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/include/15_needrestart.js:9
+msgid "Restart advice"
+msgstr "重启建议"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:51
+msgid "Restart advised"
+msgstr "建议重启"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/include/15_needrestart.js:14
+msgid "Restart check pending"
+msgstr "重启检查待处理"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/include/15_needrestart.js:13
+msgid "Restart report unavailable"
+msgstr "重启检查报告不可用"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:29
+msgid "Scan complete"
+msgstr "扫描完成"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:94
+msgid "Scan now"
+msgstr "立即扫描"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:28
+msgid "Scan queued; waiting for the package transaction or current scan."
+msgstr "扫描已排队，正在等待软件包事务或当前扫描完成。"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:27
+msgid "Scan running…"
+msgstr "正在扫描…"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:55
+msgid "Service"
+msgstr "服务"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:88
+msgid "Unable to queue scan"
+msgstr "无法将扫描加入队列"

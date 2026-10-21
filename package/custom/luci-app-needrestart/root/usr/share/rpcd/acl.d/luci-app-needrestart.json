@@ -1,0 +1,8 @@
+{
+	"luci-app-needrestart": {
+		"description": "Read restart advice and request read-only process scans",
+		"read": {
+			"ubus": { "luci.needrestart": [ "status", "scan" ] }
+		}
+	}
+}

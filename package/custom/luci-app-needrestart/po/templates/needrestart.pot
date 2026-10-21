@@ -1,0 +1,169 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8"
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:69
+msgid "Account"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:55
+msgid "Advice"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:43
+msgid "Affected processes and files"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:54
+msgid "Affected services and processes"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/include/15_needrestart.js:18
+msgid "Affected services/process groups:"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/include/15_needrestart.js:19
+msgid "Changed local container images:"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:69
+msgid "Container"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:62
+msgid "Containers"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:69
+msgid "Controller"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:29
+msgid ""
+"Coverage incomplete — this report cannot establish that everything is "
+"current."
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:67
+msgid "Deployment controller not verified"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:55
+msgid "Evidence and action"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:69
+msgid "Image"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/include/15_needrestart.js:21
+msgid "Incomplete coverage"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:58
+msgid "Kernel"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/include/15_needrestart.js:20
+msgid "Kernel:"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:83
+msgid "Loading restart advice…"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:66
+msgid ""
+"Local image changed — recreation needed through the deployment controller"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:69
+msgid "Local image status"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:56
+msgid "No affected processes detected within assessed coverage."
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:70
+msgid "No inventoried running Podman containers."
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:30
+msgid "No report yet. Select Scan now."
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/include/15_needrestart.js:15
+msgid "No restart report yet"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:55
+msgid "Owner type"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:51
+msgid "Potentially disruptive / maintenance review"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:41
+msgid "Processes scanned:"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/root/usr/share/rpcd/acl.d/luci-app-needrestart.json:3
+msgid "Read restart advice and request read-only process scans"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:40
+msgid "Report time:"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:98
+msgid ""
+"Reports replaced executable code, pending kernel activation, and local "
+"container image changes. No services are restarted. Script and module source "
+"changes and registry updates are not assessed."
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:97
+#: package/custom/luci-app-needrestart/root/usr/share/luci/menu.d/luci-app-needrestart.json:3
+msgid "Restart Needed"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/include/15_needrestart.js:9
+msgid "Restart advice"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:51
+msgid "Restart advised"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/include/15_needrestart.js:14
+msgid "Restart check pending"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/include/15_needrestart.js:13
+msgid "Restart report unavailable"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:29
+msgid "Scan complete"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:94
+msgid "Scan now"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:28
+msgid "Scan queued; waiting for the package transaction or current scan."
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:27
+msgid "Scan running…"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:55
+msgid "Service"
+msgstr ""
+
+#: package/custom/luci-app-needrestart/htdocs/luci-static/resources/view/status/needrestart.js:88
+msgid "Unable to queue scan"
+msgstr ""

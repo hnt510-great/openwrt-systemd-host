@@ -1,0 +1,11 @@
+{
+	"admin/status/needrestart": {
+		"title": "Restart Needed",
+		"order": 65,
+		"action": { "type": "view", "path": "status/needrestart" },
+		"depends": {
+			"acl": [ "luci-app-needrestart" ],
+			"fs": { "/usr/sbin/needrestart": "executable" }
+		}
+	}
+}

@@ -1,0 +1,13 @@
+[Unit]
+Description=Queue restart advice after package transactions
+After=local-fs.target
+ConditionPathIsDirectory=/run/systemd/system
+
+[Path]
+PathExists=/run/openwrt-needrestart/pending
+Unit=openwrt-needrestart.service
+MakeDirectory=yes
+DirectoryMode=0700
+
+[Install]
+WantedBy=multi-user.target

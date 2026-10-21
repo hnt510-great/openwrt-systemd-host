@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: GPL-2.0-only
+'use strict';
+
+import { readfile, stat, popen } from 'fs';
+
+const ROOT = '/run/openwrt-needrestart/';
+const LIMIT = 4194304;
+
+function status() {
+	let report = null, error = null;
+	let running = false;
+	if (stat(ROOT + 'running')) {
+		try {
+			let active = json(readfile(ROOT + 'running'));
+			if (type(active.pid) == 'int' && active.pid > 0) {
+				let fields = match(readfile('/proc/' + active.pid + '/stat') || '', /^.*\) (.*)$/);
+				running = fields && +(split(fields[1], ' ')[19]) == active.start_time;
+			}
+			if (!running) error = 'Previous scan exited before completing. Select Scan now to retry.';
+		} catch (e) { error = 'Unable to inspect the restart scan worker'; }
+	}
+	try {
+		let previous = readfile(ROOT + 'error.json');
+		if (previous) error = json(previous).error;
+	} catch (e) { error = 'Unable to read the scan error status'; }
+	let file = stat(ROOT + 'report.json');
+	if (file && file.size <= LIMIT) {
+		try {
+			report = json(readfile(ROOT + 'report.json'));
+			if (report.schema_version != 1)
+				die('Unsupported restart report version');
+			let boot = trim(readfile('/proc/sys/kernel/random/boot_id') || '');
+			if (!boot || boot != report.boot_id) {
+				report.complete = false;
+				report.scan_status = 'stale';
+			}
+		} catch (e) {
+			error = 'Unable to read restart report';
+			report = null;
+		}
+	} else if (file) {
+		error = 'Restart report exceeds output limit';
+	}
+	return {
+		report,
+		pending: !!stat(ROOT + 'pending'),
+		running: !!running,
+		error
+	};
+}
+
+return { 'luci.needrestart': {
+	status: { call: function() { return status(); } },
+	scan: { call: function() {
+		// No caller-supplied arguments, paths, commands, or lifecycle verbs.
+		let p = popen('/usr/bin/timeout -k 1 5 /usr/sbin/needrestart --queue 2>/dev/null', 'r');
+		if (!p)
+			return { success: false, error: 'Unable to queue restart scan' };
+		p.read(1024);
+		let code = p.close();
+		return { success: code == 0, error: code == 0 ? null : 'Unable to queue restart scan' };
+	} }
+} };
