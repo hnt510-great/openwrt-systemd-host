@@ -201,10 +201,18 @@ def catalog(entry, fetcher):
         for name, link in by_name.items():
             match = re.fullmatch(entry['filename_pattern'], name)
             if match:
-                version = package_version(match['version'])
+                source_version = match.groupdict().get('source_version')
+                version = package_version(match['version'].replace('_', '.') if source_version
+                                          else match['version'])
                 if entry.get('stable_pattern') and not re.fullmatch(entry['stable_pattern'], version):
                     continue
                 meta = {'catalog': url}
+                if source_version:
+                    meta['source_version'] = source_version
+                    previous = versions.get(version, {})
+                    if previous.get('ambiguous_source') or (previous.get('source_version') and
+                            previous['source_version'] != source_version):
+                        meta['ambiguous_source'] = True
                 for suffix in ('.sha256sum', '.sha256'):
                     if name + suffix in by_name:
                         meta['checksums'] = by_name[name + suffix]
@@ -264,7 +272,7 @@ def catalog(entry, fetcher):
     return versions
 
 
-def rewrite_recipe(text, version, digest, source_url=None):
+def rewrite_recipe(text, version, digest, source_url=None, source_version=None):
     old = fields(text)['PKG_VERSION']
     before, after = archive_version(old), archive_version(version)
     metadata = fields(text)
@@ -282,6 +290,8 @@ def rewrite_recipe(text, version, digest, source_url=None):
             changed[key] = value
     if source_url:
         changed['PKG_SOURCE_URL'] = source_url.format(version=version)
+    if source_version:
+        changed['PKG_SOURCE_VERSION'] = source_version
     for key, value in changed.items():
         text, count = re.subn(r'^' + key + r':=.*$', lambda m: key + ':=' + value, text, flags=re.M)
         if count != 1:
@@ -485,7 +495,14 @@ class Updater:
                 return None
             meta = versions[version]
         # A placeholder digest allows source names to be expanded before downloading.
-        proposed = rewrite_recipe(text, version, metadata['PKG_HASH'], entry.get('source_url'))
+        if meta.get('source_version'):
+            if meta.get('ambiguous_source'):
+                raise UpdateError('Ambiguous source snapshots for version ' + version)
+            row['source_version'] = meta['source_version']
+            if version == current and meta['source_version'] != metadata.get('PKG_SOURCE_VERSION'):
+                raise UpdateError('Same-version source snapshot changed; review ' + name + ' manually')
+        proposed = rewrite_recipe(text, version, metadata['PKG_HASH'], entry.get('source_url'),
+                                  meta.get('source_version'))
         filename, url = source_location(proposed)
         row.update(new_version=version, source=url, catalog=meta['catalog'])
         if meta.get('tag_object'):
@@ -525,7 +542,7 @@ class Updater:
         row.update(sha256=digest, verification='upstream-sha256' if meta.get('hash') or sums or
                    any(a.get('digest') for a in meta.get('release', {}).get('assets', [])
                        if a['name'] == filename) else 'downloaded-https-source')
-        return rewrite_recipe(text, version, digest, entry.get('source_url'))
+        return rewrite_recipe(text, version, digest, entry.get('source_url'), meta.get('source_version'))
 
     def apply(self, changes, originals):
         self.assert_clean(list(changes))

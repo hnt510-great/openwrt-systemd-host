@@ -449,6 +449,65 @@ class UpdateTests(unittest.TestCase):
         entry['stable_pattern'] = r'(?!.*\.99(?:\.|$))[0-9]+(?:\.[0-9]+)*'
         self.assertEqual(set(U.catalog(entry, self.fetcher)), {'1.2.4', '1.2.5'})
 
+    def snapshot_recipe(self):
+        path = self.recipe('fixture', version='2026.09.25')
+        path.write_text(path.read_text().replace(
+            'PKG_SOURCE:=fixture-$(PKG_VERSION).tar.gz',
+            'PKG_SOURCE_VERSION:=2026_09_25.df90211\n'
+            'PKG_SOURCE:=fixture-$(PKG_SOURCE_VERSION).tar.gz'))
+        self.entries['fixture'].update(policy='stable', filename_pattern=
+            r'fixture-(?P<source_version>(?P<version>[0-9]{4}_[0-9]{2}_[0-9]{2})\.[0-9a-f]{7,40})\.tar\.gz')
+        return path
+
+    def snapshot_release(self, tag):
+        filename = 'fixture-' + tag + '.tar.gz'
+        url = 'https://upstream.test/releases/'
+        self.fetcher.data[url] = self.fetcher.data.get(url, b'') + (
+            f'<a href="{filename}">{filename}</a>').encode()
+        self.fetcher.data[url + filename] = PAYLOAD
+
+    def test_date_snapshot_updates_version_tag_source_and_hash_together(self):
+        path = self.snapshot_recipe()
+        self.snapshot_release('2026_09_25.df90211')
+        self.snapshot_release('2026_09_25.abcdef0')
+        self.snapshot_release('2026_10_02.cba3570')
+        self.commit()
+        updater = self.updater()
+        self.execute(updater)
+        metadata = U.fields(path.read_text())
+        self.assertEqual(metadata['PKG_VERSION'], '2026.10.02')
+        self.assertEqual(metadata['PKG_SOURCE_VERSION'], '2026_10_02.cba3570')
+        self.assertEqual(metadata['PKG_RELEASE'], '1')
+        self.assertEqual(metadata['PKG_HASH'], DIGEST)
+        self.assertEqual(self.fetcher.downloads,
+                         ['https://upstream.test/releases/fixture-2026_10_02.cba3570.tar.gz'])
+        self.assertIn('MESON_ARGS += -Dfeature=enabled', path.read_text())
+
+    def test_date_snapshot_rejects_ambiguous_and_replaced_tags(self):
+        path = self.snapshot_recipe()
+        before = path.read_bytes()
+        self.snapshot_release('2026_09_25.df90211')
+        self.snapshot_release('2026_09_25.abcdef0')
+        with self.assertRaisesRegex(U.UpdateError, 'Ambiguous source snapshots'):
+            self.execute(self.updater())
+        self.fetcher.data['https://upstream.test/releases/'] = b''
+        self.snapshot_release('2026_09_25.abcdef0')
+        with self.assertRaisesRegex(U.UpdateError, 'Same-version source snapshot changed'):
+            self.execute(self.updater())
+        self.assertEqual(path.read_bytes(), before)
+        self.assertFalse(self.fetcher.downloads)
+
+    def test_date_snapshot_retains_local_recipe_changes(self):
+        path = self.snapshot_recipe()
+        self.commit()
+        path.write_text(path.read_text() + '# local packaging edit\n')
+        before = path.read_bytes()
+        self.snapshot_release('2026_10_02.cba3570')
+        with self.assertRaisesRegex(U.UpdateError, 'Local recipe changes block updating'):
+            self.execute(self.updater())
+        self.assertEqual(path.read_bytes(), before)
+        self.assertFalse(self.fetcher.downloads)
+
     def test_live_registry_covers_all_recipe_directories(self):
         data = json.loads((TREE / 'configs/custom-package-updates.json').read_text())
         self.assertEqual(data['schema'], 1)
