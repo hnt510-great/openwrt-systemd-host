@@ -2,12 +2,12 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=node-bin
 # Updated by package/custom/scripts/update-prebuilt-packages.sh.
-PKG_VERSION:=24.22.0
+PKG_VERSION:=24.22.1
 PKG_RELEASE:=1
 
 PKG_SOURCE:=node-v$(PKG_VERSION)-linux-x64.tar.xz
 PKG_SOURCE_URL:=https://nodejs.org/dist/v$(PKG_VERSION)/
-PKG_HASH:=cc2f601cee82d9a5a233302fe307abc600727035fd7d2c3a3571755989e95008
+PKG_HASH:=6c172a9ab6718f7b801fb5a7bd486af2ee5e32758086a04b84fcce2aa77095e6
 
 PKG_BUILD_DIR:=$(BUILD_DIR)/node-v$(PKG_VERSION)-linux-x64
 
