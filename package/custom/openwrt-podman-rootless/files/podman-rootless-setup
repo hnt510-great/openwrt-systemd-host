@@ -56,6 +56,25 @@ allocate /etc/subgid gid
 grep -q '^podman:' /etc/group || /usr/sbin/groupadd -r podman
 /usr/sbin/usermod -aG podman "$user"
 /usr/libexec/podman-tun-permissions
+# OpenWrt's merged root is itself overlayfs. Use the underlying ext4 mount
+# for new native-systemd stores; never modify a populated user's storage.
+if [ -f /usr/lib/systemd/user/podman.service ] &&
+   awk '$2 == "/overlay" && $3 == "ext4" { ok=1 } END { exit !ok }' /proc/mounts; then
+	parent=/overlay/containers
+	if [ ! -e "$parent" ] && [ ! -L "$parent" ]; then
+		mkdir -m 0711 "$parent"
+	fi
+	if [ ! -L "$parent" ] && [ "$(stat -c %u:%a "$parent")" = 0:711 ]; then
+		base=$parent/$uid
+		if [ ! -e "$base" ] && [ ! -L "$base" ]; then
+			mkdir -m 0700 "$base"
+			chown "$uid:$(id -g "$user")" "$base"
+		fi
+		su -s /bin/sh -c 'unset XDG_CONFIG_HOME XDG_DATA_HOME; exec /usr/libexec/podman-native-storage' "$user"
+	else
+		printf '%s\n' 'Warning: unsafe /overlay/containers; existing Podman storage retained.' >&2
+	fi
+fi
 # Rootless Podman user units (socket, restart, auto-update, healthcheck timers)
 # need the user manager at boot. Enrollment is an explicit administrator action,
 # so opt this account in here; loginctl disable-linger still opts it back out.

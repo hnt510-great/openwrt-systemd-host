@@ -32,8 +32,11 @@ backups. This checkout's personal account initialization also enrolls
 `desktop-user`; the package itself creates no ordinary account.
 
 Enrollment adds the account to the `podman` group. A boot service sets
-`/dev/net/tun` to `root:podman`, mode 0660. Re-login to refresh supplementary
-groups. No systemd-udevd rules are required. If an administrator unloads
+`/dev/net/tun` to `root:podman`, mode 0660. Native-systemd builds also grant
+each enrolled UID a device ACL because pasta drops supplementary groups in
+its sandbox. The service tracks its own ACL entries and revokes them when
+accounts leave the group, preserving unrelated ACL entries. Re-login to
+refresh supplementary groups. No systemd-udevd rules are required. If an administrator unloads
 and reloads the TUN module, rerun `/etc/init.d/podman-rootless start` to
 restore the group policy on the recreated device.
 
@@ -76,13 +79,69 @@ podman run --rm docker.io/library/alpine:3.23 sh -c \
 
 Normal startup uses the default network and cgroup settings; it should not
 need `--network=host`, `--cgroups=disabled`, a single-ID mapping, or a custom
-OCI runtime. Rootless networking uses slirp4netns. DNS/HTTPS success alone
+OCI runtime. Native-systemd builds use pasta from the `passt` package;
+other builds retain slirp4netns. DNS/HTTPS success alone
 does not establish whether PassWall routed the traffic through a proxy.
+
+## Native OverlayFS and pasta
+
+On a native-systemd boot with an ext4 `/overlay`, account enrollment prepares
+`/overlay/containers/UID/storage` and a private user `storage.conf`. This is
+direct ext4 storage, outside OpenWrt's merged overlay root. Existing user
+configuration and populated default stores are retained. Other backing
+filesystems retain the previous storage policy and FUSE remains available.
+No kernel rebuild is needed when user namespaces and OverlayFS are already
+enabled.
+
+For an explicit fresh-store cutover, stop the user's containers, Quadlet
+services, Podman API service/socket and automatic update timer first. Preserve
+application bind mounts. Retire the stopped store's per-user `containers` and
+`libpod` runtime directories so cached FUSE feature probes are not reused.
+Prepare the per-user ext4 directory with owner USER,
+mode 0700, and configure the user's `storage.conf`:
+
+```toml
+[storage]
+driver = "overlay"
+graphroot = "/overlay/containers/UID/storage"
+
+[storage.options.overlay]
+mountopt = "nodev"
+```
+
+Replace UID with the account's numeric ID. Leave `mount_program` and runtime
+paths unset. Initialize a fresh store and recreate containers. Do not copy
+FUSE layer directories or delete `.has-mount-program` to convert an existing
+store: FUSE whiteouts and extended attributes can differ. Keep the old store
+inactive until the new services are verified. A global `podman system reset`
+is unnecessary.
+
+Existing Quadlets explicitly using `Network=slirp4netns` must change to
+`Network=pasta`; changing the default alone does not change their network.
+Keep existing `PublishPort` addresses and protocols. Podman disables automatic
+port forwarding and supplies pasta's DNS forwarding and host mapping options.
+Do not add `--outbound-if4`, `--outbound-if6`, bypass marks, or new firewall
+exceptions to make pasta work with PassWall. Its host sockets must remain
+subject to the existing local-output proxy policy. DNS forwarding uses the
+host resolver, including a loopback resolver protected by PassWall's DNS rules.
+
+Validate the optimized configuration from a fresh ordinary-user session:
+
+```sh
+PODMAN_EXPECT_NATIVE_OVERLAY=1 scripts/test-podman-rootless.sh
+```
+
+The test checks ext4 backing, native overlay selection, pasta, actual kernel
+overlay container mounts, subordinate IDs, DNS and HTTPS. Separately check
+PassWall proxy/direct routing, IPv6, UDP policy and published-port reachability.
+Successful HTTPS alone does not prove proxy routing. Compare nftables rule
+structure while allowing counters and dynamic DNS-set elements to change.
 
 The support package changes no firewall or PassWall settings. The upstream
 Podman package's existing first-boot firewall integration remains unchanged;
 when upgrading an existing router, preserve its UCI files and do not rerun
 `90-podman` as part of rootless account enrollment.
+The packaged first-boot script now exits immediately during an APK upgrade.
 
 Build the narrow packages, then the full image:
 
@@ -100,10 +159,15 @@ The rootless changes are captured in
 are recorded in `configs/podman-rootless-feeds.json`. The native
 systemd/conmon/compose changes are in
 `patches/feeds/0013-packages-podman-systemd.patch`, recorded in
-`configs/podman-systemd-feeds.json`. Outputs for native systemd are under
+`configs/podman-systemd-feeds.json`. Pasta defaults and the upgrade guard are
+in `patches/feeds/0018-packages-podman-native-network.patch`, based on the feed
+revision in `configs/podman-native-feeds.json`; passt itself is a local package.
+Outputs for native systemd are under
 `bin/systemd`; install matching signed glibc APKs when applying this repair
 without a router reboot. Flashing the rebuilt image requires a separate
 reboot window.
 
 See the [2026-10-13 validation record](podman-rootless-validation.md) for
 fresh-image, VM reboot and physical-router results.
+The [2026-10-21 native storage/network validation](podman-native-validation.md)
+records the optimized image, benchmarks and router cutover.

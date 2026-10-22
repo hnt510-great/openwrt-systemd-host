@@ -4,3 +4,25 @@ set -eu
 grep -q '^podman:' /etc/group || exit 0
 chgrp podman /dev/net/tun
 chmod 0660 /dev/net/tun
+# pasta drops supplementary groups during isolation. Keep the device restricted
+# to enrolled users, granting their UID access without weakening its sandbox.
+[ -f /usr/lib/systemd/user/podman.service ] || exit 0
+umask 077
+state=/run/podman-tun-acl-uids
+next=$state.$$
+trap 'rm -f "$next"' EXIT HUP INT TERM
+: > "$next"
+members=$(awk -F: '$1 == "podman" { gsub(/,/, " ", $4); print $4 }' /etc/group)
+for user in $members; do
+	uid=$(id -u "$user" 2>/dev/null) || continue
+	[ "$uid" -ge 1000 ] || continue
+	setfacl -m "u:$uid:rw" /dev/net/tun
+	printf '%s\n' "$uid" >> "$next"
+done
+if [ -f "$state" ]; then
+	while IFS= read -r uid; do
+		case "$uid" in ''|*[!0-9]*) continue ;; esac
+		grep -qx "$uid" "$next" || setfacl -x "u:$uid" /dev/net/tun
+	done < "$state"
+fi
+mv "$next" "$state"

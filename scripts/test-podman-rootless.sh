@@ -6,6 +6,13 @@ set -eu
 test -r /dev/net/tun && test -w /dev/net/tun
 test "$(podman info --format '{{.Host.Security.Rootless}}')" = true
 test "$(podman info --format '{{.Host.CgroupManager}}')" = systemd
+if [ "${PODMAN_EXPECT_NATIVE_OVERLAY:-0}" = 1 ]; then
+	test "$(podman info --format '{{.Host.RootlessNetworkCmd}}')" = pasta
+	test "$(podman info --format '{{.Store.GraphDriverName}}')" = overlay
+	graphroot=$(podman info --format '{{.Store.GraphRoot}}')
+	test "$(findmnt -n -o FSTYPE -T "$graphroot")" = ext4
+	test "$(cat "$graphroot/overlay/.has-mount-program")" = false
+fi
 if [ -d /run/systemd/system ]; then
 	test "$(podman info --format '{{.Host.EventLogger}}')" = journald
 	test "$(podman info --format '{{.Host.LogDriver}}')" = journald
@@ -22,5 +29,11 @@ podman run --rm "$image" sh -ec '
   nslookup example.com
   wget -qO /dev/null https://example.com
 '
+if [ "${PODMAN_EXPECT_NATIVE_OVERLAY:-0}" = 1 ]; then
+	podman run --rm "$image" awk '
+	  $5 == "/" && / - overlay / { ok=1 }
+	  END { exit !ok }
+	' /proc/self/mountinfo
+fi
 podman ps
 printf '%s\n' 'PASS: default rootless startup, subordinate IDs, DNS and HTTPS'

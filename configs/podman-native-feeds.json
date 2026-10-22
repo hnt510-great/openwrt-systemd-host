@@ -1,0 +1,8 @@
+{
+  "packages": {
+    "url": "https://github.com/openwrt/packages.git",
+    "base": "35b693f2d73e88541499dfb47616f32796c51b20",
+    "patch": "patches/feeds/0018-packages-podman-native-network.patch",
+    "commit": "330a4e430366325ec99d26cd58ff8f38415a2c8a"
+  }
+}
