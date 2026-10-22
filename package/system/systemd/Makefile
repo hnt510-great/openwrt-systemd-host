@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=systemd
 PKG_VERSION:=262
-PKG_RELEASE:=5
+PKG_RELEASE:=7
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/systemd/systemd/tar.gz/refs/tags/v$(PKG_VERSION)?
 PKG_HASH:=6aa77506c0644aa67f940a48e3d3a7368601f787e4f249139516d353f107bcab
@@ -11,6 +11,8 @@ PKG_LICENSE_FILES:=LICENSES/LGPL-2.1-or-later.txt
 PKG_INSTALL:=1
 PKG_BUILD_PARALLEL:=1
 PKG_BUILD_DEPENDS:=python-jinja2/host
+PKG_CONFIG_DEPENDS:=CONFIG_PACKAGE_systemd-machined CONFIG_PACKAGE_systemd-nspawn \
+	CONFIG_PACKAGE_systemd-coredump CONFIG_PACKAGE_systemd-oomd CONFIG_PACKAGE_systemd-hostnamed
 
 MESON_USE_STAGING_PYTHON:=1
 include $(INCLUDE_DIR)/package.mk
@@ -38,6 +40,39 @@ define Package/systemd/conffiles
 /etc/machine-id
 endef
 
+define Package/systemd/optional
+  SECTION:=base
+  CATEGORY:=Base system
+  DEPENDS:=@OPENWRT_SYSTEMD +systemd
+  EXTRA_DEPENDS:=systemd (=$(PKG_VERSION)-r$(PKG_RELEASE))
+endef
+
+define Package/systemd-machined
+  $(call Package/systemd/optional)
+  TITLE:=systemd machine registration and machinectl
+endef
+
+define Package/systemd-hostnamed
+  $(call Package/systemd/optional)
+  TITLE:=systemd hostname service and hostnamectl
+endef
+
+define Package/systemd-nspawn
+  $(call Package/systemd/optional)
+  TITLE:=systemd namespace container runner
+  DEPENDS+=+systemd-machined
+endef
+
+define Package/systemd-coredump
+  $(call Package/systemd/optional)
+  TITLE:=systemd crash collection and coredumpctl
+endef
+
+define Package/systemd-oomd
+  $(call Package/systemd/optional)
+  TITLE:=systemd memory pressure monitor and oomctl
+endef
+
 MESON_ARGS += \
 	--prefix=/usr --libdir=lib --libexecdir=lib/systemd \
 	-Dmode=release -Dsplit-bin=true -Dlibc=glibc -Dvcs-tag=false \
@@ -48,11 +83,14 @@ MESON_ARGS += \
 	-Dpamlibdir=/usr/lib/security -Dpamconfdir=/etc/pam.d \
 	-Ddefault-kill-user-processes=false \
 	-Dnetworkd=false -Dresolve=false -Dtimesyncd=false -Dtimedated=false \
-	-Dhostnamed=false -Dlocaled=false -Dmachined=false -Dportabled=false \
+	-Dhostnamed=$(if $(CONFIG_PACKAGE_systemd-hostnamed),true,false) \
+	-Dlocaled=false -Dmachined=$(if $(CONFIG_PACKAGE_systemd-machined),true,false) -Dportabled=false \
 	-Dmountfsd=false -Dsysext=false -Dhomed=disabled -Dnsresourced=false \
-	-Dcoredump=false -Doomd=false -Dpstore=false -Drepart=disabled \
+	-Dcoredump=$(if $(CONFIG_PACKAGE_systemd-coredump),true,false) \
+	-Doomd=$(if $(CONFIG_PACKAGE_systemd-oomd),true,false) -Dpstore=false -Drepart=disabled \
 	-Dsysupdate=disabled -Dsysupdated=disabled -Dsysinstall=false \
-	-Dstoragetm=false -Dimportd=disabled -Dnspawn=disabled -Dvmspawn=disabled \
+	-Dstoragetm=false -Dimportd=disabled \
+	-Dnspawn=$(if $(CONFIG_PACKAGE_systemd-nspawn),enabled,disabled) -Dvmspawn=disabled \
 	-Dfirstboot=false -Dhibernate=false -Dbacklight=false -Drfkill=false \
 	-Dvconsole=false -Dxdg-autostart=false -Dbinfmt=false -Dquotacheck=false \
 	-Dbootloader=disabled -Dukify=disabled -Defi=false -Dtpm=false \
@@ -106,7 +144,83 @@ define Package/systemd/install
 	# OpenWrt retains its own init, device-event and syslog owners.
 	rm -f $(1)/usr/bin/{halt,poweroff,reboot,shutdown,init,udevadm}
 	rm -f $(1)/usr/lib/systemd/system-generators/systemd-{getty,fstab,gpt-auto,ssh}-generator
+	# Optional components own their executables, activation and configuration.
+	rm -f $(1)/usr/bin/{hostnamectl,machinectl,systemd-nspawn,coredumpctl,oomctl}
+	rm -f $(1)/usr/lib/systemd/{systemd-hostnamed,systemd-machined,systemd-coredump,systemd-oomd}
+	find $(1)/usr/lib/systemd/system -name '*hostnamed*' -delete
+	find $(1)/usr/lib/systemd/system -name '*hostname1*' -delete
+	rm -f $(1)/usr/lib/systemd/system/systemd-machine-tag@.service
+	find $(1)/usr/lib/systemd/system -name '*machined*' -delete
+	find $(1)/usr/lib/systemd/system -name '*machine1*' -delete
+	find $(1)/usr/lib/systemd/system -name '*nspawn*' -delete
+	find $(1)/usr/lib/systemd/system -name '*coredump*' -delete
+	find $(1)/usr/lib/systemd/system -name '*oomd*' -delete
+	rm -f $(1)/usr/lib/tmpfiles.d/systemd-nspawn.conf
+	rm -f $(1)/usr/lib/sysusers.d/systemd-{coredump,oom}.conf
+	rm -f $(1)/etc/systemd/{coredump,oomd}.conf
+	rm -f $(1)/usr/share/polkit-1/actions/org.freedesktop.{hostname1,machine1}.policy
+	rm -f $(1)/etc/dbus-1/system.d/org.freedesktop.{hostname1,machine1,oom1}.conf
+endef
+
+define Package/systemd-hostnamed/install
+	$(INSTALL_DIR) $(1)/usr/bin $(1)/usr/lib/systemd/system \
+		$(1)/etc/dbus-1/system.d $(1)/usr/share/dbus-1/system-services \
+		$(1)/usr/share/polkit-1/actions
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/hostnamectl $(1)/usr/bin/
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/lib/systemd/systemd-hostnamed $(1)/usr/lib/systemd/
+	$(CP) $(PKG_INSTALL_DIR)/usr/lib/systemd/system/systemd-hostnamed.* $(1)/usr/lib/systemd/system/
+	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/lib/systemd/system/systemd-machine-tag@.service $(1)/usr/lib/systemd/system/
+	$(LN) systemd-hostnamed.service $(1)/usr/lib/systemd/system/dbus-org.freedesktop.hostname1.service
+	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/dbus-1/system.d/org.freedesktop.hostname1.conf $(1)/etc/dbus-1/system.d/
+	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/dbus-1/system-services/org.freedesktop.hostname1.service $(1)/usr/share/dbus-1/system-services/
+	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/polkit-1/actions/org.freedesktop.hostname1.policy $(1)/usr/share/polkit-1/actions/
+endef
+
+define Package/systemd-machined/install
+	$(INSTALL_DIR) $(1)/usr/bin $(1)/usr/lib/systemd/system $(1)/usr/lib/tmpfiles.d \
+		$(1)/etc/dbus-1/system.d $(1)/usr/share/dbus-1/system-services \
+		$(1)/usr/share/polkit-1/actions
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/machinectl $(1)/usr/bin/
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/lib/systemd/systemd-machined $(1)/usr/lib/systemd/
+	$(CP) $(PKG_INSTALL_DIR)/usr/lib/systemd/system/systemd-machined.* $(1)/usr/lib/systemd/system/
+	$(LN) systemd-machined.service $(1)/usr/lib/systemd/system/dbus-org.freedesktop.machine1.service
+	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/lib/tmpfiles.d/systemd-nspawn.conf $(1)/usr/lib/tmpfiles.d/
+	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/dbus-1/system.d/org.freedesktop.machine1.conf $(1)/etc/dbus-1/system.d/
+	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/dbus-1/system-services/org.freedesktop.machine1.service $(1)/usr/share/dbus-1/system-services/
+	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/polkit-1/actions/org.freedesktop.machine1.policy $(1)/usr/share/polkit-1/actions/
+endef
+
+define Package/systemd-nspawn/install
+	$(INSTALL_DIR) $(1)/usr/bin $(1)/usr/lib/systemd/system
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/systemd-nspawn $(1)/usr/bin/
+	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/lib/systemd/system/systemd-nspawn@.service $(1)/usr/lib/systemd/system/
+	# OpenWrt owns module loading; configure container networking explicitly.
+	$(SED) 's/modprobe@[^ ]*\.service//g; s/--network-veth/--private-network/' $(1)/usr/lib/systemd/system/systemd-nspawn@.service
+endef
+
+define Package/systemd-coredump/install
+	$(INSTALL_DIR) $(1)/usr/bin $(1)/usr/lib/systemd/system $(1)/usr/lib/sysusers.d
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/coredumpctl $(1)/usr/bin/
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/lib/systemd/systemd-coredump $(1)/usr/lib/systemd/
+	$(CP) $(PKG_INSTALL_DIR)/usr/lib/systemd/system/systemd-coredump* $(1)/usr/lib/systemd/system/
+	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/lib/sysusers.d/systemd-coredump.conf $(1)/usr/lib/sysusers.d/
+endef
+
+define Package/systemd-oomd/install
+	$(INSTALL_DIR) $(1)/usr/bin $(1)/usr/lib/systemd/system $(1)/usr/lib/sysusers.d \
+		$(1)/etc/dbus-1/system.d $(1)/usr/share/dbus-1/system-services
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/oomctl $(1)/usr/bin/
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/lib/systemd/systemd-oomd $(1)/usr/lib/systemd/
+	$(CP) $(PKG_INSTALL_DIR)/usr/lib/systemd/system/systemd-oomd.* $(1)/usr/lib/systemd/system/
+	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/lib/sysusers.d/systemd-oom.conf $(1)/usr/lib/sysusers.d/
+	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/dbus-1/system.d/org.freedesktop.oom1.conf $(1)/etc/dbus-1/system.d/
+	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/dbus-1/system-services/org.freedesktop.oom1.service $(1)/usr/share/dbus-1/system-services/
 endef
 
 $(eval $(call BuildPackage,libsystemd))
 $(eval $(call BuildPackage,systemd))
+$(eval $(call BuildPackage,systemd-hostnamed))
+$(eval $(call BuildPackage,systemd-machined))
+$(eval $(call BuildPackage,systemd-nspawn))
+$(eval $(call BuildPackage,systemd-coredump))
+$(eval $(call BuildPackage,systemd-oomd))

@@ -59,6 +59,46 @@ normal-boot enablement use systemctl; procd recovery retains its independent
 rc.d SSH setting. See [native OpenSSH](systemd-sshd.md).
 Display/input device access still uses seatd.
 
+### Optional systemd components
+
+Select these additional packages in menuconfig or `.config`, then build with
+`make package/system/systemd/compile V=s`:
+
+| Package | Commands and purpose |
+| --- | --- |
+| `systemd-hostnamed` | `hostnamectl`, hostname and machine metadata through D-Bus |
+| `systemd-machined` | `machinectl`, container/VM registration and D-Bus activation |
+| `systemd-nspawn` | `systemd-nspawn`, namespace containers and a container unit template |
+| `systemd-coredump` | `coredumpctl`, crash collection helpers and units |
+| `systemd-oomd` | `oomctl`, pressure-based OOM management |
+
+These packages require the exact matching systemd package release because they
+use its private shared library. Install the matching signed systemd APK together
+with the optional packages. Reload systemd's unit files and D-Bus configuration
+after installation; run `systemd-sysusers` for the component account files and
+`systemd-tmpfiles --create /usr/lib/tmpfiles.d/systemd-nspawn.conf` for the
+machine image directory. No router reboot is required for installing them.
+
+Hostnamed starts on demand through D-Bus. Installing it preserves the current
+hostname. OpenWrt still applies `system.@system[0].hostname` from UCI at boot;
+`hostnamectl set-hostname` does not update that UCI setting. Keep the UCI value
+in sync when intentionally changing the persistent router hostname.
+
+Machined starts on demand through D-Bus. The nspawn template uses an isolated
+network namespace; configure networking explicitly in a per-container unit
+override or `.nspawn` file. It does not rely on systemd-networkd or systemd's
+module-loading units. Test a disposable root filesystem before enabling a
+container unit; installing the package does not create or start containers.
+
+Coredump units and oomd are installed without boot activation. Crash collection
+requires a deliberate kernel core-pattern and socket/service configuration;
+installation preserves OpenWrt's current core pattern. Enabling
+`systemd-coredumpd.service` uses the newer kernel socket interface when supported.
+For oomd, inspect the existing `ManagedOOM*` properties before starting the
+service and explicitly configure the slices it should monitor. Installing it
+does not enable memory-pressure kills. `coredumpctl list` only shows crashes
+already recorded by systemd-coredump.
+
 ## Filesystem and packages
 
 Native images identify themselves in /etc/os-release (an alias of
