@@ -46,6 +46,7 @@
 
 static const char *test_root = "";
 static json_object *report, *warnings, *subjects, *containers, *owners, *packages;
+static json_object *applications, *flatpak_owners;
 static void unit_name(pid_t pid, char **unit, bool *user);
 static int atomic_json(const char *name, json_object *o);
 static bool partial;
@@ -751,6 +752,10 @@ static json_object *subject(pid_t pid, const char *cg, json_object *snap, bool h
 	if (!stat(path(proc), &st))
 		uid = st.st_uid;
 	container_id(cg, id);
+	char pidkey[32];
+
+	snprintf(pidkey, sizeof(pidkey), "%d", pid);
+	json_object *application = get(flatpak_owners, pidkey);
 	const char *procd = procd_name(pid, cg, snap, name);
 
 	if (*id) {
@@ -760,6 +765,11 @@ static json_object *subject(pid_t pid, const char *cg, json_object *snap, bool h
 		snprintf(action, sizeof(action),
 			 "Restart affected code through the container's deployment controller (account UID %u)",
 			 uid);
+	} else if (application) {
+		kind = "flatpak";
+		display = str(application, "name");
+		snprintf(action, sizeof(action),
+			 "Close and relaunch Flatpak application '%s' as account UID %u", display, uid);
 	} else if (procd) {
 		display = procd;
 		kind = "procd";
@@ -817,6 +827,8 @@ static json_object *subject(pid_t pid, const char *cg, json_object *snap, bool h
 		string(o, "recommended_action", action);
 		json_object_object_add(o, "disruptive", json_object_new_boolean(disruptive));
 		json_object_object_add(o, "processes", json_object_new_array());
+		if (application)
+			json_object_object_add(o, "application", json_object_get(application));
 		if (*id) {
 			json_object *c = container_find(id, uid);
 
@@ -1275,6 +1287,333 @@ static void evidence(json_object *files, int root, pid_t pid, const char *mapped
 	json_object_array_add(files, o);
 }
 
+/* Read only deployment identity from Flatpak's key file. Never retain its
+ * environment or bus policies, and never execute anything inside the sandbox.
+ */
+static json_object *flatpak_info(int fd)
+{
+	char *data = read_fd(fd, 65536), section[32] = "", *save;
+	json_object *o = json_object_new_object();
+	static const char *const keys[] = {
+	    "Application.name", "Application.runtime", "Instance.instance-id",
+	    "Instance.app-path", "Instance.runtime-path", "Instance.app-commit",
+	    "Instance.runtime-commit", "Instance.arch", "Instance.branch",
+	    "Instance.app-extensions", "Instance.runtime-extensions", NULL};
+
+	if (!data)
+		goto bad;
+	for (char *line = strtok_r(data, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
+		line[strcspn(line, "\r")] = 0;
+		if (*line == '[') {
+			char *end = strchr(line, ']');
+
+			section[0] = 0;
+			if (end && !end[1] && end - line > 1 && (size_t)(end - line) < sizeof(section)) {
+				memcpy(section, line + 1, end - line - 1);
+				section[end - line - 1] = 0;
+			}
+			continue;
+		}
+		char *eq = strchr(line, '='), key[96];
+
+		if (!eq || eq - line > 60)
+			continue;
+		*eq++ = 0;
+		snprintf(key, sizeof(key), "%s.%s", section, line);
+		for (size_t i = 0; keys[i]; i++) {
+			if (strcmp(keys[i], key))
+				continue;
+			if (get(o, key) || strlen(eq) > 16384)
+				goto bad;
+			string(o, key, eq);
+		}
+	}
+	free(data);
+	return o;
+bad:
+	free(data);
+	json_object_put(o);
+	return NULL;
+}
+
+static bool commit_id(const char *s)
+{
+	return strlen(s) == 64 && strspn(s, "0123456789abcdef") == 64;
+}
+
+static bool deployment_name(const char *s, const char *commit)
+{
+	if (strncmp(s, commit, 64))
+		return false;
+	return !s[64] || (s[64] == '.' && s[65] && strspn(s + 65, "0123456789") == strlen(s + 65));
+}
+
+static bool flatpak_ref(const char *ref)
+{
+	char copy[512], *p, *part;
+	unsigned int n = 0;
+
+	if (strlen(ref) >= sizeof(copy))
+		return false;
+	snprintf(copy, sizeof(copy), "%s", ref);
+	p = copy;
+	while ((part = strsep(&p, "/"))) {
+		if (!valid_name(part) || strchr(part, '\\') ||
+		    (!n && strcmp(part, "app") && strcmp(part, "runtime")))
+			return false;
+		n++;
+	}
+	return n == 4;
+}
+
+static bool flatpak_active(const char *branch, char commit[65])
+{
+	char file[PATH_MAX], target[128];
+	struct stat st;
+	ssize_t n;
+
+	if (snprintf(file, sizeof(file), "%s/active", branch) >= (int)sizeof(file))
+		return false;
+	n = readlink(path(file), target, sizeof(target) - 1);
+	if (n < 64)
+		return false;
+	target[n] = 0;
+	memcpy(commit, target, 64);
+	commit[64] = 0;
+	if (!commit_id(commit) || !deployment_name(target, commit))
+		return false;
+	if (snprintf(file, sizeof(file), "%s/active/files", branch) >= (int)sizeof(file))
+		return false;
+	return !stat(path(file), &st) && S_ISDIR(st.st_mode);
+}
+
+static void flatpak_store(uid_t uid, unsigned int index, char store[PATH_MAX])
+{
+	struct passwd *pw = getpwuid(uid);
+
+	if (!index && pw)
+		snprintf(store, PATH_MAX, "%s/.local/share/flatpak", pw->pw_dir);
+	else
+		snprintf(store, PATH_MAX, "/var/lib/flatpak");
+}
+
+/* 0 current, 1 changed, -1 unverified. Paths must belong to a known local
+ * user/system store and the declared ref/commit, including deployment suffixes.
+ */
+static int flatpak_deployment(uid_t uid, const char *ref, const char *commit, const char *files)
+{
+	char store[PATH_MAX], branch[PATH_MAX], active[65], folder[128];
+
+	if (!flatpak_ref(ref) || !commit_id(commit))
+		return -1;
+	for (unsigned int i = 0; i < 2; i++) {
+		flatpak_store(uid, i, store);
+		if (snprintf(branch, sizeof(branch), "%s/%s", store, ref) >= (int)sizeof(branch))
+			continue;
+		size_t n = strlen(branch), m = strlen(files);
+
+		if (m <= n + 7 || strncmp(files, branch, n) || files[n] != '/' ||
+		    strcmp(files + m - 6, "/files") || m - n - 7 >= sizeof(folder))
+			continue;
+		memcpy(folder, files + n + 1, m - n - 7);
+		folder[m - n - 7] = 0;
+		if (deployment_name(folder, commit) && flatpak_active(branch, active))
+			return strcmp(active, commit) ? 1 : 0;
+	}
+	return -1;
+}
+
+static int flatpak_extension(uid_t uid, const char *id, const char *arch, const char *commit)
+{
+	char store[PATH_MAX], base[PATH_MAX], branch[PATH_MAX], file[PATH_MAX], active[65];
+	bool retained = false;
+
+	if (!valid_name(id) || strchr(id, '\\') || !valid_name(arch) || !commit_id(commit))
+		return -1;
+	for (unsigned int i = 0; i < 2; i++) {
+		flatpak_store(uid, i, store);
+		if (snprintf(base, sizeof(base), "%s/runtime/%s/%s", store, id, arch) >= (int)sizeof(base))
+			continue;
+		DIR *d = opendir(path(base));
+		struct dirent *e;
+		unsigned int branches = 0;
+
+		while (d && (e = readdir(d))) {
+			if (!valid_name(e->d_name))
+				continue;
+			if (++branches > 128 || millis() >= deadline) {
+				closedir(d);
+				return -1;
+			}
+			if (snprintf(branch, sizeof(branch), "%s/%s", base, e->d_name) >= (int)sizeof(branch) ||
+			    !flatpak_active(branch, active))
+				continue;
+			if (!strcmp(active, commit)) {
+				closedir(d);
+				return 0;
+			}
+			DIR *versions = opendir(path(branch));
+			struct dirent *v;
+			unsigned int count = 0;
+			struct stat st;
+
+			while (versions && (v = readdir(versions))) {
+				if (++count > 128 || millis() >= deadline)
+					break;
+				if (deployment_name(v->d_name, commit) &&
+				    snprintf(file, sizeof(file), "%s/%s/files", branch, v->d_name) < (int)sizeof(file) &&
+				    !stat(path(file), &st) && S_ISDIR(st.st_mode))
+					retained = true;
+			}
+			if (versions)
+				closedir(versions);
+			if (count > 128 || millis() >= deadline) {
+				closedir(d);
+				return -1;
+			}
+		}
+		if (d)
+			closedir(d);
+	}
+	return retained ? 1 : -1;
+}
+
+static json_object *flatpak_application(pid_t pid, const char *cg, int root)
+{
+	int fd = rooted_open(root, "/.flatpak-info");
+	json_object *info = NULL, *host = NULL, *wrap = NULL, *application = NULL;
+	char proc[PATH_MAX], prefix[128], suffix[320], ref[512], key[32];
+	struct stat st, ns, child_ns, child_root, process_root;
+	uid_t uid = container_uid(cg);
+	pid_t child;
+	uint64_t child_start;
+
+	if (fd < 0 || !uid)
+		goto out;
+	info = flatpak_info(fd);
+	close(fd);
+	fd = -1;
+	const char *id = str(info, "Instance.instance-id"), *name = str(info, "Application.name");
+
+	if (!*id || strlen(id) > 20 || strspn(id, "0123456789") != strlen(id) ||
+	    !valid_name(name) || strchr(name, '\\'))
+		goto out;
+	snprintf(suffix, sizeof(suffix), "/app-flatpak-%s-%s.scope", name, id);
+	const char *scope = strstr(cg, suffix);
+
+	if (!scope || (scope[strlen(suffix)] && scope[strlen(suffix)] != '/'))
+		goto out;
+	snprintf(proc, sizeof(proc), "/proc/%d", pid);
+	if (stat(path(proc), &st) || st.st_uid != uid)
+		goto out;
+	snprintf(prefix, sizeof(prefix), "/run/user/%u/.flatpak/%s", uid, id);
+	snprintf(proc, sizeof(proc), "%s/info", prefix);
+	fd = open(path(proc), O_RDONLY | O_CLOEXEC | O_NONBLOCK);
+	if (fd < 0)
+		goto out;
+	host = flatpak_info(fd);
+	close(fd);
+	fd = -1;
+	if (!info || !host)
+		goto out;
+	json_object_object_foreach(info, k, value)
+	{
+		(void)value;
+		if (strcmp(str(info, k), str(host, k)))
+			goto out;
+	}
+	snprintf(proc, sizeof(proc), "%s/bwrapinfo.json", prefix);
+	wrap = read_json(path(proc));
+	if (json_object_get_int64(get(wrap, "child-pid")) > INT_MAX)
+		goto out;
+	child = json_object_get_int64(get(wrap, "child-pid"));
+	child_start = child > 1 ? start_time(child) : 0;
+	if (!child_start)
+		goto out;
+	snprintf(proc, sizeof(proc), "/proc/%d", child);
+	if (stat(path(proc), &st) || st.st_uid != uid)
+		goto out;
+	snprintf(proc, sizeof(proc), "/proc/%d/ns/mnt", pid);
+	if (stat(path(proc), &ns) || ns.st_ino != json_object_get_uint64(get(wrap, "mnt-namespace")))
+		goto out;
+	snprintf(proc, sizeof(proc), "/proc/%d/ns/mnt", child);
+	if (stat(path(proc), &child_ns) || child_ns.st_ino != ns.st_ino || child_ns.st_dev != ns.st_dev)
+		goto out;
+	snprintf(proc, sizeof(proc), "/proc/%d/root", child);
+	if (stat(path(proc), &child_root) || fstat(root, &process_root) ||
+	    child_root.st_dev != process_root.st_dev || child_root.st_ino != process_root.st_ino ||
+	    child_start != start_time(child))
+		goto out;
+	for (size_t i = 0; i < length(applications); i++) {
+		json_object *a = json_object_array_get_idx(applications, i);
+
+		if (json_object_get_int64(get(a, "uid")) == uid && !strcmp(str(a, "instance"), id)) {
+			application = a;
+			goto identified;
+		}
+	}
+	if (length(applications) >= 128)
+		goto out;
+	application = json_object_new_object();
+	string(application, "kind", "flatpak");
+	string(application, "name", name);
+	string(application, "instance", id);
+	number(application, "uid", uid);
+	snprintf(ref, sizeof(ref), "app/%s/%s/%s", name, str(info, "Instance.arch"), str(info, "Instance.branch"));
+	string(application, "reference", ref);
+	string(application, "app_commit", str(info, "Instance.app-commit"));
+	string(application, "runtime_commit", str(info, "Instance.runtime-commit"));
+	int app = flatpak_deployment(uid, ref, str(info, "Instance.app-commit"), str(info, "Instance.app-path"));
+	int runtime = flatpak_deployment(uid, str(info, "Application.runtime"),
+					str(info, "Instance.runtime-commit"), str(info, "Instance.runtime-path"));
+	int extensions = 0;
+	bool extension_changed = false;
+	const char *const extension_keys[] = {"Instance.app-extensions", "Instance.runtime-extensions", NULL};
+
+	for (size_t i = 0; extension_keys[i]; i++) {
+		char *list = strdup(str(info, extension_keys[i])), *save, *entry;
+		unsigned int count = 0;
+
+		if (!list)
+			extensions = -1;
+		for (entry = list ? strtok_r(list, ";", &save) : NULL; entry; entry = strtok_r(NULL, ";", &save)) {
+			char *eq = strchr(entry, '=');
+			int state = -1;
+
+			if (eq && ++count <= 64) {
+				*eq++ = 0;
+				state = flatpak_extension(uid, entry, str(info, "Instance.arch"), eq);
+			}
+			if (state < 0)
+				extensions = -1;
+			else if (state > 0)
+				extension_changed = true;
+		}
+		free(list);
+	}
+	string(application, "deployment_status", app > 0 || runtime > 0 || extension_changed ? "changed" :
+	       app < 0 || runtime < 0 || extensions < 0 ? "unknown" : "current");
+	string(application, "app_status", app < 0 ? "unknown" : app ? "changed" : "current");
+	string(application, "runtime_status", runtime < 0 ? "unknown" : runtime ? "changed" : "current");
+	string(application, "extensions_status", extension_changed ? "changed" : extensions < 0 ? "unknown" : "current");
+	if (app < 0 || runtime < 0 || extensions < 0)
+		warn("A Flatpak app, runtime, or extension deployment could not be verified locally");
+	json_object_array_add(applications, application);
+identified:
+	snprintf(key, sizeof(key), "%d", pid);
+	json_object_object_add(flatpak_owners, key, json_object_get(application));
+out:
+	if (fd >= 0)
+		close(fd);
+	if (info)
+		json_object_put(info);
+	if (host)
+		json_object_put(host);
+	if (wrap)
+		json_object_put(wrap);
+	return application;
+}
+
 static void scan_process(pid_t pid, json_object *snap)
 {
 	char proc[128], exe[PATH_MAX], id[65];
@@ -1305,8 +1644,23 @@ static void scan_process(pid_t pid, json_object *snap)
 	struct stat rootstat, hoststat;
 	bool host = !fstat(root, &rootstat) && !stat(path("/"), &hoststat) &&
 		    rootstat.st_dev == hoststat.st_dev && rootstat.st_ino == hoststat.st_ino;
+	json_object *application = !host && !*id ? flatpak_application(pid, cg, root) : NULL;
+	bool flatpak_helper = false;
 
-	if (!host && !*id && (sandbox_host_helper(pid, cg, exe, root) ||
+	if (application && !strcmp(exe, "/usr/bin/bwrap")) {
+		int old, current;
+
+		snprintf(proc, sizeof(proc), "/proc/%d/exe", pid);
+		old = open(path(proc), O_RDONLY | O_CLOEXEC | O_NONBLOCK);
+		current = open(path(exe), O_RDONLY | O_CLOEXEC | O_NONBLOCK);
+		flatpak_helper = old >= 0 && current >= 0 && different(old, current) == 0;
+		if (old >= 0)
+			close(old);
+		if (current >= 0)
+			close(current);
+	}
+
+	if (!host && !*id && (flatpak_helper || sandbox_host_helper(pid, cg, exe, root) ||
 			    sandbox_host_browser(pid, exe, root))) {
 		int hostroot = open(path("/"), O_PATH | O_DIRECTORY | O_CLOEXEC);
 
@@ -1345,6 +1699,14 @@ static void scan_process(pid_t pid, json_object *snap)
 				 host && !*id, rootless_uid);
 		}
 	}
+	if (application && !strcmp(str(application, "deployment_status"), "changed")) {
+		json_object *change = json_object_new_object();
+
+		string(change, "path", str(application, "reference"));
+		string(change, "reason", "local-deployment-changed");
+		string(change, "type", "flatpak-deployment");
+		json_object_array_add(files, change);
+	}
 #ifdef NEEDRESTART_TEST
 	if (*test_root) {
 		snprintf(proc, sizeof(proc), "/proc/%d/test-pause", pid);
@@ -1379,7 +1741,7 @@ static void scan_process(pid_t pid, json_object *snap)
 	/* Other roots/namespaces are inspected for stale code, but never attributed
 	 * to the host's supervisor as if it owned the contained service.
 	 */
-	if (!host && !*id) {
+	if (!host && !*id && !application) {
 		char service[256];
 
 		if (!procd_name(pid, cg, snap, service))
@@ -1537,8 +1899,11 @@ static json_object *scan(void)
 	warnings = json_object_new_array();
 	subjects = json_object_new_object();
 	containers = json_object_new_array();
+	applications = json_object_new_array();
+	flatpak_owners = json_object_new_object();
 	json_object_object_add(report, "warnings", warnings);
 	json_object_object_add(report, "containers", containers);
+	json_object_object_add(report, "applications", applications);
 	json_object_object_add(report, "services", json_object_new_array());
 	number(report, "schema_version", 1);
 	number(report, "timestamp", time(NULL));
@@ -1606,6 +1971,7 @@ static json_object *scan(void)
 	json_object_object_add(report, "complete", json_object_new_boolean(!partial));
 	json_object_put(subjects);
 	json_object_put(packages);
+	json_object_put(flatpak_owners);
 	if (snap)
 		json_object_put(snap);
 	if (owners) {
@@ -1719,6 +2085,13 @@ static void print_text(json_object *r)
 		       (long long)json_object_get_int64(get(c, "uid")), str(c, "image_status"));
 		if (!strcmp(str(c, "image_status"), "changed"))
 			puts("  Local image changed — recreation through its deployment controller is needed to use it.");
+	}
+	list = get(r, "applications");
+	for (size_t i = 0; i < length(list); i++) {
+		json_object *a = json_object_array_get_idx(list, i);
+
+		printf("Flatpak %s (UID %lld): %s\n", str(a, "name"),
+		       (long long)json_object_get_int64(get(a, "uid")), str(a, "deployment_status"));
 	}
 	list = get(r, "warnings");
 	for (size_t i = 0; i < length(list); i++)

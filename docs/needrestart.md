@@ -104,6 +104,23 @@ parent rooted at the host filesystem, and shared executable object. The browser
 sandbox stays enabled; findings belong to the owning application/session.
 Other private roots and unverified parents retain incomplete coverage.
 
+Flatpak instances are identified by their scoped application ID and instance ID,
+owning UID, host instance metadata, sandbox child PID, mount namespace, and root
+identity. The scanner reads only app/runtime/extension deployment identity from
+`.flatpak-info`; environment values and bus policies are discarded. It compares
+running commits with active deployments in the ordinary user/system Flatpak
+stores, including extensions installed in multiple branches. No Flatpak command,
+network request, update, or application restart is performed during scanning.
+
+Changed Flatpak deployments produce `flatpak` relaunch advice in the existing
+affected-services table. Evidence type `flatpak-deployment` identifies a ref,
+rather than an individual file. CLI output also lists inventoried Flatpaks;
+JSON includes an additive `applications` array with per-component status.
+Unverified instance identity, nonstandard stores, or unresolved deployments
+retain incomplete coverage. A known update still produces advice if another
+component is unverified. Local commit identity does not establish registry
+freshness or security patch status.
+
 Kernel inventories have a separate 16 MiB input limit. Reports and command
 output retain their 4 MiB bounds. ELF comparisons stream through fixed-size
 buffers without a file-size cutoff and remain subject to the overall scan

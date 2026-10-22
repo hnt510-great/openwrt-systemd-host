@@ -196,6 +196,63 @@ def browser_checks():
         shutil.rmtree(profile, ignore_errors=True)
 
 
+def flatpak_checks(root, fixtures):
+    user = 'needrestart-test'
+    uid = int(run('id', '-u', user).stdout)
+    app = 'org.openwrt.NeedrestartTest'
+    runtime = 'org.openwrt.NeedrestartRuntime'
+    repo = root / 'flatpak-repo'
+    build = root / 'flatpak-app'
+    platform = root / 'flatpak-runtime'
+    remote = 'needrestart-fixture'
+    for p in (build / 'files/bin', build / 'export', platform / 'usr/share', platform / 'files'):
+        p.mkdir(parents=True)
+    shutil.copy2(fixtures / 'flatpak-worker', build / 'files/bin/probe')
+    (build / 'metadata').write_text(f'[Application]\nname={app}\n'
+        f'runtime={runtime}/x86_64/1.0\nsdk={runtime}/x86_64/1.0\ncommand=probe\n')
+    (platform / 'metadata').write_text(f'[Runtime]\nname={runtime}\n')
+    (platform / 'usr/share/fixture').write_text('minimal offline runtime\n')
+
+    def as_user(*args, **kwargs):
+        argv = ['env', 'HOME=/home/' + user, f'XDG_RUNTIME_DIR=/run/user/{uid}',
+                f'DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus', *args]
+        return run('su', '-s', '/bin/sh', user, '-c', shlex.join(argv), **kwargs)
+
+    def exported():
+        run('flatpak', 'build-export', '--arch=x86_64', str(repo), str(build), 'stable')
+
+    def application(r):
+        return next((a for a in r.get('applications', []) if a['name'] == app), None)
+
+    run('flatpak', 'build-export', '--runtime', '--arch=x86_64', str(repo), str(platform), '1.0')
+    exported()
+    as_user('flatpak', 'remote-add', '--user', '--no-gpg-verify', remote, repo.as_uri())
+    try:
+        for ref in (f'runtime/{runtime}/x86_64/1.0', f'app/{app}/x86_64/stable'):
+            as_user('flatpak', 'install', '--user', '--assumeyes', '--no-deps', remote, ref)
+        as_user('systemd-run', '--user', '--collect', '--unit=needrestart-flatpak-fixture',
+                '/usr/bin/flatpak', 'run', '--user', app)
+        wait(lambda: application(report()) is not None, 'real Flatpak instance', timeout=50)
+        current = report()
+        assert current['complete'] and not current['warnings'], current
+        assert application(current)['deployment_status'] == 'current', current
+        (build / 'files/share').mkdir(exist_ok=True)
+        (build / 'files/share/version').write_text('new local deployment\n')
+        exported()
+        as_user('flatpak', 'update', '--user', '--assumeyes', '--no-deps', app)
+        changed = report()
+        assert changed['complete'] and not changed['warnings'], changed
+        assert application(changed)['deployment_status'] == 'changed', changed
+        s = subject(changed, app)
+        assert s and s['kind'] == 'flatpak' and 'Close and relaunch' in s['recommended_action'], changed
+        print('PASS: real offline Flatpak identity, current deployment and update/relaunch advice', flush=True)
+    finally:
+        as_user('flatpak', 'kill', app, ok=(0, 1))
+        as_user('systemctl', '--user', 'stop', 'needrestart-flatpak-fixture.service', ok=(0, 5))
+        as_user('flatpak', 'uninstall', '--user', '--assumeyes', app, runtime, ok=(0, 1))
+        as_user('flatpak', 'remote-delete', '--user', '--force', remote, ok=(0, 1))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--disposable-vm', action='store_true', required=True)
@@ -206,6 +263,8 @@ def main():
                         default='slirp4netns', help='Split-container network helper to validate')
     parser.add_argument('--browser', action='store_true',
                         help='Also validate real Firefox proc-fdinfo sandbox children (requires --containers)')
+    parser.add_argument('--flatpak', action='store_true',
+                        help='Build and exercise an offline Flatpak (requires --containers)')
     args = parser.parse_args()
     assert os.geteuid() == 0 and Path('/run/systemd/system').is_dir()
     root = Path('/tmp/needrestart-live')
@@ -301,6 +360,9 @@ start_service() {
         if args.browser:
             assert args.containers, '--browser requires the prepared rootless test account'
             browser_checks()
+        if args.flatpak:
+            assert args.containers, '--flatpak requires the prepared rootless test account'
+            flatpak_checks(root, args.fixtures)
         print(json.dumps({'coverage': refreshed['scan_status'], 'warnings': refreshed['warnings'],
                           'kernel': refreshed['kernel']['status']}, indent=2), flush=True)
     finally:

@@ -3,6 +3,7 @@
 import fcntl
 import json
 import os
+import pwd
 from pathlib import Path
 import shutil
 import subprocess
@@ -389,6 +390,131 @@ class NeedrestartTests(unittest.TestCase):
         root.mkdir()
         child.joinpath('root').symlink_to(root)
         self.assertFalse(self.scan(2)['complete'])
+
+    def flatpak(self, extensions=True):
+        uid = os.getuid()
+        if not uid:
+            self.skipTest('Flatpak fixture requires an ordinary host UID')
+        home = pwd.getpwuid(uid).pw_dir
+        store = home + '/.local/share/flatpak'
+        name = 'org.example.Needrestart'
+        current, old, proc = self.process(file='app/bin/probe', executable=False,
+            deleted=False, changed=False,
+            cgroup=f'/user.slice/user-{uid}.slice/user@{uid}.service/app.slice/'
+                   f'app-flatpak-{name}-42.scope')
+        sandbox = self.root / 'flatpak-root'
+        sandbox.mkdir()
+        for file in ('app/bin/probe', 'usr/bin/interpreter'):
+            dest = sandbox / file
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            os.link(self.root / file, dest)
+        proc.joinpath('root').unlink()
+        proc.joinpath('root').symlink_to(sandbox)
+        self.write('proc/123/maps', '1000-2000 r-xp 00000000 00:01 999 /app/bin/probe\n')
+        namespace = self.write('proc/123/ns/mnt', 'flatpak-mount-namespace')
+        def deploy(ref, commit):
+            base = self.root / store.lstrip('/') / ref
+            (base / commit / 'files').mkdir(parents=True)
+            (base / 'active').symlink_to(commit)
+            return f'{store}/{ref}/{commit}/files'
+        app_path = deploy('app/' + name + '/x86_64/stable', 'a' * 64)
+        runtime_path = deploy('runtime/org.example.Platform/x86_64/1.0', 'b' * 64)
+        addon = ''
+        if extensions:
+            deploy('runtime/org.example.Addon/x86_64/1.0', 'c' * 64)
+            addon = 'org.example.Addon=' + 'c' * 64
+        info = (f'[Application]\nname={name}\nruntime=runtime/org.example.Platform/x86_64/1.0\n'
+                f'[Instance]\ninstance-id=42\narch=x86_64\nbranch=stable\napp-path={app_path}\n'
+                'app-commit=' + 'a' * 64 + f'\nruntime-path={runtime_path}\nruntime-commit=' +
+                'b' * 64 + f'\napp-extensions={addon}\nruntime-extensions=\n'
+                '[Environment]\nPRIVATE_VALUE=must-not-appear-in-report\n')
+        (sandbox / '.flatpak-info').write_text(info)
+        self.write(f'run/user/{uid}/.flatpak/42/info', info)
+        self.json(f'run/user/{uid}/.flatpak/42/bwrapinfo.json',
+                  {'child-pid': 123, 'mnt-namespace': namespace.stat().st_ino})
+        return store, sandbox, uid
+
+    def test_flatpak_current_and_private_environment_not_reported(self):
+        self.flatpak()
+        r = self.scan()
+        self.assertEqual(r['applications'][0]['deployment_status'], 'current')
+        self.assertEqual(r['services'], [])
+        self.assertNotIn('PRIVATE_VALUE', json.dumps(r))
+        self.assertNotIn('must-not-appear', json.dumps(r))
+
+    def update_flatpak_ref(self, store, ref):
+        base = self.root / store.lstrip('/') / ref
+        (base / ('d' * 64) / 'files').mkdir(parents=True)
+        (base / 'active').unlink()
+        (base / 'active').symlink_to('d' * 64)
+
+    def test_flatpak_app_update_advises_relaunch(self):
+        store, _, _ = self.flatpak()
+        self.update_flatpak_ref(store, 'app/org.example.Needrestart/x86_64/stable')
+        r = self.scan()
+        self.assertEqual(r['applications'][0]['deployment_status'], 'changed')
+        self.assertEqual(r['services'][0]['kind'], 'flatpak')
+        self.assertIn('Close and relaunch', r['services'][0]['recommended_action'])
+
+    def test_flatpak_runtime_update_advises_relaunch(self):
+        store, _, _ = self.flatpak()
+        self.update_flatpak_ref(store, 'runtime/org.example.Platform/x86_64/1.0')
+        self.assertEqual(self.scan()['services'][0]['kind'], 'flatpak')
+
+    def test_flatpak_extension_update_advises_relaunch(self):
+        store, _, _ = self.flatpak()
+        self.update_flatpak_ref(store, 'runtime/org.example.Addon/x86_64/1.0')
+        self.assertEqual(self.scan()['services'][0]['kind'], 'flatpak')
+
+    def test_flatpak_missing_extension_stays_partial(self):
+        store, _, _ = self.flatpak()
+        shutil.rmtree(self.root / store.lstrip('/') / 'runtime/org.example.Addon')
+        self.assertEqual(self.scan(2)['applications'][0]['deployment_status'], 'unknown')
+
+    def test_flatpak_bad_namespace_stays_partial(self):
+        _, _, uid = self.flatpak()
+        self.json(f'run/user/{uid}/.flatpak/42/bwrapinfo.json',
+                  {'child-pid': 123, 'mnt-namespace': 999})
+        r = self.scan(2)
+        self.assertEqual(r['applications'], [])
+
+    def test_flatpak_mismatched_instance_info_stays_partial(self):
+        _, _, uid = self.flatpak()
+        self.write(f'run/user/{uid}/.flatpak/42/info', '[Application]\nname=org.wrong.App\n')
+        self.assertEqual(self.scan(2)['applications'], [])
+
+    def test_flatpak_foreign_store_stays_partial(self):
+        _, sandbox, uid = self.flatpak()
+        info = sandbox.joinpath('.flatpak-info').read_text().replace('app-path=/', 'app-path=/unverified/')
+        sandbox.joinpath('.flatpak-info').write_text(info)
+        self.write(f'run/user/{uid}/.flatpak/42/info', info)
+        self.assertEqual(self.scan(2)['applications'][0]['deployment_status'], 'unknown')
+
+    def test_flatpak_stale_code_remains_detected(self):
+        _, sandbox, _ = self.flatpak()
+        sandbox.joinpath('app/bin/probe').write_bytes(b'\x7fELFchanged-program')
+        s = self.scan()['services'][0]
+        self.assertEqual(s['kind'], 'flatpak')
+        self.assertEqual(s['processes'][0]['files'][0]['reason'], 'replaced')
+
+    def test_flatpak_extension_id_in_multiple_branches(self):
+        store, sandbox, uid = self.flatpak()
+        branch = self.root / store.lstrip('/') / 'runtime/org.example.Addon/x86_64/2.0'
+        (branch / ('e' * 64) / 'files').mkdir(parents=True)
+        (branch / 'active').symlink_to('e' * 64)
+        info = sandbox.joinpath('.flatpak-info').read_text().replace(
+            'runtime-extensions=\n', 'runtime-extensions=org.example.Addon=' + 'e' * 64 + '\n')
+        sandbox.joinpath('.flatpak-info').write_text(info)
+        self.write(f'run/user/{uid}/.flatpak/42/info', info)
+        self.assertEqual(self.scan()['applications'][0]['extensions_status'], 'current')
+
+    def test_flatpak_known_update_not_hidden_by_unknown_extension(self):
+        store, _, _ = self.flatpak()
+        self.update_flatpak_ref(store, 'app/org.example.Needrestart/x86_64/stable')
+        shutil.rmtree(self.root / store.lstrip('/') / 'runtime/org.example.Addon')
+        r = self.scan(2)
+        self.assertEqual(r['applications'][0]['deployment_status'], 'changed')
+        self.assertEqual(r['services'][0]['kind'], 'flatpak')
 
     def test_kernel_pending_different_abi(self):
         self.kernel(pending='candidate', abi='abi-two')

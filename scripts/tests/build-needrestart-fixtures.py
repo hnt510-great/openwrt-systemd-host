@@ -32,6 +32,11 @@ int main(int argc, char **argv) {
         subprocess.run([str(compiler), '-shared', '-fPIC', '-O2', f'-DVERSION={version}',
                         str(library), '-o', str(args.output / f'libprobe-v{version}.so')],
                        check=True, env=env)
+    static = args.output / 'flatpak-worker.S'
+    static.write_text('.text\n.global _start\n_start:\n mov $34,%eax\n syscall\n jmp _start\n'
+                      '.section .note.GNU-stack,"",@progbits\n')
+    subprocess.run([str(compiler), '-nostdlib', '-static', '-no-pie',
+                    str(static), '-o', str(args.output / 'flatpak-worker')], check=True, env=env)
 
 
 if __name__ == '__main__':

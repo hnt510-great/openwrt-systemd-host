@@ -376,3 +376,75 @@ Evidence, signed package, and publication receipts:
     /srv/openwrt-validation/openwrt-needrestart-r6-validation-20261021-7moxlnj0
 
 Remote transaction/rollback directory: `/root/needrestart-r6-20261021`.
+
+## Flatpak instance correction: r7 — 2026-10-22
+
+The next isolated-filesystem warning came from the Flatpak-packaged Fcitx5
+input method (`org.fcitx.Fcitx5`), including its bubblewrap process. `r6` had no
+Flatpak identity or deployment assessment and correctly left that root unknown.
+
+`1.0.0-r7` verifies the owning UID, app/instance scope, selected sandbox and host
+instance metadata, live sandbox child, mount namespace, and filesystem root.
+App, runtime, and extension commits are compared against active local user or
+system deployments. Extension branches are checked separately, including the
+multiple GL.default branches used by the actual runtime. Missing/ambiguous
+metadata stays partial; no generic isolated-root warning is simply suppressed.
+Environment values and bus policy are not retained in reports. A verified
+bubblewrap executable is inspected against its host files; the application code
+remains inspected inside its sandbox root.
+
+An additive `applications` inventory records component status. Changed local
+deployments produce a Flatpak relaunch recommendation through the existing
+services/evidence interface, including when native code inside an immutable old
+deployment has not changed. The LuCI package remains `1.0.0-r1`; no frontend or
+application package was modified or deployed.
+
+Validation passed: 76 compiled scanner tests, 7 real ucode tests, LuCI rendering
+tests, package compilation, and zero-error/zero-warning C checkpatch. New tests
+cover current deployments, app/runtime/extension updates, duplicate extension
+IDs in multiple branches, stale code, unverified namespaces/metadata/stores,
+private environment exclusion, and retaining known update advice during partial
+coverage.
+
+The exact signed APK passed signature verification and offline installation in
+a disposable adopted UEFI/KVM clone. The full live suite passed for native/procd
+replacement, large ELF files, kernel inventories, Podman/pasta, sandboxed Firefox,
+APK hooks and LuCI. An offline Flatpak app/runtime was built locally using a tiny
+static test executable, installed from a local unsigned test repository only
+inside the VM, and run under the ordinary test user. Its current deployment was
+recognized. Updating that local deployment while leaving the old app running
+then produced the expected close-and-relaunch advice. No external Flatpak
+repositories or registry downloads were used. The corrected fixture uses the
+required runtime build layout; early fixture setup errors were confined to the
+disposable VM.
+
+Publication added only the new core APK and custom-feed projection in snapshot
+`20261022T140553.842203Z`, under the router's existing exact ABI
+`6.18.55~628a4581533e057afecd1eb41702012b-r1`. All prior APK hashes and kernel
+artifacts were preserved; existing unrelated publisher edits were retained.
+
+| Final artifact | SHA-256 |
+| --- | --- |
+| openwrt-needrestart-1.0.0-r7.apk | f5ffc070eb1419ec2dd7d4601cf27a5f81611a895c547eef2e2fb84413a30e0d |
+| Installed stripped scanner | ed320a74663753be95339ff8834cde7aee38cd7680c6a25073b4743825ee0d06 |
+
+On the router, signature/hash verification and exact offline simulation passed;
+only needrestart upgraded from `r6` to `r7`. A signed prior APK and ten-minute
+rollback timer were prepared. Three fresh CLI scans completed in 0.80, 0.99,
+and 0.79 seconds with zero warnings or restart recommendations. Fcitx5's app,
+runtime and extensions were current. The LuCI queued scan also passed: 120
+processes, zero unreadable processes, four containers, one Flatpak instance,
+and kernel current. The rollback timer was canceled after health checks.
+
+Boot ID `00000000-0000-4000-8000-000000000006` and running kernel
+`6.18.55-owrt-628a4581533e057afecd1eb41702012b-r1-g23` were unchanged. Kernel
+manager state, configuration/key hashes, checked service/network-helper/input
+method PIDs, and container IDs were preserved. DNS/LuCI checks passed and
+scheduled maintenance stayed inactive. No remote workload or input method was
+restarted, no Flatpak deployment was changed remotely, and no reboot occurred.
+
+Evidence and signed package:
+
+    /srv/openwrt-validation/openwrt-needrestart-r7-validation-20261022-pxsb7hep
+
+Remote transaction/rollback directory: `/root/needrestart-r7-20261022`.
