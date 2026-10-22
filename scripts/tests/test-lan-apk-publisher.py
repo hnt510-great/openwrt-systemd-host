@@ -1,20 +1,62 @@
 #!/usr/bin/env python3
 """Exercise publication and failure isolation using real signed APK fixtures."""
+import errno
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 TREE = Path(__file__).resolve().parents[2]
 APK = TREE / 'staging_dir/host/bin/apk'
 PUBLISHER = TREE / 'scripts/publish-lan-apk-feeds.py'
 
+spec = importlib.util.spec_from_file_location('lan_apk_publisher', PUBLISHER)
+publisher = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(publisher)
+
 
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+class LinkFileTests(unittest.TestCase):
+    def test_hardlink_when_available(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / 'source.apk'
+            destination = Path(temporary) / 'destination.apk'
+            source.write_bytes(b'signed package')
+            publisher.link_file(source, destination)
+            self.assertTrue(source.samefile(destination))
+
+    def test_copy_when_hardlink_is_unavailable(self):
+        for code in (errno.EPERM, errno.EXDEV, errno.EOPNOTSUPP, errno.EMLINK):
+            with self.subTest(errno=code), tempfile.TemporaryDirectory() as temporary:
+                source = Path(temporary) / 'source.apk'
+                destination = Path(temporary) / 'destination.apk'
+                source.write_bytes(b'signed package')
+                source.chmod(0o444)
+                destination.write_bytes(b'old staged file')
+                with mock.patch.object(publisher.os, 'link', side_effect=OSError(code, 'blocked')):
+                    publisher.link_file(source, destination)
+                self.assertEqual(destination.read_bytes(), source.read_bytes())
+                self.assertFalse(source.samefile(destination))
+                self.assertEqual(destination.stat().st_mode & 0o777, 0o644)
+                destination.write_bytes(b'new staged file')
+                self.assertEqual(source.read_bytes(), b'signed package')
+
+    def test_unexpected_link_errors_propagate(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            destination = Path(temporary) / 'destination.apk'
+            with mock.patch.object(publisher.os, 'link', side_effect=OSError(errno.EIO, 'I/O error')):
+                with self.assertRaises(OSError) as raised:
+                    publisher.link_file(Path(temporary) / 'source.apk', destination)
+            self.assertEqual(raised.exception.errno, errno.EIO)
+            self.assertFalse(destination.exists())
 
 
 class PublisherTests(unittest.TestCase):

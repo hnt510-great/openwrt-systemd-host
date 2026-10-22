@@ -2,6 +2,7 @@
 """Publish signed native-systemd/glibc APK feeds, optionally incrementally."""
 import argparse
 import datetime
+import errno
 import fcntl
 import hashlib
 import importlib.util
@@ -126,7 +127,15 @@ def validate_ucode_abi(apk, keys, payload, indexes, work):
 
 def link_file(source, destination):
     destination.unlink(missing_ok=True)
-    os.link(source, destination)
+    try:
+        os.link(source, destination)
+    except OSError as error:
+        # Retained snapshots may belong to a different publishing user;
+        # protected_hardlinks then forbids linking otherwise readable files.
+        if error.errno not in (errno.EPERM, errno.EXDEV, errno.EOPNOTSUPP, errno.EMLINK):
+            raise
+        shutil.copyfile(source, destination)
+        destination.chmod(0o644)
 
 
 def parse_args():
