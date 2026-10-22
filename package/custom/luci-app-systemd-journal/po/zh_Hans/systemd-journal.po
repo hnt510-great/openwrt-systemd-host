@@ -1,0 +1,139 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-systemd-journal\n"
+"PO-Revision-Date: 2026-10-21 00:00+0800\n"
+"Last-Translator: OpenWrt\n"
+"Language-Team: Simplified Chinese\n"
+"Language: zh_Hans\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:89
+msgid "Alert and above"
+msgstr "警报及以上"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:84
+msgid "All boots"
+msgstr "所有启动记录"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:89
+msgid "All priorities"
+msgstr "所有优先级"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:111
+msgid "Boot"
+msgstr "启动记录"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:90
+msgid "Critical and above"
+msgstr "严重及以上"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:84
+msgid "Current boot"
+msgstr "本次启动"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:92
+msgid "Debug and above"
+msgstr "调试及以上"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:59
+msgid "Displayed lines:"
+msgstr "显示行数："
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:105
+msgid "Download displayed log"
+msgstr "下载当前显示的日志"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:89
+msgid "Emergency"
+msgstr "紧急"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:90
+msgid "Error and above"
+msgstr "错误及以上"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:96
+msgid "Filter displayed lines"
+msgstr "筛选当前显示的日志行"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:92
+msgid "Info and above"
+msgstr "信息及以上"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:112
+msgid "Latest entries"
+msgstr "最近条目数"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:99
+msgid "Loading journal…"
+msgstr "正在加载日志…"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:112
+msgid "Minimum severity"
+msgstr "最低日志级别"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:62
+msgid "No matching journal entries."
+msgstr "没有匹配的日志条目。"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:91
+msgid "Notice and above"
+msgstr "通知及以上"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:61
+msgid "Output limit reached. Narrow the filters."
+msgstr "已达到输出上限，请缩小筛选范围。"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:84
+msgid "Previous boot"
+msgstr "上次启动"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:109
+msgid ""
+"Read systemd service and system logs. An empty unit shows all units. Search "
+"filters the latest entries shown below."
+msgstr "查看 systemd 服务及系统日志。单元名称留空时显示所有单元的日志。搜索仅筛选下方显示的最近日志条目。"
+
+#: package/custom/luci-app-systemd-journal/root/usr/share/rpcd/acl.d/luci-app-systemd-journal.json:3
+msgid "Read the systemd journal"
+msgstr "读取 systemd 日志"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:103
+msgid "Refresh"
+msgstr "刷新"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:117
+msgid "Refresh every 5 seconds"
+msgstr "每 5 秒刷新"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:118
+msgid "Scroll to latest entries"
+msgstr "滚动到最新条目"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:113
+msgid "Search"
+msgstr "搜索"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:101
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:108
+#: package/custom/luci-app-systemd-journal/root/usr/share/luci/menu.d/luci-app-systemd-journal.json:3
+msgid "Systemd Journal"
+msgstr "Systemd 日志"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:26
+msgid "Unable to read the journal."
+msgstr "无法读取日志。"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:111
+msgid "Unit"
+msgstr "单元"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:60
+msgid "Updated:"
+msgstr "更新时间："
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:91
+msgid "Warning and above"
+msgstr "警告及以上"

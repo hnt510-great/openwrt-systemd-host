@@ -1,0 +1,130 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8"
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:89
+msgid "Alert and above"
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:84
+msgid "All boots"
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:89
+msgid "All priorities"
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:111
+msgid "Boot"
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:90
+msgid "Critical and above"
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:84
+msgid "Current boot"
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:92
+msgid "Debug and above"
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:59
+msgid "Displayed lines:"
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:105
+msgid "Download displayed log"
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:89
+msgid "Emergency"
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:90
+msgid "Error and above"
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:96
+msgid "Filter displayed lines"
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:92
+msgid "Info and above"
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:112
+msgid "Latest entries"
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:99
+msgid "Loading journal…"
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:112
+msgid "Minimum severity"
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:62
+msgid "No matching journal entries."
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:91
+msgid "Notice and above"
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:61
+msgid "Output limit reached. Narrow the filters."
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:84
+msgid "Previous boot"
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:109
+msgid ""
+"Read systemd service and system logs. An empty unit shows all units. Search "
+"filters the latest entries shown below."
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/root/usr/share/rpcd/acl.d/luci-app-systemd-journal.json:3
+msgid "Read the systemd journal"
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:103
+msgid "Refresh"
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:117
+msgid "Refresh every 5 seconds"
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:118
+msgid "Scroll to latest entries"
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:113
+msgid "Search"
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:101
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:108
+#: package/custom/luci-app-systemd-journal/root/usr/share/luci/menu.d/luci-app-systemd-journal.json:3
+msgid "Systemd Journal"
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:26
+msgid "Unable to read the journal."
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:111
+msgid "Unit"
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:60
+msgid "Updated:"
+msgstr ""
+
+#: package/custom/luci-app-systemd-journal/htdocs/luci-static/resources/view/status/systemd-journal.js:91
+msgid "Warning and above"
+msgstr ""
