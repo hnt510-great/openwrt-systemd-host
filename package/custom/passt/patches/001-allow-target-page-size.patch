@@ -1,0 +1,19 @@
+From: OpenWrt developers <openwrt-devel@lists.openwrt.org>
+Subject: [PATCH] build: allow the target page size to be supplied
+
+Host getconf is not a reliable source of target properties when cross
+compiling. Preserve the upstream default for native builds.
+
+--- a/Makefile
++++ b/Makefile
+@@ -26,8 +26,9 @@
+ FORTIFY_FLAG := -D_FORTIFY_SOURCE=2
+ endif
+ 
++PAGE_SIZE ?= $(shell getconf PAGE_SIZE)
+ BASE_CPPFLAGS := -D_XOPEN_SOURCE=700 -D_GNU_SOURCE $(FORTIFY_FLAG)
+-BASE_CPPFLAGS += -DPAGE_SIZE=$(shell getconf PAGE_SIZE)
++BASE_CPPFLAGS += -DPAGE_SIZE=$(PAGE_SIZE)
+ BASE_CPPFLAGS += -DVERSION=\"$(VERSION)\"
+ 
+ BASE_CFLAGS := -std=c11 -pie -fPIE -O2
