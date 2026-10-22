@@ -19,8 +19,8 @@ below. This version generates no units that need removal.
 
 The existing openwrt-services.service still executes enabled rc scripts in
 their original order. The bridge discovers executable init scripts on demand,
-without sourcing or running them for discovery. It excludes dbus (use the
-existing native dbus.service) and recovery-only umount. It generates no proxy
+without sourcing or running them for discovery. It excludes dbus and sshd
+(use native dbus.service and sshd.service) and recovery-only umount. It generates no proxy
 service units and starts no per-service observer processes.
 
 ## Commands

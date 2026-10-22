@@ -263,6 +263,14 @@ with open(root / 'fixture.lock', 'a') as lock:
         self.assertEqual(result.returncode, 4)
         self.assertEqual(self.actions(), [])
 
+    def test_native_ssh_is_excluded_from_bridge(self):
+        self.make_script('sshd')
+        for action in ('start', 'stop', 'restart', 'reload', 'enable', 'disable', 'status'):
+            result = self.call(action, 'openwrt@sshd')
+            self.assertEqual(result.returncode, 4)
+            self.assertIn('sshd.service', result.stderr + result.stdout)
+        self.assertEqual(self.actions(), [])
+
     def test_concurrent_actions_are_serialized(self):
         (self.root / 'slow').touch()
         a = subprocess.Popen(self.command('systemctl', 'restart', 'openwrt@sample'))
@@ -285,7 +293,7 @@ with open(root / 'fixture.lock', 'a') as lock:
         kinds = dict(line.split() for line in (SOURCE / 'files/service-kinds').read_text().splitlines()
                      if line.strip() and not line.startswith('#'))
         missing = [p.name for p in (root / 'etc/init.d').iterdir()
-                   if p.is_file() and p.name not in ('dbus', 'umount')
+                   if p.is_file() and p.name not in ('dbus', 'sshd', 'umount')
                    and 'USE_PROCD=' not in p.read_text()
                    and p.name not in kinds]
         self.assertEqual(missing, [])

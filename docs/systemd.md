@@ -22,8 +22,8 @@ Systemd owns the system manager, native units, timers, sockets and journald.
 service supervisor, hotplug and watchdog daemon, and reports readiness after
 ubus registration and coldplug. `openwrt-services.service` runs enabled OpenWrt
 rc scripts in order. Existing UCI, LuCI and `/etc/init.d/*` controls continue
-to address procd-managed router services. D-Bus has a native unit and its rc
-script is skipped in systemd mode. The rc shutdown unmount script is also
+to address procd-managed router services. D-Bus and OpenSSH have native units
+and their rc scripts are skipped in systemd mode. The rc shutdown unmount script is also
 skipped so systemd can unmount filesystems after stopping services.
 The bridge completes the rc sequence even if an optional script returns a
 nonzero status, matching procd's rc queue, and reports that status in the
@@ -53,8 +53,11 @@ disabled so procd remains the watchdog owner.
 The package excludes networkd, resolved and timesyncd. Native mode includes
 polkit, PAM login sessions, logind and systemd user managers; see
 [ordinary-user authorization and sessions](systemd-permissions.md). The SSH
-generator is removed; the PAM variant of OpenWrt OpenSSH retains its listener
-and configuration. Display/input device access still uses seatd.
+generator is removed; the PAM variant of OpenWrt OpenSSH runs under
+`sshd.service`, retaining its configuration and PAM integration. Lifecycle and
+normal-boot enablement use systemctl; procd recovery retains its independent
+rc.d SSH setting. See [native OpenSSH](systemd-sshd.md).
+Display/input device access still uses seatd.
 
 ## Filesystem and packages
 

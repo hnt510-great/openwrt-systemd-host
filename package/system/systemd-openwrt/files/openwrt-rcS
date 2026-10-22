@@ -6,9 +6,12 @@ case "$1" in
 esac
 for script in /etc/rc.d/"$prefix"[0-9][0-9]*; do
 	[ -x "$script" ] || continue
-	# D-Bus is owned by its native unit in this boot mode.
+	# D-Bus and SSH are owned by native units in this boot mode.
 	case "${script##*/}" in
 		[SK][0-9][0-9]dbus|K[0-9][0-9]umount) continue ;;
+		[SK][0-9][0-9]sshd)
+			[ ! -f /usr/lib/systemd/system/sshd.service ] || continue
+			;;
 	esac
 	# rc.common supplies its own hook, including for direct invocations.
 	IFS= read -r interpreter < "$script"

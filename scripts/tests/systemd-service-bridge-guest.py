@@ -36,7 +36,8 @@ def active():
 
 
 def network_matrix():
-    for name in ['network', 'firewall', 'dnsmasq', 'sshd', 'rpcd', 'cron']:
+    run('systemctl', 'is-active', 'sshd.service')
+    for name in ['network', 'firewall', 'dnsmasq', 'rpcd', 'cron']:
         run('systemctl', 'is-active', 'openwrt@' + name)
     for name in ['network', 'firewall', 'dnsmasq']:
         run('systemctl', 'reload', 'openwrt@' + name)

@@ -170,6 +170,33 @@ class RuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(K.KernelError, 'Persistent overlay'):
             self.manager.health()
 
+    def test_health_selects_the_installed_ssh_supervisor(self):
+        self.manager.health()
+        self.assertIn(['/etc/init.d/sshd', 'status'], self.calls)
+        self.calls.clear()
+        unit = self.root / 'usr/lib/systemd/system/sshd.service'
+        unit.parent.mkdir(parents=True)
+        unit.touch()
+        self.manager.health()
+        self.assertIn(['systemctl', 'is-active', 'sshd.service'], self.calls)
+        self.assertNotIn(['/etc/init.d/sshd', 'status'], self.calls)
+
+    def test_inactive_native_ssh_cannot_qualify_for_kernel_adoption(self):
+        unit = self.root / 'usr/lib/systemd/system/sshd.service'
+        unit.parent.mkdir(parents=True)
+        unit.touch()
+        original = self.manager.command
+
+        def failed_ssh(*args):
+            if args == ('systemctl', 'is-active', 'sshd.service'):
+                raise K.KernelError('native SSH inactive')
+            return original(*args)
+
+        with patch.object(self.manager, 'command', side_effect=failed_ssh):
+            with self.assertRaisesRegex(K.KernelError, 'native SSH inactive'):
+                self.manager.health()
+        self.assertNotIn(['/etc/init.d/sshd', 'status'], self.calls)
+
     def test_initramfs_archive_roundtrips_with_standard_cpio(self):
         archive_root = self.root / 'archive'; archive_root.mkdir()
         (archive_root / 'init').write_bytes(b'#!/bin/sh\n')

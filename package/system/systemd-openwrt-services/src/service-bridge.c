@@ -101,7 +101,8 @@ static bool valid_name(const char *s)
 
 static bool excluded(const char *name)
 {
-	return !strcmp(name, "dbus") || !strcmp(name, "umount");
+	return !strcmp(name, "dbus") || !strcmp(name, "sshd") ||
+		!strcmp(name, "umount");
 }
 
 static bool installed(const char *name)
@@ -706,7 +707,8 @@ static json_object *handle(json_object *q, uid_t uid)
 	o = json_object_new_object();
 	if (!installed(name)) {
 		add_string(o, "error", excluded(name) ?
-			   "use native dbus.service; umount is recovery-only" : "unknown OpenWrt service");
+			   "use native dbus.service or sshd.service; umount is recovery-only" :
+			   "unknown OpenWrt service");
 		rc = 4;
 	} else if (!mutation(action) && strcmp(action, "status") &&
 		   strcmp(action, "is-active") && strcmp(action, "is-enabled")) {
@@ -996,7 +998,9 @@ static int client(int argc, char **argv)
 			return 2;
 		}
 		if (!installed(name)) {
-			fprintf(stderr, "%s: unknown service or native/recovery owner\n", argv[i]);
+			fprintf(stderr, "%s: %s\n", argv[i], excluded(name) ?
+				"use native dbus.service or sshd.service; umount is recovery-only" :
+				"unknown OpenWrt service");
 			return 4;
 		}
 	}

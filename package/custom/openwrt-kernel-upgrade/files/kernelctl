@@ -599,7 +599,10 @@ if [ -f $prefix/openwrt.cfg ]; then source $prefix/openwrt.cfg; fi
         self.command('nft', 'list', 'ruleset')
         self.command('/etc/init.d/dnsmasq', 'status')
         self.command('nft', 'list', 'table', 'inet', 'fw4')
-        self.command('/etc/init.d/sshd', 'status')
+        if self.path('/usr/lib/systemd/system/sshd.service').is_file():
+            self.command('systemctl', 'is-active', 'sshd.service')
+        else:
+            self.command('/etc/init.d/sshd', 'status')
         mounts = [line.split() for line in self.path('/proc/mounts').read_text().splitlines()
                   if line.split()[1] == '/overlay']
         if not mounts or mounts[-1][2] not in ('ext4', 'f2fs', 'btrfs', 'xfs'):
