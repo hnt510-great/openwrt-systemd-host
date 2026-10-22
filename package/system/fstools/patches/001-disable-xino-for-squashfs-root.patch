@@ -1,0 +1,46 @@
+Subject: [PATCH] mount: select xino=off for a SquashFS lower root
+
+SquashFS has no filesystem UUID. Select the existing fallback explicitly
+instead of warning at every root pivot, without changing other lower
+filesystems or the global OverlayFS default. Enlarge the mount option
+buffer to accommodate both directory paths and the added option.
+
+---
+--- a/libfstools/mount.c
++++ b/libfstools/mount.c
+@@ -15,6 +15,8 @@
+ #include <sys/stat.h>
+ #include <sys/mount.h>
+ #include <sys/wait.h>
++#include <sys/vfs.h>
++#include <linux/magic.h>
+ 
+ #include <errno.h>
+ #include <stdio.h>
+@@ -113,8 +115,11 @@
+ int
+ fopivot(char *rw_root, char *ro_root)
+ {
+-	char overlay[64], mount_options[64], upperdir[64], workdir[64], upgrade[64], upgrade_dest[64];
++	char overlay[64], mount_options[256], upperdir[64], workdir[64];
++	char upgrade[64], upgrade_dest[64];
+ 	struct stat st;
++	struct statfs fs;
++	const char *xino = "";
+ 
+ 	if (find_filesystem("overlay")) {
+ 		ULOG_ERR("BUG: no suitable fs found\n");
+@@ -126,8 +131,11 @@
+ 	snprintf(workdir, sizeof(workdir), "%s/work", rw_root);
+ 	snprintf(upgrade, sizeof(upgrade), "%s/sysupgrade.tgz", rw_root);
+ 	snprintf(upgrade_dest, sizeof(upgrade_dest), "%s/sysupgrade.tgz", upperdir);
+-	snprintf(mount_options, sizeof(mount_options), "lowerdir=/,upperdir=%s,workdir=%s",
+-		 upperdir, workdir);
++	/* SquashFS has no UUID, so xino=auto always falls back to off. */
++	if (!statfs("/", &fs) && fs.f_type == SQUASHFS_MAGIC)
++		xino = ",xino=off";
++	snprintf(mount_options, sizeof(mount_options), "lowerdir=/,upperdir=%s,workdir=%s%s",
++		 upperdir, workdir, xino);
+ 
+ 	/*
+ 	 * Initialize SELinux security label on newly created overlay

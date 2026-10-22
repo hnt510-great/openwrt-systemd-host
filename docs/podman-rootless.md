@@ -106,7 +106,7 @@ driver = "overlay"
 graphroot = "/overlay/containers/UID/storage"
 
 [storage.options.overlay]
-mountopt = "nodev"
+mountopt = "nodev,xino=off"
 ```
 
 Replace UID with the account's numeric ID. Leave `mount_program` and runtime
@@ -115,6 +115,24 @@ FUSE layer directories or delete `.has-mount-program` to convert an existing
 store: FUSE whiteouts and extended attributes can differ. Keep the old store
 inactive until the new services are verified. A global `podman system reset`
 is unnecessary.
+
+`xino=off` selects the kernel's effective rootless behavior explicitly.
+Rootless mounts cannot decode file handles in the initial user namespace,
+so the kernel's `xino=auto` default otherwise logs a fallback warning on
+every mount, including temporary mounts for container size queries.
+This does not indicate ext4 corruption. After upgrading
+`openwrt-podman-rootless`, rerun `podman-rootless-setup USER` to update an
+unchanged generated `nodev` configuration; the helper keeps a
+`storage.conf.pre-xino` backup and never rewrites customized configurations.
+For a customized native configuration, append `xino=off` to its existing
+overlay `mountopt` manually. Restart an active per-user `podman.service`
+to reload storage options for API requests. Running containers keep their
+existing mounts and need no restart.
+
+Podman 5.8.4-r7 also sets `xino=off` on its temporary rootless capability
+probes, including the compatibility and volatile probes that do not use
+the configured mount options. The feed patch is preserved in
+`patches/feeds/0019-packages-podman-overlay-xino.patch`.
 
 Existing Quadlets explicitly using `Network=slirp4netns` must change to
 `Network=pasta`; changing the default alone does not change their network.

@@ -7,21 +7,39 @@ base=/overlay/containers/$uid
 [ ! -L "$base" ] && [ "$(stat -c %u "$base")" = "$uid" ] || exit 1
 confdir=${XDG_CONFIG_HOME:-$HOME/.config}/containers
 oldstore=${XDG_DATA_HOME:-$HOME/.local/share}/containers/storage
-if [ -e "$confdir/storage.conf" ] || [ -L "$confdir/storage.conf" ] ||
-   { [ -d "$oldstore" ] && [ -n "$(ls -A "$oldstore")" ]; }; then
-	printf '%s\n' 'Existing Podman storage/config retained; native OverlayFS requires an explicit fresh-store cutover.'
-	exit 0
-fi
-umask 077
-mkdir -p "$base/storage" "$confdir"
-# noclobber protects an existing config, including dangling symlinks.
-set -C
-cat > "$confdir/storage.conf" <<EOF
+storage_config() {
+	cat <<EOF
 [storage]
 driver = "overlay"
 graphroot = "$base/storage"
 
 [storage.options.overlay]
-mountopt = "nodev"
+mountopt = "$1"
 EOF
+}
+umask 077
+# Rootless mounts cannot decode file handles in the initial user namespace.
+# Upgrade only our exact previous template; retain all customized configs.
+conf=$confdir/storage.conf
+if [ -f "$conf" ] && [ ! -L "$conf" ] &&
+   [ "$(stat -c %u "$conf")" = "$uid" ] &&
+   storage_config nodev | cmp -s - "$conf"; then
+	tmp=$(mktemp "$confdir/.storage.conf.XXXXXX")
+	trap 'rm -f "$tmp"' EXIT HUP INT TERM
+	storage_config nodev,xino=off > "$tmp"
+	# Keep a rollback copy without overwriting an earlier backup or symlink.
+	(set -C; cat "$conf" > "$conf.pre-xino")
+	mv -f "$tmp" "$conf"
+	printf '%s\n' 'Configured xino=off for existing native rootless OverlayFS storage.'
+	exit 0
+fi
+if [ -e "$confdir/storage.conf" ] || [ -L "$confdir/storage.conf" ] ||
+   { [ -d "$oldstore" ] && [ -n "$(ls -A "$oldstore")" ]; }; then
+	printf '%s\n' 'Existing Podman storage/config retained; native OverlayFS requires an explicit fresh-store cutover.'
+	exit 0
+fi
+mkdir -p "$base/storage" "$confdir"
+# noclobber protects an existing config, including dangling symlinks.
+set -C
+storage_config nodev,xino=off > "$confdir/storage.conf"
 printf 'Configured native OverlayFS store: %s/storage\n' "$base"
