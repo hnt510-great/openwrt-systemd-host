@@ -1,0 +1,321 @@
+Subject: [PATCH] build: use staged OpenWrt libraries and pinned NV headers
+
+Avoid bundled FFmpeg binaries and implicit CMake dependency downloads.
+Link matching private CBS symbols from the staged FFmpeg static archive.
+
+--- a/cmake/dependencies/ffmpeg.cmake
++++ b/cmake/dependencies/ffmpeg.cmake
+@@ -1,179 +1,8 @@
+-#
+-# Loads FFmpeg pre-compiled binaries from GitHub releases or a user-specified path
+-#
+-include_guard(GLOBAL)
+-
+-# ffmpeg pre-compiled binaries
+-if(NOT DEFINED FFMPEG_PREPARED_BINARIES)
+-    # Set platform-specific libraries
+-    if(WIN32)
+-        set(FFMPEG_PLATFORM_LIBRARIES mfplat ole32 strmiids mfuuid vpl)
+-    elseif(FREEBSD)
+-        # numa is not available on FreeBSD
+-        set(FFMPEG_PLATFORM_LIBRARIES va va-drm va-x11 X11)
+-    elseif(UNIX AND NOT APPLE)
+-        set(FFMPEG_PLATFORM_LIBRARIES numa va va-drm va-x11 X11)
+-    endif()
+-
+-    # Determine download location
+-    set(FFMPEG_DOWNLOAD_DIR "${CMAKE_BINARY_DIR}/_deps")
+-
+-    # Fetch tags for the build-deps submodule so tag lookups work in CI shallow clones
+-    execute_process(
+-        COMMAND git -C "${CMAKE_SOURCE_DIR}/third-party/build-deps" fetch --tags --depth=1
+-        OUTPUT_QUIET
+-        ERROR_QUIET
+-    )
+-
+-    # Get the current commit/tag from the build-deps submodule
+-    execute_process(
+-        COMMAND git -C "${CMAKE_SOURCE_DIR}/third-party/build-deps" describe --tags --exact-match
+-        OUTPUT_VARIABLE FFMPEG_RELEASE_TAG
+-        OUTPUT_STRIP_TRAILING_WHITESPACE
+-        ERROR_QUIET
+-    )
+-
+-    # If no exact tag match, try to get the commit hash and look for a tag
+-    if(NOT FFMPEG_RELEASE_TAG)
+-        execute_process(
+-            COMMAND git -C "${CMAKE_SOURCE_DIR}/third-party/build-deps" rev-parse HEAD
+-            OUTPUT_VARIABLE BUILD_DEPS_COMMIT
+-            OUTPUT_STRIP_TRAILING_WHITESPACE
+-            ERROR_QUIET
+-        )
+-
+-        # Try to find a tag that points to this commit
+-        execute_process(
+-            COMMAND git -C "${CMAKE_SOURCE_DIR}/third-party/build-deps" tag --points-at ${BUILD_DEPS_COMMIT}
+-            OUTPUT_VARIABLE FFMPEG_RELEASE_TAG
+-            OUTPUT_STRIP_TRAILING_WHITESPACE
+-            ERROR_QUIET
+-        )
+-    endif()
+-
+-    # Set GitHub release URL
+-    set(FFMPEG_GITHUB_REPO "LizardByte/build-deps")
+-    if(FFMPEG_RELEASE_TAG)
+-        set(FFMPEG_RELEASE_URL "https://github.com/${FFMPEG_GITHUB_REPO}/releases/download/${FFMPEG_RELEASE_TAG}")
+-        set(FFMPEG_VERSION_DIR "${FFMPEG_DOWNLOAD_DIR}/ffmpeg-${FFMPEG_RELEASE_TAG}")
+-        message(STATUS "Using FFmpeg from build-deps tag: ${FFMPEG_RELEASE_TAG}")
+-    else()
+-        set(FFMPEG_RELEASE_URL "https://github.com/${FFMPEG_GITHUB_REPO}/releases/latest/download")
+-        set(FFMPEG_VERSION_DIR "${FFMPEG_DOWNLOAD_DIR}/ffmpeg-latest")
+-        message(STATUS "Using FFmpeg from latest build-deps release")
+-    endif()
+-
+-    # Set extraction directory and prepared binaries path
+-    set(FFMPEG_EXTRACT_DIR "${FFMPEG_DOWNLOAD_DIR}")
+-    set(FFMPEG_PREPARED_BINARIES "${FFMPEG_EXTRACT_DIR}/ffmpeg")
+-
+-    # Set the archive filename based on architecture
+-    if(NOT DEFINED FFMPEG_RELEASE_ASSET_NAME)
+-        set(FFMPEG_ARCHIVE_NAME "${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}-ffmpeg.tar.gz")
+-    else()
+-        set(FFMPEG_ARCHIVE_NAME "${FFMPEG_RELEASE_ASSET_NAME}")
+-    endif()
+-    set(FFMPEG_ARCHIVE_PATH "${FFMPEG_VERSION_DIR}/${FFMPEG_ARCHIVE_NAME}")
+-    set(FFMPEG_DOWNLOAD_URL "${FFMPEG_RELEASE_URL}/${FFMPEG_ARCHIVE_NAME}")
+-
+-    # Check if already downloaded and extracted
+-    if(NOT EXISTS "${FFMPEG_PREPARED_BINARIES}/lib/libavcodec.a")
+-        # Check if we need to download the archive
+-        if(NOT EXISTS "${FFMPEG_ARCHIVE_PATH}")
+-            message(STATUS "Downloading FFmpeg binaries from ${FFMPEG_DOWNLOAD_URL}")
+-
+-            # Download the archive
+-            file(DOWNLOAD
+-                "${FFMPEG_DOWNLOAD_URL}"
+-                "${FFMPEG_ARCHIVE_PATH}"
+-                SHOW_PROGRESS
+-                STATUS FFMPEG_DOWNLOAD_STATUS
+-                TIMEOUT 300
+-            )
+-
+-            # Check download status
+-            list(GET FFMPEG_DOWNLOAD_STATUS 0 FFMPEG_DOWNLOAD_STATUS_CODE)
+-            list(GET FFMPEG_DOWNLOAD_STATUS 1 FFMPEG_DOWNLOAD_STATUS_MESSAGE)
+-
+-            if(NOT FFMPEG_DOWNLOAD_STATUS_CODE EQUAL 0)
+-                message(FATAL_ERROR "Failed to download FFmpeg binaries: ${FFMPEG_DOWNLOAD_STATUS_MESSAGE}")
+-            endif()
+-        else()
+-            message(STATUS "Using cached FFmpeg archive at ${FFMPEG_ARCHIVE_PATH}")
+-        endif()
+-
+-        # Extract the archive
+-        message(STATUS "Extracting FFmpeg binaries to ${FFMPEG_EXTRACT_DIR}")
+-        file(ARCHIVE_EXTRACT  # cmake-lint: disable=E1126
+-            INPUT "${FFMPEG_ARCHIVE_PATH}"
+-            DESTINATION "${FFMPEG_EXTRACT_DIR}"
+-        )
+-
+-        # Verify extraction
+-        if(NOT EXISTS "${FFMPEG_PREPARED_BINARIES}/lib/libavcodec.a")
+-            message(FATAL_ERROR "FFmpeg extraction failed or unexpected directory structure")
+-        endif()
+-
+-        message(STATUS "FFmpeg binaries successfully downloaded and extracted")
+-    else()
+-        message(STATUS "Using existing FFmpeg binaries at ${FFMPEG_PREPARED_BINARIES}")
+-    endif()
+-
+-    # Set FFmpeg libraries
+-    if(EXISTS "${FFMPEG_PREPARED_BINARIES}/lib/libhdr10plus.a")
+-        set(HDR10_PLUS_LIBRARY "${FFMPEG_PREPARED_BINARIES}/lib/libhdr10plus.a")
+-    endif()
+-
+-    set(FFMPEG_LIBRARIES
+-        "${FFMPEG_PREPARED_BINARIES}/lib/libavcodec.a"
+-        "${FFMPEG_PREPARED_BINARIES}/lib/libswscale.a"
+-        "${FFMPEG_PREPARED_BINARIES}/lib/libavutil.a"
+-        "${FFMPEG_PREPARED_BINARIES}/lib/libcbs.a"
+-        "${FFMPEG_PREPARED_BINARIES}/lib/libSvtAv1Enc.a"
+-        "${FFMPEG_PREPARED_BINARIES}/lib/libx264.a"
+-        "${FFMPEG_PREPARED_BINARIES}/lib/libx265.a"
+-        ${HDR10_PLUS_LIBRARY}
+-        ${FFMPEG_PLATFORM_LIBRARIES}
+-    )
+-else()
+-    # User provided FFMPEG_PREPARED_BINARIES path
+-    message(STATUS "Using user-specified FFmpeg binaries at ${FFMPEG_PREPARED_BINARIES}")
+-
+-    # Set platform-specific libraries
+-    if(NOT DEFINED FFMPEG_PLATFORM_LIBRARIES)
+-        if(WIN32)
+-            set(FFMPEG_PLATFORM_LIBRARIES mfplat ole32 strmiids mfuuid vpl)
+-        elseif(FREEBSD)
+-            set(FFMPEG_PLATFORM_LIBRARIES va va-drm va-x11 X11)
+-        elseif(UNIX AND NOT APPLE)
+-            set(FFMPEG_PLATFORM_LIBRARIES numa va va-drm va-x11 X11)
+-        endif()
+-    endif()
+-
+-    # Set base FFmpeg libraries (always required)
+-    set(FFMPEG_LIBRARIES
+-        "${FFMPEG_PREPARED_BINARIES}/lib/libavcodec.a"
+-        "${FFMPEG_PREPARED_BINARIES}/lib/libswscale.a"
+-        "${FFMPEG_PREPARED_BINARIES}/lib/libavutil.a"
+-        "${FFMPEG_PREPARED_BINARIES}/lib/libcbs.a"
+-    )
+-
+-    # Add optional libraries if they exist (e.g., from prebuilt packages)
+-    if(EXISTS "${FFMPEG_PREPARED_BINARIES}/lib/libSvtAv1Enc.a")
+-        list(APPEND FFMPEG_LIBRARIES "${FFMPEG_PREPARED_BINARIES}/lib/libSvtAv1Enc.a")
+-    endif()
+-    if(EXISTS "${FFMPEG_PREPARED_BINARIES}/lib/libx264.a")
+-        list(APPEND FFMPEG_LIBRARIES "${FFMPEG_PREPARED_BINARIES}/lib/libx264.a")
+-    endif()
+-    if(EXISTS "${FFMPEG_PREPARED_BINARIES}/lib/libx265.a")
+-        list(APPEND FFMPEG_LIBRARIES "${FFMPEG_PREPARED_BINARIES}/lib/libx265.a")
+-    endif()
+-    if(EXISTS "${FFMPEG_PREPARED_BINARIES}/lib/libhdr10plus.a")
+-        list(APPEND FFMPEG_LIBRARIES "${FFMPEG_PREPARED_BINARIES}/lib/libhdr10plus.a")
+-    endif()
+-
+-    # Add platform libraries
+-    list(APPEND FFMPEG_LIBRARIES ${FFMPEG_PLATFORM_LIBRARIES})
+-endif()
+-
+-set(FFMPEG_INCLUDE_DIRS "${FFMPEG_PREPARED_BINARIES}/include")
++# OpenWrt stages matching FFmpeg public libraries and private CBS headers.
++find_package(PkgConfig REQUIRED)
++pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavcodec libavutil libswscale)
++find_library(FFMPEG_CBS_ARCHIVE NAMES libavcodec.a REQUIRED)
++link_directories(${FFMPEG_STATIC_LIBRARY_DIRS})
++set(FFMPEG_LIBRARIES PkgConfig::FFMPEG "${FFMPEG_CBS_ARCHIVE}" ${FFMPEG_STATIC_LIBRARIES} PkgConfig::FFMPEG)
++find_path(FFMPEG_PRIVATE_INCLUDE_DIR libavcodec/cbs_h264.h PATH_SUFFIXES ffmpeg-private REQUIRED)
++set(FFMPEG_INCLUDE_DIRS "${FFMPEG_PRIVATE_INCLUDE_DIR}")
+--- a/cmake/dependencies/nv_codec_headers.cmake
++++ b/cmake/dependencies/nv_codec_headers.cmake
+@@ -1,32 +1 @@
+-# Keep build-deps-owned declarations out of Sunshine's generated package lock.
+-set(SUNSHINE_CPM_PACKAGE_LOCK_ENABLED "${CPM_PACKAGE_LOCK_ENABLED}")
+-set(CPM_PACKAGE_LOCK_ENABLED OFF)
+-
+-if(NOT APPLE)
+-    set(SUNSHINE_PREPARED_NV_CODEC_HEADERS
+-            "${FFMPEG_PREPARED_BINARIES}/include/ffnvcodec/nvEncodeAPI.h")
+-
+-    if(DEFINED FFMPEG_PREPARED_BINARIES AND EXISTS "${SUNSHINE_PREPARED_NV_CODEC_HEADERS}")
+-        # Prepared FFmpeg bundles include the NV codec headers used to build them.
+-        set(NV_CODEC_HEADERS_13_1_INCLUDE_DIR "${FFMPEG_PREPARED_BINARIES}/include")
+-        message(STATUS "Using NV codec headers from prepared FFmpeg binaries")
+-    else()
+-        CPMGetPackage(nv_codec_headers_13_1)
+-        set(NV_CODEC_HEADERS_13_1_INCLUDE_DIR "${nv_codec_headers_13_1_SOURCE_DIR}/include")
+-    endif()
+-
+-    unset(SUNSHINE_PREPARED_NV_CODEC_HEADERS)
+-endif()
+-
+-if(WIN32)
+-    CPMGetPackage(nv_codec_headers_13)
+-    CPMGetPackage(nv_codec_headers_11)
+-    CPMGetPackage(nv_codec_headers_12)
+-
+-    set(NV_CODEC_HEADERS_11_INCLUDE_DIR "${nv_codec_headers_11_SOURCE_DIR}/include")
+-    set(NV_CODEC_HEADERS_12_INCLUDE_DIR "${nv_codec_headers_12_SOURCE_DIR}/include")
+-    set(NV_CODEC_HEADERS_13_INCLUDE_DIR "${nv_codec_headers_13_SOURCE_DIR}/include")
+-endif()
+-
+-set(CPM_PACKAGE_LOCK_ENABLED "${SUNSHINE_CPM_PACKAGE_LOCK_ENABLED}")
+-unset(SUNSHINE_CPM_PACKAGE_LOCK_ENABLED)
++set(NV_CODEC_HEADERS_13_1_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/third-party/nv-codec-headers/include")
+--- a/cmake/dependencies/Boost_Sunshine.cmake
++++ b/cmake/dependencies/Boost_Sunshine.cmake
+@@ -33,7 +33,7 @@
+ if (CMAKE_VERSION VERSION_GREATER_EQUAL "3.30")
+     cmake_policy(SET CMP0167 NEW)  # Get BoostConfig.cmake from upstream
+ endif()
+-find_package(Boost CONFIG ${BOOST_VERSION} EXACT COMPONENTS ${BOOST_COMPONENTS})
++find_package(Boost 1.89 REQUIRED CONFIG COMPONENTS ${BOOST_COMPONENTS})
+ if(NOT Boost_FOUND)
+     message(STATUS "Boost v${BOOST_VERSION} package not found in the system. Falling back to FetchContent.")
+     include(FetchContent)
+--- a/cmake/dependencies/common.cmake
++++ b/cmake/dependencies/common.cmake
+@@ -104,7 +104,7 @@
+ if(SUNSHINE_BUILD_HOMEBREW)
+     set(OPUS_USE_STATIC OFF CACHE BOOL "Static linking for libopus")
+ else()
+-    set(OPUS_USE_STATIC ON CACHE BOOL "Static linking for libopus")
++    set(OPUS_USE_STATIC OFF CACHE BOOL "Static linking for libopus")
+ endif()
+ include("${CMAKE_MODULE_PATH}/dependencies/FindOpus.cmake")
+ 
+--- a/cmake/dependencies/nlohmann_json.cmake
++++ b/cmake/dependencies/nlohmann_json.cmake
+@@ -1,25 +1 @@
+-#
+-# Loads the nlohmann_json library giving the priority to the system package first, with a fallback to FetchContent.
+-#
+-include_guard(GLOBAL)
+-
+-find_package(nlohmann_json 3.11 QUIET GLOBAL)
+-if(NOT nlohmann_json_FOUND)
+-    message(STATUS "nlohmann_json v3.11.x package not found in the system. Falling back to FetchContent.")
+-    include(FetchContent)
+-
+-    if (CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
+-        cmake_policy(SET CMP0135 NEW)  # Avoid warning about DOWNLOAD_EXTRACT_TIMESTAMP in CMake 3.24
+-    endif()
+-    if (CMAKE_VERSION VERSION_GREATER_EQUAL "3.31.0")
+-        cmake_policy(SET CMP0174 NEW)  # Handle empty variables
+-    endif()
+-
+-    FetchContent_Declare(
+-            json
+-            URL      https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+-            URL_HASH MD5=c23a33f04786d85c29fda8d16b5f0efd
+-            DOWNLOAD_EXTRACT_TIMESTAMP
+-    )
+-    FetchContent_MakeAvailable(json)
+-endif()
++find_package(nlohmann_json 3.11 REQUIRED GLOBAL)
+--- a/cmake/dependencies/Boost_Sunshine.cmake
++++ b/cmake/dependencies/Boost_Sunshine.cmake
+@@ -9,7 +9,6 @@
+         filesystem
+         log
+         program_options
+-        system
+ )
+ # system is not used by Sunshine, but by Simple-Web-Server, added here for convenience
+ 
+--- a/cmake/dependencies/common.cmake
++++ b/cmake/dependencies/common.cmake
+@@ -93,7 +93,9 @@
+ pkg_check_modules(CURL REQUIRED libcurl)
+ 
+ # miniupnp
+-pkg_check_modules(MINIUPNP miniupnpc REQUIRED)
++find_path(MINIUPNP_INCLUDE_DIRS miniupnpc/miniupnpc.h REQUIRED)
++find_library(MINIUPNP_LIBRARY miniupnpc REQUIRED)
++set(MINIUPNP_LIBRARIES "${MINIUPNP_LIBRARY}")
+ include_directories(SYSTEM ${MINIUPNP_INCLUDE_DIRS})
+ 
+ # ffmpeg pre-compiled binaries
+--- a/cmake/targets/linux.cmake
++++ b/cmake/targets/linux.cmake
+@@ -1,12 +1,2 @@
+ # linux specific target definitions
+-
+-if(NOT FREEBSD)
+-    # Using newer c++ compilers / features on older distros causes runtime dyn link errors
+-    list(APPEND SUNSHINE_EXTERNAL_LIBRARIES -static-libgcc)
+-
+-    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 15)
+-        list(APPEND SUNSHINE_EXTERNAL_LIBRARIES stdc++)
+-    else()
+-        list(APPEND SUNSHINE_EXTERNAL_LIBRARIES -static-libstdc++)
+-    endif()
+-endif()
++# OpenWrt supplies matching shared libgcc and libstdc++ runtime packages.

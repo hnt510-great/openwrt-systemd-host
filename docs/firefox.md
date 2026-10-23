@@ -18,16 +18,57 @@ may remain under `~/.mozilla/firefox/`. Custom `XDG_CONFIG_HOME` values are also
 honored. Use `about:profiles` to see the active root directory. The package does
 not create users, embed profiles or change the user's default-browser choice.
 
-The browser defaults to software WebRender and software video decoding.
-H.264/AAC support uses the target FFmpeg libraries; WebM uses Firefox's
-bundled decoders. Noto Sans CJK provides Simplified Chinese glyphs. X11 client
+The browser detects EGL/WebRender and VA-API automatically, falling back to
+software when acceleration is unavailable. The Intel iHD driver is included for
+the N5105/Jasper Lake desktop. H.264 uses the target FFmpeg libraries; VP9 can
+use bundled FFVPX. Both use libva for hardware decoding, and codecs unsupported
+by the GPU retain software decoding. Noto Sans CJK provides Simplified Chinese
+glyphs. X11 client
 libraries and GTK's X11 backend satisfy the official binary's link requirements;
 the browser uses Wayland and needs no Xorg or Xwayland server.
 
 This integration covers browsing, downloads and basic video pictures.
-Audio services/output, protected streaming, screen sharing and GPU acceleration
-are outside its validated scope. Weston VNC mirrors the desktop and its input;
+Protected streaming and screen sharing are outside this integration. Hardware
+video decoding is validated separately from audio and remote-display transport. Weston VNC mirrors the desktop and its input;
 it does not transport browser audio.
+
+## VA-API video decoding
+
+Firefox selects FFmpeg's `FFMPEG_VAAPI` build option, libva, `libigdgmm` and
+`intel-media-driver`. The Firefox configuration fragment also selects
+`libva-utils`, which provides `vainfo`. The driver uses Intel's upstream
+full-feature build with prebuilt media shaders; its license notices are installed
+under `/usr/share/licenses/intel-media-driver/`.
+
+The desktop user must have read/write access to `/dev/dri/renderD128` (or the
+actual Intel render node). Existing `desktop-setup` enrolls the user in `render`
+and `video`; no additional privilege or sandbox bypass is required. From the
+ordinary user's terminal:
+
+```sh
+vainfo --display drm --device /dev/dri/renderD128
+firefox-esr
+```
+
+In `about:support`, check Wayland, the compositor, and the codec support table.
+A hardware-available entry alone does not prove that a playing video uses VA-API.
+For diagnosis, start a separate temporary profile with
+`MOZ_LOG=timestamp,PlatformDecoderModule:4,FFmpegVideo:5` and check for a successful VA-API decoder
+initialization while frames advance; correlate with the Intel Video engine.
+N5105 hardware does not decode AV1, which must continue through software.
+
+The packaged defaults enable hardware decoding and leave WebRender selection to
+Firefox. Existing user overrides are preserved. If a profile explicitly disables
+hardware decoding or forces software WebRender, reset
+`media.hardware-video-decoding.enabled` and `gfx.webrender.software` in
+`about:config`, then restart that browser. ESR 153 no longer uses the older
+`media.ffmpeg.vaapi.enabled` preference. Do not disable the RDD sandbox or force
+hardware decoding past Firefox's driver checks.
+
+`sh scripts/tests/firefox-smoke.sh` checks libraries and FFmpeg VA-API codec
+configurations without requiring a GPU. Add `--vaapi` on real hardware to also
+check driver initialization with `vainfo`. See the VA-API section in the
+[validation record](firefox-validation.md) for measured results.
 
 ## Updates and profile backups
 
@@ -90,6 +131,11 @@ On the matching feed base, from the OpenWrt root directory:
 git -C feeds/video am "$PWD/patches/feeds/0003-video-firefox-esr.patch"
 ./scripts/feeds install -a
 ```
+
+VA-API also requires the packages-feed patch and base recorded in
+`configs/firefox-vaapi-feeds.json`. Apply that patch with `git apply` only to
+the matching clean base; do not reapply it to this checkout. New driver recipes
+live in the main tree and are registered in the custom updater registry.
 
 Merge the Firefox configuration fragment into the existing desktop profile:
 

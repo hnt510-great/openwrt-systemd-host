@@ -1,0 +1,7 @@
+{
+  "packages": {
+    "url": "https://github.com/openwrt/packages.git",
+    "base": "88aa0a5ced088c4a6f2c0d2ebfa5544435bd5373",
+    "patch": "patches/feeds/0020-packages-firefox-vaapi.patch"
+  }
+}

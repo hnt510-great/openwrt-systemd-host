@@ -1,0 +1,89 @@
+From: OpenWrt developers <openwrt-devel@lists.openwrt.org>
+Subject: [PATCH] ffmpeg: enable optional VA-API acceleration
+
+Base: 88aa0a5ced088c4a6f2c0d2ebfa5544435bd5373
+
+diff --git a/multimedia/ffmpeg/Config.in b/multimedia/ffmpeg/Config.in
+index 571fe76..69e76ec 100644
+--- a/multimedia/ffmpeg/Config.in
++++ b/multimedia/ffmpeg/Config.in
+@@ -71,11 +71,13 @@ config FFMPEG_V4L2_REQUEST
+ 	  Stateless V4L2 hardware decoding (cedrus, hantro, rkvdec, ...)
+ 	  exporting DRM_PRIME frames. Requires libdrm and libudev.
+ 
+-# VA-API support is prepared but disabled until a libva package exists in
+-# the feeds; uncomment (and the DEPENDS line in the Makefile) once it does.
+-#config FFMPEG_VAAPI
+-#	bool "VA-API hardware acceleration"
+-#	default n
++config FFMPEG_VAAPI
++	bool "VA-API hardware acceleration"
++	select FFMPEG_LIBDRM
++	default n
++	help
++	  Enable VA-API through libva's DRM backend. A hardware-specific VA-API
++	  driver and access to a DRM render node are required at runtime.
+ 
+ comment "Transport layer security"
+ 
+diff --git a/multimedia/ffmpeg/Makefile b/multimedia/ffmpeg/Makefile
+index 9eb2aa8..eb399c9 100644
+--- a/multimedia/ffmpeg/Makefile
++++ b/multimedia/ffmpeg/Makefile
+@@ -25,7 +25,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=ffmpeg
+ PKG_VERSION:=9.0.1
+-PKG_RELEASE:=2
++PKG_RELEASE:=3
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://ffmpeg.org/releases/
+@@ -300,6 +300,7 @@ $(call Package/libffmpeg/Default)
+ 	+FFMPEG_BZLIB:libbz2 \
+ 	+FFMPEG_LZMA:liblzma \
+ 	+FFMPEG_LIBDRM:libdrm \
++	+FFMPEG_VAAPI:libva \
+ 	+FFMPEG_V4L2_REQUEST:libdrm \
+ 	+FFMPEG_V4L2_REQUEST:libudev \
+ 	+FFMPEG_LIBV4L2:libv4l \
+@@ -316,9 +317,7 @@ $(call Package/libffmpeg/Default)
+ 	+FFMPEG_SHINE:shine \
+ 	+FFMPEG_LIBX264:libx264 \
+ 	+FFMPEG_FDK_AAC:fdk-aac
+-  # prepared, disabled until the libva / dav1d packages exist in the feeds
+-  # (the matching options in Config.in are commented out as well):
+-  #	+FFMPEG_VAAPI:libva
++  # Prepared, disabled until libdav1d exists in the feeds:
+   #	+FFMPEG_LIBDAV1D:libdav1d
+   VARIANT:=default
+   # transitional aliases for packages still depending on the now gone ones
+@@ -508,10 +507,7 @@ ifeq ($(BUILD_VARIANT),default)
+   # option. Kodi requires it.
+   # v4l2-request/libudev: options from patches/120-v4l2-request-*.patch, see
+   # the common block above.
+-  # vaapi/libdav1d: literal --disable until the libva / dav1d packages exist
+-  # in the feeds; then restore $(call FFMPEG_OPT,FFMPEG_VAAPI,vaapi),
+-  # $(call FFMPEG_OPT,FFMPEG_LIBDAV1D,libdav1d) and, for manual component
+-  # selection, --enable-hwaccel=*_vaapi / --enable-decoder=libdav1d.
++  # libdav1d remains disabled until its package exists in the feeds.
+   FFMPEG_CONFIGURE+= \
+ 	$(call FFMPEG_OPT,FFMPEG_GPL,gpl) \
+ 	$(call FFMPEG_OPT,FFMPEG_GPL,postproc) \
+@@ -523,7 +519,7 @@ ifeq ($(BUILD_VARIANT),default)
+ 	$(call FFMPEG_OPT,FFMPEG_V4L2_M2M,v4l2-m2m) \
+ 	$(call FFMPEG_OPT,FFMPEG_V4L2_REQUEST,v4l2-request) \
+ 	$(call FFMPEG_OPT,FFMPEG_V4L2_REQUEST,libudev) \
+-	--disable-vaapi \
++	$(call FFMPEG_OPT,FFMPEG_VAAPI,vaapi) \
+ 	$(call FFMPEG_OPT,FFMPEG_LIBV4L2,libv4l2) \
+ 	$(call FFMPEG_OPT,FFMPEG_TLS_GNUTLS,gnutls) \
+ 	$(call FFMPEG_OPT,FFMPEG_TLS_OPENSSL,openssl) \
+@@ -571,6 +567,7 @@ ifeq ($(BUILD_VARIANT),default)
+ 		$(if $(CONFIG_FFMPEG_TLS_NONE),,--enable-protocol=tls --enable-protocol=https) \
+ 		$(if $(CONFIG_FFMPEG_V4L2_M2M),--enable-decoder=*_v4l2m2m --enable-encoder=*_v4l2m2m) \
+ 		$(if $(CONFIG_FFMPEG_V4L2_REQUEST),--enable-hwaccel=*_v4l2request) \
++		$(if $(CONFIG_FFMPEG_VAAPI),--enable-hwaccel=*_vaapi) \
+ 		$(if $(CONFIG_FFMPEG_LIBOPUS),--enable-decoder=libopus --enable-encoder=libopus) \
+ 		$(if $(CONFIG_FFMPEG_LIBVORBIS),--enable-encoder=libvorbis) \
+ 		$(if $(CONFIG_FFMPEG_LIBVPX),--enable-decoder=libvpx_vp8 --enable-decoder=libvpx_vp9 --enable-encoder=libvpx_vp8 --enable-encoder=libvpx_vp9) \

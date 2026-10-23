@@ -11,7 +11,7 @@ esac
 if [ "${1:-}" != --monitor ]; then
 	# The monitor must survive the compositor's PAM session being terminated.
 	# Otherwise its cleanup can be killed together with the desktop.
-	compositor_pid=$PPID
+	compositor_pid=${WESTON_COMPOSITOR_PID:-$PPID}
 	systemctl --user stop openwrt-flatpak-session-monitor.service 2>/dev/null || :
 	systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_DATA_DIRS DBUS_SESSION_BUS_ADDRESS
 	if [ -n "${DISPLAY:-}" ]; then

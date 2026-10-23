@@ -1,0 +1,5 @@
+[
+	[ "if", [ "and", [ "eq", "SUBSYSTEM", "misc" ], [ "eq", "DEVNAME", "uinput" ] ],
+		[ "makedev", "/dev/uinput", "0600" ]
+	]
+]

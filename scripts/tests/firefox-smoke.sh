@@ -1,6 +1,12 @@
 #!/bin/sh
-# Read-only target checks. GUI, profiles and upgrades are tested in an isolated VM.
+# Read-only target checks; --vaapi also requires usable hardware as this user.
 set -eu
+case "${1:-}" in
+	'') hardware=0 ;;
+	--vaapi) hardware=1 ;;
+	*) echo 'Usage: firefox-smoke.sh [--vaapi]' >&2; exit 2 ;;
+esac
+[ "$#" -le 1 ] || { echo 'Usage: firefox-smoke.sh [--vaapi]' >&2; exit 2; }
 
 test -x /usr/bin/firefox-esr
 test "$(readlink /usr/bin/firefox)" = firefox-esr
@@ -23,10 +29,37 @@ codec.avcodec_find_decoder_by_name.argtypes = [ctypes.c_char_p]
 codec.avcodec_find_decoder_by_name.restype = ctypes.c_void_p
 for name in [b'h264', b'aac']:
     assert codec.avcodec_find_decoder_by_name(name), f'Missing decoder: {name!r}'
+for name in ['libva.so.2', 'libva-drm.so.2']:
+    ctypes.CDLL(name)
+util = ctypes.CDLL('libavutil.so.61')
+util.av_hwdevice_find_type_by_name.argtypes = [ctypes.c_char_p]
+util.av_hwdevice_find_type_by_name.restype = ctypes.c_int
+vaapi = util.av_hwdevice_find_type_by_name(b'vaapi')
+assert vaapi, 'FFmpeg has no VA-API device type'
+
+class HWConfig(ctypes.Structure):
+    _fields_ = [('pix_fmt', ctypes.c_int), ('methods', ctypes.c_int),
+               ('device_type', ctypes.c_int)]
+
+codec.avcodec_get_hw_config.argtypes = [ctypes.c_void_p, ctypes.c_int]
+codec.avcodec_get_hw_config.restype = ctypes.POINTER(HWConfig)
+for name in [b'h264', b'vp9']:
+    decoder = codec.avcodec_find_decoder_by_name(name)
+    assert decoder, f'Missing decoder: {name!r}'
+    for index in range(64):
+        config = codec.avcodec_get_hw_config(decoder, index)
+        assert config, f'No VA-API configuration for {name!r}'
+        if config.contents.device_type == vaapi:
+            break
+    else:
+        raise AssertionError(f'No VA-API configuration for {name!r}')
 with open('/usr/lib/firefox-esr/distribution/policies.json') as stream:
     assert json.load(stream)['policies']['DisableAppUpdate'] is True
-print('GTK backends, media libraries and update policy passed')
+print('GTK backends, FFmpeg VA-API codecs and update policy passed')
 PY
+if [ "$hardware" = 1 ]; then
+	vainfo --display drm
+fi
 if [ "$(id -u)" = 0 ]; then
 	if firefox-esr --version >/dev/null 2>&1; then
 		echo 'Root browser launch was unexpectedly accepted' >&2

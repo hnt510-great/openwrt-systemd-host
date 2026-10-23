@@ -84,6 +84,13 @@
       "provider": "local",
       "reason": "Version follows the target kernel/libc"
     },
+    "gmmlib": {
+      "provider": "github",
+      "policy": "series",
+      "project": "intel/gmmlib",
+      "catalog": "tags",
+      "tag_pattern": "intel-gmmlib-(?P<version>[0-9]+(?:\\.[0-9]+)*)"
+    },
     "gnu-time": {
       "provider": "directory",
       "policy": "series",
@@ -116,6 +123,13 @@
       "index": "https://www.x.org/releases/individual/app/",
       "filename_pattern": "igt\\-gpu\\-tools\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
       "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    },
+    "intel-media-driver": {
+      "provider": "github",
+      "policy": "series",
+      "project": "intel/media-driver",
+      "catalog": "tags",
+      "tag_pattern": "intel-media-(?P<version>[0-9]+(?:\\.[0-9]+)*)"
     },
     "kbd": {
       "provider": "directory",
@@ -280,6 +294,13 @@
       "project": "ostreedev/ostree",
       "catalog": "releases"
     },
+    "libva-utils": {
+      "provider": "github",
+      "policy": "series",
+      "project": "intel/libva-utils",
+      "catalog": "tags",
+      "tag_pattern": "(?P<version>[0-9]+(?:\\.[0-9]+)*)"
+    },
     "libvirt": {
       "provider": "directory",
       "policy": "series",
@@ -374,6 +395,10 @@
       "provider": "local",
       "reason": "Locally maintained integration package"
     },
+    "openwrt-desktop-audio": {
+      "provider": "local",
+      "reason": "Locally maintained desktop audio integration"
+    },
     "openwrt-flatpak": {
       "provider": "local",
       "reason": "Locally maintained integration package"
@@ -448,6 +473,10 @@
       "index": "https://www.spice-space.org/download/gtk/",
       "filename_pattern": "spice\\-gtk\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz"
     },
+    "sunshine": {
+      "provider": "local",
+      "reason": "Release and hashed gitlink archives in sources.json must be updated together"
+    },
     "traceroute": {
       "provider": "sourceforge",
       "policy": "series",
@@ -472,6 +501,12 @@
       "catalog": "releases",
       "policy": "series",
       "source_url": "https://github.com/virt-manager/virt-manager/releases/download/v{version}/"
+    },
+    "wireplumber": {
+      "provider": "github",
+      "policy": "series",
+      "project": "PipeWire/wireplumber",
+      "catalog": "tags"
     },
     "xcb-proto": {
       "provider": "directory",

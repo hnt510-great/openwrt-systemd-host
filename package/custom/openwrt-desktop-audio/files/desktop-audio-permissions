@@ -1,0 +1,27 @@
+#!/bin/sh
+set -eu
+[ "$(id -u)" = 0 ] || exit 1
+. /usr/libexec/desktop-common.sh
+uid=
+if [ "$(uci -q get desktop.main.audio_enabled || :)" = 1 ]; then
+	user=$(uci -q get desktop.main.audio_user || :)
+	if desktop_validate_user "$user" &&
+	   [ "$(uci -q get desktop.main.user || :)" = "$user" ]; then
+		uid=$DESKTOP_USER_UID
+	fi
+fi
+previous=
+state=/run/desktop-audio-acl-uid
+[ ! -f "$state" ] || previous=$(cat "$state")
+case "$previous" in *[!0-9]*) previous= ;; esac
+# Logind/user managers may predate group enrollment. Per-UID ACLs avoid restarting
+# them and disrupting unrelated SSH sessions or rootless containers.
+for node in /dev/snd/controlC* /dev/snd/pcmC* /dev/snd/hwC* /dev/snd/timer; do
+	[ -c "$node" ] && [ ! -L "$node" ] || continue
+	if [ -n "$previous" ] && [ "$previous" != "$uid" ]; then
+		setfacl -x "u:$previous" "$node"
+	fi
+	[ -z "$uid" ] || setfacl -m "u:$uid:rw" "$node"
+done
+umask 077
+printf '%s\n' "$uid" > "$state"

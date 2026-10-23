@@ -1,0 +1,19 @@
+From: OpenWrt developers <openwrt-devel@lists.openwrt.org>
+Subject: [PATCH] pkgconfig: derive include and library paths from prefix
+
+OpenWrt's pkg-config wrapper relocates prefix into the target staging tree.
+Absolute includedir/libdir entries bypass that relocation and point media-driver
+at host headers. Keep the generated metadata relative to prefix.
+
+--- a/Source/GmmLib/igdgmm.pc.in
++++ b/Source/GmmLib/igdgmm.pc.in
+@@ -1,7 +1,7 @@
+ prefix=@CMAKE_INSTALL_PREFIX@
+ execprefix=${prefix}
+-includedir=@CMAKE_INSTALL_FULL_INCLUDEDIR@/igdgmm
+-libdir=@CMAKE_INSTALL_FULL_LIBDIR@
++includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@/igdgmm
++libdir=${execprefix}/@CMAKE_INSTALL_LIBDIR@
+ 
+ Name: igdgmm
+ Description: Intel(R) Graphics Memory Management Library

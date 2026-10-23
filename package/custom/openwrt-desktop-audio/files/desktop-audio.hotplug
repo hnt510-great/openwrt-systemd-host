@@ -1,0 +1,2 @@
+#!/bin/sh
+case "${ACTION:-}" in add|change) /usr/libexec/desktop-audio-permissions ;; esac

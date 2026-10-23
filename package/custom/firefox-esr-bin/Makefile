@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=firefox-esr-bin
 PKG_VERSION:=153.5.1esr
-PKG_RELEASE:=1
+PKG_RELEASE:=3
 PKG_SOURCE:=firefox-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=https://archive.mozilla.org/pub/firefox/releases/$(PKG_VERSION)/linux-x86_64/zh-CN/
 PKG_HASH:=b4131c91c5b3fd725f64f133d51f8bfe2b619b6856902b856773bc343abb008d
@@ -28,13 +28,15 @@ define Package/firefox-esr-bin
   URL:=https://www.firefox.com/
   DEPENDS:=@TARGET_x86_64 @USE_GLIBC +audio-support +glibc-distro-compat +libgtk3 +dbus \
 	+ca-bundle +fontconfig +dejavu-fonts-ttf-DejaVuSans +noto-sans-cjk-sc \
-	+alsa-lib +libffmpeg +libX11 +libXext +libXrender +libXrandr +libXi \
-	+libXcursor +libXfixes +libXdamage +libXcomposite +libxcb
+	+alsa-lib +libpulse +libffmpeg +libX11 +libXext +libXrender +libXrandr +libXi \
+	+libXcursor +libXfixes +libXdamage +libXcomposite +libxcb \
+	+libva +intel-media-driver +@FFMPEG_VAAPI
 endef
 
 define Package/firefox-esr-bin/description
   Mozilla's official x86_64 glibc Firefox ESR build with Chinese UI, private
-  bundled libraries, native Wayland launchers and software video decoding.
+  bundled libraries, native Wayland launchers and VA-API video decoding
+  on supported Intel graphics, with automatic software fallback.
   Run as an ordinary desktop user. Updates are managed by APK or firmware.
 endef
 

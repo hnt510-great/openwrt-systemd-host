@@ -1,0 +1,202 @@
+diff --git a/lang/lua/lua5.4/Makefile b/lang/lua/lua5.4/Makefile
+--- a/lang/lua/lua5.4/Makefile
++++ b/lang/lua/lua5.4/Makefile
+@@ -9,7 +9,7 @@
+ 
+ PKG_NAME:=lua
+ PKG_VERSION:=5.4.7
+-PKG_RELEASE:=3
++PKG_RELEASE:=4
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
+ PKG_SOURCE_URL:=https://www.lua.org/ftp/ \
+diff --git a/lang/lua/lua5.4/patches/020-shared_liblua.patch b/lang/lua/lua5.4/patches/020-shared_liblua.patch
+--- a/lang/lua/lua5.4/patches/020-shared_liblua.patch
++++ b/lang/lua/lua5.4/patches/020-shared_liblua.patch
+@@ -97,7 +97,7 @@
+ -$(LUA_T): $(LUA_O) $(LUA_A)
+ -	$(CC) -o $@ $(LDFLAGS) $(LUA_O) $(LUA_A) $(LIBS)
+ +$(LUA_SO): $(CORE_O) $(LIB_O)
+-+	$(CC) -o $@ -Wl,-Bsymbolic-functions -shared -Wl,-soname="$@" $?
+++	$(CC) $(LDFLAGS) -o $@ -Wl,-Bsymbolic-functions -shared -Wl,-soname="$@" $(CORE_O) $(LIB_O) $(LIBS)
+ +	ln -fs $@ liblua$V.so.0.0
+ +	ln -fs $@ liblua$V.so.0
+ +	ln -fs $@ liblua$V.so
+diff --git a/libs/boost/Makefile b/libs/boost/Makefile
+--- a/libs/boost/Makefile
++++ b/libs/boost/Makefile
+@@ -13,7 +13,7 @@
+ PKG_NAME:=boost
+ PKG_VERSION:=1.91.0
+ PKG_SOURCE_VERSION:=1_91_0
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PKG_SOURCE:=$(PKG_NAME)_$(PKG_SOURCE_VERSION).tar.bz2
+ PKG_SOURCE_URL:=https://archives.boost.io/release/$(PKG_VERSION)/source @SF/$(PKG_NAME)/$(PKG_NAME)/$(PKG_VERSION)
+@@ -336,7 +336,7 @@
+ endef
+ 
+ $(eval $(call DefineBoostLibrary,atomic))
+-$(eval $(call DefineBoostLibrary,charconv,,,,$(if $(filter i386 x86_64 powerpc powerpc64,$(ARCH)),libquadmath)))
++$(eval $(call DefineBoostLibrary,charconv,,+TARGET_x86:libquadmath))
+ $(eval $(call DefineBoostLibrary,chrono))
+ $(eval $(call DefineBoostLibrary,cobalt,container context date_time,,,libopenssl))
+ $(eval $(call DefineBoostLibrary,container))
+diff --git a/libs/nlohmannjson/Makefile b/libs/nlohmannjson/Makefile
+--- a/libs/nlohmannjson/Makefile
++++ b/libs/nlohmannjson/Makefile
+@@ -6,7 +6,7 @@
+ 
+ PKG_NAME:=nlohmannjson
+ PKG_VERSION:=3.11.2
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).zip
+ PKG_SOURCE_URL:=https://codeload.github.com/nlohmann/json/zip/v$(PKG_VERSION)?
+@@ -37,6 +37,8 @@
+ 	$(INSTALL_DIR) $(1)/usr/include/nlohmann
+ 	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/include/nlohmann/json.hpp $(1)/usr/include/nlohmann
+ 	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/include/nlohmann/json_fwd.hpp $(1)/usr/include/nlohmann
++	$(INSTALL_DIR) $(1)/usr/lib/cmake/nlohmann_json
++	$(INSTALL_DATA) ./files/*.cmake $(1)/usr/lib/cmake/nlohmann_json/
+ 	$(INSTALL_DIR) $(1)/usr/lib/pkgconfig
+ 	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/nlohmann_json.pc $(1)/usr/lib/pkgconfig
+ endef
+diff --git a/libs/nlohmannjson/files/nlohmann_jsonConfig.cmake b/libs/nlohmannjson/files/nlohmann_jsonConfig.cmake
+new file mode 100644
+--- /dev/null
++++ b/libs/nlohmannjson/files/nlohmann_jsonConfig.cmake
+@@ -0,0 +1,8 @@
++# Relocatable SDK target for the single-header Meson installation.
++if(NOT TARGET nlohmann_json::nlohmann_json)
++  get_filename_component(_nlohmann_prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
++  add_library(nlohmann_json::nlohmann_json INTERFACE IMPORTED GLOBAL)
++  set_target_properties(nlohmann_json::nlohmann_json PROPERTIES
++    INTERFACE_INCLUDE_DIRECTORIES "${_nlohmann_prefix}/include")
++  unset(_nlohmann_prefix)
++endif()
+diff --git a/libs/nlohmannjson/files/nlohmann_jsonConfigVersion.cmake b/libs/nlohmannjson/files/nlohmann_jsonConfigVersion.cmake
+new file mode 100644
+--- /dev/null
++++ b/libs/nlohmannjson/files/nlohmann_jsonConfigVersion.cmake
+@@ -0,0 +1,8 @@
++set(PACKAGE_VERSION "3.11.2")
++set(PACKAGE_VERSION_COMPATIBLE FALSE)
++if(NOT PACKAGE_VERSION VERSION_LESS PACKAGE_FIND_VERSION AND PACKAGE_FIND_VERSION_MAJOR EQUAL 3)
++  set(PACKAGE_VERSION_COMPATIBLE TRUE)
++endif()
++if(PACKAGE_FIND_VERSION STREQUAL PACKAGE_VERSION)
++  set(PACKAGE_VERSION_EXACT TRUE)
++endif()
+diff --git a/multimedia/gstreamer1/Makefile b/multimedia/gstreamer1/Makefile
+--- a/multimedia/gstreamer1/Makefile
++++ b/multimedia/gstreamer1/Makefile
+@@ -9,7 +9,7 @@
+ 
+ PKG_NAME:=gstreamer1
+ PKG_VERSION:=1.28.7
+-PKG_RELEASE:=2
++PKG_RELEASE:=3
+ 
+ PKG_SOURCE:=gstreamer-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://gstreamer.freedesktop.org/src/gstreamer
+@@ -219,8 +219,9 @@
+ 		./usr/lib/gstreamer-$(GST_VERSION)/libgst*.so \
+ 		$(1)/usr/lib/gstreamer-$(GST_VERSION)/ \
+ 	)
++	$(INSTALL_DIR) $(1)/usr/libexec/gstreamer-$(GST_VERSION)
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/libexec/gstreamer-$(GST_VERSION)/gst-plugin-scanner \
+-		       $(1)/usr/lib/gstreamer-$(GST_VERSION)
++		       $(1)/usr/libexec/gstreamer-$(GST_VERSION)
+ endef
+ 
+ 
+diff --git a/multimedia/ffmpeg/Makefile b/multimedia/ffmpeg/Makefile
+--- a/multimedia/ffmpeg/Makefile
++++ b/multimedia/ffmpeg/Makefile
+@@ -25,7 +25,7 @@
+ 
+ PKG_NAME:=ffmpeg
+ PKG_VERSION:=9.0.1
+-PKG_RELEASE:=3
++PKG_RELEASE:=4
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://ffmpeg.org/releases/
+@@ -633,6 +633,11 @@
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/lib*.{a,so*} $(1)/usr/lib/
+ 	$(INSTALL_DIR) $(1)/usr/lib/pkgconfig
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/*.pc $(1)/usr/lib/pkgconfig/
++	# Sunshine's CBS adapter must use headers matching this exact target archive.
++	$(INSTALL_DIR) $(1)/usr/include/ffmpeg-private
++	(cd $(PKG_BUILD_DIR); find libavcodec libavutil -type f -name '*.h' | \
++		$(TAR) -cf - -T -) | $(TAR) -xf - -C $(1)/usr/include/ffmpeg-private
++	$(CP) $(PKG_BUILD_DIR)/config.h $(1)/usr/include/ffmpeg-private/
+ endef
+ 
+ # Both variants stage into the same directory; libffmpeg takes precedence,
+diff --git a/multimedia/gst1-plugins-good/Makefile b/multimedia/gst1-plugins-good/Makefile
+--- a/multimedia/gst1-plugins-good/Makefile
++++ b/multimedia/gst1-plugins-good/Makefile
+@@ -9,7 +9,7 @@
+ 
+ PKG_NAME:=gst1-plugins-good
+ PKG_VERSION:=1.28.7
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PKG_SOURCE:=gst-plugins-good-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://gstreamer.freedesktop.org/src/gst-plugins-good/
+@@ -27,8 +27,10 @@
+ include $(INCLUDE_DIR)/meson.mk
+ 
+ PKG_CONFIG_DEPENDS:= \
++	CONFIG_PACKAGE_gst1-mod-id3demux \
+ 	CONFIG_PACKAGE_gst1-mod-lame \
+-	CONFIG_PACKAGE_gst1-mod-mpg123
++	CONFIG_PACKAGE_gst1-mod-mpg123 \
++	CONFIG_PACKAGE_gst1-mod-pulse
+ 
+ GST_GOOD_MODULES:=
+ 
+@@ -212,7 +214,7 @@
+   define Package/gst1-mod-$(1)/install
+ 	$(INSTALL_DIR) $$(1)/usr/lib/gstreamer-$(GST_VERSION)
+ 	( cd $(PKG_INSTALL_DIR); $(CP) \
+-		./usr/lib/gstreamer-$(GST_VERSION)/libgst$(1).so* \
++		./usr/lib/gstreamer-$(GST_VERSION)/libgst$(if $(filter pulse,$(1)),pulseaudio,$(1)).so* \
+ 		$$(1)/usr/lib/gstreamer-$(GST_VERSION)/ \
+ 	)
+   endef
+@@ -279,7 +281,7 @@
+ $(eval $(call GstBuildPlugin,oss4,OSS 4 audio support,audio tag,,))
+ $(eval $(call GstBuildPlugin,ossaudio,OSS audio support,audio,,))
+ $(eval $(call GstBuildPlugin,png,png support,video,,+libpng))
+-#$(eval $(call GstBuildPlugin,pulse,pulse support,audio pbutils tag video,,+pulseaudio))
++$(eval $(call GstBuildPlugin,pulse,PulseAudio protocol support,audio pbutils tag video,,+libpulse))
+ $(eval $(call GstBuildPlugin,shout2,shout2 support,audio,,+libshout))
+ $(eval $(call GstBuildPlugin,soup,soup input,audio tag,,+libsoup3))
+ $(eval $(call GstBuildPlugin,speex,speex support,audio tag,,+libspeex))
+diff --git a/sound/pulseaudio/Makefile b/sound/pulseaudio/Makefile
+--- a/sound/pulseaudio/Makefile
++++ b/sound/pulseaudio/Makefile
+@@ -10,7 +10,7 @@
+ PKG_NAME:=pulseaudio
+ # last release tag reachable from PKG_SOURCE_VERSION
+ PKG_VERSION:=17.0
+-PKG_RELEASE:=4
++PKG_RELEASE:=5
+ 
+ PKG_SOURCE_PROTO:=git
+ PKG_SOURCE_URL:=https://gitlab.freedesktop.org/pulseaudio/pulseaudio.git
+@@ -83,7 +83,7 @@
+ define Package/pulseaudio-tools
+   SECTION:=sound
+   CATEGORY:=Sound
+-  DEPENDS:=+libsndfile pulseaudio
++  DEPENDS:=+libsndfile +libpulse
+   TITLE:=Tools for Pulseaudio
+   URL:=https://www.freedesktop.org/wiki/Software/PulseAudio/
+   VARIANT:=noavahi

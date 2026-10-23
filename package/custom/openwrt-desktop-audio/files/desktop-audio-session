@@ -1,0 +1,25 @@
+#!/bin/sh
+set -eu
+[ -d /run/systemd/system ] || exit 0
+: "${XDG_RUNTIME_DIR:?}" "${WAYLAND_DISPLAY:?}"
+export DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/bus
+if [ "${1:-}" != --monitor ]; then
+	compositor_pid=$PPID
+	if [ -x /usr/libexec/desktop-flatpak-session ]; then WESTON_COMPOSITOR_PID=$compositor_pid /usr/libexec/desktop-flatpak-session; fi
+	systemctl --user stop openwrt-audio-session-monitor.service 2>/dev/null || :
+	systemctl --user import-environment WAYLAND_DISPLAY DBUS_SESSION_BUS_ADDRESS OPENWRT_DESKTOP_LAN_ADDRESS
+	exec systemd-run --user --quiet --collect --unit=openwrt-audio-session-monitor \
+		--property=Type=exec /usr/libexec/desktop-audio-session --monitor "$compositor_pid"
+fi
+compositor_pid=${2:?}
+case "$compositor_pid" in ''|*[!0-9]*) exit 1 ;; esac
+cleanup() { systemctl --user stop openwrt-audio-session.target 2>/dev/null || :; }
+trap cleanup EXIT
+trap 'exit 0' HUP INT TERM
+if [ "$(uci -q get desktop.main.audio_enabled || :)" = 1 ] &&
+   [ "$(uci -q get desktop.main.audio_user || :)" = "$(id -un)" ]; then
+	systemctl --user start pipewire.socket pipewire-pulse.socket wireplumber.service
+fi
+systemctl --user start openwrt-audio-session.target
+case "$WAYLAND_DISPLAY" in /*) socket=$WAYLAND_DISPLAY ;; *) socket=$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY ;; esac
+while kill -0 "$compositor_pid" 2>/dev/null && [ -S "$socket" ]; do sleep 2; done

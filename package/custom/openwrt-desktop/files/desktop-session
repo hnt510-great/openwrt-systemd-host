@@ -3,6 +3,7 @@ set -eu
 [ "$#" = 5 ] || [ "$#" = 6 ] || [ "$#" = 9 ] || [ "$#" = 10 ] || exit 1
 output="$1"
 address="$2"
+export OPENWRT_DESKTOP_LAN_ADDRESS="$address"
 port="$3"
 key="$4"
 cert="$5"
@@ -72,10 +73,12 @@ path=/usr/bin/firefox-esr
 
 EOF
 fi
-if [ -x /usr/libexec/desktop-flatpak-session ]; then
+if [ -x /usr/libexec/desktop-audio-session ] || [ -x /usr/libexec/desktop-flatpak-session ]; then
+	autolaunch=/usr/libexec/desktop-flatpak-session
+	[ ! -x /usr/libexec/desktop-audio-session ] || autolaunch=/usr/libexec/desktop-audio-session
 	cat >> "$XDG_RUNTIME_DIR/weston.ini" <<EOF
 [autolaunch]
-path=/usr/libexec/desktop-flatpak-session
+path=$autolaunch
 watch=false
 
 EOF
@@ -96,6 +99,12 @@ tls-key=$key
 tls-cert=$cert
 EOF
 if [ "$rdp_enabled" = 1 ]; then
+	rdp_audio=false
+	if [ -x /usr/libexec/desktop-audio-session ] && [ -d /run/systemd/system ] &&
+	   [ "$(uci -q get desktop.main.audio_enabled || :)" = 1 ] &&
+	   [ "$(uci -q get desktop.main.audio_user || :)" = "$USER" ]; then
+		rdp_audio=true
+	fi
 	cat >> "$XDG_RUNTIME_DIR/weston.ini" <<EOF
 
 [output]
@@ -109,6 +118,8 @@ refresh-rate=$rdp_refresh_rate
 tls-key=$key
 tls-cert=$cert
 nla-ntlm-db=$sam
+audio-playback=$rdp_audio
+audio-capture=$rdp_audio
 EOF
 fi
 set -- /usr/libexec/desktop-dbus-session /usr/bin/weston --backends="$backends" --renderer="$renderer" \

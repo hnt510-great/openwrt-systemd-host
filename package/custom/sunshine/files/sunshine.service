@@ -1,0 +1,17 @@
+[Unit]
+Description=Sunshine Moonlight host for the Weston desktop
+PartOf=openwrt-audio-session.target
+Requires=pipewire-pulse.service wireplumber.service
+After=pipewire-pulse.service wireplumber.service
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/sunshine-session
+Restart=on-failure
+RestartSec=5
+# KMS uses the explicitly enrolled executable's permitted file capability.
+NoNewPrivileges=false
+UMask=0077
+
+[Install]
+WantedBy=openwrt-audio-session.target

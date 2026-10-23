@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+[ "$#" = 0 ] || { echo 'Usage: ssh -T USER@HOST desktop-audio-stream' >&2; exit 1; }
+uid=$(id -u)
+[ "$uid" -ge 1000 ] || { echo 'Use the ordinary desktop account' >&2; exit 1; }
+[ "$(uci -q get desktop.main.audio_enabled || :)" = 1 ] &&
+[ "$(uci -q get desktop.main.audio_user || :)" = "$(id -un)" ] || {
+	echo 'Run desktop-audio-setup for this account first' >&2; exit 1;
+}
+export XDG_RUNTIME_DIR=/run/user/$uid
+[ -d "$XDG_RUNTIME_DIR" ] && [ ! -L "$XDG_RUNTIME_DIR" ] &&
+[ "$(stat -c %u "$XDG_RUNTIME_DIR")" = "$uid" ] || {
+	echo 'The user runtime directory is unavailable' >&2; exit 1;
+}
+export PULSE_SERVER=unix:$XDG_RUNTIME_DIR/pulse/native
+exec parec --device=@DEFAULT_MONITOR@ --latency-msec=20 --raw --format=s16le --rate=48000 --channels=2

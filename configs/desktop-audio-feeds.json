@@ -1,0 +1,10 @@
+{
+  "packages": {
+    "base": "88aa0a5ced088c4a6f2c0d2ebfa5544435bd5373",
+    "patch": "patches/feeds/0021-packages-desktop-audio.patch"
+  },
+  "video": {
+    "base": "026e9a9c1200b96755f7ceffdbe4afa1bf7003b5",
+    "patch": "patches/feeds/0012-video-desktop-audio.patch"
+  }
+}

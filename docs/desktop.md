@@ -113,7 +113,8 @@ It uses Weston's RemoteFX/NSCodec or bitmap encoding and defaults to 30 Hz;
 delivered frame rate and latency depend on CPU, resolution, client, and network.
 It supports screen sharing, keyboard/mouse control, and clipboard text. VNC
 remains available. The service requires a connected monitor and does not
-create independent remote login sessions or redirect audio.
+create independent remote login sessions. Optional [desktop audio](desktop-audio.md)
+adds RDP playback and microphone redirection, plus an SSH audio stream for VNC.
 
 Additional settings in `/etc/config/desktop` are:
 

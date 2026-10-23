@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Audit an extracted target rootfs without loading target libraries on the host."""
 import argparse
+import hashlib
 import json
 from pathlib import Path, PurePosixPath
 import re
@@ -45,6 +46,13 @@ def audit(root):
     private = root / "usr/lib/firefox-esr"
     assert private.is_dir(), "Firefox payload missing"
     roots = [p for p in private.rglob("*") if p.is_file() and p.open("rb").read(4) == b"\x7fELF"]
+    browser_count = len(roots)
+    # These are loaded dynamically, so DT_NEEDED from Firefox cannot find them.
+    for name in ["/usr/lib/libavcodec.so.63", "/usr/lib/libva.so.2",
+                 "/usr/lib/libva-drm.so.2", "/usr/lib/dri/iHD_drv_video.so"]:
+        library = rooted_file(root, name)
+        assert library.is_file(), f"Missing runtime decoder library: {name}"
+        roots.append(library)
     checked = set()
     queue = list(roots)
     while queue:
@@ -87,8 +95,14 @@ def audit(root):
     assert not missing, json.dumps(missing, indent=2)
     for name in ["libnss3.so", "libnspr4.so", "libmozsqlite3.so"]:
         assert (private / name).is_file(), f"Missing private {name}"
-        assert not (root / "usr/lib" / name).exists(), f"Bundled {name} escaped its private directory"
-    return {"browser_elf_files": len(roots), "dependency_elf_files": len(checked),
+        # AppImage support independently packages system NSS/NSPR. It must not
+        # be a copy or link of Firefox's private libraries.
+        system = rooted_file(root, "/usr/lib/" + name)
+        if system.exists():
+            assert system != private / name, f"Bundled {name} escaped its private directory"
+            assert hashlib.sha256(system.read_bytes()).digest() != hashlib.sha256(
+                (private / name).read_bytes()).digest(), f"Bundled {name} copied into /usr/lib"
+    return {"browser_elf_files": browser_count, "dependency_elf_files": len(checked),
             "missing_libraries": [], "missing_symbols": [], "private_libraries": True}
 
 

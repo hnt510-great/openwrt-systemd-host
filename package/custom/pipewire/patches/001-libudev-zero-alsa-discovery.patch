@@ -1,0 +1,37 @@
+Subject: [PATCH] alsa: enumerate card parents with libudev-zero
+
+The native OpenWrt device manager broadcasts completed events but has no
+udev database. Retain ALSA node readiness checks and card remove events.
+
+--- a/spa/plugins/alsa/alsa-udev.c
++++ b/spa/plugins/alsa/alsa-udev.c
+@@ -165,8 +165,8 @@
+ 	if ((str = udev_device_get_property_value(udev_device, "SOUND_CLASS")) && spa_streq(str, "modem"))
+ 		return SPA_ID_INVALID;
+ 
+-	if (udev_device_get_property_value(udev_device, "SOUND_INITIALIZED") == NULL)
+-		return SPA_ID_INVALID;
++	/* libudev-zero has no udev database or SOUND_INITIALIZED property.
++	 * process_card() still checks that all required ALSA nodes are ready. */
+ 
+ 	if ((str = udev_device_get_property_value(udev_device, "DEVPATH")) == NULL)
+ 		return SPA_ID_INVALID;
+@@ -786,8 +786,16 @@
+ 	unsigned int card_nr;
+ 	struct card *card;
+ 
+-	if ((card_nr = get_card_nr(this, udev_device)) == SPA_ID_INVALID)
+-		return;
++	if ((card_nr = get_card_nr(this, udev_device)) == SPA_ID_INVALID) {
++		/* libudev-zero enumerates device nodes, not their card parents. */
++		udev_device = udev_device_get_parent_with_subsystem_devtype(udev_device, "sound", NULL);
++		if (!udev_device ||
++		    (card_nr = get_card_nr(this, udev_device)) == SPA_ID_INVALID)
++			return;
++		/* Removing one PCM node must not remove the whole card. */
++		if (action == ACTION_REMOVE)
++			action = ACTION_CHANGE;
++	}
+ 
+ 	card = find_card(this, card_nr);
+ 	if (action == ACTION_CHANGE && !card)

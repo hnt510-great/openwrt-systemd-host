@@ -1,0 +1,23 @@
+#!/bin/sh
+set -eu
+. /usr/libexec/desktop-common.sh
+[ "$(id -u)" = 0 ] || { echo 'Run desktop-audio-setup as root' >&2; exit 1; }
+[ "$#" = 1 ] || { echo 'Usage: desktop-audio-setup USER' >&2; exit 1; }
+[ -d /run/systemd/system ] || { echo 'Desktop audio requires native systemd' >&2; exit 1; }
+user=$1
+desktop_validate_user "$user"
+configured=$(uci -q get desktop.main.user || :)
+[ "$configured" = "$user" ] || { echo 'Use the configured desktop user' >&2; exit 1; }
+# These groups grant speaker access and physical microphone capture.
+usermod -a -G audio,audio-capture "$user"
+# Run home-directory operations as the user, never as root following user links.
+runtime=/run/user/$DESKTOP_USER_UID
+su -s /bin/sh -c "XDG_RUNTIME_DIR=$runtime DBUS_SESSION_BUS_ADDRESS=unix:path=$runtime/bus systemctl --user --no-reload enable pipewire.socket pipewire-pulse.socket wireplumber.service" "$user"
+uci set desktop.main.audio_enabled=1
+uci set desktop.main.audio_user="$user"
+uci commit desktop
+/usr/libexec/desktop-audio-permissions
+if [ -S "$runtime/bus" ]; then
+	su -s /bin/sh -c "XDG_RUNTIME_DIR=$runtime DBUS_SESSION_BUS_ADDRESS=unix:path=$runtime/bus systemctl --user daemon-reload; XDG_RUNTIME_DIR=$runtime DBUS_SESSION_BUS_ADDRESS=unix:path=$runtime/bus systemctl --user start pipewire.socket pipewire-pulse.socket wireplumber.service" "$user"
+fi
+printf 'Audio enabled for %s. Device ACLs also cover existing user services. Restart the desktop to enable RDP audio.\n' "$user"

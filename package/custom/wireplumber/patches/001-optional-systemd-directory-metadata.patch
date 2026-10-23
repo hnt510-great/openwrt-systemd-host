@@ -1,0 +1,16 @@
+Subject: [PATCH] build: allow explicit unit paths without systemd.pc
+
+libsystemd remains required for enabled logind support.
+
+--- a/meson.build
++++ b/meson.build
+@@ -116,7 +116,8 @@
+ endif
+ 
+ if build_modules
+-  systemd = dependency('systemd', required: get_option('systemd'))
++  # systemd.pc only supplies directory metadata; explicit unit paths suffice.
++  systemd = dependency('systemd', required: false)
+   libsystemd_dep = dependency('libsystemd',required: get_option('systemd'))
+   libelogind_dep = dependency('libelogind', required: get_option('elogind'))
+   summary({'systemd conf data': systemd.found(),

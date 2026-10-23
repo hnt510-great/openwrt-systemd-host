@@ -1,0 +1,695 @@
+diff --git a/frameworks/weston/Makefile b/frameworks/weston/Makefile
+--- a/frameworks/weston/Makefile
++++ b/frameworks/weston/Makefile
+@@ -1,7 +1,7 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=weston
+-PKG_RELEASE:=6
++PKG_RELEASE:=9
+ 
+ PKG_VERSION:=16.0.0
+ PKG_MAJOR_VERSION:=$(firstword $(subst .,$(space),$(PKG_VERSION)))
+@@ -15,7 +15,7 @@
+ 
+ PKG_INSTALL:=1
+ PKG_BUILD_DEPENDS:=wayland/host
+-PKG_CONFIG_DEPENDS:=CONFIG_WESTON_VNC CONFIG_WESTON_RDP CONFIG_WESTON_XWAYLAND
++PKG_CONFIG_DEPENDS:=CONFIG_WESTON_VNC CONFIG_WESTON_RDP CONFIG_WESTON_RDP_AUDIO CONFIG_WESTON_XWAYLAND
+ 
+ include $(INCLUDE_DIR)/package.mk
+ include $(INCLUDE_DIR)/meson.mk
+@@ -31,7 +31,7 @@
+ 	+libmesa +libpango +libseat +libwayland +libwebp +libxkbcommon +pixman \
+ 	+seatd +vulkan-loader +wayland-protocols +xkeyboard-config \
+ 	+WESTON_VNC:libaml +WESTON_VNC:libneatvnc +WESTON_VNC:libpam \
+-	+WESTON_RDP:libfreerdp3 \
++	+WESTON_RDP:libfreerdp3 +WESTON_RDP_AUDIO:libpipewire \
+ 	+WESTON_XWAYLAND:xwayland +WESTON_XWAYLAND:libxcb +WESTON_XWAYLAND:libXcursor
+ endef
+ 
+@@ -49,6 +49,13 @@
+ 	depends on PACKAGE_weston
+ 	default n
+ 
++config WESTON_RDP_AUDIO
++	bool "Enable PipeWire RDP audio playback and microphone"
++	# Conditional libpipewire target constraints propagate into PACKAGE_weston.
++	# Keep this independent of WESTON_RDP/PACKAGE_weston to avoid a Kconfig cycle.
++	depends on OPENWRT_SYSTEMD && TARGET_x86_64 && USE_GLIBC
++	default n
++
+ config WESTON_XWAYLAND
+ 	bool "Enable X11 applications through Xwayland"
+ 	# Xwayland's target constraints propagate back into PACKAGE_weston.
+@@ -63,6 +70,7 @@
+ 	-Dbackend-headless=false \
+ 	-Dbackend-pipewire=false \
+ 	-Dbackend-rdp=$(if $(CONFIG_WESTON_RDP),true,false) \
++	-Dbackend-rdp-audio=$(if $(CONFIG_WESTON_RDP_AUDIO),true,false) \
+ 	-Dbackend-vnc=$(if $(CONFIG_WESTON_VNC),true,false) \
+ 	-Dbackend-x11=false \
+ 	-Dbackend-wayland=true \
+@@ -83,6 +91,11 @@
+ 	-Dtools=calibrator,debug,info,terminal,touch-calibrator \
+ 	-Dtests=false \
+ 	-Ddoc=false
++
++define Build/Prepare
++	$(call Build/Prepare/Default)
++	$(CP) ./files/rdpaudio.c ./files/rdpaudio.h $(PKG_BUILD_DIR)/libweston/backend-rdp/
++endef
+ 
+ define Build/InstallDev
+ 	$(INSTALL_DIR) $(1)/usr/include
+diff --git a/frameworks/weston/files/rdpaudio.c b/frameworks/weston/files/rdpaudio.c
+new file mode 100644
+--- /dev/null
++++ b/frameworks/weston/files/rdpaudio.c
+@@ -0,0 +1,351 @@
++// SPDX-License-Identifier: MIT
++/* Per-peer PipeWire streams for Weston's authenticated shared RDP desktop.
++ * Neither PipeWire nor network audio callbacks run on the compositor thread.
++ */
++#include "config.h"
++#include <pthread.h>
++#include <stdatomic.h>
++#include <stdint.h>
++#include <stdlib.h>
++#include <string.h>
++#include <stdio.h>
++#include <unistd.h>
++#include <time.h>
++#include <pipewire/pipewire.h>
++#include <spa/param/audio/format-utils.h>
++#include <freerdp/server/rdpsnd.h>
++#include <freerdp/server/audin.h>
++#include <freerdp/server/server-common.h>
++#include <libweston/libweston.h>
++#include "rdpaudio.h"
++
++/* Less than 200 ms of stereo PCM, with whole-frame overflow dropping. */
++#define AUDIO_QUEUE 32768
++#define AUDIO_PACKET 1920
++struct rdp_audio {
++	struct pw_thread_loop *loop;
++	struct pw_stream *stream;
++	pthread_mutex_t mutex;
++	pthread_cond_t wake;
++	pthread_t worker;
++	bool worker_started;
++	bool loop_started;
++	atomic_bool stopping;
++	atomic_bool ready;
++	bool capture;
++	HANDLE vcm;
++	RdpsndServerContext *out;
++	audin_server_context *in;
++	AUDIO_FORMAT pcm;
++	uint8_t queue[AUDIO_QUEUE];
++	size_t read_pos, write_pos, queued;
++};
++static pthread_once_t pw_once = PTHREAD_ONCE_INIT;
++static atomic_uint source_id;
++
++static void audio_init(void) { pw_init(NULL, NULL); }
++
++static void queue_write(struct rdp_audio *a, const void *data, size_t size)
++{
++	size_t first;
++
++	if (size > AUDIO_QUEUE || pthread_mutex_trylock(&a->mutex))
++		return;
++	if (size <= AUDIO_QUEUE - a->queued) {
++		first = SPA_MIN(size, AUDIO_QUEUE - a->write_pos);
++		memcpy(a->queue + a->write_pos, data, first);
++		memcpy(a->queue, (const uint8_t *)data + first, size - first);
++		a->write_pos = (a->write_pos + size) % AUDIO_QUEUE;
++		a->queued += size;
++		pthread_cond_signal(&a->wake);
++	}
++	pthread_mutex_unlock(&a->mutex);
++}
++
++/* Caller holds mutex. */
++static size_t queue_read(struct rdp_audio *a, void *data, size_t size)
++{
++	size_t first;
++
++	size = SPA_MIN(size, a->queued);
++	first = SPA_MIN(size, AUDIO_QUEUE - a->read_pos);
++	memcpy(data, a->queue + a->read_pos, first);
++	memcpy((uint8_t *)data + first, a->queue, size - first);
++	a->read_pos = (a->read_pos + size) % AUDIO_QUEUE;
++	a->queued -= size;
++	return size;
++}
++
++static void stream_process(void *data)
++{
++	struct rdp_audio *a = data;
++	struct pw_buffer *pb;
++	struct spa_data *d;
++	size_t size, offset;
++
++	pb = pw_stream_dequeue_buffer(a->stream);
++	if (!pb)
++		return;
++	if (!pb->buffer->n_datas)
++		goto done;
++	d = &pb->buffer->datas[0];
++	if (!d->data || !d->chunk || !d->maxsize)
++		goto done;
++	if (!a->capture) {
++		offset = d->chunk->offset % d->maxsize;
++		size = SPA_MIN(d->chunk->size, d->maxsize - offset);
++		size -= size % 4;
++		if (atomic_load(&a->ready) && !(d->chunk->flags & SPA_CHUNK_FLAG_CORRUPTED))
++			queue_write(a, (uint8_t *)d->data + offset, size);
++	} else {
++		size = SPA_MIN((size_t)d->maxsize, (size_t)pb->requested * 2);
++		if (!size)
++			size = SPA_MIN(d->maxsize, (uint32_t)AUDIO_PACKET);
++		size -= size % 2;
++		memset(d->data, 0, size);
++		if (!pthread_mutex_trylock(&a->mutex)) {
++			queue_read(a, d->data, size);
++			pthread_mutex_unlock(&a->mutex);
++		}
++		d->chunk->offset = 0;
++		d->chunk->stride = 2;
++		d->chunk->size = size;
++		pb->size = size / 2;
++	}
++ done:
++	pw_stream_queue_buffer(a->stream, pb);
++}
++
++static const struct pw_stream_events stream_events = {
++	PW_VERSION_STREAM_EVENTS,
++	.process = stream_process,
++};
++
++static bool audio_connect(struct rdp_audio *a)
++{
++	uint8_t buffer[1024];
++	struct spa_pod_builder b = SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
++	struct spa_audio_info_raw info = { .format = SPA_AUDIO_FORMAT_S16_LE,
++		.rate = 48000, .channels = a->capture ? 1 : 2 };
++	const struct spa_pod *param;
++	struct pw_properties *props;
++	char name[64];
++	int rc;
++
++	pthread_once(&pw_once, audio_init);
++	a->loop = pw_thread_loop_new("weston-rdp-audio", NULL);
++	if (!a->loop || pw_thread_loop_start(a->loop) < 0)
++		return false;
++	a->loop_started = true;
++	props = pw_properties_new(PW_KEY_MEDIA_TYPE, "Audio",
++		PW_KEY_MEDIA_CATEGORY, a->capture ? "Playback" : "Capture",
++		PW_KEY_MEDIA_ROLE, "Communication", NULL);
++	if (!props)
++		return false;
++	if (a->capture) {
++		snprintf(name, sizeof(name), "rdp-microphone-%u", atomic_fetch_add(&source_id, 1));
++		pw_properties_set(props, PW_KEY_NODE_NAME, name);
++		pw_properties_set(props, PW_KEY_NODE_DESCRIPTION, "RDP client microphone");
++		pw_properties_set(props, PW_KEY_MEDIA_CLASS, "Audio/Source");
++		pw_properties_set(props, PW_KEY_NODE_VIRTUAL, "true");
++		pw_properties_set(props, PW_KEY_NODE_ALWAYS_PROCESS, "true");
++		info.position[0] = SPA_AUDIO_CHANNEL_MONO;
++	} else {
++		pw_properties_set(props, "stream.capture.sink", "true");
++		pw_properties_set(props, PW_KEY_NODE_NAME, "weston-rdp-playback");
++		info.position[0] = SPA_AUDIO_CHANNEL_FL;
++		info.position[1] = SPA_AUDIO_CHANNEL_FR;
++	}
++	pw_thread_loop_lock(a->loop);
++	a->stream = pw_stream_new_simple(pw_thread_loop_get_loop(a->loop),
++		"Weston RDP audio", props, &stream_events, a);
++	if (!a->stream) {
++		pw_thread_loop_unlock(a->loop);
++		return false;
++	}
++	param = spa_format_audio_raw_build(&b, SPA_PARAM_EnumFormat, &info);
++	rc = pw_stream_connect(a->stream, a->capture ? PW_DIRECTION_OUTPUT : PW_DIRECTION_INPUT,
++		PW_ID_ANY, PW_STREAM_FLAG_MAP_BUFFERS |
++		(a->capture ? 0 : PW_STREAM_FLAG_AUTOCONNECT), &param, 1);
++	pw_thread_loop_unlock(a->loop);
++	return rc >= 0;
++}
++
++static void out_activated(RdpsndServerContext *out)
++{
++	struct rdp_audio *a = out->data;
++	/* PCM is interoperable with ordinary RDP desktop clients. */
++	const UINT16 tags[] = { WAVE_FORMAT_PCM };
++	for (size_t t = 0; t < SPA_N_ELEMENTS(tags); t++) {
++		for (size_t i = 0; i < out->num_client_formats; i++) {
++			if (out->client_formats[i].wFormatTag != tags[t])
++				continue;
++			for (size_t j = 0; j < out->num_server_formats; j++) {
++				if (audio_format_compatible(&out->server_formats[j], &out->client_formats[i]) &&
++				    out->SelectFormat(out, (UINT16)i) == CHANNEL_RC_OK) {
++					const AUDIO_FORMAT *fmt = &out->client_formats[i];
++
++					weston_log("RDP playback format: tag=0x%04x rate=%u channels=%u bitrate=%u\n",
++						(unsigned int)fmt->wFormatTag, (unsigned int)fmt->nSamplesPerSec,
++						(unsigned int)fmt->nChannels, (unsigned int)fmt->nAvgBytesPerSec * 8);
++					atomic_store(&a->ready, true);
++					return;
++				}
++			}
++		}
++	}
++}
++
++static UINT in_data(audin_server_context *in, const SNDIN_DATA *data)
++{
++	struct rdp_audio *a = in->userdata;
++	const AUDIO_FORMAT *fmt = audin_server_get_negotiated_format(in);
++	size_t size = Stream_GetRemainingLength(data->Data);
++	/* AUDIN delivers encoded packets. Only advertise PCM for microphone input. */
++	if (!fmt || fmt->wFormatTag != WAVE_FORMAT_PCM || fmt->nSamplesPerSec != 48000 ||
++	    fmt->nChannels != 1 || fmt->wBitsPerSample != 16 || size % 2)
++		return ERROR_INVALID_DATA;
++	queue_write(a, Stream_Pointer(data->Data), size);
++	return CHANNEL_RC_OK;
++}
++
++static void *audio_worker(void *data)
++{
++	struct rdp_audio *a = data;
++	uint8_t packet[AUDIO_PACKET];
++	struct timespec now;
++	UINT16 timestamp;
++
++	if (a->capture) {
++		while (!atomic_load(&a->stopping)) {
++			BYTE state = WTSVirtualChannelManagerGetDrdynvcState(a->vcm);
++
++			if (state == DRDYNVC_STATE_READY) {
++				if (!a->in->Open(a->in))
++					weston_log("RDP microphone channel unavailable\n");
++				break;
++			}
++			if (state == DRDYNVC_STATE_FAILED)
++				break;
++			usleep(100000);
++		}
++		return NULL;
++	}
++	while (!atomic_load(&a->stopping)) {
++		pthread_mutex_lock(&a->mutex);
++		while (a->queued < sizeof(packet) && !atomic_load(&a->stopping))
++			pthread_cond_wait(&a->wake, &a->mutex);
++		if (atomic_load(&a->stopping)) {
++			pthread_mutex_unlock(&a->mutex);
++			break;
++		}
++		queue_read(a, packet, sizeof(packet));
++		pthread_mutex_unlock(&a->mutex);
++		clock_gettime(CLOCK_MONOTONIC, &now);
++		timestamp = (UINT16)((uint64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000);
++		if (a->out->SendSamples(a->out, packet, sizeof(packet) / 4, timestamp) != CHANNEL_RC_OK) {
++			atomic_store(&a->ready, false);
++			break;
++		}
++	}
++	return NULL;
++}
++
++void weston_rdp_audio_teardown(void *data)
++{
++	struct rdp_audio *a = data;
++
++	if (!a)
++		return;
++	atomic_store(&a->stopping, true);
++	pthread_mutex_lock(&a->mutex);
++	pthread_cond_broadcast(&a->wake);
++	pthread_mutex_unlock(&a->mutex);
++	if (a->worker_started)
++		pthread_join(a->worker, NULL);
++	if (a->out)
++		rdpsnd_server_context_free(a->out);
++	if (a->in)
++		audin_server_context_free(a->in);
++	if (a->loop) {
++		if (a->loop_started)
++			pw_thread_loop_stop(a->loop);
++		if (a->stream)
++			pw_stream_destroy(a->stream);
++		pw_thread_loop_destroy(a->loop);
++	}
++	pthread_cond_destroy(&a->wake);
++	pthread_mutex_destroy(&a->mutex);
++	free(a);
++}
++
++static void *audio_setup(struct weston_compositor *c, void *vcm, bool capture)
++{
++	struct rdp_audio *a = calloc(1, sizeof(*a));
++	(void)c;
++	if (!a)
++		return NULL;
++	a->vcm = vcm;
++	a->capture = capture;
++	atomic_init(&a->stopping, false);
++	atomic_init(&a->ready, false);
++	if (pthread_mutex_init(&a->mutex, NULL)) {
++		free(a);
++		return NULL;
++	}
++	if (pthread_cond_init(&a->wake, NULL)) {
++		pthread_mutex_destroy(&a->mutex);
++		free(a);
++		return NULL;
++	}
++	a->pcm = (AUDIO_FORMAT) { .wFormatTag = WAVE_FORMAT_PCM,
++		.nChannels = capture ? 1 : 2, .nSamplesPerSec = 48000,
++		.nAvgBytesPerSec = capture ? 96000 : 192000,
++		.nBlockAlign = capture ? 2 : 4, .wBitsPerSample = 16 };
++	if (!audio_connect(a))
++		goto fail;
++	if (capture) {
++		a->in = audin_server_context_new(vcm);
++		if (!a->in)
++			goto fail;
++		a->in->userdata = a;
++		a->in->Data = in_data;
++		if (!audin_server_set_formats(a->in, 1, &a->pcm))
++			goto fail;
++	} else {
++		a->out = rdpsnd_server_context_new(vcm);
++		if (!a->out)
++			goto fail;
++		a->out->data = a;
++		a->out->src_format = &a->pcm;
++		a->out->latency = 20;
++		a->out->server_formats = calloc(2, sizeof(AUDIO_FORMAT));
++		if (!a->out->server_formats)
++			goto fail;
++		a->out->num_server_formats = 2;
++		a->out->server_formats[0] = a->pcm;
++		a->out->server_formats[1] = a->pcm;
++		a->out->server_formats[1].nSamplesPerSec = 44100;
++		a->out->server_formats[1].nAvgBytesPerSec = 176400;
++		a->out->Activated = out_activated;
++		if (!a->out->num_server_formats || a->out->Initialize(a->out, TRUE) != CHANNEL_RC_OK)
++			goto fail;
++	}
++	if (pthread_create(&a->worker, NULL, audio_worker, a))
++		goto fail;
++	a->worker_started = true;
++	return a;
++ fail:
++	weston_log("RDP %s audio unavailable; desktop sharing continues\n", capture ? "microphone" : "playback");
++	weston_rdp_audio_teardown(a);
++	return NULL;
++}
++
++void *weston_rdp_audio_out_setup(struct weston_compositor *c, void *vcm)
++{
++	return audio_setup(c, vcm, false);
++}
++void *weston_rdp_audio_in_setup(struct weston_compositor *c, void *vcm)
++{
++	return audio_setup(c, vcm, true);
++}
+diff --git a/frameworks/weston/files/rdpaudio.h b/frameworks/weston/files/rdpaudio.h
+new file mode 100644
+--- /dev/null
++++ b/frameworks/weston/files/rdpaudio.h
+@@ -0,0 +1,8 @@
++/* SPDX-License-Identifier: MIT */
++#ifndef WESTON_RDP_AUDIO_H
++#define WESTON_RDP_AUDIO_H
++struct weston_compositor;
++void *weston_rdp_audio_out_setup(struct weston_compositor *c, void *vcm);
++void *weston_rdp_audio_in_setup(struct weston_compositor *c, void *vcm);
++void weston_rdp_audio_teardown(void *data);
++#endif
+diff --git a/frameworks/weston/patches/006-rdp-pipewire-audio.patch b/frameworks/weston/patches/006-rdp-pipewire-audio.patch
+new file mode 100644
+--- /dev/null
++++ b/frameworks/weston/patches/006-rdp-pipewire-audio.patch
+@@ -0,0 +1,125 @@
++Subject: [PATCH] rdp: bridge authenticated peer audio through PipeWire
++
++Audio is explicitly enabled per direction in the existing RDP configuration.
++The audio implementation is supplied in files/rdpaudio.c by the recipe.
++
++--- a/meson_options.txt
+++++ b/meson_options.txt
++@@ -223,3 +223,5 @@
++ 	value: false,
++ 	description: 'DEPRECATED: Allow non-atomic modeset paths which will be removed soon'
++ )
+++
+++option('backend-rdp-audio', type: 'boolean', value: false, description: 'PipeWire RDP playback and microphone bridge')
++--- a/libweston/backend-rdp/meson.build
+++++ b/libweston/backend-rdp/meson.build
++@@ -47,12 +47,21 @@
++         dep_wpr,
++         dep_libdrm_headers,
++ ]
+++config_h.set10('HAVE_RDP_AUDIO', get_option('backend-rdp-audio'))
+++if get_option('backend-rdp-audio')
+++  deps_rdp += dependency('libpipewire-0.3', version: '>= 1.0')
+++  deps_rdp += dependency('threads')
+++endif
++ srcs_rdp = [
++         'rdp.c',
++         'rdpclip.c',
++         'rdpdisp.c',
++         'rdputil.c',
++ ]
+++
+++if get_option('backend-rdp-audio')
+++  srcs_rdp += 'rdpaudio.c'
+++endif
++ 
++ plugin_rdp = shared_library(
++         'rdp-backend',
++--- a/libweston/backend-rdp/rdp.c
+++++ b/libweston/backend-rdp/rdp.c
++@@ -37,6 +37,9 @@
++ #include <unistd.h>
++ 
++ #include "rdp.h"
+++#if HAVE_RDP_AUDIO
+++#include "rdpaudio.h"
+++#endif
++ 
++ #include <winpr/input.h>
++ #include <winpr/ssl.h>
++@@ -2734,5 +2737,15 @@
++ 	config_init_to_defaults(&config);
++ 	memcpy(&config, config_base, config_base->struct_size);
+++#if HAVE_RDP_AUDIO
+++	if (config.pipewire_playback) {
+++		config.audio_out_setup = weston_rdp_audio_out_setup;
+++		config.audio_out_teardown = weston_rdp_audio_teardown;
+++	}
+++	if (config.pipewire_capture) {
+++		config.audio_in_setup = weston_rdp_audio_in_setup;
+++		config.audio_in_teardown = weston_rdp_audio_teardown;
+++	}
+++#endif
++ 
++ 	if (!config.server_cert || !config.server_key || !config.nla_ntlm_db ||
++ 	    access(config.server_cert, R_OK) || access(config.server_key, R_OK) ||
++--- a/frontend/main.c
+++++ b/frontend/main.c
++@@ -4483,6 +4483,7 @@
++ 	bool no_remotefx_codec = false;
++ 	struct wet_output_config *parsed_options = wet_init_parsed_options(c);
++ 	bool no_resizeable = false;
+++	bool audio_playback = false, audio_capture = false;
++ 
++ 	if (!parsed_options)
++ 		return -1;
++@@ -4530,6 +4531,11 @@
++ 					 &config.server_key, config.server_key);
++ 	weston_config_section_get_string(section, "nla-ntlm-db",
++ 					 &config.nla_ntlm_db, config.nla_ntlm_db);
+++
+++	weston_config_section_get_bool(section, "audio-playback", &audio_playback, false);
+++	weston_config_section_get_bool(section, "audio-capture", &audio_capture, false);
+++	config.pipewire_playback = audio_playback;
+++	config.pipewire_capture = audio_capture;
++ 
++ 	wb = wet_compositor_load_backend(c, WESTON_BACKEND_RDP, &config.base,
++ 					 simple_heads_changed,
++--- a/include/libweston/backend-rdp.h
+++++ b/include/libweston/backend-rdp.h
++@@ -105,6 +105,8 @@
++ 	rdp_audio_out_setup audio_out_setup;
++ 	rdp_audio_out_teardown audio_out_teardown;
++ 	char *nla_ntlm_db;
+++	bool pipewire_playback;
+++	bool pipewire_capture;
++ };
++ 
++ #ifdef  __cplusplus
++--- a/libweston/backend-rdp/rdp.c
+++++ b/libweston/backend-rdp/rdp.c
++@@ -1293,9 +1293,9 @@
++ 		}
++ 		/* Audio setup will return NULL on failure, and we'll proceed without audio */
++-		if (audio_playback)
+++		if (audio_playback && !peerCtx->audio_out_private)
++ 			peerCtx->audio_out_private = b->audio_out_setup(b->compositor, peerCtx->vcm);
++ 
++-		if (audio_capture)
+++		if (audio_capture && !peerCtx->audio_in_private)
++ 			peerCtx->audio_in_private = b->audio_in_setup(b->compositor, peerCtx->vcm);
++ 	}
++ 
++--- a/libweston/backend-rdp/rdp.c
+++++ b/libweston/backend-rdp/rdp.c
++@@ -1031,7 +1031,9 @@
++ 
++ 	if (peerCtx && peerCtx->vcm)
++ 	{
++-		if (!WTSVirtualChannelManagerCheckFileDescriptor(peerCtx->vcm)) {
+++		/* Opening drdynvc before channel join permanently disables AUDIN. */
+++		if (!WTSVirtualChannelManagerCheckFileDescriptorEx(peerCtx->vcm,
+++							  client->activated)) {
++ 			weston_log("failed to check FreeRDP WTS VC file descriptor for %p\n", client);
++ 			goto out_clean;
++ 		}
+diff --git a/frameworks/weston/patches/007-rdp-audio-error-cleanup.patch b/frameworks/weston/patches/007-rdp-audio-error-cleanup.patch
+new file mode 100644
+--- /dev/null
++++ b/frameworks/weston/patches/007-rdp-audio-error-cleanup.patch
+@@ -0,0 +1,14 @@
++Subject: [PATCH] rdp: clear peer audio pointers after failed activation
++
++--- a/libweston/backend-rdp/rdp.c
+++++ b/libweston/backend-rdp/rdp.c
++@@ -1399,6 +1399,9 @@
++ 	if (audio_capture && peerCtx->audio_in_private)
++ 		b->audio_in_teardown(peerCtx->audio_in_private);
++ 
+++	peerCtx->audio_out_private = NULL;
+++	peerCtx->audio_in_private = NULL;
+++
++ 	return FALSE;
++ }
++ 
+diff --git a/frameworks/weston/patches/008-inert-tablet-seat-after-disconnect.patch b/frameworks/weston/patches/008-inert-tablet-seat-after-disconnect.patch
+new file mode 100644
+--- /dev/null
++++ b/frameworks/weston/patches/008-inert-tablet-seat-after-disconnect.patch
+@@ -0,0 +1,39 @@
++Subject: [PATCH] input: keep tablet seat resources inert after seat removal
++
++Clients can request tablet seats after an RDP seat global has been removed.
++Match the inert-resource handling of pointer, keyboard and touch requests,
++and unlink existing tablet seat resources before freeing the seat.
++
++---
++
++--- a/libweston/input.c
+++++ b/libweston/input.c
++@@ -4425,6 +4425,11 @@
++ 		wl_resource_set_user_data(resource, NULL);
++ 	}
++ 
+++	wl_resource_for_each(resource, &seat->tablet_seat_resource_list) {
+++		wl_resource_set_user_data(resource, NULL);
+++	}
+++	wl_list_remove(&seat->tablet_seat_resource_list);
+++
++ 	wl_list_remove(&seat->base_resource_list);
++ 	wl_list_remove(&seat->drag_resource_list);
++ 
++@@ -4606,10 +4611,14 @@
++ 		return;
++ 	}
++ 
++-	/* store the resource in the weston_seat */
++-	wl_list_insert(&seat->tablet_seat_resource_list, wl_resource_get_link(cr));
+++	/* A removed wl_seat remains valid as an inert protocol resource. */
+++	wl_list_init(wl_resource_get_link(cr));
++ 	wl_resource_set_implementation(cr, &tablet_seat_interface, seat,
++ 				       unbind_resource);
+++	if (!seat)
+++		return;
+++
+++	wl_list_insert(&seat->tablet_seat_resource_list, wl_resource_get_link(cr));
++ 
++ 	/* Notify client of any tablets already connected to the system */
++ 	wl_list_for_each(tablet, &seat->tablet_list, link) {
+diff --git a/frameworks/weston/patches/009-retire-seat-globals-before-destroy.patch b/frameworks/weston/patches/009-retire-seat-globals-before-destroy.patch
+new file mode 100644
+--- /dev/null
++++ b/frameworks/weston/patches/009-retire-seat-globals-before-destroy.patch
+@@ -0,0 +1,64 @@
++Subject: [PATCH] input: retire seat globals before destroying them
++
++A VNC peer can announce and remove its private seat before clients have
++processed the registry announcement. Immediate destruction rejects their
++in-flight binds, disconnecting the desktop shell and leaving no background
++for repaint. Reuse the compositor wl_output retirement grace period, clear
++the freed seat data and permit late binds to create inert seat resources.
++
++---
++
++--- a/libweston/compositor.c
+++++ b/libweston/compositor.c
++@@ -6474,7 +6474,7 @@
++ 	return 0;
++ }
++ 
++-static void
+++void
++ weston_global_destroy_save(struct weston_compositor *compositor,
++ 			   struct wl_global *global)
++ {
++--- a/libweston/libweston-internal.h
+++++ b/libweston/libweston-internal.h
++@@ -318,6 +318,10 @@
++ noop_renderer_init(struct weston_compositor *ec);
++ 
++ void
+++weston_global_destroy_save(struct weston_compositor *compositor,
+++			   struct wl_global *global);
+++
+++void
++ weston_compositor_add_head(struct weston_compositor *compositor,
++ 			   struct weston_head *head);
++ void
++--- a/libweston/input.c
+++++ b/libweston/input.c
++@@ -3913,12 +3913,14 @@
++ 
++ 	resource = wl_resource_create(client,
++ 				      &wl_seat_interface, version, id);
++-	wl_list_insert(&seat->base_resource_list, wl_resource_get_link(resource));
+++	wl_list_init(wl_resource_get_link(resource));
+++	if (seat)
+++		wl_list_insert(&seat->base_resource_list, wl_resource_get_link(resource));
++ 	wl_resource_set_implementation(resource, &seat_interface, data,
++ 				       unbind_resource);
++ 
++ 	if (version >= WL_SEAT_NAME_SINCE_VERSION)
++-		wl_seat_send_name(resource, seat->seat_name);
+++		wl_seat_send_name(resource, seat ? seat->seat_name : "retired");
++ 
++ 	if (weston_seat_get_pointer(seat))
++ 		caps |= WL_SEAT_CAPABILITY_POINTER;
++@@ -4451,7 +4453,9 @@
++ 
++ 	free (seat->seat_name);
++ 
++-	wl_global_destroy(seat->global);
+++	/* Let in-flight registry binds create inert seats, as for wl_output. */
+++	wl_global_set_user_data(seat->global, NULL);
+++	weston_global_destroy_save(seat->compositor, seat->global);
++ 
++ 	wl_signal_emit(&seat->destroy_signal, seat);
++ }

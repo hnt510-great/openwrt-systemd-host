@@ -1,4 +1,3 @@
-// Software rendering and decoding are the default for the lightweight desktop.
+// Let Firefox detect EGL/WebRender and VA-API, with software fallback.
 // Keep the browser's content, GPU and media process sandbox settings unchanged.
-pref("gfx.webrender.software", true);
-pref("media.hardware-video-decoding.enabled", false);
+pref("media.hardware-video-decoding.enabled", true);

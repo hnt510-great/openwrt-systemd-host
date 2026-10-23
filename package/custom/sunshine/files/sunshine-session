@@ -1,0 +1,31 @@
+#!/bin/sh
+set -eu
+. /usr/libexec/desktop-common.sh
+[ "$(id -u)" -ge 1000 ] || exit 1
+[ "$(uci -q get desktop.main.user || :)" = "$(id -un)" ] || exit 1
+# The root desktop service resolves LAN state before entering the user session.
+address=${OPENWRT_DESKTOP_LAN_ADDRESS:-}
+case "$address" in ''|0.0.0.0|*[!0-9.]*) echo 'LAN IPv4 address unavailable' >&2; exit 1 ;; esac
+: "${XDG_RUNTIME_DIR:?}" "${WAYLAND_DISPLAY:?}"
+export PULSE_SERVER=unix:$XDG_RUNTIME_DIR/pulse/native
+# The Intel 4e61/iHD HEVC startup probe resets the video engine on the
+# validated Jasper Lake host. Keep H.264 acceleration without submitting the
+# failing probe. Only apply this quirk when the encoder GPU is unambiguous;
+# multi-GPU hosts retain their normal adapter/codec configuration.
+set --
+render_count=0
+render_device=
+for render in /sys/class/drm/renderD*; do
+	[ -r "$render/device/vendor" ] && [ -r "$render/device/device" ] || continue
+	render_count=$((render_count + 1))
+	render_device=$render/device
+done
+if [ "$render_count" = 1 ] &&
+	[ "$(cat "$render_device/vendor")" = 0x8086 ] &&
+	[ "$(cat "$render_device/device")" = 0x4e61 ]; then
+	echo 'Sunshine: Intel 8086:4e61 GPU hang workaround: disabling HEVC/AV1 probes; H.264 remains available' >&2
+	set -- hevc_mode=1 av1_mode=1
+fi
+# Runtime overrides preserve the user's configuration and keep all listeners on LAN.
+exec /usr/bin/sunshine capture=kms "bind_address=$address" address_family=ipv4 \
+	upnp=disabled origin_web_ui_allowed=lan "$@"
