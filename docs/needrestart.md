@@ -112,6 +112,21 @@ running commits with active deployments in the ordinary user/system Flatpak
 stores, including extensions installed in multiple branches. No Flatpak command,
 network request, update, or application restart is performed during scanning.
 
+Flatpak D-Bus proxies use a separate sandbox. They are associated only after
+matching the owning UID, exact application cgroup, selected instance metadata,
+live verified application child, and installed host executable contents. Their
+host executable mappings are then checked without entering the sandbox.
+
+Podman bridge networks can share a rootless network helper outside any individual
+container service. Its owned PID record, user namespace, live inventoried
+container identity, tmpfs sandbox, and installed executable contents are verified
+before checking host mappings. Per-service network helpers remain supported.
+
+Unknown isolated roots remain partial coverage. Their warnings include PID,
+executable, and cgroup so independent gaps no longer collapse into one generic
+message. A coverage warning is not by itself evidence of obsolete code or a
+failed service; actual restart advice is reported separately.
+
 Changed Flatpak deployments produce `flatpak` relaunch advice in the existing
 affected-services table. Evidence type `flatpak-deployment` identifies a ref,
 rather than an individual file. CLI output also lists inventoried Flatpaks;

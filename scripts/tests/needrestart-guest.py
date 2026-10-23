@@ -85,9 +85,11 @@ def container_checks(root, network_backend='slirp4netns'):
         invoke('podman', 'import', str(archive), image)
     container_ids = []
     split_unit = 'needrestart-split-fixture-' + str(os.getpid())
+    bridge = 'needrestart-bridge-fixture'
+    as_user('podman', 'network', 'create', bridge)
     try:
         for label, invoke in [('rootful', run), ('rootless', as_user),
-                              ('rootless-split', as_user)]:
+                              ('rootless-split', as_user), ('rootless-bridge', as_user)]:
             directory = root / label
             directory.mkdir()
             shutil.copy2(binary, directory / 'worker')
@@ -120,7 +122,15 @@ def container_checks(root, network_backend='slirp4netns'):
                         pass
                 assert helpers, 'split container did not exercise the sandboxed network helper'
             else:
+                if label == 'rootless-bridge':
+                    argv[argv.index('--network=none')] = '--network=' + bridge
                 result = invoke(*argv, image, '/fixtures/worker', '600')
+                if label == 'rootless-bridge':
+                    record = Path(f'/run/user/{uid}/containers/networks/rootless-netns/'
+                                  'rootless-netns-conn.pid')
+                    helper = record.read_text().strip()
+                    assert '/rootless-netns-' in Path(f'/proc/{helper}/cgroup').read_text()
+                    assert Path(f'/proc/{helper}/root').stat().st_dev != Path('/').stat().st_dev
             container_ids.append(result.stdout.strip())
         first = report()
         assert not first['warnings'], first['warnings']
@@ -140,7 +150,7 @@ def container_checks(root, network_backend='slirp4netns'):
         assert rootful['image_status'] == 'changed', rootful
         assert rootless['image_status'] == 'current', rootless
         assert rootless['uid'] == uid
-        for label in ('rootful', 'rootless', 'rootless-split'):
+        for label in ('rootful', 'rootless', 'rootless-split', 'rootless-bridge'):
             replace(shutil.which('true'), root / label / 'worker')
         stale = report()
         for cid in container_ids:
@@ -152,6 +162,8 @@ def container_checks(root, network_backend='slirp4netns'):
         run('podman', 'rm', '-f', 'needrestart-rootful', ok=(0, 1))
         as_user('podman', 'rm', '-f', 'needrestart-rootless', ok=(0, 1))
         as_user('podman', 'rm', '-f', 'needrestart-rootless-split', ok=(0, 1))
+        as_user('podman', 'rm', '-f', 'needrestart-rootless-bridge', ok=(0, 1))
+        as_user('podman', 'network', 'rm', bridge, ok=(0, 1))
         as_user('systemctl', '--user', 'stop', split_unit + '.service', ok=(0, 5))
 
 
@@ -209,7 +221,8 @@ def flatpak_checks(root, fixtures):
         p.mkdir(parents=True)
     shutil.copy2(fixtures / 'flatpak-worker', build / 'files/bin/probe')
     (build / 'metadata').write_text(f'[Application]\nname={app}\n'
-        f'runtime={runtime}/x86_64/1.0\nsdk={runtime}/x86_64/1.0\ncommand=probe\n')
+        f'runtime={runtime}/x86_64/1.0\nsdk={runtime}/x86_64/1.0\ncommand=probe\n'
+        '[Session Bus Policy]\norg.freedesktop.Notifications=talk\n')
     (platform / 'metadata').write_text(f'[Runtime]\nname={runtime}\n')
     (platform / 'usr/share/fixture').write_text('minimal offline runtime\n')
 
@@ -231,8 +244,18 @@ def flatpak_checks(root, fixtures):
         for ref in (f'runtime/{runtime}/x86_64/1.0', f'app/{app}/x86_64/stable'):
             as_user('flatpak', 'install', '--user', '--assumeyes', '--no-deps', remote, ref)
         as_user('systemd-run', '--user', '--collect', '--unit=needrestart-flatpak-fixture',
+                f'--setenv=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus',
                 '/usr/bin/flatpak', 'run', '--user', app)
         wait(lambda: application(report()) is not None, 'real Flatpak instance', timeout=50)
+        proxies = []
+        for proc in Path('/proc').iterdir():
+            try:
+                if (proc.name.isdecimal() and (proc / 'comm').read_text().strip() == 'xdg-dbus-proxy'
+                    and app in (proc / 'cgroup').read_text()):
+                    proxies.append(proc.name)
+            except OSError:
+                pass
+        assert proxies, 'Flatpak fixture did not exercise its isolated D-Bus proxy'
         current = report()
         assert current['complete'] and not current['warnings'], current
         assert application(current)['deployment_status'] == 'current', current

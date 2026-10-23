@@ -448,3 +448,80 @@ Evidence and signed package:
     /srv/openwrt-validation/openwrt-needrestart-r7-validation-20261022-pxsb7hep
 
 Remote transaction/rollback directory: `/root/needrestart-r7-20261022`.
+
+## 2026-10-22: shared Podman networking and Flatpak proxy coverage (r9)
+
+The renewed generic isolated-filesystem warning had two independent causes:
+Podman's shared rootless bridge-network helper at PID 23220, used by the new
+Compose containers, and Gear Lever's Flatpak D-Bus proxy at PID 26253. Both were
+running correctly. The scanner had assumed network helpers belonged to individual
+service units and that Flatpak processes shared their application's root/mount
+namespace. Generic warning deduplication concealed that two processes failed
+those assumptions. Previous complete scans describe the workloads active at the
+time; they were not proof that every future sandbox layout was supported.
+
+Core r8 added verified shared-helper support and PID/executable/cgroup context
+to unknown-root warnings. Its signed deployment cleared the Podman case and
+exposed the independent proxy case. Immutable r8 artifacts were retained; r9 is
+the final package containing both corrections. Published r8 APK bytes were not overwritten.
+
+Shared helper recognition requires an owned, non-writable-by-others, nonsymlink
+PID record, an expected scope, matching UID/user namespace with a live inventoried
+container whose cgroup ID still matches, the tmpfs root, and identical installed
+host executable contents. Flatpak proxy recognition requires matching selected
+instance metadata, UID and exact cgroup with the verified live application child,
+its validated namespace/root/deployment, tmpfs proxy root and identical host
+executable contents. Host mappings remain inspected for actual obsolete code.
+Unknown roots still produce partial coverage, now with process context.
+
+Source validation passed 91 compiled scanner tests, 7 ucode RPC tests, LuCI
+rendering tests, package compilation, `git diff --check`, and C checkpatch with
+zero errors/warnings. New regression cases cover valid shared networking and
+separate proxy roots, invalid PID records/scopes/namespaces/executables/metadata,
+missing containers/application children, and retained stale-library advice.
+The original `.config` hash and unrelated edits were preserved.
+
+The exact signed r9 APK passed signature verification, offline simulation and
+installation in the disposable adopted UEFI/KVM clone. The full final guest suite
+passed native/procd replacement, 300 MiB ELF comparisons, large kernel inventories,
+APK locks/hooks/RPC, rootful/rootless/split/bridge Podman networking, real Firefox,
+and an offline Flatpak with its isolated D-Bus proxy. The Flatpak fixture now
+explicitly passes its session bus address into the transient user service; its
+proxy must actually exist for the test to pass. Local deployment changes still
+produce relaunch advice. The owned VM was powered off after validation.
+
+Scoped publication added only core r9 and its custom-feed projection in snapshot
+`20261022T153444.917596Z`, under unchanged router ABI
+`6.18.55~628a4581533e057afecd1eb41702012b-r1`. All prior APK hashes and kernel
+artifacts were preserved. LuCI remains r1.
+
+| Final artifact | SHA-256 |
+| --- | --- |
+| openwrt-needrestart-1.0.0-r9.apk | d70add18c5c19bb6ebbc80ae6d322be1261ebfc28f7e692076d2dcb2c471462a |
+| Installed stripped scanner | 19427250eb76b83614830f0f2430b003b6649b3d8b4fe6daf4b8a35a31c936f3 |
+
+On the physical router, signature/hash checks and exact offline simulations
+passed. Only needrestart changed, from original r7 through r8 to final r9.
+Three fresh final scans completed in 2.18, 2.00 and 1.98 seconds: complete coverage,
+zero warnings, zero unreadable processes, no restart recommendations, eight
+containers, two Flatpak instances and current kernel. A queued LuCI scan also
+completed with no error or warning. Timed rollback protection was canceled only
+after validation and health checks.
+
+Boot ID `00000000-0000-4000-8000-000000000006`, kernel release
+`6.18.55-owrt-628a4581533e057afecd1eb41702012b-r1-g23`, kernel manager state,
+configuration/key hashes, all existing checked process PIDs, and container IDs
+and init PIDs were preserved. Three additional bwrap processes appeared during
+the work; no original checked PID disappeared. DNS and LuCI checks passed;
+scheduled maintenance stayed inactive. No workload restart, container recreation,
+Flatpak update, permission relaxation or reboot was performed remotely.
+
+Final evidence and signed package:
+
+    /srv/openwrt-validation/openwrt-needrestart-r9-validation-20261022-ci3uim5b
+
+Intermediate r8 evidence:
+
+    /srv/openwrt-validation/openwrt-needrestart-r8-validation-20261022-lhqaooxf
+
+Remote transaction/rollback directory: `/root/needrestart-r9-20261022`.

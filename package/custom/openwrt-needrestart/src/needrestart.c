@@ -990,9 +990,75 @@ static bool sandbox_host_browser(pid_t pid, const char *exe, int root)
 	       S_ISREG(a.st_mode) && parent_start == start_time(ppid);
 }
 
+/* Podman's bridge networks share one pasta process outside container units.
+ * Correlate its owned PID record and user namespace with live inventoried
+ * container processes; a scope name or executable name alone is insufficient.
+ */
+static bool shared_network_helper(pid_t pid, uid_t uid, const char *cg)
+{
+	char file[PATH_MAX], id[65], *data, *end;
+	struct stat record, helper, ns, process;
+	const char *scope = strrchr(cg, '/');
+	bool matched = false;
+	int fd;
+
+	if (!scope || strncmp(scope, "/rootless-netns-", 16))
+		return false;
+	scope += 16;
+	size_t n = strspn(scope, "0123456789abcdef");
+
+	if (!n || n > 64 || strcmp(scope + n, ".scope"))
+		return false;
+	snprintf(file, sizeof(file),
+		 "/run/user/%u/containers/networks/rootless-netns/rootless-netns-conn.pid", uid);
+	fd = open(path(file), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+	if (fd < 0)
+		return false;
+	bool owned = !fstat(fd, &record) && S_ISREG(record.st_mode) &&
+		     record.st_uid == uid && !(record.st_mode & 0022);
+	char buffer[32];
+	ssize_t len = owned ? read(fd, buffer, sizeof(buffer) - 1) : -1;
+
+	close(fd);
+	if (len <= 0)
+		return false;
+	buffer[len] = 0;
+	long recorded = strtol(buffer, &end, 10);
+
+	if (end == buffer || (*end && strcmp(end, "\n")) || recorded != pid)
+		return false;
+	snprintf(file, sizeof(file), "/proc/%d/ns/user", pid);
+	if (stat(path(file), &helper))
+		return false;
+	for (size_t i = 0; i < length(containers); i++) {
+		json_object *c = json_object_array_get_idx(containers, i);
+		int64_t init = json_object_get_int64(get(c, "init_pid"));
+
+		if (json_object_get_int64(get(c, "uid")) != uid || init <= 0 || init > INT_MAX)
+			continue;
+		uint64_t start = start_time(init);
+
+		snprintf(file, sizeof(file), "/proc/%d", (int)init);
+		if (!start || stat(path(file), &process) || process.st_uid != uid)
+			continue;
+		data = group(init);
+		container_id(data, id);
+		free(data);
+		if (strcmp(id, str(c, "id")))
+			continue;
+		snprintf(file, sizeof(file), "/proc/%d/ns/user", (int)init);
+		if (!stat(path(file), &ns) && helper.st_dev == ns.st_dev &&
+		    helper.st_ino == ns.st_ino && start == start_time(init)) {
+			matched = true;
+			break;
+		}
+	}
+	return matched;
+}
+
 /* Rootless network helpers pivot into an empty tmpfs after loading host code.
  * Treat it as a host helper only when its executable matches the installed
- * host binary and its owning user unit controls an inventoried container.
+ * host binary and its user unit or shared network owns inventoried containers.
  * Other isolated roots retain the normal, conservative coverage warning.
  */
 static bool sandbox_host_helper(pid_t pid, const char *cg, const char *exe, int root)
@@ -1036,7 +1102,7 @@ static bool sandbox_host_helper(pid_t pid, const char *cg, const char *exe, int 
 		if (n >= m && !strcmp(cg + n - m, suffix))
 			controller = true;
 	}
-	if (!controller)
+	if (!controller && !shared_network_helper(pid, uid, cg))
 		return false;
 	snprintf(proc, sizeof(proc), "/proc/%d/exe", pid);
 #ifdef NEEDRESTART_TEST
@@ -1614,6 +1680,98 @@ out:
 	return application;
 }
 
+/* Flatpak's D-Bus proxy has a separate empty sandbox. Verify its metadata
+ * against the live application root rather than requiring identical mount
+ * namespaces, which only the application's bwrap/payload processes share.
+ */
+static json_object *flatpak_proxy_application(pid_t pid, const char *cg, const char *exe, int root)
+{
+	json_object *info = NULL, *wrap = NULL, *child_info = NULL, *application = NULL;
+	struct stat st;
+	struct statfs fs;
+	char file[PATH_MAX], key[32], *child_group = NULL;
+	uid_t uid = container_uid(cg);
+	int fd = -1, childroot = -1, old = -1, current = -1;
+
+	if (!uid || strcmp(exe, "/usr/bin/xdg-dbus-proxy") || fstatfs(root, &fs))
+		return NULL;
+#ifdef NEEDRESTART_TEST
+	if (!*test_root)
+#endif
+		if (fs.f_type != TMPFS_MAGIC)
+			return NULL;
+	snprintf(file, sizeof(file), "/proc/%d", pid);
+	if (stat(path(file), &st) || st.st_uid != uid)
+		return NULL;
+	fd = rooted_open(root, "/.flatpak-info");
+	if (fd < 0)
+		goto out;
+	info = flatpak_info(fd);
+	close(fd);
+	fd = -1;
+	const char *id = str(info, "Instance.instance-id");
+
+	if (!*id || strlen(id) > 20 || strspn(id, "0123456789") != strlen(id))
+		goto out;
+	snprintf(file, sizeof(file), "/run/user/%u/.flatpak/%s/bwrapinfo.json", uid, id);
+	wrap = read_json(path(file));
+	int64_t child = json_object_get_int64(get(wrap, "child-pid"));
+	uint64_t start = child > 1 && child <= INT_MAX ? start_time(child) : 0;
+
+	if (!start || child == pid)
+		goto out;
+	child_group = group(child);
+	if (!child_group || !cg || strcmp(child_group, cg))
+		goto out;
+	snprintf(file, sizeof(file), "/proc/%d/root", (int)child);
+	childroot = open(path(file), O_PATH | O_DIRECTORY | O_CLOEXEC);
+	if (childroot < 0)
+		goto out;
+	fd = rooted_open(childroot, "/.flatpak-info");
+	if (fd < 0)
+		goto out;
+	child_info = flatpak_info(fd);
+	if (!info || !child_info)
+		goto out;
+	json_object_object_foreach(info, k, value)
+	{
+		(void)value;
+		if (strcmp(str(info, k), str(child_info, k)))
+			goto out;
+	}
+	snprintf(file, sizeof(file), "/proc/%d/exe", pid);
+#ifdef NEEDRESTART_TEST
+	if (*test_root)
+		snprintf(file, sizeof(file), "/proc/%d/test-exe", pid);
+#endif
+	old = open(path(file), O_RDONLY | O_CLOEXEC | O_NONBLOCK);
+	current = open(path(exe), O_RDONLY | O_CLOEXEC | O_NONBLOCK);
+	if (old < 0 || current < 0 || different(old, current) != 0 || start != start_time(child))
+		goto out;
+	application = flatpak_application(child, child_group, childroot);
+	if (application) {
+		snprintf(key, sizeof(key), "%d", pid);
+		json_object_object_add(flatpak_owners, key, json_object_get(application));
+	}
+out:
+	if (fd >= 0)
+		close(fd);
+	if (childroot >= 0)
+		close(childroot);
+	if (old >= 0)
+		close(old);
+	if (current >= 0)
+		close(current);
+	if (info)
+		json_object_put(info);
+	if (wrap)
+		json_object_put(wrap);
+	if (child_info)
+		json_object_put(child_info);
+	free(child_group);
+	return application;
+}
+
 static void scan_process(pid_t pid, json_object *snap)
 {
 	char proc[128], exe[PATH_MAX], id[65];
@@ -1646,6 +1804,11 @@ static void scan_process(pid_t pid, json_object *snap)
 		    rootstat.st_dev == hoststat.st_dev && rootstat.st_ino == hoststat.st_ino;
 	json_object *application = !host && !*id ? flatpak_application(pid, cg, root) : NULL;
 	bool flatpak_helper = false;
+
+	if (!host && !*id && !application) {
+		application = flatpak_proxy_application(pid, cg, exe, root);
+		flatpak_helper = application != NULL;
+	}
 
 	if (application && !strcmp(exe, "/usr/bin/bwrap")) {
 		int old, current;
@@ -1744,8 +1907,14 @@ static void scan_process(pid_t pid, json_object *snap)
 	if (!host && !*id && !application) {
 		char service[256];
 
-		if (!procd_name(pid, cg, snap, service))
-			warn("An isolated filesystem was inspected but its container owner and image freshness are unverified");
+		if (!procd_name(pid, cg, snap, service)) {
+			char message[768];
+
+			snprintf(message, sizeof(message),
+				 "Coverage incomplete for PID %d (%.*s), cgroup %.*s: isolated filesystem owner and deployment freshness unverified",
+				 pid, 256, exe, 256, cg ? cg : "unknown");
+			warn(message);
+		}
 	}
 out:
 	if (root >= 0)

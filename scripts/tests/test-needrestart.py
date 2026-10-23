@@ -314,6 +314,82 @@ class NeedrestartTests(unittest.TestCase):
         self.assertEqual(subject['kind'], 'user-service')
         self.assertEqual(subject['name'], 'example.service')
 
+    def shared_helper(self):
+        self.sandbox_helper(executable='usr/bin/passt')
+        uid = os.getuid()
+        self.write('proc/123/cgroup', f'0::/user.slice/user-{uid}.slice/'
+                   f'user@{uid}.service/user.slice/rootless-netns-1234abcd.scope\n')
+        self.process(pid=125, deleted=False, changed=False,
+                     cgroup=f'/user.slice/user-{uid}.slice/libpod-' + 'a' * 64 + '.scope')
+        self.json('ownership.json', {})
+        store = self.store(uid, local='c' * 64)
+        store['containers'][0]['State']['Pid'] = 125
+        self.json('podman.json', [store])
+        self.record = self.write(f'run/user/{uid}/containers/networks/rootless-netns/'
+                                 'rootless-netns-conn.pid', '123\n')
+        self.record.chmod(0o600)
+        namespace = self.write('shared-user-namespace', '')
+        namespace.chmod(0)
+        for pid in (123, 125):
+            self.write(f'proc/{pid}/ns/placeholder', '')
+            (self.root / f'proc/{pid}/ns/user').symlink_to(namespace)
+
+    def test_shared_bridge_network_helper(self):
+        self.shared_helper()
+        self.assertEqual(self.scan()['warnings'], [])
+
+    def test_shared_helper_wrong_pid_record(self):
+        self.shared_helper()
+        self.record.write_text('999\n')
+        self.assertFalse(self.scan(2)['complete'])
+
+    def test_shared_helper_writable_pid_record(self):
+        self.shared_helper()
+        self.record.chmod(0o666)
+        self.assertFalse(self.scan(2)['complete'])
+
+    def test_shared_helper_symlink_pid_record(self):
+        self.shared_helper()
+        self.record.unlink()
+        self.record.symlink_to(self.write('fake-record', '123\n'))
+        self.assertFalse(self.scan(2)['complete'])
+
+    def test_shared_helper_different_user_namespace(self):
+        self.shared_helper()
+        ns = self.root / 'proc/125/ns/user'
+        ns.unlink()
+        ns.symlink_to(self.write('other-namespace', ''))
+        self.assertFalse(self.scan(2)['complete'])
+
+    def test_shared_helper_wrong_container_identity(self):
+        self.shared_helper()
+        self.write('proc/125/cgroup', '0::/libpod-' + 'b' * 64 + '.scope\n')
+        self.assertFalse(self.scan(2)['complete'])
+
+    def test_shared_helper_without_inventory(self):
+        self.shared_helper()
+        self.json('podman.json', [])
+        self.assertFalse(self.scan(2)['complete'])
+
+    def test_shared_helper_stale_library(self):
+        self.shared_helper()
+        self.write('usr/lib/helper.so', b'\x7fELFnew-library')
+        old = self.write('old-helper.so', b'\x7fELFold-library')
+        self.write('proc/123/maps', '1000-2000 r-xp 00000000 00:01 999 /usr/lib/helper.so\n')
+        mapping = self.root / 'proc/123/map_files/1000-2000'
+        mapping.unlink()
+        mapping.symlink_to(old)
+        r = self.scan()
+        self.assertEqual(r['warnings'], [])
+        self.assertEqual(r['services'][0]['processes'][0]['files'][0]['path'], '/usr/lib/helper.so')
+
+    def test_unknown_root_warning_identifies_process(self):
+        self.sandbox_helper(matching=False)
+        warning = self.scan(2)['warnings'][0]
+        self.assertIn('PID 123', warning)
+        self.assertIn('/usr/bin/slirp4netns', warning)
+        self.assertIn('example.service/runtime', warning)
+
     def test_absolute_symlink_resolved_in_process_root(self):
         self.process(file='usr/lib/libexample.so', executable=False)
         (self.root / 'usr/lib/libexample.so').unlink()
@@ -433,6 +509,61 @@ class NeedrestartTests(unittest.TestCase):
         self.json(f'run/user/{uid}/.flatpak/42/bwrapinfo.json',
                   {'child-pid': 123, 'mnt-namespace': namespace.stat().st_ino})
         return store, sandbox, uid
+
+    def flatpak_proxy(self):
+        store, sandbox, uid = self.flatpak()
+        cg = (self.root / 'proc/123/cgroup').read_text().strip()[3:]
+        _, old, proxy = self.process(pid=122, deleted=False, changed=False,
+                                     file='usr/bin/xdg-dbus-proxy', cgroup=cg)
+        empty = self.root / 'proxy-root'
+        empty.mkdir()
+        (empty / '.flatpak-info').write_bytes((sandbox / '.flatpak-info').read_bytes())
+        (proxy / 'root').unlink()
+        (proxy / 'root').symlink_to(empty)
+        (proxy / 'test-exe').symlink_to(old)
+        self.json('ownership.json', {})
+        return proxy, empty, uid
+
+    def test_flatpak_proxy_private_root_is_verified(self):
+        self.flatpak_proxy()
+        r = self.scan()
+        self.assertTrue(r['complete'])
+        self.assertEqual(len(r['applications']), 1)
+        self.assertEqual(r['warnings'], [])
+
+    def test_flatpak_proxy_retains_stale_host_library(self):
+        proxy, _, _ = self.flatpak_proxy()
+        self.write('usr/lib/proxy.so', b'\x7fELFnew')
+        old = self.write('old-proxy.so', b'\x7fELFold')
+        self.write('proc/122/maps', '1000-2000 r-xp 00000000 00:01 999 /usr/lib/proxy.so\n')
+        (proxy / 'map_files/1000-2000').unlink()
+        (proxy / 'map_files/1000-2000').symlink_to(old)
+        r = self.scan()
+        self.assertEqual(r['warnings'], [])
+        self.assertEqual(r['services'][0]['kind'], 'flatpak')
+        self.assertEqual(r['services'][0]['processes'][0]['files'][0]['path'], '/usr/lib/proxy.so')
+
+    def test_flatpak_proxy_wrong_metadata_stays_partial(self):
+        _, empty, _ = self.flatpak_proxy()
+        p = empty / '.flatpak-info'
+        p.write_text(p.read_text().replace('app-commit=' + 'a' * 64, 'app-commit=' + 'd' * 64))
+        self.assertFalse(self.scan(2)['complete'])
+
+    def test_flatpak_proxy_wrong_scope_stays_partial(self):
+        self.flatpak_proxy()
+        self.write('proc/122/cgroup', '0::/user.slice/user-1000.slice/app-flatpak-other-42.scope\n')
+        self.assertFalse(self.scan(2)['complete'])
+
+    def test_flatpak_proxy_wrong_executable_stays_partial(self):
+        proxy, _, _ = self.flatpak_proxy()
+        (proxy / 'test-exe').unlink()
+        (proxy / 'test-exe').symlink_to(self.write('other-proxy', b'\x7fELFother'))
+        self.assertFalse(self.scan(2)['complete'])
+
+    def test_flatpak_proxy_missing_child_stays_partial(self):
+        _, _, uid = self.flatpak_proxy()
+        self.json(f'run/user/{uid}/.flatpak/42/bwrapinfo.json', {'child-pid': 999})
+        self.assertFalse(self.scan(2)['complete'])
 
     def test_flatpak_current_and_private_environment_not_reported(self):
         self.flatpak()
