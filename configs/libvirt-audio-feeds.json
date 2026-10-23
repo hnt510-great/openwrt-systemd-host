@@ -1,0 +1,6 @@
+{
+  "packages": {
+    "base": "be12b33a2b473f50d3c0da0c1c581073a635d074",
+    "patch": "patches/feeds/0022-packages-qemu-pipewire.patch"
+  }
+}

@@ -4,9 +4,8 @@
  
          self.skip_default_console = False
          self.skip_default_channel = False
--        self.skip_default_sound = False
+         self.skip_default_sound = False
 -        self.skip_default_usbredir = False
-+        self.skip_default_sound = self.conn.is_qemu() and not self.conn.is_remote()
 +        self.skip_default_usbredir = self.conn.is_qemu() and not self.conn.is_remote()
          self.skip_default_graphics = False
          self.skip_default_rng = False

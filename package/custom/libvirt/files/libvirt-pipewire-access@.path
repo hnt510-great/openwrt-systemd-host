@@ -1,0 +1,10 @@
+[Unit]
+Description=Watch PipeWire socket permissions for user %i
+Wants=libvirt-pipewire-access@%i.service
+
+[Path]
+PathChanged=/run/user/%i
+Unit=libvirt-pipewire-access@%i.service
+
+[Install]
+WantedBy=multi-user.target

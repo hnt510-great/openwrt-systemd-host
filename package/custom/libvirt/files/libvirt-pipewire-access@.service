@@ -1,0 +1,8 @@
+[Unit]
+Description=Grant libvirt QEMU access to user %i PipeWire
+# A desktop login creates several runtime sockets in a short burst.
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/libvirt-pipewire-access %i

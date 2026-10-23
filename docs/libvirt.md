@@ -138,7 +138,7 @@ virt-install --connect qemu:///system --name linux-spice \
   --memory 1024 --vcpus 2 --cpu host-passthrough --osinfo generic \
   --import --disk path=/srv/libvirt/images/linux.qcow2,format=qcow2,bus=virtio \
   --network bridge=br-lan,model=virtio \
-  --graphics spice,listen=none --video virtio --noautoconsole
+  --graphics spice,listen=none --video virtio --sound ich9 --noautoconsole
 ```
 
 For explicit OpenGL use `--graphics spice,listen=none,gl.enable=yes,gl.rendernode=/dev/dri/renderD128`
@@ -163,3 +163,78 @@ renderer check in the guest, for example `glxinfo -B` in an X11 session or
 `eglinfo`/`wflinfo` for EGL/Wayland. A renderer containing softpipe/llvmpipe is
 software rendering. Nested VirtIO/VirGL results do not certify physical Intel
 GPU performance. No PCI passthrough or Vulkan support is added here.
+
+## Virtual machine audio
+
+Both graphics examples include an ICH9 HDA sound card and an explicit SPICE
+audio backend. Guest sound drivers must be installed. With a connected
+virt-manager/SPICE viewer, playback and recording travel through that viewer.
+On this desktop its GStreamer Pulse plugin connects to `pipewire-pulse`.
+SPICE GTK declares its audio conversion, resampling, app, autodetection and
+Pulse plugin dependencies directly. The local virt-manager/virt-install
+defaults also create a sound card for new SPICE guests; existing definitions
+are unchanged.
+The viewer's user needs [desktop audio](desktop-audio.md) enabled. A remote
+SPICE viewer uses the remote client's audio devices. Closing the viewer stops
+this audio route; no native QEMU PipeWire backend is needed for SPICE audio.
+
+### Direct host PipeWire audio (optional)
+
+Merge `configs/libvirt-pipewire.config` into a copy of the existing build
+configuration, normalize it with `make defconfig`, and rebuild QEMU and
+libvirt. `QEMU_AUDIO_PIPEWIRE` defaults to disabled and adds `libpipewire` to
+QEMU when enabled. It does not change the SPICE default or existing VM XML.
+The packages feed change is exported in `configs/libvirt-audio-feeds.json`.
+
+After installing the rebuilt packages, enroll the chosen desktop account with
+`desktop-audio-setup USER`. As root, enable access for its numeric UID:
+
+```sh
+audio_uid=$(id -u USER)
+systemctl enable --now "libvirt-pipewire-access@$audio_uid.path"
+systemctl start "libvirt-pipewire-access@$audio_uid.service"
+```
+
+The opt-in path unit reapplies an execute ACL on that user's runtime directory
+and a read/write ACL on its `pipewire-0` socket after directory/socket creation
+or recreation. File operations run as the audio user, not root. Other runtime
+sockets do not receive ACLs. This grants **all VMs running as libvirt-qemu**
+access to that user's PipeWire server, including playback and capture. Use
+SPICE when separate viewer identities or client-side audio are required.
+The unit is not enabled automatically, and it does not start an audio server.
+
+Stop the selected VM before changing its devices. Keep its existing graphics
+and video configuration and add or replace these elements under `<devices>`:
+
+```xml
+<sound model='ich9'><audio id='1'/></sound>
+<audio id='1' type='pipewire' runtimeDir='/run/user/1000'/>
+```
+
+Replace `1000` with `audio_uid`. A complete new-VM example is installed as
+`/usr/share/libvirt/examples/openwrt-graphics-pipewire-vm.xml`; adjust its UID,
+disk path, name and network before defining it. Direct audio remains available
+when the viewer closes, while the desktop user's PipeWire server is running.
+It does not enable audio in a guest without a sound driver, or during recovery.
+For `qemu:///session` under the same desktop user, no cross-user ACL is needed;
+session networking and disk access must be configured separately.
+
+Verify the installed QEMU lists `pipewire` in `qemu-system-x86_64 -audiodev help`,
+check `systemctl status libvirt-pipewire-access@UID.path` and the matching
+service journal, then test guest playback and recording. `getfacl` on the
+runtime directory and socket should show only the explicit libvirt-qemu grant.
+Test again after restarting the user's PipeWire service and after reboot.
+Audio content testing is required; a listed backend alone proves no playback.
+
+To revoke access, first stop VMs using this backend, then run as root:
+
+```sh
+systemctl disable --now "libvirt-pipewire-access@$audio_uid.path"
+systemctl stop "libvirt-pipewire-access@$audio_uid.service"
+/usr/libexec/libvirt-pipewire-access "$audio_uid" revoke
+```
+
+Switch affected VMs back to `<audio id='1' type='spice'/>` before starting them.
+
+Build and disposable-VM results are recorded in
+[libvirt-audio-validation.md](libvirt-audio-validation.md).

@@ -101,5 +101,7 @@ codec availability inside a Flatpak still depends on its own runtime.
 
 Recording covers local microphones and RDP microphone redirection. The VNC SSH
 companion and Sunshine provide remote playback. Bluetooth, JACK, surround
-routing, direct QEMU-to-PipeWire audio and procd-recovery audio services are not
-part of this integration. The existing recovery desktop remains available.
+routing and procd-recovery audio services are not part of this integration.
+Optional [direct QEMU-to-PipeWire audio](libvirt.md#direct-host-pipewire-audio-optional)
+has a separate build switch and per-user access setup. SPICE console audio uses
+the viewer's existing Pulse compatibility path. The recovery desktop remains available.

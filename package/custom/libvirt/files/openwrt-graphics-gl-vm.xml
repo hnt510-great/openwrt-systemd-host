@@ -28,6 +28,8 @@
         <acceleration accel3d='yes'/>
       </model>
     </video>
+    <sound model='ich9'><audio id='1'/></sound>
+    <audio id='1' type='spice'/>
     <serial type='pty'><target port='0'/></serial>
     <console type='pty'><target type='serial' port='0'/></console>
   </devices>

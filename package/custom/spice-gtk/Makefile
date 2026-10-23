@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=spice-gtk
 PKG_VERSION:=0.41
-PKG_RELEASE:=2
+PKG_RELEASE:=3
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=https://www.spice-space.org/download/gtk
 PKG_HASH:=d8f8b5cbea9184702eeb8cc276a67d72acdb6e36e7c73349fb8445e5bca0969f
@@ -35,7 +35,8 @@ define Package/spice-gtk
   CATEGORY:=Libraries
   TITLE:=SPICE GTK3 Wayland console with OpenGL and Python metadata
   URL:=https://www.spice-space.org/
-  DEPENDS:=@TARGET_x86_64 @USE_GLIBC +libgtk3 +libepoxy +libwayland +wayland-protocols +pixman +libopenssl +libjpeg +zlib +json-glib +libgst1app +libgst1audio +libgst1video +libgstreamer1
+  DEPENDS:=@TARGET_x86_64 @USE_GLIBC +libgtk3 +libepoxy +libwayland +wayland-protocols +pixman +libopenssl +libjpeg +zlib +json-glib +libgst1app +libgst1audio +libgst1video +libgstreamer1 \
+	+gst1-mod-app +gst1-mod-audioconvert +gst1-mod-audioresample +gst1-mod-autodetect +gst1-mod-pulse
 endef
 
 define Build/Prepare

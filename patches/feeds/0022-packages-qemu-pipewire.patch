@@ -1,0 +1,59 @@
+diff --git a/utils/qemu/Makefile b/utils/qemu/Makefile
+index c1db906d3..51f9a195a 100644
+--- a/utils/qemu/Makefile
++++ b/utils/qemu/Makefile
+@@ -10,7 +10,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=qemu
+ PKG_VERSION:=11.1.1
+-PKG_RELEASE:=3
++PKG_RELEASE:=4
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://download.qemu.org/
+ PKG_HASH:=079ffbff8a7111bbc89022107cbabf3bbfd614d5fc9d7cc675991196aca12482
+@@ -199,6 +199,7 @@ define qemu-target
+ 	+QEMU_UI_VNC_JPEG:libjpeg \
+ 	+QEMU_UI_VNC_SASL:libsasl2 \
+ 	+QEMU_UI_SPICE:libspice-server \
++	+QEMU_AUDIO_PIPEWIRE:libpipewire \
+ 	+QEMU_OPENGL:libepoxy +QEMU_OPENGL:libmesa \
+ 	+QEMU_VIRGLRENDERER:virglrenderer \
+ 	+QEMU_DEV_USB:libusb-1.0 \
+@@ -292,6 +293,20 @@ config QEMU_VIRGLRENDERER
+ 	depends on HAVE_MESA
+ 	select QEMU_OPENGL
+ 
++endmenu
++
++# Keep library prerequisites out of the QEMU package guard, as above.
++menu "QEMU audio configuration"
++
++config QEMU_AUDIO_PIPEWIRE
++	bool "QEMU native PipeWire audio support"
++	default n
++	depends on TARGET_x86_64 && USE_GLIBC && OPENWRT_SYSTEMD
++	help
++	  Connect guest sound devices directly to a host PipeWire server.
++	  Configure the audio backend and runtime directory per virtual machine.
++	  SPICE console audio works independently of this option.
++
+ endmenu
+ endef
+ 
+@@ -300,6 +315,7 @@ PKG_CONFIG_DEPENDS += \
+ 	CONFIG_QEMU_UI_VNC_JPEG \
+ 	CONFIG_QEMU_UI_VNC_SASL \
+ 	CONFIG_QEMU_UI_SPICE \
++	CONFIG_QEMU_AUDIO_PIPEWIRE \
+ 	CONFIG_QEMU_OPENGL \
+ 	CONFIG_QEMU_VIRGLRENDERER \
+ 	CONFIG_QEMU_DEV_USB \
+@@ -463,7 +479,7 @@ CONFIGURE_ARGS +=			\
+ 	--disable-selinux		\
+ 	--disable-oss			\
+ 	--disable-alsa			\
+-	--disable-pipewire		\
++	--$(if $(CONFIG_QEMU_AUDIO_PIPEWIRE),enable,disable)-pipewire	\
+ 	--disable-pa			\
+ 	--disable-vduse-blk-export	\
+ 	--disable-libdw			\
