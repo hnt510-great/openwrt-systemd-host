@@ -2,36 +2,41 @@
 
 ## Project Structure & Module Organization
 
-This OpenWrt tree includes an experimental x86_64/glibc/APK native-systemd variant. Build rules live in `Makefile`, `rules.mk`, and `include/`; target/kernel definitions are in `target/linux/`. Packages live in `package/`, including local additions in `package/custom/`. Independent feed repositories live in `feeds/`, linked through `package/feeds/`.
-
-Use `tools/` for host tools, `toolchain/` for cross-compilers, `files/` for rootfs overlays, `configs/` for configuration snapshots and feed manifests, `docs/` for feature/validation guides, and `scripts/tests/` for helper tests. Treat `bin/`, `build_dir/`, `staging_dir/`, `tmp/`, and `dl/` as generated/downloaded artifacts.
+This customized OpenWrt tree includes x86_64/glibc, native systemd, desktop integration, and APK packaging. `package/` contains recipes; local packages live in `package/custom/`, with integration assets in `files/`, code in `src/`, and upstream changes in numbered `patches/`. `target/`, `toolchain/`, and `tools/` provide platform and build support. `feeds/` contains independent repositories; `package/feeds/` contains generated links. Root `files/` supplies image overlays. `configs/` holds configuration snapshots and feed manifests; `docs/` documents features and validation. Build outputs belong in `bin/`, `build_dir/`, and `staging_dir/`.
 
 ## Build, Test, and Development Commands
 
-Run from the repository root:
+Run commands from the repository root:
 
-- `make prereq`: check host prerequisites.
-- `./scripts/feeds update -a` / `./scripts/feeds install -a`: update feeds and link packages; inspect local feed changes first.
-- `make menuconfig` / `make defconfig`: select and normalize configuration.
-- `scripts/config/conf --fatalrecursive --defconfig=.config -w .config Config.in`: enforce strict Kconfig dependency validation.
-- `make download`: prefetch sources.
-- `make -j12 V=s`: build firmware; adjust parallelism to host capacity.
-- `make package/custom/<name>/compile V=s`: compile a local package; use its actual path for other packages.
+- `./scripts/feeds update -a`: update feeds and custom recipe versions; inspect local changes first.
+- `./scripts/feeds update -i -a`: regenerate indexes without updating upstream recipes.
+- `./scripts/feeds install -a`: populate package links.
+- `make menuconfig` / `make defconfig`: select options / normalize the existing configuration.
+- `make download`: fetch selected sources.
+- `make -j3 V=s`: build the configured firmware with verbose output.
+- `make package/custom/<name>/compile V=s`: build one custom package.
 
-Native-systemd builds require `CONFIG_OPENWRT_SYSTEMD`, x86_64, glibc, and APK; outputs go under `bin/systemd/`. See `docs/systemd.md`. Publication is a separate action: follow `docs/lan-apk-feeds.md` and `docs/kernel-upgrade.md`.
+Preserve the existing `.config`; use `docs/local-build.md` for configuration and feed reconstruction.
 
 ## Coding Style & Naming Conventions
 
-Follow nearby OpenWrt Makefiles: define `PKG_*` metadata, use package includes and `BuildPackage`, tabs in recipes, and `$(INSTALL_DIR)`, `$(INSTALL_BIN)`, and `$(INSTALL_DATA)`. Name patches `patches/001-description.patch`. Keep shell POSIX-compatible unless the script requires Bash; follow existing Python style. Use `scripts/checkpatch.pl` for relevant C/kernel patches.
+Follow neighboring code. Use tabs for Makefile recipes and existing C, shell, and LuCI indentation; use four spaces in Python. Prefer lowercase, hyphenated package names and `001-description.patch` patch filenames. Keep durable changes outside generated build directories. Register every custom recipe in `configs/custom-package-updates.json`. Run `git diff --check`; use `scripts/checkpatch.pl` for applicable C patches.
 
 ## Testing Guidelines
 
-Start with the affected package build. For kernel changes, run `make target/linux/compile V=s` and rebuild the image. Python helpers use `unittest`; run relevant `scripts/tests/test-*.py` files directly, for example `python3 scripts/tests/test-scheduled-maintenance.py`. Report skipped prerequisites. For runtime changes, boot the exact image and distinguish QEMU results from physical-device validation.
+Tests live in `scripts/tests/`: Python `unittest`, Node assertions, and guest smoke scripts. Name focused tests `test-<feature>.py` or `.js`. Examples:
+
+```sh
+python3 scripts/tests/test-custom-package-updates.py
+node scripts/tests/test-luci-needrestart.js
+```
+
+Run relevant tests and package builds. Follow feature-specific `docs/*-validation.md` for guest checks. Report source checks, VM results, and physical-device validation separately; no repository-wide coverage threshold is defined.
 
 ## Commit & Pull Request Guidelines
 
-Use `area: imperative summary`, such as `build: preserve feed fixes for scheduled Kconfig validation`. Keep main-tree and feed commits separate. Follow `.github/pull_request_template`; describe affected packages/targets, configuration impact, linked issues, and validation.
+Use the history's `component: imperative description` convention, such as `feeds: register new custom packages`. Keep commits focused and feed histories separate. PRs should explain behavior, affected configuration, and validation; link relevant issues and include screenshots for UI changes.
 
-## Agent-Specific Instructions
+## Workspace & Security
 
-Preserve unrelated changes, `.config`, overlays, and feed histories; never broadly reset, clean, or stage. Do not edit generated directories or commit credentials/private keys. Keep host/target dependencies separate. Retain UCI/procd service ownership and the procd-recovery flashing path. Deploy only signed APKs matching the exact kernel ABI.
+Preserve unrelated edits, stashes, overlays, and nested repositories. Stage explicit paths. Exclude credentials, signing keys, backups, and generated artifacts. Treat feed publication and device deployment as separate, explicitly authorized operations.
