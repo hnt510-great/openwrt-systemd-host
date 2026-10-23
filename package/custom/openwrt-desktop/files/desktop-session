@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-[ "$#" = 5 ] || [ "$#" = 6 ] || [ "$#" = 9 ] || [ "$#" = 10 ] || exit 1
+[ "$#" = 5 ] || [ "$#" = 6 ] || [ "$#" = 9 ] || [ "$#" = 10 ] || [ "$#" = 11 ] || exit 1
 output="$1"
 address="$2"
 export OPENWRT_DESKTOP_LAN_ADDRESS="$address"
@@ -12,6 +12,14 @@ rdp_enabled="${7:-0}"
 rdp_port="${8:-3389}"
 rdp_refresh_rate="${9:-30}"
 mode="${10:-preferred}"
+force_composition="${11:-1}"
+# KMS capture cannot combine client buffers on separate hardware planes.
+# Weston still uses the selected renderer (including GL) for composition.
+case "$force_composition" in
+	1) export WESTON_FORCE_RENDERER=1 ;;
+	0) unset WESTON_FORCE_RENDERER ;;
+	*) echo 'Invalid desktop force_composition value' >&2; exit 1 ;;
+esac
 . /usr/libexec/desktop-common.sh
 desktop_validate_mode "$mode"
 backends=drm,vnc

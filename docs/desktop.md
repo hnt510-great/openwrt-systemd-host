@@ -180,3 +180,26 @@ software fallback. To return to software composition, set the option to
 in the tested Intel setup; disable SPICE OpenGL when using it. Configurations
 without `renderer` use GL. The option is passed identically by systemd and
 procd service paths.
+
+## Complete-frame composition for Sunshine
+
+The desktop defaults to `option force_composition '1'`, including existing
+configurations without this option. The session exports Weston's built-in
+`WESTON_FORCE_RENDERER=1` so client buffers are composed into the desktop
+instead of assigned directly to hardware planes. This prevents windows such
+as Firefox from disappearing or appearing black in Sunshine KMS capture.
+GL composition, Firefox hardware video decoding and Sunshine hardware encoding
+remain available. Hardware cursor planes are unaffected.
+
+To apply the setting explicitly to an existing desktop:
+
+```sh
+uci set desktop.main.force_composition='1'
+uci commit desktop
+/etc/init.d/desktop restart
+```
+
+Restarting the desktop closes its applications and interrupts remote desktop
+connections. Set `force_composition` to `0` and restart to restore client-buffer
+scanout; the session unsets `WESTON_FORCE_RENDERER` because Weston treats any
+value, including `0`, as enabled. Both systemd and procd use the same setting.

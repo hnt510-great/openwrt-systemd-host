@@ -52,7 +52,12 @@ class DesktopRdpConfiguration(unittest.TestCase):
             tmp = Path(directory)
             (tmp / 'alice.sam').write_text('test fixture\n')
             stub = tmp / 'launch'
-            stub.write_text('#!/usr/bin/env python3\nimport json,sys\nprint(json.dumps(sys.argv[1:]))\n')
+            stub.write_text(
+                '#!/usr/bin/env python3\nimport json,os,sys\n'
+                'assert os.environ.get("WESTON_FORCE_RENDERER", "") == '
+                'os.environ["EXPECT_FORCE_RENDERER"]\n'
+                'print(json.dumps(sys.argv[1:]))\n'
+            )
             stub.chmod(0o755)
             script = (FILES / 'desktop-session').read_text()
             script = script.replace('/usr/libexec/desktop-common.sh', str(FILES / 'desktop-common.sh'))
@@ -65,7 +70,8 @@ class DesktopRdpConfiguration(unittest.TestCase):
                 script = script.replace('/usr/libexec/' + name, str(tmp / name))
             session = tmp / 'session'
             session.write_text(script)
-            env = dict(os.environ, HOME=str(tmp), XDG_RUNTIME_DIR=str(tmp), USER='alice')
+            env = dict(os.environ, HOME=str(tmp), XDG_RUNTIME_DIR=str(tmp), USER='alice',
+                       WESTON_FORCE_RENDERER='inherited', EXPECT_FORCE_RENDERER='1')
             for renderer, enabled, mode in [('pixman', '0', 'preferred'),
                                             ('pixman', '1', '1280x720'),
                                             ('gl', '0', 'preferred'),
@@ -98,6 +104,22 @@ class DesktopRdpConfiguration(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn('--renderer=gl', json.loads(result.stdout))
+
+            for force, expected in [('0', ''), ('1', '1'), ('invalid', None)]:
+                with self.subTest(force_composition=force):
+                    result = subprocess.run(
+                        ['sh', str(session), 'HDMI-A-1', '192.0.2.1', '5901', 'key', 'cert',
+                         'gl', '0', '3390', '30', 'preferred', force],
+                        env=dict(env, EXPECT_FORCE_RENDERER=expected or ''),
+                        capture_output=True, text=True,
+                    )
+                    if expected is None:
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertEqual(result.stdout, '')
+                        self.assertIn('Invalid desktop force_composition', result.stderr)
+                    else:
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertIn('--renderer=gl', json.loads(result.stdout))
 
 
 if __name__ == '__main__':
