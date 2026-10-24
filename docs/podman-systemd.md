@@ -178,13 +178,24 @@ loginctl disable-linger alice
 A lingering manager starts `podman.socket`, `podman-restart.service`,
 `podman-auto-update.timer` and health check timers without an SSH login.
 Containers with `restart: always` / `restart: unless-stopped` are started by
-`podman-restart.service`. `openwrt-podman-rootless` installs
-`/etc/modules-boot.d/30-podman-tun`, so procd's early module loader creates
-`/dev/net/tun` before the user manager starts; a boot-time rootless container
-on the default slirp4netns network would otherwise fail with
-`open("/dev/net/tun"): No such file or directory`. Network availability is not
-strictly ordered against the user manager; applications that need WAN at
-startup should retry, or use a Quadlet unit that waits for the network.
+`podman-restart.service`. On native systemd builds, `openwrt-podman-rootless`
+installs `podman-rootless-prepare.service` and a `user@.service` drop-in. Each
+user manager waits for the system service to load `tun`, check the character
+device, and grant enrolled users direct UID ACLs before starting user units.
+Pasta drops supplementary groups during isolation, so `root:podman` mode
+`0660` alone is insufficient. Updates are locked; unrelated ACLs are retained
+and grants managed by this helper are revoked when a user leaves the group.
+
+The dependency uses `Wants` and ordering, rather than requiring success:
+a missing module produces an explicit failed preparation unit without blocking
+ordinary login. Container startup still fails normally if TUN is unavailable.
+`/etc/modules-boot.d/30-podman-tun` and the legacy boot permission hook remain
+for procd recovery. Early autoload alone cannot guarantee device and ACL
+readiness before lingering user managers, especially with managed kernels.
+
+This barrier covers TUN, not WAN readiness. Applications that need WAN at
+startup should retry or use appropriate network readiness checks. The generic
+`network-online.target` alone does not establish that PPPoE or DNS is usable.
 
 ## Rootful API (opt-in)
 
@@ -243,3 +254,6 @@ commit are recorded in `configs/podman-systemd-feeds.json`.
 See the [2026-10-18 validation record](podman-systemd-validation.md) for the
 VM checks, including the Compose health-check reproduction and the procd
 recovery comparison.
+
+The TUN startup and D-Bus ownership repair is covered by
+[boot readiness validation](boot-readiness-validation.md).

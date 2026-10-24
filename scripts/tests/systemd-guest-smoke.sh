@@ -12,6 +12,7 @@ ubus call system board >/dev/null
 ubus call network.interface.lan status | grep -q '"up": true'
 test -S /dev/log
 test -S /run/dbus/system_bus_socket
+/usr/libexec/openwrt-dbus-ready --check
 grep -q memory /sys/fs/cgroup/cgroup.controllers
 grep -q pids /sys/fs/cgroup/cgroup.controllers
 ! grep -q '^[^#[:space:]]' /etc/apk/repositories.d/distfeeds.list

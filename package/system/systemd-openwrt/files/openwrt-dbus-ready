@@ -1,8 +1,37 @@
 #!/bin/sh
-count=0
-while [ "$count" -lt 30 ]; do
-	[ -S /run/dbus/system_bus_socket ] && exit 0
-	count=$((count + 1))
-	sleep 1
+# Startup waits for a usable native bus; --check is a read-only live audit.
+set -eu
+case "${1:-}" in
+	'') attempts=10; audit=0 ;;
+	--check) attempts=1; audit=1 ;;
+	*) echo 'Usage: openwrt-dbus-ready [--check]' >&2; exit 1 ;;
+esac
+check_bus() {
+	reason='system bus socket is absent'
+	[ -S /run/dbus/system_bus_socket ] || return 1
+	expected=${MAINPID:-$(systemctl show dbus.service -p MainPID --value)}
+	reason='native dbus.service has no main process'
+	case "$expected" in ''|0|*[!0-9]*) return 1 ;; esac
+	reason='native bus lacks systemd activation'
+	tr '\000' '\n' < "/proc/$expected/cmdline" | grep -qx -- --systemd-activation || return 1
+	reason='system bus socket reaches a different daemon'
+	actual=$(busctl --system --timeout=1 --auto-start=no call org.freedesktop.DBus \
+		/org/freedesktop/DBus org.freedesktop.DBus GetConnectionUnixProcessID \
+		s org.freedesktop.DBus 2>/dev/null) || return 1
+	[ "$actual" = "u $expected" ] || return 1
+	# PID 1 reconnects after dbus.service finishes starting. Requiring that
+	# connection in ExecStartPost creates a readiness cycle after a restart.
+	[ "$audit" = 1 ] || return 0
+	reason='PID 1 is not connected to the system bus'
+	actual=$(busctl --system --timeout=1 --auto-start=no call org.freedesktop.DBus \
+		/org/freedesktop/DBus org.freedesktop.DBus GetConnectionUnixProcessID \
+		s org.freedesktop.systemd1 2>/dev/null) || return 1
+	[ "$actual" = 'u 1' ]
+}
+while [ "$attempts" -gt 0 ]; do
+	check_bus && exit 0
+	attempts=$((attempts - 1))
+	[ "$attempts" = 0 ] || sleep 1
 done
+echo "Native D-Bus readiness failed: $reason" >&2
 exit 1

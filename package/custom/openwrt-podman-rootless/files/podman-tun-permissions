@@ -1,7 +1,26 @@
 #!/bin/sh
 set -eu
-[ -c /dev/net/tun ] || exit 0
+case "${1:-}" in
+	'') strict=0 ;;
+	--require-device) strict=1 ;;
+	*) echo 'Usage: podman-tun-permissions [--require-device]' >&2; exit 1 ;;
+esac
+if [ ! -c /dev/net/tun ]; then
+	[ "$strict" = 0 ] && exit 0
+	echo 'Podman TUN preparation failed: /dev/net/tun is not a character device' >&2
+	exit 1
+fi
 grep -q '^podman:' /etc/group || exit 0
+# The legacy boot hook and account enrollment may run concurrently with the
+# native preparation unit. Serialize ACL changes and the managed-UID ledger.
+if [ -f /usr/lib/systemd/user/podman.service ]; then
+	umask 077
+	exec 9>/run/podman-tun-permissions.lock
+	flock -w 20 9 || {
+		echo 'Podman TUN preparation failed: permission update lock timed out' >&2
+		exit 1
+	}
+fi
 chgrp podman /dev/net/tun
 chmod 0660 /dev/net/tun
 # pasta drops supplementary groups during isolation. Keep the device restricted

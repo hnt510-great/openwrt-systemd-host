@@ -1,0 +1,9 @@
+[Unit]
+Description=Prepare TUN and enrolled-user access before user containers
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/modprobe tun
+ExecStart=/usr/libexec/podman-tun-permissions --require-device
+RemainAfterExit=yes
+TimeoutStartSec=30
