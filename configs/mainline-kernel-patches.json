@@ -2206,6 +2206,17 @@
       "ported_sha256": "b7aee52621ecef0a02fe75c69220c5fe6bf0b88dc4388c227c0693ac4a2831fb"
     },
     {
+      "source": "target/linux/generic/pending-6.18/344-MIPS-lib-use-maddu-and-prefetch-in-csum_partial.patch",
+      "files": [
+        "arch/mips/lib/csum_partial.S"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt 818516b92c after the generation-30 audit; Linux 7.3 lacks the optimization and the unchanged patch applies with zero fuzz. MIPS-only; no x86 runtime effect.",
+      "source_sha256": "265c903cd0684a6da901d0327a388000cefc32010b372ae8d035474c81839239",
+      "ported": "target/linux/generic/pending-7.3/344-MIPS-lib-use-maddu-and-prefetch-in-csum_partial.patch",
+      "ported_sha256": "265c903cd0684a6da901d0327a388000cefc32010b372ae8d035474c81839239"
+    },
+    {
       "source": "target/linux/generic/pending-6.18/350-mips-kernel-fix-detect_memory_region-function.patch",
       "files": [
         "arch/mips/include/asm/bootinfo.h",

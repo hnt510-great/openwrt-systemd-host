@@ -1,13 +1,14 @@
 # Review of the 6.18 patch stack against Linux 7.3
 
-Reviewed 2026-10-24. The current 481 source patches and all existing ported-patch
-hashes match the generation-30 baseline. No incoming source-patch changes were
-found. The review found three concrete optional-feature problems; the complete
-6.18 stack is not a drop-in Linux 7.3 patch stack.
+Initial review completed 2026-10-24. Its 481 source patches and all existing
+ported-patch hashes matched the generation-30 baseline. No incoming source-patch
+changes were found at that point. The review found three concrete optional-feature
+problems; the complete 6.18 stack is not a drop-in Linux 7.3 patch stack.
 
 All three affected options are disabled in the validated generation-30 kernel.
-This review changes the audit metadata and documentation, not kernel patches,
-signed APKs, published snapshots, or router state.
+The initial review changed the audit metadata and documentation, not kernel
+patches, signed APKs, published snapshots, or router state. The later source
+synchronization is recorded at the end of this report.
 
 ## Findings
 
@@ -125,3 +126,72 @@ files and generation-30 artifact hashes remain unchanged. These findings need
 fixes and configuration-specific tests before those optional features are
 advertised as supported. No physical hardware test, installation, publication,
 or reboot was performed as part of this review.
+
+## Upstream synchronization after generation 30, 2026-10-24
+
+Merged OpenWrt through `6db25ee835`, including 15 incoming commits since the
+previous main-tree merge. Compared the complete incoming file list and every
+generic/x86 6.18 patch against the audit registry, rather than inferring
+inclusion from patch filenames.
+
+Commit `818516b92c` adds
+`generic/pending-6.18/344-MIPS-lib-use-maddu-and-prefetch-in-csum_partial.patch`
+and removes the older Realtek-specific checksum patch that it replaces. Linux
+7.3 does not contain the new checksum loop. The patch applies unchanged, with
+zero fuzz or offsets, to the verified Linux 7.3 archive. It is now carried in
+`generic/pending-7.3/` with identical source/ported SHA256 values in the registry.
+It changes MIPS assembly only and does not change x86 checksum code.
+
+The incoming mvebu Wi-Fi PCIe reset patches and Realtek PCS source changes
+remain in their board-specific 6.18 trees. Those boards still select 6.18;
+the local 7.3 port selects only x86/64, so copying those board-specific files
+into the x86 patch stack would not be appropriate. No other generic or x86
+6.18 patch was added, modified, or removed by this synchronization.
+
+The registry now accounts for all 482 generic/x86 6.18 source patches, with
+no missing entries or stale source/ported hashes. The additional carried MIPS
+patch raises the full applied 7.3 stack from 287 to 288 patches. All 288 apply
+with zero fuzz to the verified Linux 7.3 archive plus the current source
+overlays. Existing generation-30 patch files remain unchanged.
+
+Checkpatch reports the new patch's inherited `Assisted-by: LLM` trailer as
+nonstandard and lacking an email address. The carried copy preserves upstream
+provenance byte for byte; the diagnostic concerns that trailer.
+
+The packages and video feed merges preserve the local native-systemd,
+rootless-storage, desktop, and audio changes while adopting upstream updates.
+Podman's new `install.bin` build target does not install systemd units, so
+the merged recipe also invokes `install.systemd` for native-systemd builds.
+The verified Podman 6.1.2 source accepts the existing rootless-overlay patch
+with zero fuzz, and its real `install.systemd` target stages all unit files
+referenced by the recipe in an isolated destination. Mesa now uses upstream's
+packaged host Python build dependencies instead of a private pip requirements
+file; the local media configuration remains intact.
+
+Strict `conf --fatalrecursive` initially caught a cycle after upstream switched
+fwknop to `gnupg2-utils`. That package's plain `gnupg2` dependency propagated
+through `luci-app-fwknopd` and its package-controlled `FWKNOPD_GPG` option.
+Selecting the required runtime with `+gnupg2` removes that cycle. The strict
+check now passes against the regenerated package metadata, writing its result
+to an isolated file and preserving the working `.config`.
+
+All nine feed indexes are nonempty, with no broken generated package links.
+Removed only the stale generated `gnupg` and `vnstat` links after upstream
+removed those recipes. The mainline updater, kernel-input, metadata/Kconfig,
+Podman native-storage, desktop-audio, LuCI Podman, and LuCI QEMU Python suites
+pass all 55 tests; both LuCI JavaScript view checks also pass. Preservation
+checks cover 65 pre-existing files, stashes in all 12 repositories, retained
+local commit ancestry, and unchanged unrelated nested checkout heads/status.
+The custom updater advanced libostree from 2026.4 to 2026.5; that recipe change
+is left uncommitted for review.
+
+Package scanning still reports missing-dependency warnings for bmx7 packages,
+`kmod-echo`, and the existing `libubus`/`json-c` build-dependency names. Incoming
+packages-feed patch files also retain upstream whitespace diagnostics; the
+locally resolved recipe changes pass their focused whitespace checks.
+
+This synchronization validates source integration and patch application.
+It does not rebuild firmware or APKs, prove MIPS execution, or replace the
+generation-30 VM and hardware evidence. The three optional-feature findings
+above remain open. No feed publication, physical installation, or reboot is
+part of this synchronization.
