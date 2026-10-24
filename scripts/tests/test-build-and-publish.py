@@ -273,9 +273,12 @@ class BuildPublicationTests(unittest.TestCase):
         previous = (active / (name + '-3.0.5-r7.apk')).read_bytes()
         self.make_package(name, '3.0.5-r7', content='rebuilt policy tool')
         before = self.aliases()
-        with self.assertRaisesRegex(ValueError, 'bump this support package PKG_RELEASE'):
+        with self.assertRaisesRegex(ValueError, 'bump.*PKG_RELEASE'):
             B.publish(self.tree, self.data)
         self.assertEqual(self.aliases(), before)
+        # A real package rebuild removes its superseded local output; the
+        # immutable historical copy remains in the published snapshot.
+        (self.base / (name + '-3.0.5-r7.apk')).unlink()
         self.make_package(name, '3.0.5-r8', content='rebuilt policy tool')
         B.publish(self.tree, self.data)
         self.assertEqual((active / (name + '-3.0.5-r7.apk')).read_bytes(), previous)

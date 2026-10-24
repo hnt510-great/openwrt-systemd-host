@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "loader_paths": {
+    "firefox-esr-bin": ["/usr/lib/firefox-esr"],
+    "samba4-libs": ["/usr/lib/samba"]
+  },
+  "reasons": {
+    "firefox-esr-bin": "Mozilla's bootstrap/mozglue preloads the bundled runtime from the application directory. This directory is private to Firefox and never provides global so: capabilities.",
+    "samba4-libs": "Samba's private idmap modules are dlopen-loaded by Samba hosts with the /usr/lib/samba inherited loader path; these libraries never provide global so: capabilities."
+  }
+}

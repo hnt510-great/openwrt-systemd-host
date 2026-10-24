@@ -97,9 +97,9 @@ ifneq ($(wildcard $(PKG_BUILD_DIR)/.source_dir),)
 endif
 
 include $(INCLUDE_DIR)/quilt.mk
+-include $(TOPDIR)/configs/apk-elf-rebuilds.mk
 
-find_library_dependencies = \
-	$(wildcard $(patsubst %,$(STAGING_DIR)/pkginfo/%.version, \
+find_library_dependency_names = \
 		$(filter-out $(BUILD_PACKAGES), $(sort $(foreach dep4, \
 			$(sort $(foreach dep3, \
 				$(sort $(foreach dep2, \
@@ -115,8 +115,10 @@ find_library_dependencies = \
 				$(Package/$(dep3)/depends) $(dep3) \
 			)), \
 			$(Package/$(dep4)/depends) $(dep4) \
-		))) \
-	))
+		)))
+
+find_library_dependencies = $(foreach dep,$(call find_library_dependency_names,$(1)),\
+	$(wildcard $(STAGING_DIR)/pkginfo/$(dep).version $(STAGING_DIR)/pkginfo/$(dep).sonames))
 
 
 # External modules must be rebuilt even when only the generation changes.
@@ -353,6 +355,7 @@ endef
 define BuildPackage
   $(eval $(Package/Default))
   $(eval $(Package/$(1)))
+  $(if $(CONFIG_USE_APK),$(eval VERSION:=$(or $(ELF_REBUILD_$(1)_$(VERSION)),$(VERSION))))
 
   # Add an implicit self-provide. apk can't handle self provides, be it
   # versioned or virtual, so opt for a suffix instead. This allows several

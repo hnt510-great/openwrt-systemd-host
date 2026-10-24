@@ -17,6 +17,52 @@ GEN = '6.18.55-owrt-' + 'b' * 32 + '-r1-g2'
 
 
 class PreflightTests(unittest.TestCase):
+    def test_metadata_migration_preserves_pin_types_tags_and_kernel_pins(self):
+        baseline = {'installed': 'P:libc\nV:1-r1\nC:Q1old\n\nP:app\nV:1-r1\nC:Q1app\n\n',
+                    'world': 'libc=1-r1\napp@lan><Q1app\nother>=2\nkmod-test><Q1kernel\n'}
+        audit = {'migration': {'libc': {'before': '1-r1', 'after': '1-r2'},
+                               'app': {'before': '1-r1', 'after': '1-r2'}},
+                 'package_info': {'libc': {'version': '1-r2'},
+                                  'app': {'version': '1-r2', 'hashes': '00' * 20}}}
+        world, changes = G.migration_world(baseline, {'elf_abi': audit})
+        self.assertIn('libc=1-r2\n', world)
+        self.assertIn('app@lan><Q1' + 'A' * 27 + '=\n', world)
+        self.assertIn('other>=2\nkmod-test><Q1kernel\n', world)
+        self.assertEqual(len(changes), 2)
+        baseline['world'] = 'libc=0-r1\napp\n'
+        self.assertEqual(G.migration_world(baseline, {'elf_abi': audit})[1], [])
+
+    def test_pinned_older_upstream_selects_its_audited_metadata_alternative(self):
+        baseline = {'installed': 'P:engine\nV:5-r7\nC:Q1old\n\n', 'world': 'engine><Q1old\n'}
+        audit = {'migration': {'engine': [{'before': '6-r2', 'after': '6-r3'},
+                                          {'before': '5-r7', 'after': '5-r8'}]},
+                 'package_info': {'engine': {'version': '6-r3', 'hashes': '11' * 32}},
+                 'alternatives': {'engine': {'5-r8': {'version': '5-r8', 'hashes': '00' * 32}}}}
+        world, changes = G.migration_world(baseline, {'elf_abi': audit})
+        self.assertEqual(world, 'engine><Q1' + 'A' * 27 + '=\n')
+        self.assertEqual(len(changes), 1)
+
+    def test_legacy_consumer_is_checked_against_actual_post_upgrade_files(self):
+        machine = {'needed': [], 'soname': 'libprobe.so.1', 'rpath': None,
+                   'runpath': None, 'interpreter': None, 'class': 2, 'machine': 62}
+        old = {'schema': 1, 'files': {'/usr/lib/libprobe.so.1': machine}, 'links': {}}
+        app = {'schema': 1, 'files': {'/usr/bin/legacy-app': {**machine,
+               'needed': ['libprobe.so.1'], 'soname': None}}, 'links': {}}
+        baseline = {'elf': {'library': {'elf': old}, 'legacy-app': {'elf': app}}}
+        new = {'schema': 1, 'version': '2-r1', 'files': {'/usr/lib/libprobe.so.2':
+               {**machine, 'soname': 'libprobe.so.2'}}, 'links': {}}
+        manifest = {'elf_abi': {'package_info': {'library': {'name': 'library', 'version': '2-r1'}},
+                               'inventories': {'library': new}}}
+        simulation = {'plan': {'changes': [{'name': 'library', 'before': '1-r1', 'after': '2-r1'}]}}
+        with self.assertRaisesRegex(ValueError, 'legacy-app.*libprobe.so.1'):
+            G.validate_elf_transition(baseline, manifest, simulation)
+        fixed = {'schema': 1, 'version': '1-r2', 'files': {'/usr/bin/legacy-app':
+                 {**machine, 'needed': ['libprobe.so.2'], 'soname': None}}, 'links': {}}
+        manifest['elf_abi']['inventories']['legacy-app'] = fixed
+        manifest['elf_abi']['package_info']['legacy-app'] = {'name': 'legacy-app', 'version': '1-r2'}
+        simulation['plan']['changes'].append({'name': 'legacy-app', 'before': '1-r1', 'after': '1-r2'})
+        self.assertEqual(G.validate_elf_transition(baseline, manifest, simulation)['elf_files'], 2)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

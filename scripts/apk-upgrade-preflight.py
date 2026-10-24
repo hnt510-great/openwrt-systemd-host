@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Bind a prepared signed release to a fresh, read-only router upgrade check."""
 import hashlib
+import base64
 import importlib.util
 import json
 from pathlib import Path
@@ -12,6 +13,9 @@ TREE = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('apk_migrations', TREE / 'scripts/apk-migrations.py')
 MIGRATIONS = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(MIGRATIONS)
+spec = importlib.util.spec_from_file_location('preflight_elf', TREE / 'scripts/elf-abi.py')
+ELF = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ELF)
 
 
 def digest(path):
@@ -48,7 +52,7 @@ def installed_records(data):
                 folder = value
             elif key == 'R':
                 files.append(folder + '/' + value)
-            elif key in 'PVCDo':
+            elif key in 'PVCDop':
                 info[key] = value
         if 'P' in info:
             info['files'] = files
@@ -141,9 +145,19 @@ with tempfile.TemporaryDirectory(prefix='apk-release-check-') as folder:
  update=subprocess.run(command+['update'],capture_output=True,text=True)
  if update.returncode: print(json.dumps({'returncode':update.returncode,'stdout':update.stdout,'stderr':update.stderr})); sys.exit(0)
  helptext=subprocess.run(['apk','upgrade','--help'],capture_output=True,text=True).stdout
- args=['upgrade','--simulate']; plan=root/'plan.json'
+ # The minimal self-upgrade solver leaves per-name flags in the simulated
+ # database. Ask directly for the complete final transaction, not that early
+ # bootstrap phase, when binding the ELF audit to the transaction plan.
+ args=['upgrade','--simulate','--no-preupgrade']; plan=root/'plan.json'
  if '--plan-json' in helptext: args+=['--plan-json',str(plan)]
- result=subprocess.run(command+args,capture_output=True,text=True)
+ invocation=command+args
+ if request.get('migration_world') is not None:
+  world=root/'migration-world'; world.write_text(request['migration_world'])
+  # Bind only in a private mount namespace; live world/database stay unchanged.
+  invocation=['unshare','--mount','--propagation','private','sh','-c',
+   'mount --bind "$1" /etc/apk/world || exit; shift; exec "$@"',
+   'elf-world-view',str(world),*invocation]
+ result=subprocess.run(invocation,capture_output=True,text=True)
  report={'returncode':result.returncode,'stdout':result.stdout,'stderr':result.stderr}
  if plan.exists(): report['plan']=json.loads(plan.read_text())
  print(json.dumps(report))
@@ -166,7 +180,51 @@ def remote(target, code, request=None):
 
 
 def capture(target):
-    return remote(target, BASELINE)
+    code = BASELINE.replace(' print(json.dumps(result))', ' # Combined baseline is emitted below.') + '\n' + ELF_BASELINE.replace('__ELF_SOURCE__', repr(
+        (TREE / 'scripts/elf-abi.py').read_text())).replace('__ELF_POLICY__', repr(ELF.POLICY))
+    return remote(target, code)
+
+
+ELF_BASELINE = r'''
+import stat
+namespace={'__name__':'remote_elf_inspection','__file__':'/nonexistent/scripts/elf-abi.py'}
+exec(__ELF_SOURCE__,namespace)
+namespace['POLICY']=__ELF_POLICY__
+elf_records={}; identities=[]
+for record in result['installed'].split('\n\n'):
+ name=None; version=None; folder=''; paths=[]; dependencies=[]; provides=[]
+ for line in record.splitlines():
+  if line.startswith('P:'): name=line[2:]
+  elif line.startswith('V:'): version=line[2:]
+  elif line.startswith('D:'): dependencies=line[2:].split()
+  elif line.startswith('p:'): provides=line[2:].split()
+  elif line.startswith('F:'): folder=line[2:]
+  elif line.startswith('R:'): paths.append('/'+folder+'/'+line[2:])
+ if not name: continue
+ inventory={'schema':1,'package':name,'version':version,'files':{},'links':{}}
+ for path in paths:
+  p=pathlib.Path(path); canonical=namespace['canonical'](path)
+  try:
+   before=p.lstat()
+   if stat.S_ISLNK(before.st_mode):
+    inventory['links'][canonical]=namespace['canonical'](os.path.join(os.path.dirname(path),os.readlink(p)))
+   elif stat.S_ISREG(before.st_mode):
+    item=namespace['elf'](p)
+    if item:
+     after=p.lstat()
+     identity=lambda st:(st.st_dev,st.st_ino,st.st_size,st.st_mtime_ns,st.st_ctime_ns)
+     if identity(before)!=identity(after):raise RuntimeError('ELF changed during baseline scan: '+path)
+     inventory['files'][canonical]=item
+     identities.append((canonical,identity(after)))
+  except FileNotFoundError:
+   continue
+ elf_records[name]={'name':name,'version':version,'depends':dependencies,'provides':provides,'elf':inventory}
+if pathlib.Path('/lib/apk/db/installed').read_bytes()!=data['installed']:
+ raise SystemExit('APK database changed during ELF baseline scan')
+result['elf']=elf_records
+result['hashes']['elf']=h(json.dumps([elf_records,identities],sort_keys=True).encode())
+print(json.dumps(result))
+'''
 
 
 def same_baseline(before, after):
@@ -176,6 +234,73 @@ def same_baseline(before, after):
 def snapshot_hashes(snapshot):
     root = Path(snapshot)
     return {str(p.relative_to(root)): digest(p) for p in sorted(root.rglob('*')) if p.is_file()}
+
+
+def validate_elf_transition(baseline, userspace_manifest, simulation):
+    audit = userspace_manifest.get('elf_abi')
+    if not audit:
+        if baseline.get('elf'):
+            raise ValueError('Upgrade preflight: prepared userspace lacks an ELF audit')
+        return None
+    if 'elf' not in baseline or 'plan' not in simulation:
+        raise ValueError('Upgrade preflight: ELF validation requires a fresh baseline and APK transaction plan')
+    records = dict(baseline['elf'])
+    for change in simulation['plan']['changes']:
+        name, version = change['name'], change['after']
+        if version is None:
+            records.pop(name, None)
+            continue
+        info = audit['package_info'].get(name)
+        inventory = audit['inventories'].get(name)
+        alternative = audit.get('alternatives', {}).get(name, {}).get(version)
+        if alternative:
+            info, inventory = alternative, alternative['elf']
+        if info and info['version'] == version:
+            records[name] = {**info, 'elf': inventory or {'files': {}, 'links': {}, 'schema': 1}}
+        elif name in records and records[name]['elf']['files']:
+            raise ValueError(f'Upgrade preflight: {name}-{version} lacks an exact audited ELF inventory')
+    # Actual final payloads protect even old/unmanaged consumers without so: locks.
+    return ELF.validate(records, require_metadata=False)
+
+
+def migration_world(baseline, userspace_manifest):
+    """Move exact pins to their audited metadata rebuild, preserving pin intent."""
+    audit = userspace_manifest.get('elf_abi', {})
+    installed = installed_records(baseline['installed'])
+    lines, changes = [], []
+    for line in baseline['world'].splitlines():
+        match = re.fullmatch(r'([^@<>=~\s]+)(@[^<>=~\s]+)?(.*)', line)
+        if not match:
+            lines.append(line)
+            continue
+        name, tag, constraint = match.groups()
+        entries = audit.get('migration', {}).get(name, [])
+        if isinstance(entries, dict):
+            entries = [entries]
+        info = audit.get('package_info', {}).get(name, {})
+        record = installed.get(name, {})
+        entry = next((e for e in entries if e['before'] == record.get('V')), None)
+        if entry:
+            alternative = audit.get('alternatives', {}).get(name, {}).get(entry['after'])
+            if alternative:
+                info = alternative
+        replacement = constraint
+        if entry and record.get('V') == entry['before'] and info.get('version') == entry['after']:
+            if constraint == '=' + entry['before']:
+                replacement = '=' + entry['after']
+            elif constraint == '><' + record.get('C', ''):
+                identity = info.get('hashes', '')
+                if not re.fullmatch(r'(?:[a-f0-9]{40}|[a-f0-9]{64})', identity):
+                    raise ValueError('ELF migration lacks a verified APK identity: ' + name)
+                # APK checksum dependencies use the first 20 identity bytes,
+                # even when a v3 index carries the complete SHA-256 identity.
+                replacement = '><Q1' + base64.b64encode(bytes.fromhex(identity)[:20]).decode()
+        updated = name + (tag or '') + replacement
+        if updated != line:
+            changes.append({'package': name, 'before': line, 'after': updated})
+        lines.append(updated)
+    world = '\n'.join(lines) + '\n'
+    return world, changes
 
 
 def prepared_record(result):
@@ -193,10 +318,19 @@ def preflight(destination, origin, userspace, kernel):
     stages = {'userspace': prepared_record(userspace), 'kernel': prepared_record(kernel)}
     receipt = {'schema': 1, 'status': 'passed', 'stages': stages, 'baseline': None,
                'policy_sha256': digest(TREE / 'configs/lan-apk-feeds.json'),
-               'migrations_sha256': digest(TREE / 'configs/apk-migrations.json')}
+               'migrations_sha256': digest(TREE / 'configs/apk-migrations.json'),
+               'elf_policy_sha256': digest(ELF.POLICY_FILE),
+               'elf_scanner_sha256': digest(TREE / 'scripts/elf-abi.py'),
+               'elf_rebuilds_sha256': digest(ELF.REBUILDS_FILE)}
     if selected_policy:
         target = selected_policy['ssh_target']
         before = capture(target)
+        userspace_manifest = json.loads((Path(userspace['snapshot']) / 'manifest.json').read_text()) if (Path(userspace['snapshot']) / 'manifest.json').exists() else {}
+        mapped_world, world_changes = migration_world(before, userspace_manifest)
+        migration = {'migration_world': mapped_world} if world_changes else {}
+        receipt['elf_migration'] = {'changes': world_changes,
+            'world_before_sha256': hashlib.sha256(before['world'].encode()).hexdigest(),
+            'world_after_sha256': hashlib.sha256(mapped_world.encode()).hexdigest()}
         manifest = json.loads((Path(kernel['snapshot']) / 'manifest.json').read_text())
         latest = max(manifest['images'], key=lambda n: int(n.rsplit('-g', 1)[1]))
         abi = manifest['images'][latest]
@@ -212,10 +346,12 @@ def preflight(destination, origin, userspace, kernel):
                 relative = index.relative_to(Path(destination) / 'public').as_posix()
                 indexes.append({'url': origin.rstrip('/') + '/' + relative,
                                 'sha256': digest(index)})
-        simulation = remote(target, SIMULATE, {'indexes': indexes})
+        simulation = remote(target, SIMULATE, {'indexes': indexes, **migration})
         receipt['simulation'] = simulation
         if simulation['returncode']:
             raise ValueError('Router rejects prepared release: ' + simulation['stderr'][-8192:])
+        if abi == before['abi']:
+            receipt['elf_transition'] = validate_elf_transition(before, userspace_manifest, simulation)
         if abi != before['abi']:
             target_indexes = list(indexes)
             for index in sorted(Path(userspace['snapshot']).rglob('packages.adb')):
@@ -223,14 +359,15 @@ def preflight(destination, origin, userspace, kernel):
                 target_indexes.append({'url': origin.rstrip('/') + '/' + relative,
                                        'sha256': digest(index)})
             target_simulation = remote(target, SIMULATE, {'indexes': target_indexes,
-                                       'replace_managed': True, 'origin': origin})
+                                       'replace_managed': True, 'origin': origin, **migration})
             receipt['target_abi_simulation'] = target_simulation
             if target_simulation['returncode']:
                 raise ValueError('Router rejects target ABI userspace view: ' +
                                  target_simulation['stderr'][-8192:])
+            receipt['elf_transition'] = validate_elf_transition(before, userspace_manifest, target_simulation)
         if not same_baseline(before, capture(target)):
             raise ValueError('Router baseline changed during upgrade validation')
-        receipt['baseline'] = {k: v for k, v in before.items() if k not in ('world', 'installed')}
+        receipt['baseline'] = {k: v for k, v in before.items() if k not in ('world', 'installed', 'elf')}
     for name, result in (('userspace', userspace), ('kernel', kernel)):
         check_prepared(result, stages[name])
     return receipt
@@ -242,7 +379,10 @@ def authorize(destination, result, receipt, kind):
     if policy(destination) and not receipt.get('baseline'):
         raise ValueError('Production release lacks a router baseline')
     if (receipt['policy_sha256'] != digest(TREE / 'configs/lan-apk-feeds.json') or
-            receipt['migrations_sha256'] != digest(TREE / 'configs/apk-migrations.json')):
+            receipt['migrations_sha256'] != digest(TREE / 'configs/apk-migrations.json') or
+            receipt.get('elf_policy_sha256') != digest(ELF.POLICY_FILE) or
+            receipt.get('elf_scanner_sha256') != digest(TREE / 'scripts/elf-abi.py') or
+            receipt.get('elf_rebuilds_sha256') != digest(ELF.REBUILDS_FILE)):
         raise ValueError('Upgrade policy changed after validation')
     check_prepared(result, receipt['stages'][kind])
 

@@ -134,6 +134,16 @@ class PublisherTests(unittest.TestCase):
         self.command = self.command[:2] + self.command[4:]
         self.assertEqual(self.publish()['kernel'], self.kernel)
 
+    def test_kernel_upgrade_view_keeps_userspace_kmod_in_its_repository(self):
+        self.make_package('kmod', '32-r3', 'userspace module tool', custom=False)
+        self.command += ['--kernel-upgrade-view']
+        result = self.publish()
+        snapshot = Path(result['snapshot'])
+        self.assertTrue((snapshot / 'packages/kmod-32-r3.apk').is_file())
+        self.assertFalse((snapshot / 'kmod').exists())
+        manifest = json.loads((snapshot / 'manifest.json').read_text())
+        self.assertIn('packages/kmod-32-r3.apk', manifest['apk_files'])
+
     def test_detect_metadata_when_kernel_apk_was_cleaned(self):
         version = self.source / 'staging_dir/target-x86_64_glibc/kernel.version'
         version.parent.mkdir(parents=True)
@@ -197,11 +207,8 @@ class PublisherTests(unittest.TestCase):
         old_indexes = {name: digest(self.before / name / 'packages.adb')
                        for name in ('base', 'custom')}
         new = self.make_package('feed-probe', '1.0-r1', 'different payload, same version')
-        result = self.publish()
-        after = Path(result['snapshot'])
-        self.assertEqual(result['same_version_rebuilds'], ['base/' + filename])
+        self.assert_failed_publication('bump PKG_RELEASE')
         for repository in ('base', 'custom'):
-            self.assertEqual(digest(after / repository / filename), digest(new))
             self.assertEqual(digest(self.before / repository / filename), old_apk)
             self.assertEqual(digest(self.before / repository / 'packages.adb'), old_indexes[repository])
 

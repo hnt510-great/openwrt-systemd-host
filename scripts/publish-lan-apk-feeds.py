@@ -14,7 +14,12 @@ import shutil
 import subprocess
 import tempfile
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
+
+_elf_spec = importlib.util.spec_from_file_location(
+    'publish_elf_abi', Path(__file__).with_name('elf-abi.py'))
+ELF = importlib.util.module_from_spec(_elf_spec)
+_elf_spec.loader.exec_module(ELF)
 
 _ucode_spec = importlib.util.spec_from_file_location(
     'publish_ucode_abi', Path(__file__).with_name('ucode-abi.py'))
@@ -129,6 +134,88 @@ def validate_ucode_abi(apk, keys, payload, indexes, work):
     return {'abi': abi, 'packages': checked}
 
 
+def validate_elf_abi(apk, keys, payload, indexes, work):
+    """Inspect actual newest payloads, including retained legacy consumers."""
+    selected = {}
+    for repo, index in indexes.items():
+        for info in index['packages']:
+            name = info['name']
+            if name in ('kernel', 'kernel-dev-headers') or name.startswith(('kmod-', 'linux-image-', 'kernel-dev-headers-')):
+                continue
+            previous = selected.get(name)
+            if previous:
+                order = subprocess.check_output([str(apk), 'version', '--test',
+                    previous[1]['version'], info['version']], text=True).strip()
+                if order != '<':
+                    continue
+            selected[name] = (repo, info)
+    records = {}
+    ledger = ELF.migration_releases()
+    for name, (repo, info) in sorted(selected.items()):
+        root = work / 'elf-abi-check' / name
+        root.mkdir(parents=True)
+        package = payload / repo / package_filename(info)
+        subprocess.run([str(apk), 'extract', '--keys-dir', str(keys), '--no-chown',
+                        '--destination', str(root), str(package)], check=True, capture_output=True)
+        inventory = ELF.inspect(root)
+        inventory.update(package=name, version=info['version'])
+        if inventory['files']:
+            stamp = root / 'usr/lib/apk/packages' / (name + '.elf.json')
+            if not stamp.exists() or json.loads(stamp.read_text()) != inventory:
+                raise ValueError(f'ELF ABI preflight: {name}: missing/stale ELF inventory; bump release and rebuild')
+        records[name] = {**info, 'elf': inventory}
+    report = ELF.validate(records)
+    report['package_info'] = {name: {k: record.get(k, [] if k in ('depends', 'provides') else '')
+                                    for k in ('name', 'version', 'hashes', 'depends', 'provides')}
+                              for name, record in records.items()}
+    report['alternatives'] = {}
+    for repo, index in indexes.items():
+        for info in index['packages']:
+            name, version = info['name'], info['version']
+            if name not in records or version == records[name]['version']:
+                continue
+            if not any(e['after'] == version for e in ledger.get(name, [])):
+                continue
+            if version in report['alternatives'].get(name, {}):
+                continue
+            root = work / 'elf-alternative-check' / name / version
+            root.mkdir(parents=True)
+            subprocess.run([str(apk), 'extract', '--keys-dir', str(keys), '--no-chown',
+                            '--destination', str(root), str(payload / repo / package_filename(info))],
+                           check=True, capture_output=True)
+            inventory = ELF.inspect(root)
+            inventory.update(package=name, version=version)
+            marker = root / 'usr/lib/apk/packages' / (name + '.elf.json')
+            if inventory['files'] and (not marker.exists() or json.loads(marker.read_text()) != inventory):
+                raise ValueError(f'ELF ABI preflight: {name}-{version}: missing/stale alternative inventory')
+            alternative = {**info, 'elf': inventory}
+            report['alternatives'].setdefault(name, {})[version] = alternative
+    # Historical migration pairs may use an older SONAME together. Inspect
+    # their contracts against the audited pool; the router gate below checks
+    # the ACTUAL single-version-per-package transaction, never this union.
+    pool = dict(records)
+    for name, versions in report['alternatives'].items():
+        for version, record in versions.items():
+            pool[name + '#' + version] = record
+    capabilities = {value.split('=', 1)[0] for record in pool.values()
+                    for value in record.get('provides', [])}
+    for name, versions in report['alternatives'].items():
+        for version, record in versions.items():
+            inventories = {key: item['elf'] for key, item in pool.items()}
+            for dependency in record.get('depends', []):
+                match = re.fullmatch(r'([^=<>~]+)=(.+)', dependency)
+                if match:
+                    provider = report['alternatives'].get(match[1], {}).get(match[2])
+                    if provider:
+                        inventories['selected#' + match[1]] = provider['elf']
+            inventories['selected#' + name] = record['elf']
+            ELF.validate_record(name, record, ELF.Context(inventories), capabilities)
+    report['migration'] = {n: entries for n, entries in ledger.items() if n in records}
+    report['inventories'] = {name: record['elf'] for name, record in records.items()
+                             if record['elf']['files']}
+    return report
+
+
 def link_file(source, destination):
     destination.unlink(missing_ok=True)
     try:
@@ -227,7 +314,14 @@ def publish(args):
             for package in packages:
                 if kernel_upgrade_view and package.name.startswith(
                         ('kernel-', 'kmod-', 'linux-image-')):
-                    continue
+                    # A userspace package literally named "kmod" also has
+                    # a kmod-<version>.apk filename. Classify package names,
+                    # not the ambiguous filename prefix.
+                    info = dump_index(apk, package)['info']
+                    package_name = info['name']
+                    if package_name in ('kernel', 'kernel-dev-headers') or package_name.startswith(
+                            ('kmod-', 'linux-image-', 'kernel-dev-headers-')):
+                        continue
                 # Immutable payloads belong to the multi-generation channel.
                 # ABI-specific views retain only their logical trackers, whose
                 # exact global kernel dependency this publisher checks below.
@@ -367,6 +461,10 @@ def publish(args):
                     if manifest['kernel_packages'].get(path) != digest:
                         raise ValueError(f'Existing ABI package changed or disappeared: {path}')
             manifest['ucode_abi'] = validate_ucode_abi(apk, keys, payload, indexes, work)
+            manifest['elf_abi'] = validate_elf_abi(apk, keys, payload, indexes, work)
+            if same_version_rebuilds:
+                raise ValueError('Published APK changed without a new version; bump PKG_RELEASE: ' +
+                                 ', '.join(same_version_rebuilds))
             urls = [f'{origin}/abi/{args.kernel}/{name}/packages.adb' for name in indexes]
             (payload / 'repositories.list').write_text(
                 '# Local native-systemd/glibc feeds, pinned to kernel ABI.\n' + '\n'.join(urls) + '\n')
