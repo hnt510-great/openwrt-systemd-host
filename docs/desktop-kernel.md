@@ -17,7 +17,7 @@ and BE200; Bluetooth firmware covers Intel and RTL8761BU. Other hardware may
 need its matching firmware. Kernel drivers alone do not configure Wi-Fi,
 Bluetooth pairing, desktop audio sessions or guest Windows VirtIO drivers.
 
-`CONFIG_KVM_HYPERV=y` is set in `target/linux/x86/64/config-6.18`. This is
+`CONFIG_KVM_HYPERV=y` is set in `target/linux/x86/64/config-7.3`. This is
 host-side Hyper-V emulation for Windows guests, separate from the existing
 Hyper-V guest drivers. Without it, the Windows preset's `hv-time=on` causes
 QEMU to abort while setting MSR `0x40000021`. See the

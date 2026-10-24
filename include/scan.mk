@@ -19,7 +19,7 @@ $(if $(patsubst feeds/%,,$(1)),,$(word 2,$(subst /, ,$(1))))
 endef
 
 ifeq ($(SCAN_NAME),target)
-  SCAN_DEPS=image/Makefile profiles/*.mk $(TOPDIR)/include/kernel*.mk $(TOPDIR)/include/target.mk image/*.mk
+  SCAN_DEPS=image/Makefile profiles/*.mk $(TOPDIR)/include/kernel*.mk $(TOPDIR)/include/target.mk image/*.mk */target.mk config-* */config-* $(TOPDIR)/target/linux/generic/config-* $(TOPDIR)/target/linux/generic/kernel-*
 else
   SCAN_DEPS=$(TOPDIR)/include/package*.mk
 ifneq ($(call feedname,$(SCAN_DIR)),)

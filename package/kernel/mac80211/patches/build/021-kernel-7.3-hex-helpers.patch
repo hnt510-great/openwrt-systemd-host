@@ -1,0 +1,23 @@
+From: OpenWrt local build <openwrt-local@localhost>
+Subject: [PATCH] backports: retain hex helper declarations on Linux 7.3
+
+Linux 7.3 moved mac_pton and the other hex helpers out of linux/kernel.h
+into linux/hex.h. The 7.2 wireless sources still rely on the older kernel
+header's declarations. Include the new header in the compatibility wrapper
+so all such callers retain their existing declarations.
+
+Signed-off-by: OpenWrt local build <openwrt-local@localhost>
+---
+--- a/backport-include/linux/kernel.h
++++ b/backport-include/linux/kernel.h
+@@ -3,6 +3,10 @@
+ #include_next <linux/kernel.h>
+ #include <linux/version.h>
+ 
++#if LINUX_VERSION_IS_GEQ(7, 3, 0)
++#include <linux/hex.h>
++#endif
++
+ #if LINUX_VERSION_IS_LESS(4,17,0)
+ 
+ /*
