@@ -438,3 +438,149 @@ service units, and no failed systemd units. No reboot was performed.
 Evidence: `/srv/openwrt-validation/apk-abi-policy-deploy-20261018T112854Z/receipt.json`.
 The root-only remote backup is
 `/root/apk-abi-policy-deploy-20261018T112854Z/`.
+
+## IPv6 logging compatibility tracker, 2026-10-23
+
+Upstream commit `313889ee5c` removed the empty `kmod-nf-log6` package. The
+physical router still selected it in world on g23, while the signed channel
+offered g25 with ABI `6.18.55~99d816e22a3cf14cc4aad935e110f3ea-r1`. Ordinary
+upgrade simulation failed because the remaining g24 `kmod-nf-log6` tracker
+required the old ABI. `--prune` could not help while the old ABI repositories
+still supplied that name. A simulation excluding the package also hit the
+kernel policy's selected-module removal protection.
+
+The fix retains a hidden, default-selected compatibility tracker for kernel
+generation builds. It depends on `kmod-nf-log`, adds no Kconfig symbols or module,
+and receives the normal immutable generation metadata. A regression test scans
+the real recipe without `.config` and checks that the conditional Kconfig
+default survives package metadata generation.
+
+Source/package checks passed: 53 tests in `test-kernel-upgrade.py`,
+`git diff --check`, and a recipe build of the g25 tracker and generation payload.
+Both APKs and their temporary index passed signature verification on the host
+and against the router's existing trust. The signed publisher dry run accepted
+only these two additions, yielding 1,029 packages and retaining g24 and g25.
+No existing published artifact was replaced and the active manifest was unchanged.
+
+With only that temporary local repository added, physical-router
+`apk upgrade --simulate` exited 0 with 523 changes, including upgrading
+`kmod-nf-log6` from `1000.23.6.18.55-r1` to `1000.25.6.18.55-r1` and installing
+its g25 payload. The real kernel policy hooks accepted the transaction. This
+was a simulation with repository access, not an offline installation or boot
+test. No VM validation was performed.
+
+The router's world and installed-database SHA-256 values, boot ID, known-good
+g23, previous-good g21, ready phase and empty pending trial were unchanged.
+The working `.config` hash was unchanged. The temporary router repository was
+removed. Publication, package installation and reboot were not performed.
+
+Local review evidence and the two signed APKs are under
+`tmp/nf-log6-compat-20261023/`, including `sha256.json`, `router-simulate.log`,
+`router-state-after.txt` and `publisher-dry-run.log`.
+
+## Installed-system upgrade preflight, 2026-10-24
+
+The publisher now stages both signed views once, validates the configured live
+router's upgrade, binds the baseline/policy/index/APK hashes, and promotes those
+same snapshots. Direct production low-level publication is rejected. Empty
+compatibility rules use a central registry and the normal kernel package
+splitter. The registry invalidates metadata scanning and kernel input hashes;
+an unnormalized existing `.config` still builds the channel compatibility APK.
+
+`apk-mbedtls` 3.0.5-r13 was built with the new full-transaction preflight,
+`--userspace-only` and `--plan-json`. It selects a newer ABI candidate explicitly
+for an ordinary managed full upgrade while retaining explicit world/tag pins.
+Solver-only protection constraints are not saved into world. Remote, cached
+and local payloads are authenticated before managed package writes.
+
+Source/build checks passed:
+
+| Check | Result |
+| --- | --- |
+| Kernel manager and actual recipe metadata tests | 54 passed |
+| Signed build/publication and failure-isolation tests | 47 passed |
+| Native patched APK tests in disposable chroots | 21 passed |
+| Baseline/migration/receipt preflight tests | 17 passed |
+| LAN publisher tests | 20 passed |
+| Scheduled-maintenance tests | 17 passed |
+| `checkpatch.pl --no-tree --no-signoff` on the APK patch | 0 errors, 0 warnings |
+| Top-level `prepare-tmpinfo`, generated compatibility metadata, `.config` hash | Pass |
+| `git diff --check` | Pass |
+
+The 176 tests include the removed-name failure, unknown removed modules, real
+files rejected by empty migration rules, missing replacement/payload, target-ABI
+userspace conflicts, baseline races, altered prepared bytes, bin changes after
+validation, second-pointer failure/rollback, same-ABI retention, explicit pins,
+preupgrade blocking and corrupt local-payload rejection before package writes.
+
+A disposable EFI/KVM overlay of the existing g23 image installed the signed APK
+and exercised missing-migration, userspace-only and compatibility-success
+transactions in an isolated package root. Those synthetic transaction cases use
+a static test policy helper; real `kernelctl check`, the VM's actual kernel state
+and SSH service were checked separately. The VM rebooted on its existing g23
+kernel with r13 installed and no pending trial. The exact installed executable
+after reboot matched the final signed APK's extracted executable SHA-256:
+`6105c3e76827ecd448bb5738b3e006a582136593d2cd55e22ac9bcaa5c399874`.
+The synthetic cases also passed after reboot. The disposable VM was shut down.
+
+The old r11 bootstrap process appended 253 existing protected constraints to VM
+world while first installing the new APK. Only those independently audited new
+entries were removed to restore the captured world. The subsequent r13 upgrade
+preserved world, protected constraints and kernel state without cleanup. This
+is the one-time bootstrap behavior described in `apk-upgrade-preflight.md`.
+
+The full production dry run used the actual router's r11 APK and real policy
+hooks, exiting successfully with the final r13 staged candidate. Both production
+aliases remained at their original targets. During this work the router also
+received a separate nine-package QEMU/base-files update; its world/database
+therefore differ from the initial capture. Each preflight window was internally
+stable and the final router state matched the final successful preflight.
+The running g25 ABI, boot ID, kernel-policy state, protected constraints and APK
+binary were unchanged. The separate update was preserved.
+
+Final signed APK SHA-256:
+`3ad4e5a3e5d47480c50fb0b0364e168b6e8276c233aa5617a1cffd8726e4da3b`.
+No production publication, physical package installation or physical reboot was
+performed. No full replacement firmware image or real new-kernel boot was tested
+for this change. Evidence is in `tmp/apk-upgrade-guard/`, especially
+`validation-summary.json`, `final-audit.json`, `production-preflight-r13.json`,
+`vm-r13-validation.log`, `vm-fixture-receipt.json`, and `vm-after-reboot.log`.
+
+## Authorized publication and physical installation, 2026-10-24
+
+Following explicit authorization, the coordinated publisher exposed the tested
+userspace and kernel-channel snapshots. The only changed userspace package was
+`apk-mbedtls` 3.0.5-r13; there were no same-version rebuilds. The channel retained
+g24/g25 and did not advance the kernel generation. Signature verification and
+an HTTP download from the formal ABI feed matched the validated APK SHA-256
+`3ad4e5a3e5d47480c50fb0b0364e168b6e8276c233aa5617a1cffd8726e4da3b`.
+
+The physical router's exact existing r11 executable was matched to the retained
+signed r11 APK. A private root-only backup captured the executable, APK database,
+world, kernel policy, repository/configuration state and GRUB state. A temporary
+signed single-package offline index simulated exactly one change, r11 to r13.
+The identical published payload was then installed offline under an independent
+ten-minute systemd rollback timer. No unrelated package was upgraded.
+
+Acceptance passed:
+
+- The installed executable matched the final signed payload SHA-256
+  `6105c3e76827ecd448bb5738b3e006a582136593d2cd55e22ac9bcaa5c399874`.
+- All 1,767 installed package identities were compared by name; only
+  `apk-mbedtls` changed. World was preserved byte-for-byte. The r11 process added
+  no new protected-world entries in this transaction.
+- Running g25 ABI, boot ID, protected constraints, kernel state, GRUB and
+  network/SSH configuration hashes were unchanged. No reboot was performed.
+- `apk update`, ordinary upgrade simulation and explicit userspace-only
+  simulation passed. Both schema-1 JSON plans reported zero changes and were
+  written with mode 0600. `kernelctl check` passed, SSH was active, LAN/WAN were
+  up and systemd had no failed units. HTTPS served the normal LuCI login form
+  with its unauthenticated HTTP 403 response.
+- After acceptance, the rollback timer was stopped. A fresh coordinated
+  production dry run used the installed r13 client, consumed its native JSON
+  plan and passed with zero changes; both published views were unchanged.
+
+Deployment evidence is in `tmp/apk-upgrade-guard/deploy-20261024/receipt.json`
+and its adjacent publication, offline simulation, installation, acceptance and
+post-install preflight logs. The retained root-only router backup is
+`/root/apk-upgrade-guard-20261024.Euocjs/`.

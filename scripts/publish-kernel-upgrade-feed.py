@@ -4,6 +4,7 @@ import argparse
 import fcntl
 from functools import cmp_to_key
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,10 @@ import tempfile
 import time
 
 KEEP_GENERATIONS = 2
+_guard_spec = importlib.util.spec_from_file_location(
+    'kernel_upgrade_preflight', Path(__file__).with_name('apk-upgrade-preflight.py'))
+GUARD = importlib.util.module_from_spec(_guard_spec)
+_guard_spec.loader.exec_module(GUARD)
 
 
 def retained_packages(packages, images, image_sequences, apk):
@@ -55,7 +60,8 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def publish(source, destination, apk, key, keys, dry_run=False):
+def publish(source, destination, apk, key, keys, dry_run=False, stage_only=False):
+    GUARD.require_coordinator(destination, stage_only or dry_run)
     destination.mkdir(parents=True, exist_ok=True)
     with (destination / '.kernel-publish.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -178,7 +184,8 @@ def publish(source, destination, apk, key, keys, dry_run=False):
                 subprocess.run([str(apk), 'verify', '--keys-dir', str(keys), str(active / 'packages.adb')],
                                check=True, capture_output=True)
                 return {'status': 'unchanged', 'packages': len(packages),
-                        'images': len(images), 'channel': str(active)}
+                        'images': len(images), 'channel': str(active), 'snapshot': str(active.resolve()),
+                        'alias': str(active), 'previous': str(active.resolve())}
             subprocess.run([str(apk), 'mkndx', '--keys-dir', str(keys), '--sign-key', str(key), '--output', str(stage / 'packages.adb'),
                             *map(str, sorted(stage.glob('*.apk')))], check=True, capture_output=True)
             subprocess.run([str(apk), 'verify', '--keys-dir', str(keys), str(stage / 'packages.adb')],
@@ -188,6 +195,14 @@ def publish(source, destination, apk, key, keys, dry_run=False):
                         'signing_key_sha256': fingerprint,
                         'index_sha256': digest(stage / 'packages.adb')}
             (stage / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+            if stage_only:
+                snapshots = destination / 'public/kernel-snapshots'
+                snapshots.mkdir(parents=True, exist_ok=True)
+                final = snapshots / str(time.time_ns())
+                stage.rename(final)
+                return {'status': 'prepared', 'packages': len(packages), 'images': len(images),
+                        'channel': str(active), 'snapshot': str(final), 'alias': str(active),
+                        'previous': str(active.resolve()) if active.exists() else None}
             if not dry_run:
                 snapshots = destination / 'public/kernel-snapshots'
                 snapshots.mkdir(parents=True, exist_ok=True)
@@ -204,6 +219,30 @@ def publish(source, destination, apk, key, keys, dry_run=False):
                         shutil.rmtree(snapshot)
             return {'status': 'dry-run' if dry_run else 'published', 'packages': len(packages),
                     'images': len(images), 'channel': str(active)}
+
+
+def promote(result, destination, receipt):
+    GUARD.authorize(destination, result, receipt, 'kernel')
+    GUARD.check_alias(result)
+    if result['status'] == 'unchanged':
+        return result
+    active = Path(result['alias'])
+    final = Path(result['snapshot'])
+    pending = active.with_name('.kernel-upgrades.new')
+    pending.unlink(missing_ok=True)
+    pending.symlink_to(Path('kernel-snapshots') / final.name)
+    os.replace(pending, active)
+    warnings = []
+    try:
+        for snapshot in final.parent.iterdir():
+            if snapshot != final and snapshot.name.isdigit() and not snapshot.is_symlink():
+                try:
+                    shutil.rmtree(snapshot)
+                except OSError as error:
+                    warnings.append(str(error))
+    except OSError as error:
+        warnings.append(str(error))
+    return {**result, 'status': 'published', 'cleanup_warnings': warnings}
 
 
 if __name__ == '__main__':

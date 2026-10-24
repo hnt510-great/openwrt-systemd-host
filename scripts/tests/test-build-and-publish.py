@@ -182,6 +182,78 @@ class BuildPublicationTests(unittest.TestCase):
             B.publish(self.tree, self.data)
         self.assertEqual(self.aliases(), before)
 
+    def test_router_rejection_discards_stages_and_preserves_both_views(self):
+        B.publish(self.tree, self.data)
+        self.generation(2)
+        before = self.aliases()
+        with patch.object(B.GUARD, 'preflight', side_effect=ValueError('Router rejects prepared release')):
+            with self.assertRaisesRegex(ValueError, 'Router rejects'):
+                B.publish(self.tree, self.data)
+        self.assertEqual(before, self.aliases())
+        self.assertEqual(len(list((self.server / 'public/kernel-snapshots').iterdir())), 1)
+
+    def test_prepared_payload_change_is_rejected_before_either_pointer(self):
+        B.publish(self.tree, self.data)
+        self.generation(2)
+        before = self.aliases()
+        original = B.GUARD.preflight
+        def mutate(*args):
+            receipt = original(*args)
+            root = Path(args[3]['snapshot'])
+            next(root.glob('*.apk')).write_bytes(b'changed after validation')
+            return receipt
+        with patch.object(B.GUARD, 'preflight', side_effect=mutate):
+            with self.assertRaisesRegex(ValueError, 'changed after'):
+                B.publish(self.tree, self.data)
+        self.assertEqual(before, self.aliases())
+
+    def test_bin_change_after_validation_does_not_change_published_snapshot(self):
+        probe = self.base / 'user-probe-1-r1.apk'
+        expected = probe.read_bytes()
+        original = B.GUARD.preflight
+        def mutate(*args):
+            receipt = original(*args)
+            probe.write_bytes(b'concurrent build wrote a different APK')
+            return receipt
+        with patch.object(B.GUARD, 'preflight', side_effect=mutate):
+            result = B.publish(self.tree, self.data)
+        self.assertEqual((Path(result['userspace']['snapshot']) / 'base' / probe.name).read_bytes(), expected)
+
+    def test_second_pointer_failure_rolls_back_first_pointer(self):
+        B.publish(self.tree, self.data)
+        self.generation(2)
+        before = self.aliases()
+        with patch.object(B.KERNEL, 'promote', side_effect=OSError('rename failed')):
+            with self.assertRaisesRegex(OSError, 'rename failed'):
+                B.publish(self.tree, self.data)
+        self.assertEqual(before, self.aliases())
+
+    def test_post_commit_gc_scan_failure_keeps_both_new_views(self):
+        B.publish(self.tree, self.data)
+        self.generation(2)
+        self.make_package('user-probe', '2-r1')
+        before = self.aliases()
+        original = Path.iterdir
+        def fail_gc(path):
+            if path == self.server / 'public/kernel-snapshots':
+                raise OSError('post-commit GC scan failed')
+            return original(path)
+        with patch.object(Path, 'iterdir', fail_gc):
+            result = B.publish(self.tree, self.data)
+        self.assertEqual(result['kernel']['status'], 'published')
+        self.assertIn('post-commit GC scan failed', result['kernel']['cleanup_warnings'][0])
+        self.assertNotEqual(before['userspace'], self.aliases()['userspace'])
+        self.assertNotEqual(before['kernel'], self.aliases()['kernel'])
+
+    def test_unchanged_kernel_check_failure_rolls_back_new_userspace(self):
+        B.publish(self.tree, self.data)
+        self.make_package('user-probe', '2-r1')
+        before = self.aliases()
+        with patch.object(B.KERNEL, 'promote', side_effect=ValueError('kernel validation failed')):
+            with self.assertRaisesRegex(ValueError, 'kernel validation failed'):
+                B.publish(self.tree, self.data)
+        self.assertEqual(before, self.aliases())
+
     def test_changed_published_payload_does_not_publish_userspace(self):
         B.publish(self.tree, self.data)
         name = 'kmod-nic-6.18.55-owrt-' + 'a' * 32 + '-r1-g1'
@@ -273,6 +345,15 @@ class BuildPublicationTests(unittest.TestCase):
         first = B.prepare_sequence(self.tree, self.server)
         self.generation(first)
         source.write_text('fixed module, same kernel ABI\n')
+        self.assertGreater(B.prepare_sequence(self.tree, self.server), first)
+
+    def test_migration_registry_change_requires_a_new_kernel_generation(self):
+        path = self.tree / 'configs/apk-migrations.json'
+        path.write_text('{"schema": 1, "rules": []}\n')
+        first = B.prepare_sequence(self.tree, self.server)
+        self.generation(first)
+        path.write_text(json.dumps({'schema': 1, 'rules': [{'from': 'kmod-old',
+            'to': ['kmod-nic'], 'type': 'empty-compat', 'reason': 'driver merged'}]}) + '\n')
         self.assertGreater(B.prepare_sequence(self.tree, self.server), first)
 
     def test_kernel_patch_change_advances(self):

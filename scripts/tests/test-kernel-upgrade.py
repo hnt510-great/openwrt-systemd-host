@@ -35,6 +35,29 @@ ABI = '6.18.55~' + 'a' * 32 + '-r1'
 GEN = '6.18.55-owrt-' + 'a' * 32 + '-r1-g1'
 
 
+class RecipeTests(unittest.TestCase):
+    def test_logging_compatibility_default_survives_configuration_free_scan(self):
+        # Package scanning does not load .config. Its conditional default must
+        # reach Kconfig rather than being evaluated by Make during the scan.
+        output = subprocess.check_output([
+            'make', '-s', '-C', str(TREE / 'package/kernel/linux'),
+            'TOPDIR=' + str(TREE), 'DUMP=1', 'dumpinfo'], text=True)
+        recipe = next(block for block in output.split('@@')
+                      if block.lstrip().startswith('Package: kmod-nf-log6\n'))
+        self.assertIn('\nDefault: y if OPENWRT_KERNEL_UPGRADE\n', recipe)
+        self.assertIn('\nHidden: 1\n', recipe)
+        self.assertIn('\nDepends: +kmod-nf-log\n', recipe)
+        self.assertNotIn('\nKernel-Config:', recipe)
+
+    def test_new_compatibility_rule_builds_for_an_unnormalized_configuration(self):
+        output = subprocess.check_output([
+            'make', '-s', '-C', str(TREE / 'package/kernel/linux'),
+            'TOPDIR=' + str(TREE), 'DUMP=1', 'CONFIG_OPENWRT_KERNEL_UPGRADE=y',
+            '--eval=compatibility-selection:; @echo COMPAT_SELECTION=$(CONFIG_PACKAGE_kmod-nf-log6)',
+            'compatibility-selection'], text=True)
+        self.assertIn('COMPAT_SELECTION=m', output)
+
+
 class RuntimeTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

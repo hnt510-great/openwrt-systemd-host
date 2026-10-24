@@ -1,0 +1,161 @@
+#!/usr/bin/env python3
+"""Cross-version omissions, explicit migrations and immutable prepared releases."""
+import importlib.util
+import json
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+
+TREE = Path(__file__).resolve().parents[2]
+spec = importlib.util.spec_from_file_location('upgrade_preflight_test', TREE / 'scripts/apk-upgrade-preflight.py')
+G = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(G)
+OLD = '6.18.55~' + 'a' * 32 + '-r1'
+NEW = '6.18.55~' + 'b' * 32 + '-r1'
+GEN = '6.18.55-owrt-' + 'b' * 32 + '-r1-g2'
+
+
+class PreflightTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.baseline = {'schema': 1, 'abi': OLD, 'release': 'old-g1', 'boot_id': 'boot',
+            'hashes': {'installed': 'old'}, 'world': 'kernel\nkmod-nf-log6\n',
+            'installed': 'P:kmod-nf-log6\nV:1-r1\nD:kmod-nf-log\n'
+                         'F:usr/lib/apk/packages\nR:kmod-nf-log6.list\n\n'
+                         'P:kmod-nf-log\nV:1-r1\n\n'}
+        self.packages = []
+        for name in ('kmod-nf-log', 'kmod-nf-log6'):
+            self.packages += [
+                {'name': name, 'version': '2-r1', 'depends': ['kernel=' + NEW, name + '-' + GEN + '=2-r1'] +
+                 (['kmod-nf-log'] if name.endswith('log6') else [])},
+                {'name': name + '-' + GEN, 'version': '2-r1', 'origin': 'kernel-generations',
+                 'depends': ['linux-image-' + GEN + '=' + NEW]}]
+        self.results = {}
+        for name in ('userspace', 'kernel'):
+            folder = self.root / 'public' / 'snapshots' / name
+            folder.mkdir(parents=True)
+            (folder / 'packages.adb').write_bytes(b'signed index fixture')
+            (folder / 'probe.apk').write_bytes(b'immutable package fixture')
+            self.results[name] = {'status': 'prepared', 'snapshot': str(folder),
+                'alias': str(self.root / 'public' / ('abi' if name == 'userspace' else 'kernel-upgrades')),
+                'previous': None}
+        manifest = {'images': {'linux-image-' + GEN: NEW},
+                    'packages': {str(i): {'info': p} for i, p in enumerate(self.packages)}}
+        (Path(self.results['kernel']['snapshot']) / 'manifest.json').write_text(json.dumps(manifest))
+
+    def check(self, packages=None, baseline=None):
+        G.validate_transition(baseline or self.baseline, self.packages if packages is None else packages, NEW)
+
+    def test_current_installed_module_omission_blocks_despite_new_config(self):
+        packages = [p for p in self.packages if p['name'] != 'kmod-nf-log6']
+        with self.assertRaisesRegex(ValueError, 'no target ABI tracker: kmod-nf-log6'):
+            self.check(packages)
+
+    def test_unknown_removed_module_requires_explicit_port(self):
+        self.baseline['installed'] += 'P:kmod-unknown\nV:1-r1\n\n'
+        with self.assertRaisesRegex(ValueError, 'kmod-unknown'):
+            self.check()
+
+    def test_missing_payload_blocks(self):
+        with self.assertRaisesRegex(ValueError, 'generation payload'):
+            self.check([p for p in self.packages if p['name'] != 'kmod-nf-log6-' + GEN])
+
+    def test_matching_empty_compatibility_passes(self):
+        self.check()
+
+    def test_replacement_dependency_must_be_declared(self):
+        self.packages[2]['depends'].remove('kmod-nf-log')
+        with self.assertRaisesRegex(ValueError, 'compatibility dependency'):
+            self.check()
+
+    def test_empty_rule_cannot_hide_real_module_files(self):
+        self.baseline['installed'] += ('P:kmod-nf-log6-old-owrt-g1\nV:1-r1\n'
+                                      'F:usr/lib/modules/old\nR:real.ko\n\n')
+        self.baseline['installed'] = self.baseline['installed'].replace(
+            'D:kmod-nf-log\n', 'D:kmod-nf-log kmod-nf-log6-old-owrt-g1=1-r1\n')
+        with self.assertRaisesRegex(ValueError, 'discard a real file'):
+            self.check()
+
+    def test_same_abi_does_not_require_generation_replacement(self):
+        G.validate_transition({**self.baseline, 'abi': NEW}, [], NEW)
+
+    def test_fresh_router_simulation_and_bound_receipt(self):
+        with patch.object(G, 'policy', return_value={'ssh_target': 'router'}), \
+                patch.object(G, 'capture', return_value=self.baseline), \
+                patch.object(G, 'remote', return_value={'returncode': 0}) as remote:
+            receipt = G.preflight(self.root, 'http://host', self.results['userspace'], self.results['kernel'])
+        self.assertEqual(receipt['status'], 'passed')
+        self.assertNotIn('installed', receipt['baseline'])
+        self.assertEqual(remote.call_count, 2)
+        self.assertEqual(len(remote.call_args_list[0].args[2]['indexes']), 1)
+        self.assertEqual(len(remote.call_args_list[1].args[2]['indexes']), 2)
+        self.assertTrue(remote.call_args_list[1].args[2]['replace_managed'])
+
+    def test_target_abi_userspace_failure_is_a_publication_blocker(self):
+        with patch.object(G, 'policy', return_value={'ssh_target': 'router'}), \
+                patch.object(G, 'capture', return_value=self.baseline), \
+                patch.object(G, 'remote', side_effect=[{'returncode': 0},
+                    {'returncode': 99, 'stderr': 'target library conflict'}]):
+            with self.assertRaisesRegex(ValueError, 'target ABI userspace'):
+                G.preflight(self.root, 'http://host', **self.results)
+
+    def test_simulation_failure_blocks(self):
+        with patch.object(G, 'policy', return_value={'ssh_target': 'router'}), \
+                patch.object(G, 'capture', return_value=self.baseline), \
+                patch.object(G, 'remote', return_value={'returncode': 99, 'stderr': 'missing dependency'}):
+            with self.assertRaisesRegex(ValueError, 'Router rejects'):
+                G.preflight(self.root, 'http://host', **self.results)
+
+    def test_database_change_invalidates_receipt(self):
+        changed = {**self.baseline, 'hashes': {'installed': 'changed'}}
+        with patch.object(G, 'policy', return_value={'ssh_target': 'router'}), \
+                patch.object(G, 'capture', side_effect=[self.baseline, changed]), \
+                patch.object(G, 'remote', return_value={'returncode': 0}):
+            with self.assertRaisesRegex(ValueError, 'baseline changed'):
+                G.preflight(self.root, 'http://host', **self.results)
+
+    def test_changed_prepared_apk_cannot_promote(self):
+        with patch.object(G, 'policy', return_value=None):
+            receipt = G.preflight(self.root, 'http://host', **self.results)
+            (Path(self.results['kernel']['snapshot']) / 'probe.apk').write_bytes(b'changed')
+            with self.assertRaisesRegex(ValueError, 'changed after'):
+                G.authorize(self.root, self.results['kernel'], receipt, 'kernel')
+
+    def test_production_cannot_use_receipt_without_router(self):
+        with patch.object(G, 'policy', return_value=None):
+            receipt = G.preflight(self.root, 'http://host', **self.results)
+        with patch.object(G, 'policy', return_value={'ssh_target': 'router'}):
+            with self.assertRaisesRegex(ValueError, 'lacks a router'):
+                G.authorize(self.root, self.results['kernel'], receipt, 'kernel')
+
+    def test_low_level_production_publication_requires_coordinator(self):
+        with patch.object(G, 'policy', return_value={'ssh_target': 'router'}):
+            with self.assertRaisesRegex(ValueError, 'coordinated staged'):
+                G.require_coordinator(self.root)
+
+    def test_unreachable_router_is_not_an_optional_check(self):
+        with patch.object(G, 'policy', return_value={'ssh_target': 'router'}), \
+                patch.object(G, 'capture', side_effect=ValueError('unreachable')):
+            with self.assertRaisesRegex(ValueError, 'unreachable'):
+                G.preflight(self.root, 'http://host', **self.results)
+
+    def test_unsafe_ssh_target_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, 'SSH target'):
+            G.remote('router; touch /tmp/unsafe', '', {})
+
+    def test_migration_cycles_and_unknown_types_are_rejected(self):
+        path = self.root / 'rules.json'
+        for rules in ([{'from': 'kmod-a', 'to': ['kmod-a'], 'type': 'empty-compat', 'reason': 'bad'}],
+                      [{'from': 'kmod-a', 'to': ['kmod-b'], 'type': 'drop', 'reason': 'bad'}],
+                      [{'from': 'kmod-a', 'to': ['kmod-b'], 'type': 'empty-compat', 'reason': 'a'},
+                       {'from': 'kmod-b', 'to': ['kmod-a'], 'type': 'empty-compat', 'reason': 'b'}]):
+            path.write_text(json.dumps({'schema': 1, 'rules': rules}))
+            with self.assertRaises(ValueError):
+                G.MIGRATIONS.rules(path)
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

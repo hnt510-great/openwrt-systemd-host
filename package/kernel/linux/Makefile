@@ -14,7 +14,7 @@ PKG_FLAGS:=hold
 PKG_BUILD_DIR:=$(KERNEL_BUILD_DIR)/packages
 SUBTARGETS = $(sort $(filter-out feeds,$(notdir $(wildcard $(TOPDIR)/target/linux/* $(TOPDIR)/target/linux/feeds/*))))
 SUBTARGET_MODULES = $(foreach t,$(SUBTARGETS),$(firstword $(wildcard $(TOPDIR)/target/linux/feeds/$(t)/modules.mk $(TOPDIR)/target/linux/$(t)/modules.mk)))
-SCAN_DEPS=modules/*.mk $(TOPDIR)/target/linux/*/modules.mk $(TOPDIR)/target/linux/feeds/*/modules.mk $(TOPDIR)/include/netfilter.mk
+SCAN_DEPS=modules/*.mk $(TOPDIR)/target/linux/*/modules.mk $(TOPDIR)/target/linux/feeds/*/modules.mk $(TOPDIR)/include/netfilter.mk $(TOPDIR)/include/kernel-compat.mk $(TOPDIR)/configs/apk-migrations.json $(TOPDIR)/scripts/apk-migrations.py
 
 PKG_LICENSE:=GPL-2.0-only
 PKG_LICENSE_FILES:=COPYING
@@ -77,4 +77,5 @@ endef
 $(eval $(if $(DUMP),,$(call BuildPackage,kernel)))
 
 include $(sort $(wildcard ./modules/*.mk))
+include $(INCLUDE_DIR)/kernel-compat.mk
 -include $(SUBTARGET_MODULES)

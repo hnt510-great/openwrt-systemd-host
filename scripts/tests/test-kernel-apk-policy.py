@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run the patched APK in disposable chroots; never use the host APK database."""
 import hashlib
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -254,6 +255,101 @@ int main(int argc, char **argv) {
         self.assertEqual(database, (self.root / 'lib/apk/db/installed').read_bytes())
         self.assertEqual(world_path.read_text(), world)
 
+    def obsolete_module_transition(self):
+        abi, _ = self.installed_abi_generation()
+        self.pkg('kmod-obsolete', '1-r1', 'usr/share/obsolete', b'old tracker', 'kernel=' + abi)
+        self.index()
+        self.apk('add', 'kmod-obsolete')
+        self.abi_generation(11, abi.replace('a' * 32, 'b' * 32))
+        self.pkg('userspace-probe', '1-r2', 'usr/share/userspace-probe', b'new userspace')
+        self.index()
+        return abi
+
+    def test_missing_compatibility_blocks_full_upgrade_with_json_report(self):
+        self.obsolete_module_transition()
+        world = (self.root / 'etc/apk/world').read_bytes()
+        database = (self.root / 'lib/apk/db/installed').read_bytes()
+        plan = self.work / 'plan.json'
+        self.apk('upgrade', '--simulate', '--plan-json', str(plan), success=False)
+        report = json.loads(subprocess.check_output(['sudo', '-n', 'cat', str(plan)], text=True))
+        self.assertEqual(report['status'], 'blocked')
+        self.assertEqual(report['blockers'], ['unsatisfied-package-migration-or-dependency'])
+        self.assertEqual(database, (self.root / 'lib/apk/db/installed').read_bytes())
+        self.assertEqual(world, (self.root / 'etc/apk/world').read_bytes())
+
+    def test_userspace_only_retains_kernel_identity_and_world(self):
+        abi = self.obsolete_module_transition()
+        before = self.installed()
+        world = (self.root / 'etc/apk/world').read_bytes()
+        plan = self.work / 'plan.json'
+        self.apk('upgrade', '--userspace-only', '--simulate', '--plan-json', str(plan))
+        report = json.loads(subprocess.check_output(['sudo', '-n', 'cat', str(plan)], text=True))
+        self.assertEqual(report['schema'], 1)
+        self.assertEqual(report['mode'], 'userspace-only')
+        self.assertEqual(report['status'], 'passed')
+        self.assertEqual(report['kernel']['before']['abi'], abi)
+        self.assertEqual(report['kernel']['after']['abi'], abi)
+        self.assertEqual(report['inputs']['world_sha256'], hashlib.sha256(world).hexdigest())
+        self.assertEqual(report['indexes'][0]['sha256'],
+                         hashlib.sha256((self.repo / 'packages.adb').read_bytes()).hexdigest())
+        self.apk('upgrade', '--userspace-only')
+        after = self.installed()
+        self.assertEqual(after['userspace-probe']['V'], '1-r2')
+        for name in before:
+            if name == 'kernel' or name.startswith(('kmod-', 'linux-image-', 'kernel-dev-headers')):
+                self.assertEqual(before[name], after[name])
+        self.assertEqual(world, (self.root / 'etc/apk/world').read_bytes())
+
+    def test_compatibility_tracker_allows_abi_transition(self):
+        self.obsolete_module_transition()
+        abi = '6.18.55~' + 'b' * 32 + '-r1'
+        self.pkg('kmod-obsolete', '1-r2', 'usr/share/obsolete', b'compatibility tracker', 'kernel=' + abi)
+        self.index()
+        self.apk('upgrade')
+        self.assertEqual(self.installed()['kernel']['V'], abi)
+        self.assertEqual(self.installed()['kmod-obsolete']['V'], '1-r2')
+
+    def test_userspace_only_rejects_world_reset_and_targeted_upgrade(self):
+        before = (self.root / 'etc/apk/world').read_bytes()
+        for args in (('--available',), ('--prune',), ('--preupgrade-only',), ('legacy-module',)):
+            self.apk('upgrade', '--userspace-only', *args, success=False)
+        self.assertEqual(before, (self.root / 'etc/apk/world').read_bytes())
+
+    def test_explicit_kernel_version_pin_is_not_reset_by_full_upgrade_intent(self):
+        abi = self.obsolete_module_transition()
+        self.apk('add', 'kernel=' + abi)
+        world = (self.root / 'etc/apk/world').read_bytes()
+        self.apk('upgrade')
+        self.assertEqual(self.installed()['kernel']['V'], abi)
+        self.assertEqual(self.installed()['userspace-probe']['V'], '1-r2')
+        self.assertEqual(world, (self.root / 'etc/apk/world').read_bytes())
+
+    def test_full_preflight_prevents_early_support_upgrade(self):
+        self.obsolete_module_transition()
+        self.preupgrade_probe()
+        before = (self.root / 'lib/apk/db/installed').read_bytes()
+        result = self.chroot_apk('upgrade', '--preupgrade-depends', 'preupgrade-probe')
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(before, (self.root / 'lib/apk/db/installed').read_bytes())
+        self.assertEqual(self.installed()['preupgrade-probe']['V'], '1-r1')
+
+    def test_corrupt_local_payload_blocks_before_any_package_write(self):
+        self.pkg('payload-probe', '1-r1', 'usr/share/payload-probe', b'old')
+        self.index()
+        self.apk('add', 'payload-probe')
+        self.pkg('payload-probe', '1-r2', 'usr/share/payload-probe', b'new')
+        self.index()
+        payload = self.repo / 'payload-probe-1-r2.apk'
+        data = payload.read_bytes()
+        payload.write_bytes(data[:-1] + bytes([data[-1] ^ 1]))
+        before = (self.root / 'lib/apk/db/installed').read_bytes()
+        plan = self.work / 'plan.json'
+        self.apk('upgrade', '--plan-json', str(plan), success=False)
+        report = json.loads(subprocess.check_output(['sudo', '-n', 'cat', str(plan)], text=True))
+        self.assertEqual(report['blockers'], ['payload-verification-failed'])
+        self.assertEqual(before, (self.root / 'lib/apk/db/installed').read_bytes())
+        self.assertEqual((self.root / 'usr/share/payload-probe').read_bytes(), b'old')
+
     def test_preupgrade_defers_enrolled_image_until_complete_module_transaction(self):
         # Migration enrolls a rolling image in world before it is installed.
         # With the same config ABI, a minimal self-upgrade can add its image
@@ -276,7 +372,7 @@ int main(int argc, char **argv) {
         result = self.apk('upgrade', '--preupgrade-only', '--simulate',
                           '--preupgrade-depends', 'preupgrade-probe')
         self.assertIn('Deferring preupgrade', result.stdout + result.stderr)
-        self.assertFalse(contract.exists())
+        self.assertIn('apk-pre 0 simulate 0', contract.read_text())
         self.assertEqual(before, (self.root / 'lib/apk/db/installed').read_bytes())
         self.assertFalse((self.root / 'usr/share/kernel-two').exists())
         # Omit --root inside the chroot so ordinary upgrade really exercises

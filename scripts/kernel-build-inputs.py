@@ -40,6 +40,46 @@ def file_record(path):
     return {'sha256': value.hexdigest(), 'mode': path.stat().st_mode & 0o777}
 
 
+def kernel_patchver(tree, config, make_args=()):
+    """Resolve literal board/subtarget selections in the same order as target.mk."""
+    board = config.get('CONFIG_TARGET_BOARD', '"x86"').strip('"')
+    subtarget = config.get('CONFIG_TARGET_SUBTARGET', '').strip('"')
+    target = tree / 'target/linux/feeds' / board
+    if not target.is_dir():
+        target = tree / 'target/linux' / board
+    values = {}
+    for path in (target / 'Makefile', target / subtarget / 'target.mk'):
+        if path.is_file():
+            for name, value in re.findall(
+                    r'^(KERNEL_(?:TESTING_)?PATCHVER)\s*:?=\s*([^#\n]+)', path.read_text(), re.M):
+                value = value.strip()
+                if not re.fullmatch(r'[0-9]+\.[0-9]+', value):
+                    raise ValueError('Nonliteral kernel selection in ' + str(path))
+                values[name] = value
+    overrides = dict(arg.split('=', 1) for arg in make_args
+                     if '=' in arg and not arg.startswith('-'))
+    if 'KERNEL_PATCHVER' in overrides:
+        selected = overrides['KERNEL_PATCHVER']
+    elif overrides.get('CONFIG_TESTING_KERNEL', config.get('CONFIG_TESTING_KERNEL')) == 'y':
+        selected = overrides.get('KERNEL_TESTING_PATCHVER', values.get('KERNEL_TESTING_PATCHVER'))
+        if not selected:
+            raise ValueError('Testing kernel selected without KERNEL_TESTING_PATCHVER')
+    else:
+        selected = values.get('KERNEL_PATCHVER')
+    if selected:
+        if not re.fullmatch(r'[0-9]+\.[0-9]+', selected):
+            raise ValueError('Invalid kernel series: ' + selected)
+        return selected
+    versions = sorted((tree / 'staging_dir').glob('target-*/kernel.version'))
+    arch = config.get('CONFIG_ARCH', '').strip('"')
+    libc = config.get('CONFIG_LIBC', '').strip('"')
+    if arch and libc:
+        versions = [path for path in versions if path.parent.name == 'target-' + arch + '_' + libc]
+    if len(versions) != 1:
+        raise ValueError('Cannot resolve the selected kernel series')
+    return '.'.join(versions[0].read_text().split('~')[0].split('.')[:2])
+
+
 def fingerprint(tree, config, make_args=()):
     metadata = tree / 'tmp/.packageinfo'
     if not metadata.is_file():
@@ -91,7 +131,8 @@ def fingerprint(tree, config, make_args=()):
         'include/quilt.mk', 'include/target.mk', 'include/toolchain-build.mk',
         'include/netfilter.mk', 'scripts/kconfig.pl', 'scripts/package-metadata.pl',
         'scripts/metadata.pm', 'scripts/kernel-package.py', 'scripts/merge-usr.py',
-        'scripts/strip-kmod.sh', 'scripts/strip.sh', 'scripts/gen-dependencies.sh')]
+        'scripts/strip-kmod.sh', 'scripts/strip.sh', 'scripts/gen-dependencies.sh',
+        'scripts/apk-migrations.py', 'configs/apk-migrations.json')]
     roots += sorted((tree / 'include').glob('kernel*'))
     roots += sorted((tree / 'include').glob('package*.mk'))
     roots += sorted((tree / 'target/linux').glob('*/modules.mk'))
@@ -120,13 +161,7 @@ def fingerprint(tree, config, make_args=()):
     options = {name: config.get(name, 'n') for name in sorted(references)}
     # Evaluate OpenWrt's real package -> kernel configuration requests. A
     # userspace selection matters only if it changes those kernel requests.
-    target_text = (target / 'Makefile').read_text() if (target / 'Makefile').exists() else ''
-    patchver = re.search(r'^KERNEL_PATCHVER\s*:?=\s*([0-9.]+)', target_text, re.M)
-    if patchver:
-        patchver = patchver[1]
-    else:
-        version = tree / 'staging_dir/target-x86_64_glibc/kernel.version'
-        patchver = '.'.join(version.read_text().split('~')[0].split('.')[:2])
+    patchver = kernel_patchver(tree, config, make_args)
     helper = Path(__file__).with_name('package-metadata.pl')
     override = subprocess.check_output(['perl', str(helper), 'kconfig', str(metadata),
         str(tree / '.config'), patchver], text=True)

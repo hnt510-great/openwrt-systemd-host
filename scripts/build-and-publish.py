@@ -27,6 +27,7 @@ def load(name, filename):
 LAN = load('build_lan_publisher', 'publish-lan-apk-feeds.py')
 KERNEL = load('build_kernel_publisher', 'publish-kernel-upgrade-feed.py')
 INPUTS = load('kernel_build_inputs', 'kernel-build-inputs.py')
+GUARD = load('build_upgrade_preflight', 'apk-upgrade-preflight.py')
 
 
 def configuration(tree):
@@ -239,21 +240,64 @@ def publish(tree, data, dry_run=False):
             dry_run=dry_run, kernel_upgrade_view=False))
     destination = data['destination']
     destination.mkdir(parents=True, exist_ok=True)
+    with (destination / '.upgrade-publish.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return publish_locked(tree, data, apk, dry_run)
+
+
+def publish_locked(tree, data, apk, dry_run):
+    destination = data['destination']
+    prepared = []
     with tempfile.TemporaryDirectory(prefix='.build-publish-', dir=destination) as temporary:
         userspace, channel, abi, generation = project(tree, Path(temporary), apk)
         if data.get('kernel') and data['kernel'] != abi:
             raise ValueError('Requested ABI differs from compiled generation')
         args = argparse.Namespace(source_root=userspace, kernel=abi, destination=destination,
-            base_url=data['base_url'], incremental=True, dry_run=True, kernel_upgrade_view=True)
-        # Validate BOTH views before exposing either. Expose userspace first;
-        # it contains no new kernel trackers, so a trial cannot race its feeds.
-        lan = LAN.publish(args)
-        kernel = KERNEL.publish(channel, destination, apk, TREE / 'private-key.pem', TREE, True)
-        if not dry_run:
-            args.dry_run = False
+            base_url=data['base_url'], incremental=True, dry_run=False, kernel_upgrade_view=True,
+            stage_only=True)
+        try:
             lan = LAN.publish(args)
-            kernel = KERNEL.publish(channel, destination, apk, TREE / 'private-key.pem', TREE)
-        return {'userspace': lan, 'kernel': kernel, 'generation': generation}
+            prepared.append(lan)
+            kernel = KERNEL.publish(channel, destination, apk, TREE / 'private-key.pem', TREE,
+                                    stage_only=True)
+            prepared.append(kernel)
+            receipt = GUARD.preflight(destination, data['base_url'], lan, kernel)
+            # Recheck BOTH before moving either alias. These are the exact
+            # staged snapshots, never a second projection of mutable bin/.
+            for name, result in (('userspace', lan), ('kernel', kernel)):
+                GUARD.authorize(destination, result, receipt, name)
+                GUARD.check_alias(result)
+            selected_policy = GUARD.policy(destination)
+            if selected_policy and not GUARD.same_baseline(
+                    receipt['baseline'], GUARD.capture(selected_policy['ssh_target'])):
+                raise ValueError('Router baseline changed before release promotion')
+            if not dry_run:
+                receipts = destination / 'upgrade-receipts'
+                receipts.mkdir(exist_ok=True)
+                save_receipt = receipts / (str(time.time_ns()) + '.json')
+                with open(save_receipt, 'x', opener=lambda path, flags: os.open(path, flags, 0o600)) as stream:
+                    stream.write(json.dumps(receipt, sort_keys=True, indent=2) + '\n')
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                try:
+                    lan = LAN.promote(lan, destination, receipt)
+                    kernel = KERNEL.promote(kernel, destination, receipt)
+                except BaseException:
+                    # The kernel pointer is the commit boundary. An interrupt
+                    # after it moved must leave the matching userspace exposed.
+                    if (prepared[1]['status'] == 'unchanged' or
+                            Path(prepared[1]['alias']).resolve() != Path(prepared[1]['snapshot']).resolve()):
+                        LAN.restore_alias(prepared[0])
+                    raise
+            return {'userspace': {**lan, 'status': 'dry-run' if dry_run and lan['status'] != 'unchanged' else lan['status']},
+                    'kernel': {**kernel, 'status': 'dry-run' if dry_run and kernel['status'] != 'unchanged' else kernel['status']},
+                    'generation': generation, 'upgrade_preflight': receipt}
+        finally:
+            for result in prepared:
+                path = Path(result['snapshot'])
+                alias = Path(result['alias'])
+                if result['status'] == 'prepared' and (not alias.exists() or alias.resolve() != path.resolve()):
+                    shutil.rmtree(path, ignore_errors=True)
 
 
 def run_make(tree, arguments):

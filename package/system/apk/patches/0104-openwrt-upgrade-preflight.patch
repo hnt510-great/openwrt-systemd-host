@@ -1,0 +1,597 @@
+Subject: [PATCH] apk: preflight full upgrades and expose transaction plans
+
+Validate a full managed transaction before self-upgrade writes. Retain
+ABI-bound packages with temporary constraints for userspace-only updates.
+Authenticate payloads before commit and report input-bound plans.
+
+---
+diff --git a/src/apk_context.h b/src/apk_context.h
+--- a/src/apk_context.h
++++ b/src/apk_context.h
+@@ -71,6 +71,9 @@
+ 	const char *keys_dir;
+ 	const char *cache_dir;
+ 	const char *repositories_file;
++	const char *openwrt_plan_json;
++	unsigned int openwrt_userspace_only;
++	unsigned int openwrt_full_upgrade;
+ 	const char *uvol;
+ 	const char *apknew_suffix;
+ 	apk_blob_t default_pkgname_spec;
+diff --git a/src/apk_solver.h b/src/apk_solver.h
+--- a/src/apk_solver.h
++++ b/src/apk_solver.h
+@@ -54,3 +54,8 @@
+ 
+ int apk_solver_commit(struct apk_database *db, unsigned short solver_flags,
+ 		      struct apk_dependency_array *world);
++
++int apk_solver_plan(struct apk_database *db, unsigned short solver_flags,
++		    struct apk_dependency_array *world, struct apk_changeset *changeset);
++
++int apk_solver_verify_changeset(struct apk_database *db, struct apk_changeset *changeset);
+diff --git a/src/commit.c b/src/commit.c
+--- a/src/commit.c
++++ b/src/commit.c
+@@ -14,6 +14,9 @@
+ #include "apk_package.h"
+ #include "apk_solver.h"
+ #include "apk_print.h"
++#include "apk_extract.h"
++
++static int openwrt_plan_json(struct apk_database *, struct apk_changeset *, const char *);
+ 
+ #ifdef __linux__
+ static bool running_on_host(void)
+@@ -559,6 +562,63 @@
+ 	return prog.done.packages;
+ }
+ 
++/* Download and authenticate every payload before the first managed write,
++ * including local repositories and already-cached packages.
++ */
++int apk_solver_verify_changeset(struct apk_database *db, struct apk_changeset *set)
++{
++	if ((db->ctx->flags & APK_SIMULATE) ||
++	    faccessat(db->root_fd, "etc/openwrt-kernel/protected", F_OK, 0))
++		return 0;
++	apk_array_foreach(change, set->changes)
++	{
++		struct apk_package *pkg = change->new_pkg;
++
++		if (!pkg || pkg == change->old_pkg || pkg->cached || !pkg->installed_size ||
++		    (pkg->repos & db->local_repos))
++			continue;
++		if (!apk_db_cache_active(db)) {
++			apk_err(&db->ctx->out,
++				"Managed upgrades require an active cache; use --cache-dir.");
++			openwrt_plan_json(db, set, "payload-cache-unavailable");
++			return -1;
++		}
++	}
++	if (apk_db_cache_active(db) && apk_solver_precache_changeset(db, set, true) < 0) {
++		openwrt_plan_json(db, set, "payload-download-failed");
++		return -1;
++	}
++	apk_array_foreach(change, set->changes)
++	{
++		struct apk_package *pkg = change->new_pkg;
++
++		if (!pkg || (pkg == change->old_pkg && !change->reinstall) || !pkg->installed_size)
++			continue;
++		struct apk_repository *repo =
++		    pkg->cached ? &db->cache_repository : apk_db_select_repo(db, pkg);
++		struct apk_extract_ctx extract;
++		char url[PATH_MAX];
++		int fd, r = -1;
++
++		if (repo && apk_repo_package_url(db, repo, pkg, &fd, url, sizeof(url)) >= 0) {
++			const char *local = apk_url_local_file(url, sizeof(url));
++
++			if (local) {
++				apk_extract_init(&extract, db->ctx, NULL);
++				apk_extract_verify_identity(&extract, pkg->digest_alg,
++							    apk_pkg_digest_blob(pkg));
++				r = apk_extract(&extract, apk_istream_from_file(fd, local));
++			}
++		}
++		if (r < 0) {
++			apk_err(&db->ctx->out, "Payload preflight failed: " PKG_VER_FMT,
++				PKG_VER_PRINTF(pkg));
++			openwrt_plan_json(db, set, "payload-verification-failed");
++			return -1;
++		}
++	}
++	return 0;
++}
+ int apk_solver_commit_changeset(struct apk_database *db,
+ 				struct apk_changeset *changeset,
+ 				struct apk_dependency_array *world)
+@@ -641,6 +701,9 @@
+ 				return -1;
+ 		}
+ 	}
++
++	if (apk_solver_verify_changeset(db, changeset) < 0)
++		return -1;
+ 
+ 	if (db->ctx->cache_predownload && apk_db_cache_active(db)) {
+ 		r = apk_solver_precache_changeset(db, changeset, true);
+@@ -1135,44 +1198,374 @@
+ 		apk_print_indented_line(&ps.i, "Huh? Error reporter did not find the broken constraints.\n");
+ }
+ 
+-int apk_solver_commit(struct apk_database *db,
+-		      unsigned short solver_flags,
++/* A userspace-only transaction keeps every installed ABI-bound package by
++ * identity. These constraints are solver-local and never written to world.
++ */
++static bool openwrt_kernel_bound(const struct apk_package *pkg)
++{
++	if (!pkg)
++		return false;
++	const char *name = pkg->name->name;
++
++	if (!strcmp(name, "kernel") || !strncmp(name, "kmod-", 5) ||
++	    !strncmp(name, "linux-image-", 12) || !strncmp(name, "kernel-dev-headers", 18))
++		return true;
++	apk_array_foreach(dep, pkg->depends)
++	{
++		if (!apk_dep_conflict(dep) && !strcmp(dep->name->name, "kernel"))
++			return true;
++	}
++	return false;
++}
++
++static void plan_json_string(FILE *file, apk_blob_t value)
++{
++	fputc('"', file);
++	for (long i = 0; i < value.len; i++) {
++		unsigned char c = value.ptr[i];
++
++		if (c == '"' || c == '\\') {
++			fputc('\\', file);
++			fputc(c, file);
++		} else if (c < 0x20)
++			fprintf(file, "\\u%04x", c);
++		else
++			fputc(c, file);
++	}
++	fputc('"', file);
++}
++
++static void plan_json_hex(FILE *file, apk_blob_t value)
++{
++	fputc('"', file);
++	for (long i = 0; i < value.len; i++)
++		fprintf(file, "%02x", (unsigned char)value.ptr[i]);
++	fputc('"', file);
++}
++
++static void plan_json_file_hash(FILE *file, int dirfd, const char *path)
++{
++	struct apk_digest_ctx ctx;
++	struct apk_digest hash;
++	char buffer[16384];
++	ssize_t length;
++	int fd = openat(dirfd, path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
++
++	if (fd < 0 || apk_digest_ctx_init(&ctx, APK_DIGEST_SHA256) < 0) {
++		if (fd >= 0)
++			close(fd);
++		fputs("null", file);
++		return;
++	}
++	int error = 0;
++
++	while ((length = read(fd, buffer, sizeof(buffer))) > 0)
++		if (apk_digest_ctx_update(&ctx, buffer, length) < 0) {
++			error = 1;
++			break;
++		}
++	if (length < 0 || apk_digest_ctx_final(&ctx, &hash) < 0)
++		error = 1;
++	close(fd);
++	apk_digest_ctx_free(&ctx);
++	if (error)
++		fputs("null", file);
++	else
++		plan_json_hex(file, APK_DIGEST_BLOB(hash));
++}
++
++static struct apk_package *plan_selected(struct apk_database *db, struct apk_changeset *set,
++					 const char *name)
++{
++	apk_array_foreach(change, set->changes)
++	{
++		if (change->new_pkg && !strcmp(change->new_pkg->name->name, name))
++			return change->new_pkg;
++
++		if (change->old_pkg && !strcmp(change->old_pkg->name->name, name))
++			return NULL;
++	}
++	return apk_pkg_get_installed(apk_db_get_name(db, APK_BLOB_STR(name)));
++}
++
++static void plan_json_kernel(FILE *file, const struct apk_package *kernel,
++			     const struct apk_package *tracker)
++{
++	fputs("{\"abi\":", file);
++
++	if (kernel)
++		plan_json_string(file, *kernel->version);
++	else
++		fputs("null", file);
++	fputs(",\"image\":", file);
++	const struct apk_dependency *image = kernel_image_dep(tracker);
++
++	if (image)
++		plan_json_string(file, APK_BLOB_STR(image->name->name));
++	else
++		fputs("null", file);
++	fputc('}', file);
++}
++
++static int openwrt_plan_json(struct apk_database *db, struct apk_changeset *set,
++			     const char *blocker)
++{
++	const char *path = db->ctx->openwrt_plan_json;
++
++	if (!path)
++		return 0;
++	int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
++
++	if (fd < 0)
++		return -errno;
++	if (fchmod(fd, 0600)) {
++		close(fd);
++		return -errno;
++	}
++	FILE *file = fdopen(fd, "w");
++
++	if (!file) {
++		close(fd);
++		return -errno;
++	}
++	fprintf(file, "{\"schema\":1,\"mode\":\"%s\",\"status\":\"%s\",\"blockers\":[",
++		db->ctx->openwrt_userspace_only ? "userspace-only" : "full",
++		blocker ? "blocked" : "passed");
++	if (blocker)
++		plan_json_string(file, APK_BLOB_STR(blocker));
++	fputs("],\"inputs\":{\"world_sha256\":", file);
++	plan_json_file_hash(file, db->root_fd, "etc/apk/world");
++	fputs(",\"installed_sha256\":", file);
++	plan_json_file_hash(file, db->root_fd, "lib/apk/db/installed");
++	fputs("},\"indexes\":[", file);
++	for (int i = 0; i < db->num_repos; i++) {
++		struct apk_repository *repo = &db->repos[i];
++		char url[PATH_MAX], cache[PATH_MAX];
++		int cachefd;
++
++		if (i)
++			fputc(',', file);
++		fputs("{\"url\":", file);
++		plan_json_string(file, repo->url_index_printable);
++		fputs(",\"sha256\":", file);
++		apk_fmt(url, sizeof(url), BLOB_FMT, BLOB_PRINTF(repo->url_index));
++		const char *local = apk_url_local_file(url, sizeof(url));
++
++		if (local)
++			plan_json_file_hash(file, AT_FDCWD, local);
++		else if (apk_repo_index_cache_url(db, repo, &cachefd, cache, sizeof(cache)) >= 0)
++			plan_json_file_hash(file, cachefd, cache);
++		else
++			fputs("null", file);
++		fputc('}', file);
++	}
++	fputs("],\"kernel\":{\"before\":", file);
++	plan_json_kernel(
++	    file, apk_pkg_get_installed(apk_db_get_name(db, APK_BLOB_STRLIT("kernel"))),
++	    apk_pkg_get_installed(apk_db_get_name(db, APK_BLOB_STRLIT("linux-image-openwrt"))));
++	fputs(",\"after\":", file);
++	plan_json_kernel(file, plan_selected(db, set, "kernel"),
++			 plan_selected(db, set, "linux-image-openwrt"));
++	fputs("},\"changes\":[", file);
++	int first = 1;
++
++	apk_array_foreach(change, set->changes)
++	{
++		struct apk_package *old = change->old_pkg, *new = change->new_pkg;
++
++		if (old == new && !change->reinstall)
++			continue;
++		if (!first)
++			fputc(',', file);
++		first = 0;
++		fputs("{\"name\":", file);
++		plan_json_string(file, APK_BLOB_STR((new ? new : old)->name->name));
++		fputs(",\"before\":", file);
++		if (old)
++			plan_json_string(file, *old->version);
++		else
++			fputs("null", file);
++		fputs(",\"after\":", file);
++		if (new)
++			plan_json_string(file, *new->version);
++		else
++			fputs("null", file);
++		fputs(",\"origin\":", file);
++		if (new && new->origin)
++			plan_json_string(file, *new->origin);
++		else
++			fputs("null", file);
++		fputs(",\"package_digest\":", file);
++		if (new)
++			plan_json_hex(file, apk_pkg_digest_blob(new));
++		else
++			fputs("null", file);
++		fprintf(file, ",\"reinstall\":%s}", change->reinstall ? "true" : "false");
++	}
++	fputs("]}\n", file);
++	int error = ferror(file);
++
++	if (fflush(file) || fsync(fd))
++		error = 1;
++	if (fclose(file))
++		error = 1;
++	return error ? -EIO : 0;
++}
++
++/* A full managed upgrade must not quietly downgrade its intent to userspace
++ * when an unported installed module makes the newer kernel unsatisfiable.
++ * Honor explicit world version/tag constraints while selecting that intent.
++ */
++static void kernel_full_upgrade_target(struct apk_database *db, struct apk_dependency_array **world)
++{
++	if (!db->ctx->openwrt_full_upgrade || db->ctx->openwrt_userspace_only ||
++	    faccessat(db->root_fd, "etc/openwrt-kernel/protected", F_OK, 0))
++		return;
++	struct apk_name *name = apk_db_get_name(db, APK_BLOB_STRLIT("linux-image-openwrt"));
++	struct apk_package *installed = apk_pkg_get_installed(name), *best = NULL;
++	const struct apk_dependency *before = kernel_image_dep(installed);
++
++	if (!before)
++		return;
++	unsigned int allowed = db->repo_tags[APK_DEFAULT_REPOSITORY_TAG].allowed_repos;
++
++	apk_array_foreach(dep, *world)
++	{
++		if (dep->name == name)
++			allowed |= db->repo_tags[dep->repository_tag].allowed_repos;
++	}
++	apk_array_foreach(provider, name->providers)
++	{
++		struct apk_package *pkg = provider->pkg;
++		const struct apk_dependency *image = kernel_image_dep(pkg);
++
++		if (pkg->name != name || !image || !(pkg->repos & allowed & db->available_repos))
++			continue;
++		bool valid = true;
++
++		apk_array_foreach(dep, *world)
++		{
++			if (dep->name == name && !apk_dep_is_materialized(dep, pkg))
++				valid = false;
++			if (dep->name == image->name) {
++				bool image_allowed = false;
++
++				apk_array_foreach(ip, image->name->providers)
++				{
++					if (!apk_blob_compare(*ip->pkg->version, *image->version) &&
++					    apk_dep_is_materialized(dep, ip->pkg))
++						image_allowed = true;
++				}
++				if (!image_allowed)
++					valid = false;
++			}
++			if (!strcmp(dep->name->name, "kernel") && dep->op != APK_DEPMASK_ANY) {
++				bool kernel_allowed = false;
++
++				apk_array_foreach(kp, dep->name->providers)
++				{
++					if (!apk_blob_compare(*kp->pkg->version, *image->version) &&
++					    apk_dep_is_materialized(dep, kp->pkg))
++						kernel_allowed = true;
++				}
++				if (!kernel_allowed)
++					valid = false;
++			}
++		}
++		if (valid && (!best || apk_pkg_version_compare(best, pkg) == APK_VERSION_LESS))
++			best = pkg;
++	}
++	const struct apk_dependency *after = kernel_image_dep(best);
++
++	if (!best || apk_pkg_version_compare(installed, best) != APK_VERSION_LESS ||
++	    !apk_blob_compare(*before->version, *after->version))
++		return;
++	struct apk_dependency target;
++
++	apk_dep_from_pkg(&target, db, best);
++	apk_dependency_array_add(world, target);
++}
++
++int apk_solver_plan(struct apk_database *db, unsigned short flags,
++		    struct apk_dependency_array *world, struct apk_changeset *set)
++{
++	struct apk_dependency_array *protected_world, *solver_world;
++	const char *blocker = NULL;
++	int r;
++
++	apk_dependency_array_init(&protected_world);
++	apk_dependency_array_init(&solver_world);
++	apk_dependency_array_copy(&protected_world, world);
++	if (apk_db_check_world(db, world) != 0 || kernel_retain(db, &protected_world) < 0) {
++		blocker = "invalid-world-or-protected-dependencies";
++		r = -1;
++		goto out;
++	}
++	if (db->ctx->openwrt_userspace_only) {
++		apk_array_foreach_item(pkg, apk_db_sorted_installed_packages(db))
++		{
++			if (!openwrt_kernel_bound(pkg))
++				continue;
++			struct apk_dependency pin;
++
++			apk_dep_from_pkg(&pin, db, pkg);
++			apk_dependency_array_add(&protected_world, pin);
++		}
++	}
++	kernel_full_upgrade_target(db, &protected_world);
++	apk_change_array_init(&set->changes);
++	r = apk_solver_solve(db, flags, protected_world, set);
++	while (r == 0 && kernel_keep_abi(db, set, protected_world, &solver_world)) {
++		apk_change_array_free(&set->changes);
++		memset(set, 0, sizeof(*set));
++		apk_change_array_init(&set->changes);
++		r = apk_solver_solve(db, flags, solver_world, set);
++	}
++	if (r) {
++		blocker = "unsatisfied-package-migration-or-dependency";
++		apk_solver_print_errors(
++		    db, set, apk_array_len(solver_world) ? solver_world : protected_world);
++		goto out;
++	}
++	if (db->ctx->openwrt_userspace_only) {
++		apk_array_foreach(change, set->changes)
++		{
++			if ((change->old_pkg != change->new_pkg || change->reinstall) &&
++			    (openwrt_kernel_bound(change->old_pkg) ||
++			     openwrt_kernel_bound(change->new_pkg))) {
++				blocker = "userspace-only-would-change-kernel-bound-package";
++				r = -1;
++				goto out;
++			}
++		}
++	}
++	unsigned int saved = db->ctx->flags;
++
++	db->ctx->flags |= APK_SIMULATE;
++	r = kernel_policy(db, set, "apk-pre", 0);
++	db->ctx->flags = saved;
++	if (r < 0)
++		blocker = "kernel-policy-rejected-upgrade";
++out:
++	if (blocker)
++		apk_err(&db->ctx->out, "Upgrade preflight: %s", blocker);
++	if (openwrt_plan_json(db, set, blocker) < 0) {
++		apk_err(&db->ctx->out, "Unable to write upgrade plan JSON");
++		r = -1;
++	}
++	apk_dependency_array_free(&solver_world);
++	apk_dependency_array_free(&protected_world);
++	return r;
++}
++
++int apk_solver_commit(struct apk_database *db, unsigned short flags,
+ 		      struct apk_dependency_array *world)
+ {
+-	struct apk_out *out = &db->ctx->out;
+-	struct apk_changeset changeset = {};
+-	struct apk_dependency_array *retained_world, *solver_world;
+-	int r;
+-
+-	if (apk_db_check_world(db, world) != 0) {
+-		apk_err(out, "Not committing changes due to missing repository tags.");
+-		return -1;
+-	}
+-
+-	apk_dependency_array_init(&retained_world);
+-	apk_dependency_array_copy(&retained_world, world);
+-	world = retained_world;
+-	if (kernel_retain(db, &world) < 0) {
+-		apk_err(out, "Invalid protected kernel dependencies; refusing transaction.");
+-		apk_dependency_array_free(&world);
+-		return -1;
+-	}
+-	apk_change_array_init(&changeset.changes);
+-	apk_dependency_array_init(&solver_world);
+-	r = apk_solver_solve(db, solver_flags, world, &changeset);
+-	while (r == 0 && kernel_keep_abi(db, &changeset, world, &solver_world)) {
+-		apk_change_array_free(&changeset.changes);
+-		memset(&changeset, 0, sizeof(changeset));
+-		apk_change_array_init(&changeset.changes);
+-		r = apk_solver_solve(db, solver_flags, solver_world, &changeset);
+-	}
++	struct apk_changeset set = {};
++	int r = apk_solver_plan(db, flags, world, &set);
++
+ 	if (r == 0)
+-		r = apk_solver_commit_changeset(db, &changeset, world);
+-	else
+-		apk_solver_print_errors(db, &changeset,
+-					apk_array_len(solver_world) ? solver_world : world);
+-	apk_change_array_free(&changeset.changes);
+-	apk_dependency_array_free(&solver_world);
+-	apk_dependency_array_free(&world);
++		r = apk_solver_commit_changeset(db, &set, world);
++	apk_change_array_free(&set.changes);
+ 	return r;
+ }
+diff --git a/src/app_upgrade.c b/src/app_upgrade.c
+--- a/src/app_upgrade.c
++++ b/src/app_upgrade.c
+@@ -37,6 +37,8 @@
+ 	OPT(OPT_UPGRADE_preupgrade,		APK_OPT_BOOL "preupgrade") \
+ 	OPT(OPT_UPGRADE_preupgrade_only,	"preupgrade-only") \
+ 	OPT(OPT_UPGRADE_prune,			"prune") \
++	OPT(OPT_UPGRADE_userspace_only,		"userspace-only") \
++	OPT(OPT_UPGRADE_plan_json,		APK_OPT_ARG "plan-json") \
+ 	OPT(OPT_UPGRADE_self_upgrade,		APK_OPT_BOOL "self-upgrade") \
+ 	OPT(OPT_UPGRADE_self_upgrade_only,	"self-upgrade-only")
+ 
+@@ -67,6 +69,12 @@
+ 		break;
+ 	case OPT_UPGRADE_ignore:
+ 		uctx->ignore = 1;
++		break;
++	case OPT_UPGRADE_userspace_only:
++		ac->openwrt_userspace_only = 1;
++		break;
++	case OPT_UPGRADE_plan_json:
++		ac->openwrt_plan_json = optarg;
+ 		break;
+ 	case OPT_UPGRADE_prune:
+ 		uctx->prune = 1;
+@@ -239,8 +247,23 @@
+ 	}
+ 	if (apk_db_repository_check(db) != 0) return -1;
+ 
++	if (ac->openwrt_userspace_only && (apk_array_len(args) || uctx->prune ||
++	    uctx->preupgrade_only || (uctx->solver_flags & APK_SOLVERF_AVAILABLE))) {
++		apk_err(out, "--userspace-only requires a full upgrade without --prune, --available or --preupgrade-only.");
++		return -1;
++	}
++	ac->openwrt_full_upgrade = apk_array_len(args) == 0;
+ 	solver_flags = APK_SOLVERF_UPGRADE | uctx->solver_flags;
+ 	if ((uctx->preupgrade_only || !ac->root_set) && uctx->preupgrade && apk_array_len(args) == 0) {
++		/* Check the full transaction before any early self-upgrade writes. */
++		struct apk_changeset plan = {};
++
++		r = apk_solver_plan(db, solver_flags, db->world, &plan);
++		if (!r)
++			r = apk_solver_verify_changeset(db, &plan);
++		apk_change_array_free(&plan.changes);
++		if (r)
++			return r;
+ 		r = apk_do_preupgrade(db, solver_flags, uctx->preupgrade_only);
+ 		if (r != 0)
+ 			return r;
+diff --git a/doc/apk-upgrade.8.scd b/doc/apk-upgrade.8.scd
+--- a/doc/apk-upgrade.8.scd
++++ b/doc/apk-upgrade.8.scd
+@@ -57,3 +57,14 @@
+ *--prune*
+ 	Prune the _world_ by removing packages which are no longer available
+ 	from any configured repository.
++
++*--userspace-only*
++	Upgrade userspace while retaining installed kernel-bound packages by identity.
++	The extra constraints are temporary and do not change world. This option
++	requires a full upgrade and cannot be combined with --available, --prune
++	or --preupgrade-only. The default upgrade never falls back to this mode.
++*--plan-json* _FILE_
++	Write a schema-1 JSON transaction plan, including input/index digests,
++	kernel identities, package changes and blocking reasons. Works with
++	--simulate and writes a blocked report when dependency or policy checks fail.
++	The file is relative to the caller, not the --root installation.

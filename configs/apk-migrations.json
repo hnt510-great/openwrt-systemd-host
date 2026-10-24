@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "rules": [
+    {
+      "from": "kmod-nf-log6",
+      "to": ["kmod-nf-log"],
+      "type": "empty-compat",
+      "reason": "Upstream 313889ee5c removed the empty IPv6 logging package; nf_log_syslog provides both families."
+    }
+  ]
+}

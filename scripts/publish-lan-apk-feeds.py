@@ -20,6 +20,10 @@ _ucode_spec = importlib.util.spec_from_file_location(
     'publish_ucode_abi', Path(__file__).with_name('ucode-abi.py'))
 UCODE = importlib.util.module_from_spec(_ucode_spec)
 _ucode_spec.loader.exec_module(UCODE)
+_guard_spec = importlib.util.spec_from_file_location(
+    'lan_upgrade_preflight', Path(__file__).with_name('apk-upgrade-preflight.py'))
+GUARD = importlib.util.module_from_spec(_guard_spec)
+_guard_spec.loader.exec_module(GUARD)
 
 
 def sha256(path):
@@ -193,6 +197,8 @@ def publish(args):
     sources += [(p.name, p) for p in sorted(package_root.iterdir())
                 if p.is_dir() and any(p.glob('*.apk'))]
     destination = args.destination.resolve()
+    stage_only = getattr(args, 'stage_only', False)
+    GUARD.require_coordinator(destination, stage_only or args.dry_run)
     destination.mkdir(parents=True, exist_ok=True)
     public = destination / 'public'
     snapshots = public / 'snapshots'
@@ -236,7 +242,8 @@ def publish(args):
         if args.incremental and old and not changes and not baseline_needed and old.get('base_url') == origin:
             return {'status': 'unchanged', 'kernel': args.kernel,
                     'snapshot': str(previous.resolve()), 'changed_packages': [],
-                    'affected_repositories': [], 'source_files_examined': len(source_files)}
+                    'affected_repositories': [], 'source_files_examined': len(source_files),
+                    'alias': str(previous), 'previous': str(previous.resolve())}
         snapshot_name = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ')
         work = Path(tempfile.mkdtemp(prefix='.publish-', dir=destination))
         try:
@@ -375,7 +382,12 @@ def publish(args):
                       'repositories': urls, 'packages': sum(r['packages'] for r in manifest['repositories'].values()),
                       'kernel_packages': len(manifest['kernel_packages'])}
             result['ucode_abi'] = manifest['ucode_abi']
-            if not args.dry_run:
+            if stage_only:
+                final = snapshots / snapshot_name
+                payload.rename(final)
+                result.update(status='prepared', snapshot=str(final), alias=str(previous),
+                              previous=str(previous.resolve()) if previous.exists() else None)
+            elif not args.dry_run:
                 final = snapshots / snapshot_name
                 payload.rename(final)
                 temporary_link = aliases / ('.' + args.kernel + '.new')
@@ -386,6 +398,35 @@ def publish(args):
             return result
         finally:
             shutil.rmtree(work)
+
+
+def promote(result, destination, receipt):
+    GUARD.authorize(destination, result, receipt, 'userspace')
+    GUARD.check_alias(result)
+    if result['status'] == 'unchanged':
+        return result
+    alias = Path(result['alias'])
+    temporary = alias.with_name('.' + alias.name + '.new')
+    temporary.unlink(missing_ok=True)
+    temporary.symlink_to(Path('../snapshots') / Path(result['snapshot']).name)
+    os.replace(temporary, alias)
+    return {**result, 'status': 'published'}
+
+
+def restore_alias(result):
+    """Undo only our first pointer if the kernel pointer could not commit."""
+    if result['status'] != 'prepared':
+        return
+    alias = Path(result['alias'])
+    if not alias.exists() or alias.resolve() != Path(result['snapshot']).resolve():
+        return
+    if result['previous'] is None:
+        alias.unlink()
+        return
+    temporary = alias.with_name('.' + alias.name + '.rollback')
+    temporary.unlink(missing_ok=True)
+    temporary.symlink_to(result['previous'])
+    os.replace(temporary, alias)
 
 
 if __name__ == '__main__':

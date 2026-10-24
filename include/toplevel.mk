@@ -80,17 +80,17 @@ endif
 
 _ignore = $(foreach p,$(IGNORE_PACKAGES),--ignore $(p))
 
-# package/kernel/linux names these files in SCAN_DEPS, so the package scan
-# reads them although they sit in the target tree.
-SCAN_DEPS_packageinfo:=target/linux/*/modules.mk target/linux/feeds/*/modules.mk
+# Kernel module definitions and the compatibility registry are read by the
+# package scan although they sit outside the usual package Makefile inputs.
+SCAN_DEPS_packageinfo:=target/linux/*/modules.mk target/linux/feeds/*/modules.mk configs/apk-migrations.json scripts/apk-migrations.py
 
 # $(1): scan target, $(2): scan directory, $(3): scan depth
 SCAN_STAMP=tmp/info/.scan-$(1).stamp
 scan_unchanged=[ -f $(SCAN_STAMP) ] && \
-	[ -z "$$(find -L $(2) -maxdepth $(3) \( -type d -o -name Makefile -o -name '*.mk' \) \
+	[ -z "$$(find -L $(2) -maxdepth $(3) \( -type d -o -name Makefile -o -name '*.mk' -o -name 'config-*' -o -name 'kernel-*' \) \
 		-newer $(SCAN_STAMP) -print -quit 2>/dev/null)" ] && \
 	[ -z "$$(find include rules.mk .config $(SCAN_DEPS_$(1)) -maxdepth 1 \
-		\( -name '*.mk' -o -name .config \) \
+		\( -name '*.mk' -o -name .config -o -name '*.json' -o -name '*.py' \) \
 		-newer $(SCAN_STAMP) -print -quit 2>/dev/null)" ]
 
 # $(1): output file, $(2): package-metadata.pl command

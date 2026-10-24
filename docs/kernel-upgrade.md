@@ -108,6 +108,22 @@ downgrade; the immutable image and kmod generation still advance together.
 Build and runtime validation is recorded in
 [the validation report](kernel-upgrade-validation.md).
 
+Publication and APK transaction preflights, explicit userspace-only upgrades,
+and centrally registered empty-package migrations are described in
+[APK upgrade preflight](apk-upgrade-preflight.md).
+
+Kernel generation builds also select the hidden `kmod-nf-log6` compatibility
+package by default. Upstream removed this empty package because `kmod-nf-log`
+already supplies IPv4 and IPv6 logging through `nf_log_syslog`. Existing images
+can still select `kmod-nf-log6` in APK world. Without a matching tracker and
+generation payload, that old package pins the previous ABI and blocks upgrades;
+the kernel policy also rejects dropping a selected module. The compatibility
+package depends on `kmod-nf-log` and supplies the generation metadata without
+adding a module or requesting obsolete kernel configuration symbols. Include
+both its tracker and generation payload in the signed kernel channel. Removing
+the world entry, pruning repositories, or forcing APK does not replace this
+migration path.
+
 ```
 python3 scripts/publish-kernel-upgrade-feed.py \
   --source bin/systemd --destination /path/to/test-feed --dry-run
