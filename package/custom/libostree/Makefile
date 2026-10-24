@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=libostree
-PKG_VERSION:=2026.4
+PKG_VERSION:=2026.5
 PKG_RELEASE:=1
 PKG_SOURCE:=libostree-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=https://github.com/ostreedev/ostree/releases/download/v$(PKG_VERSION)
-PKG_HASH:=b26c9016eb03bb4ee52cc00c642d56e00fc79ae7faac6bf4aa317d7451339ef7
+PKG_HASH:=1829428ed2d982dc684211ff18525b57ea627056a68fa5b04f674f0ca6c9c19b
 PKG_LICENSE:=LGPL-2.1-or-later
 PKG_LICENSE_FILES:=COPYING
 PKG_INSTALL:=1
