@@ -1,0 +1,26 @@
+From: hnt510 <hnt510@gmail.com>
+Date: Sun, 25 Oct 2026 08:00:00 +0800
+Subject: [PATCH] gstreamer1: build GLib introspection metadata before scanning
+
+The Gst scanner imports GLib, GObject and GModule. Their GIR files are
+provided by glib2-gir, separately from the scanner tools. Declare the
+conditional dependency during metadata scanning so parallel builds wait
+for those files to be staged.
+
+---
+diff --git a/multimedia/gstreamer1/Makefile b/multimedia/gstreamer1/Makefile
+index 709cdfb50..7bd60ae0c 100644
+--- a/multimedia/gstreamer1/Makefile
++++ b/multimedia/gstreamer1/Makefile
+@@ -32,8 +32,9 @@ PKG_CONFIG_DEPENDS += CONFIG_PACKAGE_spice-gtk
+ # The introspection include below is conditional, but the package scan runs with
+ # DUMP=1, which does not load .config. Declare the build dependencies here with
+ # the metadata condition syntax so the target package installs
+-# gobject-introspection-1.0.pc into staging before this package configures.
+-PKG_BUILD_DEPENDS += PACKAGE_spice-gtk:gobject-introspection/host PACKAGE_spice-gtk:gobject-introspection
++# gobject-introspection-1.0.pc and GLib's GIR metadata into staging before this
++# package configures.
++PKG_BUILD_DEPENDS += PACKAGE_spice-gtk:gobject-introspection/host PACKAGE_spice-gtk:gobject-introspection PACKAGE_spice-gtk:glib2-gir
+ ifneq ($(CONFIG_PACKAGE_spice-gtk),)
+ include $(INCLUDE_DIR)/gobject-introspection.mk
+ endif
