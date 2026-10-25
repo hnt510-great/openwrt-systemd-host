@@ -436,9 +436,6 @@ def publish(args):
                         changed_packages.append({'repository': name, 'name': info['name'],
                                                  'version': info['version'], 'filename': filename})
                         if path in previous_hashes and digest != previous_hashes[path]:
-                            if ucode_related(info):
-                                raise ValueError(f'Published ucode consumer changed: {path}; '
-                                                 'bump PKG_RELEASE and rebuild')
                             same_version_rebuilds.append(path)
                     if info['arch'] not in ('x86_64', 'all', 'noarch'):
                         raise ValueError(f'Wrong architecture: {info["name"]}')

@@ -130,6 +130,8 @@ class PublisherTests(unittest.TestCase):
         self.assertEqual(self.alias.resolve(), before)
         self.assertEqual(set((self.destination / 'public/snapshots').iterdir()), snapshots)
 
+        return result
+
     def test_detect_kernel_without_override(self):
         self.command = self.command[:2] + self.command[4:]
         self.assertEqual(self.publish()['kernel'], self.kernel)
@@ -234,14 +236,28 @@ class PublisherTests(unittest.TestCase):
         self.make_package('ucode', '1-r1', 'original', provides='ucode-abi=111')
         self.publish()
         self.make_package('ucode', '1-r1', 'different bytes', provides='ucode-abi=111')
-        self.assert_failed_publication('bump PKG_RELEASE')
+        self.assert_failed_publication('Published APK changed without a new version; bump PKG_RELEASE:')
 
     def test_same_version_ucode_library_rebuild_is_rejected(self):
         self.make_package('ucode', '1-r1', 'interpreter', provides='ucode-abi=111')
         self.make_package('libucode111', '1-r1', 'original runtime library')
         self.publish()
         self.make_package('libucode111', '1-r1', 'changed runtime library')
-        self.assert_failed_publication('bump PKG_RELEASE')
+        self.assert_failed_publication('Published APK changed without a new version; bump PKG_RELEASE:')
+
+    def test_ucode_and_other_same_version_rebuilds_are_reported_together(self):
+        self.make_package('ucode', '1-r1', 'interpreter', provides='ucode-abi=111')
+        self.make_package('ucode-mod-probe', '1-r1', 'original plugin', depends='ucode-abi=111')
+        self.publish()
+        self.make_package('ucode', '1-r1', 'changed interpreter', provides='ucode-abi=111')
+        self.make_package('ucode-mod-probe', '1-r1', 'changed plugin', depends='ucode-abi=111')
+        self.make_package('feed-probe', '1.0-r1', 'changed ordinary package')
+        result = self.assert_failed_publication(
+            'Published APK changed without a new version; bump PKG_RELEASE:')
+        output = result.stdout + result.stderr
+        for filename in ('ucode-1-r1.apk', 'ucode-mod-probe-1-r1.apk', 'feed-probe-1.0-r1.apk'):
+            self.assertIn('base/' + filename, output)
+        self.assertNotIn('Published ucode consumer changed', output)
 
     def test_dry_run_does_not_switch_or_retain_a_snapshot(self):
         self.make_package('feed-probe', '1.0-r2', 'preview')

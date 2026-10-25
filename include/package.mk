@@ -99,6 +99,22 @@ endif
 include $(INCLUDE_DIR)/quilt.mk
 -include $(TOPDIR)/configs/apk-elf-rebuilds.mk
 
+# Migration outputs are already allocated package identities. A recipe release
+# must not adopt one as a new source version after the exact input mapping ends.
+# Anchor the key with the upstream version, which can itself contain underscores
+# or "-r", rather than splitting package/version names at underscores.
+elf_rebuild_upstream = $(patsubst %-r$(lastword $(subst -r, ,$(1))),%,$(1))
+elf_rebuild_reserved_versions = $(sort $(foreach entry,\
+	$(filter ELF_REBUILD_$(1)_$(call elf_rebuild_upstream,$(2)) \
+		ELF_REBUILD_$(1)_$(call elf_rebuild_upstream,$(2))-r%,$(.VARIABLES)),\
+	$($(entry))))
+
+define CheckElfRebuildVersion
+  $(if $(ELF_REBUILD_$(1)_$(2)),,\
+    $(if $(filter $(2),$(call elf_rebuild_reserved_versions,$(1),$(2))),\
+      $(error $(1): recipe version $(2) is reserved by the ELF metadata migration; choose a PKG_RELEASE newer than the reserved versions [$(call elf_rebuild_reserved_versions,$(1),$(2))] or update the upstream version)))
+endef
+
 find_library_dependency_names = \
 		$(filter-out $(BUILD_PACKAGES), $(sort $(foreach dep4, \
 			$(sort $(foreach dep3, \
@@ -355,6 +371,7 @@ endef
 define BuildPackage
   $(eval $(Package/Default))
   $(eval $(Package/$(1)))
+  $(if $(CONFIG_USE_APK),$(call CheckElfRebuildVersion,$(1),$(VERSION)))
   $(if $(CONFIG_USE_APK),$(eval VERSION:=$(or $(ELF_REBUILD_$(1)_$(VERSION)),$(VERSION))))
 
   # Add an implicit self-provide. apk can't handle self provides, be it

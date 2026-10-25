@@ -62,11 +62,13 @@ filter_deps=$(foreach dep,$(call strip_deps,$(1)),$(if $(findstring :,$(dep)),$(
 
 define AddDependency
   $$(if $(1),$$(if $(2),$$(foreach pkg,$(1),$$(PACK_$$(pkg))): $$(foreach pkg,$(2),$$(PACK_$$(pkg)))))
+  # ELF checks need sibling library payloads in the target root, not just APKs.
+  $$(if $$(CONFIG_USE_APK),$$(if $(1),$$(if $(2),$$(foreach pkg,$(1),$$(PACK_$$(pkg)) $$(PKG_INFO_DIR)/$$(pkg).provides $$(PKG_BUILD_DIR)/.pkgdir/$$(pkg).installed): $$(foreach pkg,$(2),$$(STAGING_DIR_ROOT)/stamp/.$$(pkg)_installed))))
 endef
 
 define FixupReverseDependencies
-  DEPS := $$(filter %:$(1),$$(IDEPEND))
-  DEPS := $$(patsubst %:$(1),%,$$(DEPS))
+  # Match virtual dependencies when the provider is registered after its consumer.
+  DEPS := $$(foreach alias,$(1) $$(patsubst @%,%,$$(SIBLING_PROVIDES_$(1))),$$(patsubst %:$$(alias),%,$$(filter %:$$(alias),$$(IDEPEND))))
   DEPS := $$(filter $$(DEPS),$$(IPKGS))
   $(call AddDependency,$$(DEPS),$(1))
 endef
@@ -74,7 +76,7 @@ endef
 define FixupDependencies
   DEPS := $$(filter $(1):%,$$(IDEPEND))
   DEPS := $$(patsubst $(1):%,%,$$(DEPS))
-  DEPS := $$(filter $$(DEPS),$$(IPKGS))
+  DEPS := $$(foreach pkg,$$(IPKGS),$$(if $$(filter $$(DEPS),$$(pkg) $$(patsubst @%,%,$$(SIBLING_PROVIDES_$$(pkg)))),$$(pkg)))
   $(call AddDependency,$(1),$$(DEPS))
 endef
 
@@ -300,6 +302,8 @@ _endef=endef
 
 ifeq ($(DUMP),)
   define BuildTarget/ipkg
+    # Preserve raw aliases before Package/PROVIDES is formatted for APK metadata.
+    SIBLING_PROVIDES_$(1):=$(PROVIDES)
     ABIV_$(1):=$(call FormatABISuffix,$(1),$(ABI_VERSION))
     PDIR_$(1):=$(call FeedPackageDir,$(1))
 ifeq ($(CONFIG_USE_APK),)
@@ -392,13 +396,13 @@ endif
     $(eval $(call BuildPackVariable,$(1),postrm,,1))
 
     $(PKG_BUILD_DIR)/.pkgdir/$(1).installed : export PATH=$$(TARGET_PATH_PKG)
-    $(PKG_BUILD_DIR)/.pkgdir/$(1).installed: $(STAMP_BUILT) $(INCLUDE_DIR)/package-pack.mk $(TOPDIR)/.config $(if $(CONFIG_OPENWRT_SYSTEMD),$(SCRIPT_DIR)/merge-usr.py) $(if $(CONFIG_USE_APK),$(SCRIPT_DIR)/elf-abi.py $(TOPDIR)/configs/elf-abi-policy.json)
+    $(PKG_BUILD_DIR)/.pkgdir/$(1).installed: $(STAMP_BUILT) $(INCLUDE_DIR)/package-pack.mk $(TOPDIR)/.config $(if $(CONFIG_OPENWRT_SYSTEMD),$(SCRIPT_DIR)/merge-usr.py) $(if $(CONFIG_USE_APK),$(SCRIPT_DIR)/elf-abi.py $(TOPDIR)/configs/elf-abi-policy.json $(TOPDIR)/configs/apk-elf-rebuilds.mk)
 	rm -rf $$@ $(PKG_BUILD_DIR)/.pkgdir/$(1)
 	mkdir -p $(PKG_BUILD_DIR)/.pkgdir/$(1)
 	$(call Package/$(1)/install,$(PKG_BUILD_DIR)/.pkgdir/$(1))
 	$(call Package/$(1)/install_lib,$(PKG_BUILD_DIR)/.pkgdir/$(1))
 	$(if $(CONFIG_OPENWRT_SYSTEMD),python3 $(SCRIPT_DIR)/merge-usr.py $(PKG_BUILD_DIR)/.pkgdir/$(1) --package $(1) $(if $(filter base-files,$(1)),--aliases))
-	$(if $(CONFIG_USE_APK),python3 $(SCRIPT_DIR)/elf-abi.py --root "$(PKG_BUILD_DIR)/.pkgdir/$(1)" --package "$(1)$$(ABIV_$(1))" --version "$(VERSION)" --staging-root "$(STAGING_DIR_ROOT)" --depends-output "$$(ADIR_$(1))/elf.depends" --provides-output "$$(ADIR_$(1))/elf.provides" --stamp "$(PKG_INFO_DIR)/$(1).sonames")
+	$(if $(CONFIG_USE_APK),python3 $(SCRIPT_DIR)/elf-abi.py --root "$(PKG_BUILD_DIR)/.pkgdir/$(1)" --package "$(1)$$(ABIV_$(1))" --version "$(VERSION)" --staging-root "$(STAGING_DIR_ROOT)" $(if $(ELF_ABI_BOOTSTRAP_ROOT),--bootstrap-root "$(ELF_ABI_BOOTSTRAP_ROOT)") --depends-output "$$(ADIR_$(1))/elf.depends" --provides-output "$$(ADIR_$(1))/elf.provides" --stamp "$(PKG_INFO_DIR)/$(1).sonames")
 	touch $$@
 
     $(STAGING_DIR_ROOT)/stamp/.$(1)_installed: $(PKG_BUILD_DIR)/.pkgdir/$(1).installed
@@ -465,7 +469,7 @@ $(_endef)
     $$(PACK_$(1)) : $(call shexport,Package/$(1)/description)
     $$(PACK_$(1)) : export PATH=$$(TARGET_PATH_PKG)
     $$(PACK_$(1)) : export SOURCE_DATE_EPOCH=$$(PKG_SOURCE_DATE_EPOCH)
-    $(PKG_INFO_DIR)/$(1).provides $$(PACK_$(1)): $(STAMP_BUILT) $(INCLUDE_DIR)/package-pack.mk $(if $(CONFIG_USE_APK),$(SCRIPT_DIR)/ucode-abi.py $(SCRIPT_DIR)/elf-abi.py $(TOPDIR)/configs/elf-abi-policy.json) $(if $(CONFIG_OPENWRT_SYSTEMD),$(SCRIPT_DIR)/merge-usr.py)
+    $(PKG_INFO_DIR)/$(1).provides $$(PACK_$(1)): $(STAMP_BUILT) $(INCLUDE_DIR)/package-pack.mk $(if $(CONFIG_USE_APK),$(SCRIPT_DIR)/ucode-abi.py $(SCRIPT_DIR)/elf-abi.py $(TOPDIR)/configs/elf-abi-policy.json $(TOPDIR)/configs/apk-elf-rebuilds.mk) $(if $(CONFIG_OPENWRT_SYSTEMD),$(SCRIPT_DIR)/merge-usr.py)
 	rm -rf $$(IDIR_$(1))
 ifeq ($$(CONFIG_USE_APK),)
 	$$(call remove_ipkg_files,$(1),$$(call opkg_package_files,$(call gen_package_wildcard,$(1))))
@@ -628,7 +632,7 @@ else
 	$(if $(CONFIG_OPENWRT_SYSTEMD),python3 $(SCRIPT_DIR)/merge-usr.py $$(IDIR_$(1)) --package $(1) $(if $(filter base-files,$(1)),--aliases))
 	$(if $(and $(CONFIG_OPENWRT_KERNEL_UPGRADE),$(filter kernel kernel-dev-headers kmod-%,$(1))),python3 $(SCRIPT_DIR)/kernel-package.py --root "$$(IDIR_$(1))" --name "$(1)" --version "$(VERSION)" --abi "$(KERNEL_ABI_VERSION)" --generation "$(KERNEL_GENERATION)" --sequence "$(CONFIG_OPENWRT_KERNEL_SEQUENCE)" --depends "$$(Package/$(1)/DEPENDS)" --kernel "$(LINUX_DIR)/arch/x86/boot/bzImage" --config "$(LINUX_DIR)/.config" --apk "$(STAGING_DIR_HOST)/bin/apk" --output "$$(PDIR_$(1))" $(if $(CONFIG_SIGN_EACH_PACKAGE),--key "$(BUILD_KEY_APK_SEC)"))
 	python3 $(SCRIPT_DIR)/ucode-abi.py --root "$$(IDIR_$(1))" --package "$(1)" --abi "$$(call GetABISuffix,libucode)" --readelf "$(TARGET_CROSS)readelf" --output "$$(ADIR_$(1))/ucode.depends"
-	python3 $(SCRIPT_DIR)/elf-abi.py --root "$$(IDIR_$(1))" --package "$(1)$$(ABIV_$(1))" --version "$(VERSION)" --staging-root "$(STAGING_DIR_ROOT)" --depends-output "$$(ADIR_$(1))/elf.depends" --provides-output "$$(ADIR_$(1))/elf.provides" --stamp "$(PKG_INFO_DIR)/$(1).sonames"
+	python3 $(SCRIPT_DIR)/elf-abi.py --root "$$(IDIR_$(1))" --package "$(1)$$(ABIV_$(1))" --version "$(VERSION)" --staging-root "$(STAGING_DIR_ROOT)" $(if $(ELF_ABI_BOOTSTRAP_ROOT),--bootstrap-root "$(ELF_ABI_BOOTSTRAP_ROOT)") --depends-output "$$(ADIR_$(1))/elf.depends" --provides-output "$$(ADIR_$(1))/elf.provides" --stamp "$(PKG_INFO_DIR)/$(1).sonames"
 	SOURCE_DATE_EPOCH=0 $(FAKEROOT) $(STAGING_DIR_HOST)/bin/apk mkpkg \
 	  --info "name:$(1)$$(ABIV_$(1))" \
 	  --info "version:$(VERSION)" \

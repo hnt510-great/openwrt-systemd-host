@@ -1,7 +1,9 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=glibc-distro-compat
-GLIBC_COMPAT_RELEASE:=1
+# Keep the package revision independent of libc's runtime release. The p1/r6
+# identity was already allocated by the ELF metadata migration.
+GLIBC_COMPAT_RELEASE:=3
 
 ifeq ($(DUMP),1)
   GLIBC_VERSION:=<LIBC_VERSION>

@@ -1,7 +1,9 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=glibc-getent
-GLIBC_GETENT_RELEASE:=1
+# Keep the integration revision independent of libc's runtime release and
+# previously allocated ELF metadata rebuild identities.
+GLIBC_GETENT_RELEASE:=3
 
 ifeq ($(DUMP),1)
   GLIBC_VERSION:=<LIBC_VERSION>

@@ -116,6 +116,68 @@ class ElfAbiTests(unittest.TestCase):
         E.write_changed(stamp, 'two\n')
         self.assertEqual(stamp.read_text(), 'two\n')
 
+    def test_inventory_mode_is_stable_across_umasks_and_rewrites(self):
+        inventory = self.work / 'inventory.json'
+        for mask in (0o002, 0o022, 0o077):
+            previous = os.umask(mask)
+            try:
+                inventory.unlink(missing_ok=True)
+                E.write_changed(inventory, '{}\n', mode=0o644)
+                self.assertEqual(inventory.stat().st_mode & 0o777, 0o644)
+                inventory.chmod(0o664)
+                before = inventory.stat().st_mtime_ns
+                E.write_changed(inventory, '{}\n', mode=0o644)
+                self.assertEqual(inventory.stat().st_mode & 0o777, 0o644)
+                self.assertEqual(inventory.stat().st_mtime_ns, before)
+                E.write_changed(inventory, '{"changed":true}\n', mode=0o644)
+                self.assertEqual(inventory.stat().st_mode & 0o777, 0o644)
+            finally:
+                os.umask(previous)
+
+    def test_toolchain_bootstrap_with_empty_staging_root(self):
+        toolchain = self.work / 'toolchain'
+        library = self.library(toolchain, directory='lib')
+        payload = self.work / 'payload'
+        payload.mkdir()
+        source = self.work / 'consumer.c'
+        source.write_text('extern int probe(void); int consumer(void) { return probe(); }')
+        subprocess.run(['cc', '-shared', '-nostdlib', '-fPIC', str(source),
+                        str(library), '-o', str(payload / 'consumer.so')], check=True)
+        command = ['python3', str(TREE / 'scripts/elf-abi.py'),
+                   '--root', str(payload), '--package', 'libgcc1', '--version', '1-r1',
+                   '--staging-root', str(self.work / 'empty-staging'),
+                   '--depends-output', str(self.work / 'depends'),
+                   '--provides-output', str(self.work / 'provides')]
+        rejected = subprocess.run(command, capture_output=True, text=True)
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn('missing library', rejected.stderr)
+        accepted = subprocess.run(command + ['--bootstrap-root', str(toolchain)],
+                                  capture_output=True, text=True, umask=0o002)
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertEqual((payload / 'usr/lib/apk/packages/libgcc1.elf.json').stat().st_mode & 0o777,
+                         0o644)
+        self.assertEqual((self.work / 'depends').read_text().strip(), 'so:libprobe.so.1')
+        library.unlink()
+        rejected = subprocess.run(command + ['--bootstrap-root', str(toolchain)],
+                                  capture_output=True, text=True)
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn('missing library', rejected.stderr)
+
+    def test_toolchain_bootstrap_absolute_link_stays_inside_sysroot(self):
+        toolchain = self.work / 'toolchain'
+        library = self.library(toolchain, directory='lib')
+        library.rename(library.with_name('actual.so'))
+        library.symlink_to('/lib/actual.so')
+        consumer = {'files': {'/usr/lib/consumer.so': {
+            **E.elf(library.with_name('actual.so')), 'needed': ['libprobe.so.1']}},
+            'links': {}}
+        bootstrap = E.staged_inventory(toolchain, consumer, merged_usr=False)
+        deps, _ = E.contracts(consumer, 'libgcc1', {'@bootstrap': bootstrap})
+        self.assertEqual(deps, ['so:libprobe.so.1'])
+        bootstrap['files']['/usr/lib/actual.so']['machine'] = -1
+        with self.assertRaisesRegex(ValueError, 'architecture mismatch'):
+            E.contracts(consumer, 'libgcc1', {'@bootstrap': bootstrap})
+
     def test_actual_make_dependency_rule_rebuilds_after_soname_change(self):
         pkginfo = self.work / 'staged/pkginfo'
         pkginfo.mkdir(parents=True)
@@ -136,6 +198,177 @@ class ElfAbiTests(unittest.TestCase):
         E.write_changed(stamp, 'so:libprobe.so.2=0\n')
         run()
         self.assertEqual((self.work / 'events').read_text().splitlines(), ['rebuild', 'rebuild'])
+
+    def test_sibling_packages_stage_libraries_before_both_elf_checks(self):
+        source = (TREE / 'include/package-pack.mk').read_text()
+        rules = source[source.index('define AddDependency'):source.index('# Format dependencies')]
+        for dependency in ('library', 'virtual-library'):
+            for order in (('app', 'library'), ('library', 'app')):
+                for jobs in (1, 4):
+                    with self.subTest(dependency=dependency, order=order, jobs=jobs):
+                        work = self.work / (dependency + '-'.join(order) + str(jobs))
+                        work.mkdir()
+                        (work / 'Makefile').write_text(
+                            '.DEFAULT_GOAL:=all\nCONFIG_USE_APK:=y\n'
+                            'PKG_BUILD_DIR:=build\nPKG_INFO_DIR:=info\nSTAGING_DIR_ROOT:=root\n'
+                            'PACK_app:=app.apk\nPACK_library:=library.apk\n'
+                            + rules + '\n'
+                            'define Register\n'
+                            'IPKGS += $(1)\n'
+                            'SIBLING_PROVIDES_library:=virtual-library\n'
+                            f'IDEPEND += $(if $(filter app,$(1)),app:{dependency})\n'
+                            '$(FixupDependencies)\n$(FixupReverseDependencies)\n'
+                            'endef\n'
+                            + ''.join('$(eval $(call Register,' + name + '))\n' for name in order)
+                            + 'all: app.apk info/app.provides build/.pkgdir/app.installed\n'
+                            'app.apk info/app.provides build/.pkgdir/app.installed:\n'
+                            '\t@test -f root/stamp/.library_installed\n'
+                            '\t@mkdir -p $(@D); touch $@\n'
+                            'library.apk build/.pkgdir/library.installed:\n'
+                            '\t@mkdir -p $(@D); touch $@\n'
+                            'root/stamp/.library_installed: build/.pkgdir/library.installed\n'
+                            '\t@mkdir -p $(@D); touch $@\n')
+                        result = subprocess.run(['make', '-j' + str(jobs)], cwd=work,
+                                                capture_output=True, text=True)
+                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                        self.assertNotIn('Circular', result.stderr)
+
+    def test_release_ledger_change_restages_provider_before_consumer(self):
+        source = (TREE / 'include/package-pack.mk').read_text().splitlines()
+        staged_rule = next(line.strip() for line in source
+                           if line.strip().startswith('$(PKG_BUILD_DIR)/.pkgdir/$(1).installed:'))
+        package_rule = next(line.strip() for line in source
+                            if line.strip().startswith('$(PKG_INFO_DIR)/$(1).provides $$(PACK_$(1)):'))
+        for relative in ('built', '.config', 'include/package-pack.mk', 'scripts/elf-abi.py',
+                         'scripts/ucode-abi.py', 'configs/elf-abi-policy.json'):
+            target = self.work / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.touch()
+        ledger = self.work / 'configs/apk-elf-rebuilds.mk'
+        ledger.write_text('1\n')
+        self.work.joinpath('Makefile').write_text(
+            'TOPDIR:=.\nINCLUDE_DIR:=include\nSCRIPT_DIR:=scripts\n'
+            'CONFIG_USE_APK:=y\nSTAMP_BUILT:=built\nPKG_BUILD_DIR:=build\n'
+            'PKG_INFO_DIR:=info\nPACK_library:=library.apk\n'
+            'all: app\n'
+            + staged_rule.replace('$(1)', 'library').replace('$$', '$') + '\n'
+            '\t@mkdir -p $(@D); cp configs/apk-elf-rebuilds.mk $@\n'
+            + package_rule.replace('$(1)', 'library').replace('$$', '$') + '\n'
+            '\t@mkdir -p $(@D); touch $@\n'
+            'root/version: build/.pkgdir/library.installed\n'
+            '\t@mkdir -p $(@D); cp $< $@\n'
+            'app: root/version library.apk\n\t@cp root/version app\n')
+        for version in ('1', '2'):
+            ledger.write_text(version + '\n')
+            result = subprocess.run(['make', '-j3'], cwd=self.work, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual((self.work / 'app').read_text().strip(), version)
+
+    def test_libc_version_stamp_uses_effective_package_version(self):
+        source = (TREE / 'package/libs/toolchain/Makefile').read_text()
+        recipes = source.split('define Package/libc/install\n')[1:]
+        self.assertEqual(len(recipes), 2)  # Internal and external toolchains.
+        mapping = next(line.strip() for line in (TREE / 'include/package.mk').read_text().splitlines()
+                       if '$(eval VERSION:=$(or $(ELF_REBUILD_' in line)
+        mapping = mapping.replace('$(1)', 'libc')
+        for recipe in recipes:
+            command = next(line.strip().rstrip('; \\') for line in recipe.split('endef', 1)[0].splitlines()
+                           if 'libc.version' in line)
+            (self.work / 'Makefile').write_text(
+                'CONFIG_USE_APK:=y\nLIBC_VERSION:=2.43\nPKG_RELEASE:=5\n'
+                'VERSION:=$(LIBC_VERSION)-r$(PKG_RELEASE)\n'
+                'ELF_REBUILD_libc_2.43-r5:=2.43-r6\n'
+                'STAGING_DIR:=' + str(self.work) + '\n' + mapping + '\n'
+                'define Install\nall:\n\t' + command + '\nendef\n'
+                '$(eval $(Install))\nVERSION:=unrelated-package-version\n')
+            subprocess.run(['make', '-s'], cwd=self.work, check=True, capture_output=True)
+            self.assertEqual((self.work / 'libc.version').read_text().strip(), '2.43-r6')
+
+    def test_recipe_cannot_reuse_a_migration_output_version(self):
+        source = (TREE / 'include/package.mk').read_text()
+        helpers = source[source.index('elf_rebuild_upstream ='):
+                         source.index('find_library_dependency_names =')]
+        guard = next(line.strip() for line in source.splitlines()
+                     if '$(call CheckElfRebuildVersion,$(1),$(VERSION))' in line)
+        mapping = next(line.strip() for line in source.splitlines()
+                       if '$(eval VERSION:=$(or $(ELF_REBUILD_' in line)
+        cases = [
+            ('libcups-runtime', '2.4.20-r1', '2.4.20-r2'),
+            ('libcups-runtime', '2.4.20-r2', None),
+            ('libcups-runtime', '2.4.20-r3', '2.4.20-r3'),
+            ('libcups-runtime', '2.4.21-r2', '2.4.21-r2'),
+            ('mtd', '29', '29-r2'),
+            ('mtd', '29-r1', '29-r2'),
+            ('mtd', '29-r2', None),
+            ('mtd', '29-r3', '29-r3'),
+            ('samba4-libs', '4.24.5-r2', '4.24.5-r4'),
+            ('samba4-libs', '4.24.5-r3', '4.24.5-r4'),
+            ('samba4-libs', '4.24.5-r4', None),
+            ('boost-program_options', '1.92.0-r3', '1.92.0-r4'),
+            ('boost-program_options', '1.92.0-r4', None),
+            ('avahi-utils', '0.9_rc5-r2', '0.9_rc5-r3'),
+            ('avahi-utils', '0.9_rc5-r3', None),
+            ('probe_widget', '1.0-rc1-r2', None),
+            ('probe', '1.0-rc1-r2', '1.0-rc1-r2'),
+            ('chain', '1.0-r2', '1.0-r3'),
+            ('chain', '1.0-r3', None),
+        ]
+        for name, version, expected in cases:
+            with self.subTest(name=name, version=version):
+                (self.work / 'Makefile').write_text(
+                    'CONFIG_USE_APK:=y\n'
+                    'include ' + str(TREE / 'configs/apk-elf-rebuilds.mk') + '\n'
+                    'ELF_REBUILD_probe_widget_1.0-rc1-r1:=1.0-rc1-r2\n'
+                    'ELF_REBUILD_chain_1.0-r1:=1.0-r2\n'
+                    'ELF_REBUILD_chain_1.0-r2:=1.0-r3\n'
+                    + helpers + '\nVERSION:=' + version + '\n'
+                    + guard.replace('$(1)', name) + '\n'
+                    + mapping.replace('$(1)', name) + '\n'
+                    'all:\n\t@echo "$(VERSION)"\n')
+                result = subprocess.run(['make', '-s'], cwd=self.work,
+                                        capture_output=True, text=True)
+                if expected is None:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(name + ': recipe version ' + version + ' is reserved', result.stderr)
+                    self.assertIn('PKG_RELEASE', result.stderr)
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout.strip(), expected)
+
+    def test_glibc_companions_resolve_runtime_derived_versions_without_collision(self):
+        source = (TREE / 'include/package.mk').read_text()
+        helpers = source[source.index('elf_rebuild_upstream ='):
+                         source.index('find_library_dependency_names =')]
+        guard = next(line.strip() for line in source.splitlines()
+                     if '$(call CheckElfRebuildVersion,$(1),$(VERSION))' in line)
+        mapping = next(line.strip() for line in source.splitlines()
+                       if '$(eval VERSION:=$(or $(ELF_REBUILD_' in line)
+        for name in ('glibc-getent', 'glibc-distro-compat'):
+            recipe = (TREE / 'package/custom' / name / 'Makefile').read_text()
+            # Exercise the actual recipe expressions with a real libc.version,
+            # not DUMP's <LIBC_VERSION>/<LIBC_RELEASE> metadata placeholders.
+            version_rules = recipe.split('include $(TOPDIR)/rules.mk', 1)[1].split(
+                'include $(INCLUDE_DIR)/package.mk', 1)[0]
+            exact_dependency = next(line.strip() for line in recipe.splitlines()
+                                    if line.strip().startswith('EXTRA_DEPENDS:='))
+            for release in (5, 6, 7):
+                with self.subTest(name=name, release=release):
+                    runtime = '2.43-r' + str(release)
+                    (self.work / 'libc.version').write_text(runtime + '\n')
+                    (self.work / 'Makefile').write_text(
+                        'CONFIG_USE_APK:=y\nLIBC_VERSION:=2.43\n'
+                        'STAGING_DIR:=' + str(self.work) + '\n'
+                        'include ' + str(TREE / 'configs/apk-elf-rebuilds.mk') + '\n'
+                        + version_rules + '\n' + helpers
+                        + '\nVERSION:=$(PKG_VERSION)-r$(PKG_RELEASE)\n'
+                        + guard.replace('$(1)', name) + '\n'
+                        + mapping.replace('$(1)', name) + '\n' + exact_dependency
+                        + '\nall:\n\t@echo "$(VERSION)|$(EXTRA_DEPENDS)"\n')
+                    result = subprocess.run(['make', '-s'], cwd=self.work,
+                                            capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout.strip(),
+                                     '2.43_p3-r' + str(release) + '|libc (=' + runtime + ')')
 
     def test_make_dependency_migration_preserves_package_separators(self):
         source = (TREE / 'include/package-pack.mk').read_text()

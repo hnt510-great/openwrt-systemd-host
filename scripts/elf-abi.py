@@ -280,19 +280,31 @@ def validate(records, require_metadata=True):
             'elf_files': sum(len(r['elf']['files']) for r in records.values())}
 
 
-def write_changed(path, content):
+def write_changed(path, content, mode=None):
     path = Path(path)
     if path.exists() and path.read_text() == content:
+        if mode is not None:
+            path.chmod(mode)
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + f'.{os.getpid()}.tmp')
     temporary.write_text(content)
+    if mode is not None:
+        temporary.chmod(mode)
     os.replace(temporary, path)
 
 
-def staged_inventory(root, inventory):
+def staged_inventory(root, inventory, merged_usr=True):
     """Read only referenced staged paths, never follow absolute links on the host."""
     result = {'files': {}, 'links': {}, 'schema': SCHEMA}
+
+    def local_path(path):
+        # The toolchain sysroot stores runtime libraries in /lib; package
+        # inventories use the target's canonical /usr/lib namespace.
+        if not merged_usr and (path == '/usr/lib' or path.startswith('/usr/lib/')):
+            path = path.removeprefix('/usr')
+        return root / path.lstrip('/')
+
     requested = set()
     for path, item in inventory['files'].items():
         for needed in item['needed']:
@@ -309,7 +321,7 @@ def staged_inventory(root, inventory):
             changed = False
             for i in range(1, len(parts) + 1):
                 relative = '/' + '/'.join(parts[:i])
-                local = root / relative.lstrip('/')
+                local = local_path(relative)
                 if local.is_symlink():
                     target = canonical(posixpath.join(posixpath.dirname(relative), os.readlink(local)))
                     if target == relative:
@@ -320,7 +332,7 @@ def staged_inventory(root, inventory):
                     break
             if changed:
                 continue
-            local = root / path.lstrip('/')
+            local = local_path(path)
             if local.is_file() and (item := elf(local)):
                 result['files'][path] = item
             break
@@ -335,6 +347,8 @@ def main():
     parser.add_argument('--package', required=True)
     parser.add_argument('--version', required=True)
     parser.add_argument('--staging-root', type=Path)
+    parser.add_argument('--bootstrap-root', type=Path,
+                        help='Current toolchain sysroot, only for toolchain runtime packages')
     parser.add_argument('--depends-output', type=Path, required=True)
     parser.add_argument('--provides-output', type=Path, required=True)
     parser.add_argument('--stamp', type=Path)
@@ -351,12 +365,19 @@ def main():
             # Bootstrap the metadata migration from the actual staged payload.
             staged = staged_inventory(args.staging_root, inventory)
             context['@staged'] = staged
+        if args.bootstrap_root:
+            if context is None:
+                context = {}
+            # Keep the check strict: only actual, architecture-matched runtime
+            # files from this toolchain can satisfy the bootstrap dependencies.
+            bootstrap = staged_inventory(args.bootstrap_root, inventory, merged_usr=False)
+            context = {'@bootstrap': bootstrap, **context}
         depends, provides = contracts(inventory, args.package, context)
         write_changed(args.depends_output, ' '.join(depends) + '\n')
         write_changed(args.provides_output, ' '.join(provides) + '\n')
         if inventory['files']:
             output = args.root / 'usr/lib/apk/packages' / (args.package + '.elf.json')
-            write_changed(output, json.dumps(inventory, sort_keys=True, separators=(',', ':')) + '\n')
+            write_changed(output, json.dumps(inventory, sort_keys=True, separators=(',', ':')) + '\n', mode=0o644)
             filelist = output.with_name(args.package + '.list')
             if filelist.exists():
                 write_changed(filelist, '\n'.join(sorted(set(filelist.read_text().splitlines() +

@@ -29,13 +29,28 @@ inventories identify the owners of private libraries. Each provider's
 `pkginfo/<name>.sonames` file changes only when its public library capabilities
 change; the existing library dependency stamps then rebuild affected consumers.
 
+Within one recipe, APK dependency rules also stage each selected sibling
+dependency before checking either the consumer's APK payload or its `.pkgdir`
+payload. Building the provider APK alone does not place its libraries in the
+target root. This ordering applies regardless of package declaration order and
+also holds during parallel builds.
+
+Toolchain runtime packages explicitly pass the current toolchain sysroot as an
+ELF bootstrap context. This lets libgcc resolve glibc and its loader before libc
+has been staged in a fresh target root. Only referenced runtime files are read;
+missing libraries and architecture mismatches still fail, and SONAME dependencies
+are still emitted. Ordinary packages use only the target staging context, and
+publication still validates the complete selected package set independently.
+
 The publisher independently extracts and scans every newest candidate, including
 retained incremental packages. Missing/stale inventories, absent dependencies,
 inaccurate providers and unresolved libraries stop publication. Historical APKs
 are retained for rollback but cannot satisfy this newest-candidate check. All
 published package identities are immutable: changed bytes require a new version,
-including metadata-only changes. The existing ucode interpreter/module ABI lock
-remains active, since SONAME alone cannot describe that plugin ABI.
+including metadata-only changes. Ucode and its consumers use this same check
+and appear in the same aggregated conflict report as other packages. The ucode
+interpreter/module ABI lock remains active, since SONAME alone cannot describe
+that plugin ABI.
 
 The coordinated release preflight also inventories actual installed ELF files.
 It combines unchanged installed packages with the exact APK transaction plan
@@ -53,9 +68,47 @@ without modifying upstream versions or hundreds of independent feed recipes.
 Entries cease to apply when the source version changes. A normal subsequent
 rebuild remains subject to immutable-publication checks; this ledger is not an
 automatic permission to overwrite the same release.
+Generated ELF inventories use mode `0644` explicitly in normal builds and the
+migration worker. This keeps the build host's umask from changing APK contents
+between runs; unchanged inventories also have their mode corrected without
+changing their modification time. Already published identities remain immutable:
+the ucode recipe advances from r2 (migration output r3) to r4 for the subsequent
+rebuild, with corresponding release advances for conflicting native consumers.
 For example, an original Sunshine r2 mapped to r3 must use r4 (or a newer
 upstream version) for its next changed publication; merely setting the recipe
 to r3 would still reuse an already published effective version.
+
+The build checks this before applying the mapping: a recipe cannot adopt a
+migration output version unless it is also an explicitly registered migration
+input. The error names the package, conflicting version and reserved releases.
+For example, `libcups-runtime` 2.4.20-r1 still maps to r2, a new recipe at r2
+fails before compilation, and the DNS-SD configuration fix uses recipe r3.
+New upstream versions have their own release namespace. Registered historical
+inputs, including multiple Samba inputs mapped to one output, still work.
+This check needs no live feed or network access. It catches migration-version
+collisions; changed payloads that retain any other published version are still
+rejected by the publisher's immutable-identity check.
+
+The 2026-10-25 guard validation passed 20 ELF tests and 21 publisher tests,
+including original migration inputs, reserved outputs, newer releases, newer
+upstream versions, underscore-containing names/versions, inputs without an
+`-r` suffix and chained mappings. Checking 11,353 literal recipe version
+records found no collisions; DUMP placeholders for runtime-derived versions
+need separate resolved-version checks. An actual `libcups-runtime` make invocation forced
+to r2 stopped before compilation with the reserved-version error. Recipe r3
+built successfully and its signed APK verified; its dependencies no longer
+include Avahi. The normal package build removed the superseded local r2 from
+the output directory; its earlier bytes were preserved in the task backup.
+This validation did not publish feeds or deploy a router update.
+
+The follow-up glibc companion check found that updating `libc.version` to its
+effective r6 also changes the recipes' runtime-derived package versions to the
+already allocated `2.43_p1-r6`. `glibc-getent` and `glibc-distro-compat` therefore
+advance their independent integration revision to p2, while retaining the exact
+`libc=2.43-r6` lock. Their signed `2.43_p2-r6` APKs both built and verified.
+The 21-test ELF suite now exercises both actual recipes with libc runtime
+releases r5/r6/r7, including the Make guard, rather than relying on metadata
+placeholders. This keeps the version guard strict without a package exemption.
 
 Compatible signed payloads can be repackaged by `scripts/migrate-elf-abi.py`
 inside fakeroot. Its audited plan records original package metadata, ELF
@@ -64,6 +117,35 @@ all existing path contents, permissions, ownership, timestamps, symlink targets,
 scripts and triggers after creating the new APK. Only the package file list and
 the new inventory are added/updated. Incompatible consumers must first be built
 from source; Sunshine is rebuilt against Boost 1.92 rather than repackaged.
+
+The 2026-10-25 rebuild repair allocates new effective releases for 773 changed
+published APKs and the two glibc companion packages with exact libc dependencies.
+Of the conflicts, 723 affect only the ELF inventory, 27 also change package
+metadata, 20 change payload contents, and three affect file lists/permissions.
+The audited current build payloads are retained; this is not permission to
+overwrite their published predecessors. Earlier recipe inputs and the replaced
+effective versions map to the newly allocated release, while the new output
+remains reserved against accidental recipe reuse. These are explicit finite
+allocations, not automatic release increments on every build.
+
+Repackaging checks an existing ELF inventory against the input package version,
+updates its release, rewrites matching versioned aliases and exact dependencies,
+and verifies all other file content, modes, ownership, symlinks, timestamps,
+scripts and triggers. Data-only packages do not gain an empty ELF inventory.
+The glibc helpers use integration revision p3 with the effective libc release,
+avoiding a collision with their p2 identities. Package payload and APK rules
+depend on the release ledger so a subsequent source build also refreshes staged
+inventories and private-library version locks before building consumers.
+
+Validation for that repair passed 132 focused tests, a complete normal build
+of generation 35, and the coordinated publication dry-run. The final normal
+build outputs have zero same-version conflicts with the active ABI feed.
+The candidate contains 790 userspace changes, including earlier pending work;
+the active repositories were not switched. The router simulation and ELF
+transition audit also pass with its live world left unmodified (797 changes).
+Applying the two explicitly audited libc/passt pin migrations would select
+801 changes instead. Those live pins remain intact until a separately reviewed
+deployment. Source configuration changed only in the kernel sequence, 34 to 35.
 
 An exact `libc=<old release>` world pin, or an APK checksum pin from a previous
 offline installation, intentionally prevents an ordinary upgrade. Migration

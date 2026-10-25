@@ -3,7 +3,7 @@
 
 The input inventory is an audit of exact signed APKs. Repackaging preserves
 scripts and every existing file's ACL, target, content and timestamp, except
-the package file list, to which the ELF inventory is added. Incompatible ELF
+the package file list and the generated ELF inventory's release metadata. Incompatible ELF
 must be rebuilt separately before this tool accepts the complete package set.
 Run --worker only inside fakeroot; it cannot publish or install packages.
 """
@@ -45,6 +45,11 @@ def worker(plan, names):
         inventory = record['elf']
         root = Path(record.get('root', Path(plan['workspace']) / 'payloads' / name))
         actual = ELF.inspect(root)
+        output_inventory = root / 'usr/lib/apk/packages' / (name + '.elf.json')
+        if output_inventory.exists():
+            original_inventory = {**actual, 'package': name, 'version': old['info']['version']}
+            if json.loads(output_inventory.read_text()) != original_inventory:
+                raise ValueError(f'{name}: existing ELF inventory is stale')
         actual.update(package=name, version=inventory['version'])
         if actual != inventory:
             raise ValueError(f'{name}: payload changed after audit')
@@ -65,13 +70,21 @@ def worker(plan, names):
                         dependency = match[1] + '=' + rebuild['after']
             dependencies.append(dependency)
         info['depends'] = sorted(set(dependencies + deps))
-        info['provides'] = sorted(set(info.get('provides', []) + provides))
-        output_inventory = root / 'usr/lib/apk/packages' / (name + '.elf.json')
-        ELF.write_changed(output_inventory, json.dumps(inventory, sort_keys=True, separators=(',', ':')) + '\n')
+        aliases = []
+        for provide in info.get('provides', []):
+            alias, separator, version = provide.partition('=')
+            if separator and version == old['info']['version']:
+                provide = alias + '=' + info['version']
+            aliases.append(provide)
+        info['provides'] = sorted(set(aliases + provides))
+        if inventory['files'] or output_inventory.exists():
+            ELF.write_changed(output_inventory, json.dumps(inventory, sort_keys=True, separators=(',', ':')) + '\n', mode=0o644)
         filelist = root / 'usr/lib/apk/packages' / (name + '.list')
         if filelist.exists():
-            ELF.write_changed(filelist, '\n'.join(sorted(set(filelist.read_text().splitlines() +
-                ['/usr/lib/apk/packages/' + name + '.elf.json']))) + '\n')
+            entries = filelist.read_text().splitlines()
+            if output_inventory.exists():
+                entries.append('/usr/lib/apk/packages/' + name + '.elf.json')
+            ELF.write_changed(filelist, '\n'.join(sorted(set(entries))) + '\n')
         # Unknown IDs are given private synthetic numbers; --root idroot maps
         # those numbers back to their ORIGINAL package owner/group names.
         for directory, dirs, files in os.walk(root, followlinks=False):
@@ -115,7 +128,8 @@ def worker(plan, names):
             if new is None:
                 raise ValueError(f'{name}: package path disappeared: {relative}')
             for key in ('acl', 'target', 'mtime', 'hash', 'size'):
-                if relative == 'usr/lib/apk/packages/' + name + '.list' and key in ('hash', 'size'):
+                if relative in ('usr/lib/apk/packages/' + name + '.list',
+                                'usr/lib/apk/packages/' + name + '.elf.json') and key in ('hash', 'size'):
                     continue
                 if item.get(key) != new.get(key):
                     raise ValueError(f'{name}: {relative}: {key} changed: {item.get(key)!r} -> {new.get(key)!r}')
