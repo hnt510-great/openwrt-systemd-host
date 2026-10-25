@@ -15,12 +15,22 @@ static void fail(const char *message)
 	exit(125);
 }
 
+static int runtime_available(const char *path, uid_t uid)
+{
+	struct stat st;
+
+	/* A traversal-only ACL (e.g. libvirt PipeWire access) sets the group
+	 * execute bit through the ACL mask. It grants no directory listing or
+	 * modification. Keep rejecting group read/write and all other access. */
+	return !lstat(path, &st) && S_ISDIR(st.st_mode) && st.st_uid == uid &&
+	       !(st.st_mode & 0067);
+}
+
 /* Not setuid. Only rpcd/root may use this helper. Podman and all of its
  * children run with the selected account's real and effective IDs. */
 int main(int argc, char **argv)
 {
 	struct passwd *pw;
-	struct stat st;
 	char runtime[64], bus[128];
 	char **args;
 	int i;
@@ -31,8 +41,7 @@ int main(int argc, char **argv)
 	if (!pw || pw->pw_uid < 1000 || pw->pw_gid == 0 || pw->pw_dir[0] != '/')
 		fail("An existing ordinary account with an absolute home is required.");
 	snprintf(runtime, sizeof(runtime), "/run/user/%lu", (unsigned long)pw->pw_uid);
-	if (lstat(runtime, &st) || !S_ISDIR(st.st_mode) || st.st_uid != pw->pw_uid ||
-	    (st.st_mode & 0077))
+	if (!runtime_available(runtime, pw->pw_uid))
 		fail("User runtime directory unavailable. Log in through SSH/PAM first; on systemd, enable linger for persistent access.");
 	snprintf(bus, sizeof(bus), "unix:path=%s/bus", runtime);
 	if (initgroups(pw->pw_name, pw->pw_gid) || setgid(pw->pw_gid) || setuid(pw->pw_uid))
