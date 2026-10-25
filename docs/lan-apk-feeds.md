@@ -1,7 +1,7 @@
 # Local LAN APK feeds
 
 The Debian build host serves signed native-systemd/glibc packages at
-`http://192.0.2.164:8088`. Its system service is `lan-apk-feeds.service` and
+`http://apk.example.invalid:8088`. Its system service is `lan-apk-feeds.service` and
 starts automatically at boot. The `lan-apk-feeds` package selects all nine
 repositories, including `custom`,
 in `/etc/apk/repositories.d/lan-local.list` from the installed kernel APK version.
@@ -11,7 +11,7 @@ sysupgrade restores an older list. It preserves unrelated custom repositories.
 The feed URL contains the exact installed kernel package version:
 
 ```text
-http://192.0.2.164:8088/abi/6.18.55~ef561c78a2b577ae422f9289311ff293-r1/target/packages.adb
+http://apk.example.invalid:8088/abi/6.18.55~ef561c78a2b577ae422f9289311ff293-r1/target/packages.adb
 ```
 
 The other feeds are `base`, `luci`, `packages`, `passwall_luci`,
@@ -198,7 +198,7 @@ and the router's binary repository serve different purposes; see
 The router's custom feed URL is:
 
 ```text
-http://192.0.2.164:8088/abi/6.18.55~ef561c78a2b577ae422f9289311ff293-r1/custom/packages.adb
+http://apk.example.invalid:8088/abi/6.18.55~ef561c78a2b577ae422f9289311ff293-r1/custom/packages.adb
 ```
 
 On 2026-10-14 the source index contained 72 source definitions and 80 binary
@@ -313,12 +313,24 @@ sudo systemctl status lan-apk-feeds.service
 sudo journalctl -u lan-apk-feeds.service
 ```
 
-The router has a dedicated DHCP reservation `dhcp.lan_apk_feeds_host` for
-`02:00:00:00:00:01` at `192.0.2.164`. If the build host bridge MAC or LAN
-changes, update that reservation, the service bind address, the publisher's
-`base_url`, and `/etc/lan-apk-feeds.conf` together, then run
-`sudo /etc/init.d/lan-apk-feeds restart`. The configuration is a package
+The router has a dedicated DHCP reservation `dhcp.apk_server` for
+`02:00:00:00:00:01` at `192.0.2.165`. The build host's NetworkManager `br0`
+profile pins that bridge MAC so the reservation remains valid after reboot.
+The router's `dhcp.apk_feed_dns` record resolves `apk.example.invalid` to this
+address for clients using the router's DNS; no public DNS record is required.
+The publisher and `/etc/lan-apk-feeds.conf` use the domain name. If the server
+IP changes, update the reservation, DNS record, and service bind address.
+Reload DNS and restart `lan-apk-feeds.service` on the build host. When changing
+the feed origin, run `sudo lan-apk-feeds-sync` on the router. Passwall's DNS
+instance also reads `/tmp/hosts`; send it SIGHUP to refresh new local records
+without restarting proxy connections. The feed configuration is a package
 conffile and survives sysupgrade; boot regenerates the ABI-specific list.
+
+The 2026-10-25 address/domain migration backups are under
+`/root/network-apk-backup-20261025T135406` on the router and
+`/root/network-apk-backup-20261025T135407` on the build host. Domain resolution,
+HTTP index access, and router `apk update` were verified; world constraints
+and the router boot ID were unchanged.
 
 Router backups are in `/root/lan-apk-feeds-backup-20261014`: previous feed
 files, world constraints, DHCP configuration, sysupgrade configuration, and
