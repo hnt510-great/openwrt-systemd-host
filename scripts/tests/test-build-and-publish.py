@@ -78,11 +78,17 @@ class BuildPublicationTests(unittest.TestCase):
                           ['linux-image-' + other + '=' + other_abi, 'kernel=' + other_abi])
         self.make_package('kmod-nic', '1000.99.6.18.55-r1', ['kernel=' + other_abi])
 
-    def make_package(self, name, version, depends=(), content=None, signed=True):
+    def make_package(self, name, version, depends=(), content=None, signed=True, files=None):
         root = self.root / 'package-files'
-        root.mkdir(exist_ok=True)
+        if root.exists():
+            shutil.rmtree(root)
+        root.mkdir()
         file = root / 'probe'
         file.write_text(content or name + ' ' + version)
+        for relative, data in (files or {}).items():
+            target = root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
         folder = self.target if name == 'kernel' or name.startswith(
             ('kmod-', 'linux-image-', 'kernel-dev-headers')) else self.base
         package = folder / (name + '-' + version + '.apk')
@@ -98,7 +104,19 @@ class BuildPublicationTests(unittest.TestCase):
         (self.tree / '.config').write_text(
             'CONFIG_OPENWRT_KERNEL_UPGRADE=y\nCONFIG_OPENWRT_KERNEL_SEQUENCE=' + str(sequence) +
             '\nCONFIG_PACKAGE_kmod-nic=y\nCONFIG_PACKAGE_kernel-dev-headers=y\nKEEP_ME=yes\n')
-        self.make_package(image, abi)
+        linux = self.release.parents[2]
+        binary = linux / 'arch/x86/boot/bzImage'
+        binary.parent.mkdir(parents=True, exist_ok=True)
+        state = B.state_path(self.tree)
+        timestamp = json.loads(state.read_text())['timestamp'] if state.exists() else 'fixture timestamp'
+        boot_header = bytearray(0x300)
+        boot_header[0x202:0x206] = b'HdrS'
+        boot_header[0x20e:0x210] = (0x100).to_bytes(2, 'little')
+        binary.write_bytes(boot_header + (name + ' (fixture) #0 SMP ' + timestamp).encode() + b'\0')
+        (linux / '.config').write_text('CONFIG_FIXTURE=y\n')
+        self.make_package(image, abi, files={
+            'usr/lib/openwrt-kernel/' + name + '/vmlinuz': binary.read_bytes(),
+            'usr/lib/openwrt-kernel/' + name + '/config': (linux / '.config').read_bytes()})
         self.make_package('linux-image-openwrt', f'1-r{sequence}',
                           [image + '=' + abi, 'kernel=' + abi])
         for logical in ('kmod-nic', 'kernel-dev-headers'):
@@ -436,6 +454,43 @@ class BuildPublicationTests(unittest.TestCase):
         with patch.dict('os.environ', {'SOURCE_DATE_EPOCH': '2000000000'}):
             self.assertEqual(B.prepare_sequence(self.tree, self.server), first)
         self.assertEqual(json.loads(B.state_path(self.tree).read_text())['timestamp'], state['timestamp'])
+
+    def test_changed_compiled_image_with_same_inputs_advances_sequence(self):
+        first = B.prepare_sequence(self.tree, self.server)
+        self.generation(first)
+        image = next(self.target.glob(f'linux-image-*-g{first}-*.apk'))
+        original = image.read_bytes()
+        (self.release.parents[2] / 'arch/x86/boot/bzImage').write_text('different build timestamp')
+        self.assertGreater(B.prepare_sequence(self.tree, self.server), first)
+        self.assertEqual(image.read_bytes(), original)
+
+    def test_changed_generated_kernel_config_advances_sequence(self):
+        first = B.prepare_sequence(self.tree, self.server)
+        self.generation(first)
+        (self.release.parents[2] / '.config').write_text('CONFIG_FIXTURE=n\n')
+        self.assertGreater(B.prepare_sequence(self.tree, self.server), first)
+
+    def test_recorded_timestamp_must_match_existing_image(self):
+        first = B.prepare_sequence(self.tree, self.server)
+        self.generation(first)
+        state = json.loads(B.state_path(self.tree).read_text())
+        state['timestamp'] = '2000-01-01 00:00:00 +0000'
+        B.save_state(self.tree, state)
+        self.assertGreater(B.prepare_sequence(self.tree, self.server), first)
+
+    def test_unrelated_cached_kernel_build_does_not_advance_sequence(self):
+        first = B.prepare_sequence(self.tree, self.server)
+        self.generation(first)
+        cached = self.release.parents[3] / 'linux-6.18.54/include/config/kernel.release'
+        cached.parent.mkdir(parents=True)
+        cached.write_text('unrelated cached kernel\n')
+        self.assertEqual(B.prepare_sequence(self.tree, self.server), first)
+
+    def test_missing_compiled_image_with_existing_payload_advances_sequence(self):
+        first = B.prepare_sequence(self.tree, self.server)
+        self.generation(first)
+        (self.release.parents[2] / 'arch/x86/boot/bzImage').unlink()
+        self.assertGreater(B.prepare_sequence(self.tree, self.server), first)
 
     def test_manual_sequence_increase_is_honored(self):
         first = B.prepare_sequence(self.tree, self.server)

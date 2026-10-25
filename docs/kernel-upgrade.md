@@ -49,6 +49,15 @@ Source/config changes during a build are refused before publication. Existing
 signed-byte immutability checks remain the final guard against unrecorded changes
 or direct edits to generated build files.
 
+Before reusing a recorded generation with an existing image APK, the wrapper
+also compares the APK's kernel/config file hashes with the current compiled
+`bzImage` and kernel `.config`, and checks the image's embedded build timestamp
+against the local record. A changed timestamp or an out-of-band rebuild
+can change the binary even when source fingerprints still match. Missing or
+different compiled files reserve an unused generation while preserving the
+existing APK. Use the wrapper for full builds so the reserved timestamp is
+passed to make; plain package make targets do not reserve generations.
+
 After make succeeds, the wrapper selects only the compiled generation and its
 matching logical trackers, payloads and configured modules/headers. Stale kernel
 artifacts in `bin/` are ignored without deleting them. Missing modules, wrong

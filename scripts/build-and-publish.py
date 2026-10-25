@@ -64,6 +64,51 @@ def save_state(tree, data):
             temporary.unlink(missing_ok=True)
 
 
+def generation_matches_compiled_image(tree, sequence, timestamp):
+    """An input record alone cannot prove that existing immutable bytes match."""
+    output = tree / 'bin/systemd/targets/x86/64-glibc/packages'
+    images = list(output.glob(f'linux-image-*-g{sequence}-*.apk'))
+    if not images:
+        return True
+    abi_file = tree / 'staging_dir/target-x86_64_glibc/kernel.version'
+    if not abi_file.is_file():
+        return False
+    abi = abi_file.read_text().strip()
+    match = re.fullmatch(r'(.+)~([0-9a-f]{32})-r([0-9]+)', abi)
+    if not match:
+        return False
+    release = (match[1].replace('_rc', '-rc') + '-owrt-' + match[2] +
+               '-r' + match[3] + '-g' + str(sequence))
+    releases = list((tree / 'build_dir/target-x86_64_glibc/linux-x86_64').glob(
+        'linux-*/include/config/kernel.release'))
+    releases = [path for path in releases if path.read_text().strip() == release]
+    if len(releases) != 1:
+        return False
+    image = output / ('linux-image-' + release + '-' + abi + '.apk')
+    if image not in images:
+        return False
+    metadata = LAN.dump_index(TREE / 'staging_dir/host/bin/apk', image)
+    files = {item['name']: item.get('hash') for directory in metadata.get('paths', [])
+             if directory.get('name') == 'usr/lib/openwrt-kernel/' + release
+             for item in directory.get('files', [])}
+    linux = releases[0].parents[2]
+    binary = linux / 'arch/x86/boot/bzImage'
+    if not binary.is_file():
+        return False
+    image_bytes = binary.read_bytes()
+    # x86 boot protocol: kernel_version is relative to the real-mode header
+    # at offset 0x200. Check the embedded version, not a possibly newer .h file.
+    if len(image_bytes) < 0x210 or image_bytes[0x202:0x206] != b'HdrS':
+        return False
+    start = 0x200 + int.from_bytes(image_bytes[0x20e:0x210], 'little')
+    end = image_bytes.find(b'\0', start)
+    if end < 0 or not timestamp or not image_bytes[start:end].endswith((' ' + timestamp).encode()):
+        return False
+    return all(path.is_file() and files.get(name) == LAN.sha256(path)
+               for name, path in (('vmlinuz', binary),
+                                  ('config', linux / '.config')))
+
+
 def prepare_sequence(tree, destination, make_args=(), inputs=None):
     """Reuse a proven generation, reserving a new one only for changed inputs."""
     config = configuration(tree)
@@ -77,6 +122,10 @@ def prepare_sequence(tree, destination, make_args=(), inputs=None):
     previous = json.loads(state_path(tree).read_text()) if state_path(tree).exists() else None
     reuse = (previous and previous.get('schema') == 1 and previous.get('inputs') == inputs
              and current <= previous['sequence'] and previous['sequence'] >= published)
+    if reuse and not generation_matches_compiled_image(tree, previous['sequence'], previous.get('timestamp')):
+        print('Recorded generation differs from existing compiled image/config/timestamp; '
+              'reserving an unused generation.', flush=True)
+        reuse = False
     selected = previous['sequence'] if reuse else max(current, published + 1)
     output = tree / 'bin/systemd/targets/x86/64-glibc/packages'
     # Reuse partial immutable outputs only with the same proven inputs/time.
