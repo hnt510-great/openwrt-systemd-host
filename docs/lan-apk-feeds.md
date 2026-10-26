@@ -1,6 +1,6 @@
 # Local LAN APK feeds
 
-The Debian build host serves signed native-systemd/glibc packages at
+The Debian build host uses nginx to serve signed native-systemd/glibc packages at
 `http://apk.example.invalid:8088`. Its system service is `lan-apk-feeds.service` and
 starts automatically at boot. The `lan-apk-feeds` package selects all nine
 repositories, including `custom`,
@@ -123,13 +123,33 @@ arguments override JSON defaults. Each ABI keeps its separate snapshot alias.
 
 Output lists `changed_packages`, `affected_repositories`, and
 `same_version_rebuilds`. Increase a package's `PKG_VERSION` or `PKG_RELEASE`
-for reliable upgrade detection. A same-version content change is published
-and reported but may require an explicit reinstall on the router. The
+for reliable upgrade detection. A same-version content change is rejected
+before switching the active feed, for every package. The
 publisher does not change package versions, connect to the router, or install
 updates there.
 
-ucode interpreters, libraries and native consumers have a stricter rule:
-same-version content changes are rejected and require a release bump. APK
+When a recipe uses `configs/apk-elf-rebuilds.mk`, choose a release newer than
+the allocated outputs as well as the upstream recipe release. Two input
+releases may map to the same historical migration output; an upstream bump
+alone does not guarantee a new effective APK version. For example, nginx
+`1.30.5-r1` and `-r2` both mapped to `-r3`; the next local recipe release is
+`-r4`. Preserve historical mappings for exact dependency migration.
+
+Passwall uses the existing LuCI Git revision versioning for code and
+translations independently, rather than upstream's manually maintained
+version fields. Committed code or translation updates therefore get new
+versions even when upstream does not bump a release. Local uncommitted
+payload changes still require a new version before publication; Git revision
+versioning does not describe dirty working-tree contents.
+
+Run `python3 scripts/tests/test-apk-source-versions.py` after changing these
+recipes or LuCI versioning. It checks that nginx's current and next recipe
+releases advance beyond allocated identities, and uses a temporary Git
+repository to verify that Passwall code and translation commits advance
+their respective versions independently and remain stable between commits.
+
+ucode interpreters, libraries and native consumers also retain their ABI
+compatibility checks. APK
 packaging records a shared `ucode-abi` dependency for embedded runtimes and C
 modules; publication checks the newest candidates, including retained packages,
 against the interpreter provider before switching the feed. This prevents a
@@ -305,8 +325,31 @@ The service remains running without a restart. Validation evidence is under
 ## Service, address, and rollback
 
 The installed unit is `/etc/systemd/system/lan-apk-feeds.service`; its source
-template is `configs/lan-apk-feeds.service`. The installed server script is
-`/usr/local/lib/openwrt-feeds/serve-lan-apk-feeds.py`.
+template is `configs/lan-apk-feeds.service`. Its standalone nginx configuration
+is `/etc/openwrt-feeds/nginx.conf`, sourced from
+`configs/lan-apk-feeds.nginx.conf`. The service runs nginx as `desktop-user`, with
+a read-only filesystem and a writable `/run/lan-apk-feeds` runtime directory.
+It does not use the distribution `nginx.service` or its default website.
+
+To install on a host with the nginx binary available:
+
+```sh
+sudo install -d -m 755 /etc/openwrt-feeds
+sudo install -m 644 configs/lan-apk-feeds.nginx.conf /etc/openwrt-feeds/nginx.conf
+sudo install -m 644 configs/lan-apk-feeds.service /etc/systemd/system/lan-apk-feeds.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now lan-apk-feeds.service
+```
+
+When replacing an already running service, use `systemctl restart` after
+installing the files. For configuration-only changes, run
+`sudo -u desktop-user nginx -t -c /etc/openwrt-feeds/nginx.conf` before
+`sudo systemctl reload lan-apk-feeds.service`. Publication itself needs no reload:
+nginx follows the publisher-owned snapshot symlinks on each request. Keep this
+publication tree writable only by the trusted publisher; do not place symlinks
+to files outside the publication tree in it. Directory listings, dotfiles,
+unapproved file types, and methods other than GET/HEAD are blocked. Responses
+retain `Cache-Control: no-cache` and `X-Content-Type-Options: nosniff`.
 
 ```sh
 sudo systemctl status lan-apk-feeds.service
@@ -319,7 +362,7 @@ profile pins that bridge MAC so the reservation remains valid after reboot.
 The router's `dhcp.apk_feed_dns` record resolves `apk.example.invalid` to this
 address for clients using the router's DNS; no public DNS record is required.
 The publisher and `/etc/lan-apk-feeds.conf` use the domain name. If the server
-IP changes, update the reservation, DNS record, and service bind address.
+IP changes, update the reservation, DNS record, and nginx `listen` address.
 Reload DNS and restart `lan-apk-feeds.service` on the build host. When changing
 the feed origin, run `sudo lan-apk-feeds-sync` on the router. Passwall's DNS
 instance also reads `/tmp/hosts`; send it SIGHUP to refresh new local records
@@ -419,3 +462,31 @@ without any package changes. Backups are in
 `/root/lan-apk-feeds-auto-backup-20261014.t3Gk2w/config-before.tar.gz`.
 
 Evidence: `/srv/openwrt-validation/openwrt-feed-auto-validation-20261014/`.
+
+## nginx migration validation on 2026-10-25
+
+The build host now runs nginx under the existing, boot-enabled
+`lan-apk-feeds.service`, on the same address and port. The distribution
+`nginx.service` is disabled. Access and error logs are available through
+`journalctl -u lan-apk-feeds.service`.
+
+`python3 scripts/tests/test-lan-apk-nginx.py` starts an isolated nginx with the
+production template. It checks allowed files, GET/HEAD, range downloads,
+LAN denial, private-file and directory denial, missing files, and atomic
+snapshot alias replacement without a reload. The nginx configuration check,
+systemd unit verification, live start, and graceful reload passed.
+
+All 82 published ABI/kernel-channel indexes and a sample APK fetched from the
+LAN domain matched their on-disk SHA256 hashes. The physical router refreshed
+its nine ABI feeds and kernel discovery feed successfully, reporting 4,482
+available packages. Its world-file hash and boot ID were unchanged.
+
+The previous Python unit and installed script are backed up on the build host
+in `/root/lan-apk-nginx-backup-20261025T134822Z/`. To restore that server:
+
+```sh
+sudo cp -a /root/lan-apk-nginx-backup-20261025T134822Z/lan-apk-feeds.service /etc/systemd/system/
+sudo install -m 755 /root/lan-apk-nginx-backup-20261025T134822Z/serve-lan-apk-feeds.py /usr/local/lib/openwrt-feeds/
+sudo systemctl daemon-reload
+sudo systemctl restart lan-apk-feeds.service
+```

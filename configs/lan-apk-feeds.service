@@ -1,5 +1,5 @@
 [Unit]
-Description=OpenWrt signed LAN APK feeds
+Description=OpenWrt signed LAN APK feeds (nginx)
 Wants=network-online.target
 After=network-online.target
 StartLimitIntervalSec=0
@@ -8,7 +8,12 @@ StartLimitIntervalSec=0
 Type=simple
 User=desktop-user
 Group=desktop-user
-ExecStart=/usr/bin/python3 /usr/local/lib/openwrt-feeds/serve-lan-apk-feeds.py --bind 192.0.2.165 --port 8088 --lan 192.0.2.0/24 --directory /srv/openwrt-feeds/public
+RuntimeDirectory=lan-apk-feeds
+ExecStartPre=/usr/sbin/nginx -t -c /etc/openwrt-feeds/nginx.conf
+ExecStart=/usr/sbin/nginx -c /etc/openwrt-feeds/nginx.conf
+ExecReload=/bin/kill -HUP $MAINPID
+KillSignal=SIGQUIT
+TimeoutStopSec=30
 Restart=on-failure
 RestartSec=10
 NoNewPrivileges=yes
