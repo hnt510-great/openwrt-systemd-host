@@ -1,0 +1,12 @@
+{
+  "video": {
+    "base": "5c91ccb098917738afaf4b0eb87718c76c618e40",
+    "patch": "patches/feeds/0024-video-terminal-sgr.patch",
+    "paths": [
+      "frameworks/weston/Makefile",
+      "frameworks/weston/patches/010-terminal-consume-rgb-sgr-colors.patch"
+    ],
+    "state": "committed locally",
+    "commit": "917af18fab81ada45e78e7f95c283a5a2978466d"
+  }
+}
