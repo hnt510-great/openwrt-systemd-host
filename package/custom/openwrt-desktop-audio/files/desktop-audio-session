@@ -7,7 +7,7 @@ if [ "${1:-}" != --monitor ]; then
 	compositor_pid=$PPID
 	if [ -x /usr/libexec/desktop-flatpak-session ]; then WESTON_COMPOSITOR_PID=$compositor_pid /usr/libexec/desktop-flatpak-session; fi
 	systemctl --user stop openwrt-audio-session-monitor.service 2>/dev/null || :
-	systemctl --user import-environment WAYLAND_DISPLAY DBUS_SESSION_BUS_ADDRESS OPENWRT_DESKTOP_LAN_ADDRESS
+	systemctl --user import-environment WAYLAND_DISPLAY DBUS_SESSION_BUS_ADDRESS OPENWRT_DESKTOP_LAN_ADDRESS OPENWRT_DESKTOP_OUTPUT
 	exec systemd-run --user --quiet --collect --unit=openwrt-audio-session-monitor \
 		--property=Type=exec /usr/libexec/desktop-audio-session --monitor "$compositor_pid"
 fi

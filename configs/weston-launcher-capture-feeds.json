@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "description": "Incremental GIO launch helper and optional Weston PipeWire mirror; apply only to matching unmodified paths",
+  "feeds": [
+    {
+      "feed": "packages",
+      "base": "d646e8b3804f8bf57435853231a97af43411122f",
+      "patch": "patches/feeds/0025-packages-gio-desktop-launcher.patch",
+      "sha256": "99f60c6752391b9702039274a02b8812a4988d4209ed41798707a73e57806ddc"
+    },
+    {
+      "feed": "video",
+      "base": "917af18fab81ada45e78e7f95c283a5a2978466d",
+      "patch": "patches/feeds/0026-video-pipewire-capture.patch",
+      "sha256": "9d17f79c36add8dc26fed1e510e3cdc07821f90b615cd11f612b7b2c0aa116f6"
+    }
+  ]
+}

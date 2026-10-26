@@ -1,0 +1,22 @@
+diff --git a/libs/glib2/Makefile b/libs/glib2/Makefile
+index 8ce378894..e5eced9b3 100644
+--- a/libs/glib2/Makefile
++++ b/libs/glib2/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=glib2
+ PKG_VERSION:=2.88.1
+-PKG_RELEASE:=2
++PKG_RELEASE:=5
+ 
+ PKG_SOURCE:=glib-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=@GNOME/glib/$(basename $(PKG_VERSION))
+@@ -210,6 +210,8 @@ define Package/glib2-gio/install
+ 	$(INSTALL_DIR) $(1)/usr/lib
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libgio-2.0.so* \
+ 		$(1)/usr/lib
++	$(INSTALL_DIR) $(1)/usr/libexec
++	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/libexec/gio-launch-desktop $(1)/usr/libexec/
+ endef
+ 
+ define Package/libgirepository2/install

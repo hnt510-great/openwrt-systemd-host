@@ -1,0 +1,95 @@
+diff --git a/frameworks/weston/Makefile b/frameworks/weston/Makefile
+index d400663..736948b 100644
+--- a/frameworks/weston/Makefile
++++ b/frameworks/weston/Makefile
+@@ -1,7 +1,7 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=weston
+-PKG_RELEASE:=12
++PKG_RELEASE:=13
+ 
+ PKG_VERSION:=16.0.0
+ PKG_MAJOR_VERSION:=$(firstword $(subst .,$(space),$(PKG_VERSION)))
+@@ -15,7 +15,7 @@ PKG_LICENSE_FILES:=COPYING
+ 
+ PKG_INSTALL:=1
+ PKG_BUILD_DEPENDS:=wayland/host
+-PKG_CONFIG_DEPENDS:=CONFIG_WESTON_VNC CONFIG_WESTON_RDP CONFIG_WESTON_RDP_AUDIO CONFIG_WESTON_XWAYLAND
++PKG_CONFIG_DEPENDS:=CONFIG_WESTON_VNC CONFIG_WESTON_RDP CONFIG_WESTON_RDP_AUDIO CONFIG_WESTON_XWAYLAND CONFIG_WESTON_PIPEWIRE
+ 
+ include $(INCLUDE_DIR)/package.mk
+ include $(INCLUDE_DIR)/meson.mk
+@@ -31,7 +31,7 @@ define Package/weston
+ 	+libmesa +libpango +libseat +libwayland +libwebp +libxkbcommon +pixman \
+ 	+seatd +vulkan-loader +wayland-protocols +xkeyboard-config \
+ 	+WESTON_VNC:libaml +WESTON_VNC:libneatvnc +WESTON_VNC:libpam \
+-	+WESTON_RDP:libfreerdp3 +WESTON_RDP_AUDIO:libpipewire \
++	+WESTON_RDP:libfreerdp3 +WESTON_RDP_AUDIO:libpipewire +WESTON_PIPEWIRE:libpipewire \
+ 	+WESTON_XWAYLAND:xwayland +WESTON_XWAYLAND:libxcb +WESTON_XWAYLAND:libXcursor
+ endef
+ 
+@@ -56,6 +56,11 @@ config WESTON_RDP_AUDIO
+ 	depends on OPENWRT_SYSTEMD && TARGET_x86_64 && USE_GLIBC
+ 	default n
+ 
++config WESTON_PIPEWIRE
++	bool "Enable PipeWire desktop mirror for Sunshine"
++	depends on OPENWRT_SYSTEMD && TARGET_x86_64 && USE_GLIBC
++	default n
++
+ config WESTON_XWAYLAND
+ 	bool "Enable X11 applications through Xwayland"
+ 	# Xwayland's target constraints propagate back into PACKAGE_weston.
+@@ -68,7 +73,7 @@ MESON_ARGS += \
+ 	--wrap-mode=nofallback \
+ 	-Dbackend-drm=true \
+ 	-Dbackend-headless=false \
+-	-Dbackend-pipewire=false \
++	-Dbackend-pipewire=$(if $(CONFIG_WESTON_PIPEWIRE),true,false) \
+ 	-Dbackend-rdp=$(if $(CONFIG_WESTON_RDP),true,false) \
+ 	-Dbackend-rdp-audio=$(if $(CONFIG_WESTON_RDP_AUDIO),true,false) \
+ 	-Dbackend-vnc=$(if $(CONFIG_WESTON_VNC),true,false) \
+diff --git a/frameworks/weston/patches/011-pipewire-mirror-initial-mode.patch b/frameworks/weston/patches/011-pipewire-mirror-initial-mode.patch
+new file mode 100644
+index 0000000..928eaa9
+--- /dev/null
++++ b/frameworks/weston/patches/011-pipewire-mirror-initial-mode.patch
+@@ -0,0 +1,37 @@
++Subject: [PATCH] pipewire: negotiate the physical mirror mode before enable
++
++--- a/frontend/main.c
+++++ b/frontend/main.c
++@@ -4308,6 +4308,8 @@
++ 	struct weston_config *wc = wet_get_config(output->compositor);
++ 	struct weston_config_section *section;
++ 	char *gbm_format = NULL;
+++	char *mirror_name = NULL;
+++	struct weston_output *source;
++ 	int width;
++ 	int height;
++ 	int framerate = -1;
++@@ -4328,6 +4330,23 @@
++ 
++ 	wet_output_set_scale(output, section, 1, 0);
++ 	weston_output_set_transform(output, WL_OUTPUT_TRANSFORM_NORMAL);
+++
+++	/* Advertise the mirror's real mode before connecting its PipeWire stream.
+++	 * Changing only the renderer size after enable leaves the initial 640x480
+++	 * at 30 Hz in the stream's format negotiation. */
+++	weston_config_section_get_string(section, "mirror-of", &mirror_name, NULL);
+++	if (mirror_name) {
+++		source = weston_compositor_find_output_by_name(output->compositor,
+++						    mirror_name);
+++		free(mirror_name);
+++		if (!source || !source->current_mode) {
+++			free(gbm_format);
+++			return -1;
+++		}
+++		width = source->current_mode->width;
+++		height = source->current_mode->height;
+++		framerate = (source->current_mode->refresh + 500) / 1000;
+++	}
++ 
++ 	api->set_gbm_format(output, gbm_format);
++ 	free(gbm_format);

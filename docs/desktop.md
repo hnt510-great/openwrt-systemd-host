@@ -23,6 +23,14 @@ The desktop starts automatically on subsequent boots when a display and LAN
 address are available. The terminal and VNC session run as this user, with terminals starting in the home directory.
 Click the terminal icon in the top panel to open a terminal window.
 
+Images with `openwrt-desktop-launcher` also provide an Applications grid icon.
+Click it to search installed graphical applications by name or keyword. Use
+the arrow keys and Enter to launch an application, or Escape to close the
+window. Native and exported Flatpak desktop entries appear automatically;
+personal desktop-entry overrides and visibility settings are respected.
+The launcher runs as the desktop user and supports the configured Chinese
+input method. Existing terminal, Firefox and virt-manager panel shortcuts remain.
+
 Images containing Firefox ESR also show a browser icon in the panel.
 Click it to browse as the desktop user; Firefox does not start automatically.
 See [Firefox setup, updates and profile backups](firefox.md).
@@ -203,3 +211,38 @@ Restarting the desktop closes its applications and interrupts remote desktop
 connections. Set `force_composition` to `0` and restart to restore client-buffer
 scanout; the session unsets `WESTON_FORCE_RENDERER` because Weston treats any
 value, including `0`, as enabled. Both systemd and procd use the same setting.
+
+## Optional compositor capture for Sunshine
+
+`desktop.main.sunshine_capture` accepts `kms` (default) or `weston`.
+The optional `weston` route captures the composed output through
+its PipeWire mirror instead of reading the DRM primary plane. Build with
+`CONFIG_WESTON_PIPEWIRE=y`, `sunshine`, and `openwrt-desktop-audio` on the
+native-systemd x86_64/glibc profile. The PipeWire video SPA plugin is required. Keep `force_composition=1` with
+this route too: the physical test with direct scanout enabled produced stale
+mirror frames. This option does not remove the composition requirement.
+
+```sh
+uci set desktop.main.sunshine_capture='weston'
+uci commit desktop
+/etc/init.d/desktop restart
+```
+
+This interrupts desktop applications and remote connections. The session starts
+the user's PipeWire daemon before Weston and mirrors the configured physical
+output. Sunshine explicitly selects `weston.pipewire`; it never silently falls
+back to KMS. If the mirror is unavailable, local display, RDP and VNC remain
+available, while Sunshine reports the capture error. After a PipeWire daemon
+failure, restart the desktop to recreate the mirror. The procd recovery path
+does not enable this backend.
+
+To return to KMS, set `sunshine_capture='kms'`, keep
+`force_composition='1'`, commit, and restart the desktop. KMS remains the
+recommended default from the physical comparison; see
+[capture validation](weston-launcher-capture-validation.md) for results and
+remaining client acceptance checks.
+
+## Chinese input
+
+See [Chinese Pinyin and macOS RDP shortcuts](desktop-ime.md) for the optional
+Fcitx5 integration and Ctrl+Shift+Space toggle.

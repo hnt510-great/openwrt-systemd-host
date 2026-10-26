@@ -26,6 +26,17 @@ if [ "$render_count" = 1 ] &&
 	echo 'Sunshine: Intel 8086:4e61 GPU hang workaround: disabling HEVC/AV1 probes; H.264 remains available' >&2
 	set -- hevc_mode=1 av1_mode=1
 fi
+capture=$(uci -q get desktop.main.sunshine_capture || :)
+capture=${capture:-kms}
+case "$capture" in
+	kms) ;;
+	weston)
+		: "${OPENWRT_DESKTOP_OUTPUT:?Desktop output unavailable}"
+		set -- "$@" output_name=weston.pipewire
+		;;
+	*) echo 'Invalid Sunshine capture mode' >&2; exit 1 ;;
+esac
+echo "Sunshine: selected capture=$capture (no automatic fallback)" >&2
 # Runtime overrides preserve the user's configuration and keep all listeners on LAN.
-exec /usr/bin/sunshine capture=kms "bind_address=$address" address_family=ipv4 \
+exec /usr/bin/sunshine "capture=$capture" "bind_address=$address" address_family=ipv4 \
 	upnp=disabled origin_web_ui_allowed=lan "$@"

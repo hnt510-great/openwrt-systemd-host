@@ -180,5 +180,12 @@
     "sha": "n13.1.15.0",
     "file": "sunshine-nv-codec-headers-n13.1.15.0.tar.gz",
     "hash": "2255bc74d038b95aa4be30f5f66322c2176acbdb90ada1851db6993536fbeaf7"
+  },
+  {
+    "path": "third-party/wlr-protocols",
+    "repo": "LizardByte-infrastructure/wlr-protocols",
+    "sha": "bf4fc79abc359eea5a0edec0ac6d4a2b2955f82a",
+    "file": "sunshine-wlr-protocols-bf4fc79abc35.tar.gz",
+    "hash": "9e0fd2be5ba7c84b81acdd086f84c2da2c2b5e4946a17bda3e9850c62e14057f"
   }
 ]

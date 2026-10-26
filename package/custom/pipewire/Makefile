@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=pipewire
 PKG_VERSION:=1.6.10
-PKG_RELEASE:=1
+PKG_RELEASE:=4
 PKG_BUILD_DIR:=$(BUILD_DIR)/pipewire-$(PKG_VERSION)
 PKG_SOURCE:=pipewire-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/PipeWire/pipewire/tar.gz/refs/tags/$(PKG_VERSION)?
@@ -57,7 +57,7 @@ MESON_ARGS += --prefix=/usr --libdir=lib --sysconfdir=/etc --localstatedir=/var 
 	-Dtests=disabled -Dinstalled_tests=disabled -Dpipewire-jack=disabled -Dpipewire-v4l2=disabled \
 	-Dspa-plugins=enabled -Dsupport=enabled -Dsession-managers=[] -Dpam-defaults-install=false \
 	-Drlimits-install=false -Dalsa=enabled -Dudev=enabled -Ddbus=enabled \
-	-Daudiomixer=enabled -Daudioconvert=enabled -Daudiotestsrc=enabled \
+	-Daudiomixer=enabled -Daudioconvert=enabled -Daudiotestsrc=enabled -Dvideoconvert=enabled \
 	-Dlibsystemd=enabled -Dlogind=enabled -Dsystemd-user-service=enabled \
 	-Dsystemd-user-unit-dir=/usr/lib/systemd/user -Dsystemd-system-service=disabled \
 	-Dpipewire-alsa=enabled -Dsndfile=enabled -Dpw-cat=enabled -Dflatpak=enabled
@@ -74,6 +74,8 @@ define Package/libpipewire/install
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/*.so.* $(1)/usr/lib/
 	$(INSTALL_DIR) $(1)/usr/lib/spa-0.2/support
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/spa-0.2/support/*.so $(1)/usr/lib/spa-0.2/support/
+	$(INSTALL_DIR) $(1)/usr/lib/spa-0.2/videoconvert
+	$(CP) $(PKG_INSTALL_DIR)/usr/lib/spa-0.2/videoconvert/*.so $(1)/usr/lib/spa-0.2/videoconvert/
 	$(INSTALL_DIR) $(1)/usr/share/pipewire $(1)/usr/lib/pipewire-0.3
 	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/pipewire/client.conf $(1)/usr/share/pipewire/
 	for module in protocol-native client-node client-device adapter metadata session-manager; do \

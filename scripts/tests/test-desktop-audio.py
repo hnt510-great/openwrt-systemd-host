@@ -113,7 +113,7 @@ class DesktopAudio(unittest.TestCase):
 
     def test_sunshine_gpu_probe_workaround_is_device_specific(self):
         self.tool('id', '#!/bin/sh\ncase \"$1\" in -u) echo 1000;; -un) echo alice;; esac\n')
-        self.tool('uci', '#!/bin/sh\necho alice\n')
+        self.tool('uci', '#!/bin/sh\ncase \"$*\" in *sunshine_capture*) echo kms;; *) echo alice;; esac\n')
         sunshine = self.tool('sunshine', '#!/usr/bin/env python3\nimport json,sys\n'
                              'print(json.dumps(sys.argv[1:]))\n')
         common = self.tmp / 'common.sh'

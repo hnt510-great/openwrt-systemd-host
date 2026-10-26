@@ -1,0 +1,4 @@
+# GTK3 Fcitx module cache for the OpenWrt desktop session.
+"/usr/lib/gtk-3.0/3.0.0/immodules/im-fcitx5.so"
+"fcitx" "Fcitx5" "fcitx5" "/usr/share/locale" "ja:ko:zh:*"
+"fcitx5" "Fcitx5" "fcitx5" "/usr/share/locale" "ja:ko:zh:*"

@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=sunshine
 PKG_VERSION:=2026.914.233613
-PKG_RELEASE:=2
+PKG_RELEASE:=5
 PKG_SOURCE:=sunshine-source-63d35f702ee9.tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/LizardByte/Sunshine/tar.gz/63d35f702ee9e362e43263742981836ec0710384?
 PKG_HASH:=2564df7ee9c1ac1d617e30b406ec0ed7d358cbba485cfb013956bdab528dae5f
@@ -12,7 +12,7 @@ PKG_LICENSE:=GPL-3.0-only
 PKG_LICENSE_FILES:=LICENSE
 PKG_INSTALL:=1
 PKG_BUILD_PARALLEL:=1
-PKG_BUILD_DEPENDS:=node/host python-jinja2/host nlohmannjson
+PKG_BUILD_DEPENDS:=node/host python-jinja2/host nlohmannjson wayland/host wayland-protocols
 
 include $(INCLUDE_DIR)/package.mk
 include $(INCLUDE_DIR)/cmake.mk
@@ -25,7 +25,7 @@ define Package/sunshine
   DEPENDS:=@TARGET_x86_64 @USE_GLIBC @OPENWRT_SYSTEMD +openwrt-desktop-audio \
 	+libstdcpp +libopenssl +libcurl +libminiupnpc +libopus +libpulse +libffmpeg \
 	+libdrm +libmesa +libva +libevdev +libcap +libcap-bin +glib2-gio \
-	+boost-filesystem +boost-log +boost-program_options +boost-locale \
+	+boost-filesystem +boost-log +boost-program_options +boost-locale +libpipewire +libwayland \
 	+kmod-input-uinput +acl +shadow-groupadd
 endef
 
@@ -36,7 +36,8 @@ endef
 CMAKE_OPTIONS += -DBUILD_DOCS=OFF -DBUILD_TESTS=OFF -DBUILD_EXAMPLES=OFF \
 	-DBOOST_USE_STATIC=OFF -DSUNSHINE_ENABLE_TRAY=OFF -DSUNSHINE_ENABLE_CUDA=OFF \
 	-DSUNSHINE_ENABLE_DRM=ON -DSUNSHINE_ENABLE_VAAPI=ON -DSUNSHINE_ENABLE_VULKAN=OFF \
-	-DSUNSHINE_ENABLE_WAYLAND=OFF -DSUNSHINE_ENABLE_X11=OFF \
+	-DSUNSHINE_ENABLE_WAYLAND=ON -DSUNSHINE_ENABLE_X11=OFF \
+	-DSUNSHINE_ENABLE_WESTON=ON -DSUNSHINE_SYSTEM_WAYLAND_PROTOCOLS=ON \
 	-DSUNSHINE_ENABLE_KWIN=OFF -DSUNSHINE_ENABLE_PORTAL=OFF \
 	-DLIBVIRTUALHID_ENABLE_XTEST=OFF -DLIBVIRTUALHID_BUILD_TOOLS=OFF \
 	-DSUNSHINE_ASSETS_DIR=/usr/share/sunshine -DFFMPEG_CBS_ARCHIVE=$(PKG_BUILD_DIR)/libcbs.a \
@@ -45,7 +46,7 @@ CMAKE_BINARY_SUBDIR:=openwrt-build
 CMAKE_SOURCE_SUBDIR:=.
 
 # npm ci uses the release lockfile and verifies every dependency's integrity.
-CMAKE_OPTIONS += -DCMAKE_EXE_LINKER_FLAGS="$(TARGET_LDFLAGS) -Wl,--exclude-libs,ALL -Wl,-rpath-link,$(STAGING_DIR)/usr/lib/pulseaudio"
+CMAKE_OPTIONS += -DCMAKE_EXE_LINKER_FLAGS="$(TARGET_LDFLAGS) -Wl,--exclude-libs,ALL -Wl,-rpath-link,$(STAGING_DIR)/usr/lib -Wl,-rpath-link,$(STAGING_DIR)/usr/lib/pulseaudio"
 export BUILD_VERSION:=$(PKG_VERSION)
 export BRANCH:=openwrt
 export npm_config_cache:=$(DL_DIR)/sunshine-npm-cache
@@ -55,6 +56,9 @@ export npm_config_fund:=false
 # Submodules are separately hashed downloads, not live git checkouts.
 define Build/Prepare
 	$(call Build/Prepare/Default)
+	$(CP) ./files/westongrab.cpp $(PKG_BUILD_DIR)/src/platform/linux/
+	$(INSTALL_DIR) $(PKG_BUILD_DIR)/third-party/wlr-protocols
+	$(TAR) -xf $(DL_DIR)/sunshine-wlr-protocols-bf4fc79abc35.tar.gz -C $(PKG_BUILD_DIR)/third-party/wlr-protocols --strip-components=1
 	$(INSTALL_DIR) $(PKG_BUILD_DIR)/third-party/build-deps
 	$(TAR) -xf $(DL_DIR)/sunshine-third-party-build-deps-a1fe2841cbc0.tar.gz -C $(PKG_BUILD_DIR)/third-party/build-deps --strip-components=1
 	$(INSTALL_DIR) $(PKG_BUILD_DIR)/third-party/glad

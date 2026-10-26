@@ -1,0 +1,68 @@
+Make SVG theme rendering optional for systems without librsvg.
+The bundled default theme uses PNG assets.
+
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -168,7 +168,10 @@
+     pkg_check_modules(Cairo REQUIRED IMPORTED_TARGET cairo)
+     pkg_check_modules(Pango REQUIRED IMPORTED_TARGET pango pangocairo)
+     pkg_check_modules(GdkPixbuf REQUIRED IMPORTED_TARGET gdk-pixbuf-2.0)
+-    pkg_check_modules(Rsvg REQUIRED IMPORTED_TARGET librsvg-2.0)
++    option(ENABLE_RSVG "Render SVG theme images with librsvg" ON)
++    if (ENABLE_RSVG)
++        pkg_check_modules(Rsvg REQUIRED IMPORTED_TARGET librsvg-2.0)
++    endif()
+     # Required for fd based imaging loading and put int gdk pixbuf
+     pkg_check_modules(GioUnix REQUIRED IMPORTED_TARGET gio-unix-2.0)
+     if (USE_SYSTEM_YOGA)
+--- a/src/ui/classic/CMakeLists.txt
++++ b/src/ui/classic/CMakeLists.txt
+@@ -42,7 +42,7 @@
+ target_link_libraries(classicui
+     Fcitx5::Core
+     PkgConfig::Cairo PkgConfig::Pango
+-    PkgConfig::GdkPixbuf PkgConfig::Rsvg PkgConfig::GioUnix
++    PkgConfig::GdkPixbuf PkgConfig::GioUnix
+     Fcitx5::Module::NotificationItem
+     ${YOGA_TARGET}
+     ${CLASSICUI_LIBS}
+@@ -57,3 +57,8 @@
+ endif()
+ 
+ fcitx5_export_module(ClassicUI TARGET classicui BUILD_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}" HEADERS classicui_public.h)
++
++if (ENABLE_RSVG)
++    target_link_libraries(classicui PkgConfig::Rsvg)
++    target_compile_definitions(classicui PRIVATE HAVE_RSVG)
++endif()
+--- a/src/ui/classic/theme.cpp
++++ b/src/ui/classic/theme.cpp
+@@ -28,7 +28,9 @@
+ #include <gio/gunixinputstream.h>
+ #include <glib.h>
+ #include <glibconfig.h>
++#ifdef HAVE_RSVG
+ #include <librsvg/rsvg.h>
++#endif
+ #include <pango/pango-font.h>
+ #include <pango/pango-fontmap.h>
+ #include <pango/pango-layout.h>
+@@ -236,6 +238,7 @@
+     return pixBufToPixmap(image.get());
+ }
+ 
++#ifdef HAVE_RSVG
+ std::optional<std::pair<int, int>> svgSize(RsvgHandle *svg) {
+     double w = 0;
+     double h = 0;
+@@ -301,6 +304,10 @@
+     }
+     return svg;
+ }
++
++#else
++std::optional<ThemeImage::Svg> loadSvg(UnixFD &) { return std::nullopt; }
++#endif
+ 
+ bool isSvgPath(const std::filesystem::path &path) {
+     return path.extension() == ".svg" || path.extension() == ".svgz";

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Applications
+Comment=Find and launch installed applications
+Exec=desktop-applications
+Icon=desktop-applications
+Terminal=false
+NoDisplay=true
+Categories=Utility;

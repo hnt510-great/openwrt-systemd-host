@@ -20,6 +20,8 @@ start_service() {
 	config_get renderer main renderer gl
 	case "$renderer" in pixman|gl) ;; *) desktop_error 'Invalid desktop renderer'; return 1 ;; esac
 	config_get_bool force_composition main force_composition 1
+	config_get sunshine_capture main sunshine_capture kms
+	case "$sunshine_capture" in kms|weston) ;; *) desktop_error 'Invalid Sunshine capture mode'; return 1 ;; esac
 	config_get port main port 5900
 	case "$port" in ''|*[!0-9]*) desktop_error 'Invalid VNC port'; return 1 ;; esac
 	[ "$port" -ge 1024 ] && [ "$port" -le 65535 ] || {

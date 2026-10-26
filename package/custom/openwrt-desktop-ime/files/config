@@ -1,0 +1,14 @@
+[Hotkey]
+EnumerateWithTriggerKeys=False
+AltTriggerKeys=
+EnumerateForwardKeys=
+EnumerateBackwardKeys=
+ActivateKeys=
+DeactivateKeys=
+
+[Hotkey/TriggerKeys]
+0=Control+Shift+space
+
+[Behavior]
+ActiveByDefault=False
+ShareInputState=All

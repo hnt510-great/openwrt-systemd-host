@@ -51,6 +51,28 @@
       "index": "https://duktape.org/download",
       "filename_pattern": "duktape\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz"
     },
+    "extra-cmake-modules": {
+      "provider": "local",
+      "reason": "Pinned CMake modules for desktop input method builds"
+    },
+    "fcitx5": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.fcitx-im.org/fcitx5/fcitx5/",
+      "filename_pattern": "fcitx5-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.zst"
+    },
+    "fcitx5-chinese-addons": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.fcitx-im.org/fcitx5/fcitx5-chinese-addons/",
+      "filename_pattern": "fcitx5-chinese-addons-(?P<version>[0-9]+(?:\\.[0-9]+)*)_dict\\.tar\\.zst"
+    },
+    "fcitx5-gtk": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.fcitx-im.org/fcitx5/fcitx5-gtk/",
+      "filename_pattern": "fcitx5-gtk-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.zst"
+    },
     "firefox-esr-bin": {
       "provider": "firefox",
       "policy": "major"
@@ -130,6 +152,10 @@
       "project": "intel/media-driver",
       "catalog": "tags",
       "tag_pattern": "intel-media-(?P<version>[0-9]+(?:\\.[0-9]+)*)"
+    },
+    "iso-codes": {
+      "provider": "local",
+      "reason": "Pinned ISO language data"
     },
     "kbd": {
       "provider": "directory",
@@ -274,6 +300,12 @@
       "filename_pattern": "gtk\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/gtk/"
     },
+    "libime": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.fcitx-im.org/fcitx5/libime/",
+      "filename_pattern": "libime-(?P<version>[0-9]+(?:\\.[0-9]+)*)_dict\\.tar\\.zst"
+    },
     "libneatvnc": {
       "provider": "github",
       "policy": "series",
@@ -398,6 +430,10 @@
     "openwrt-desktop-audio": {
       "provider": "local",
       "reason": "Locally maintained desktop audio integration"
+    },
+    "openwrt-desktop-ime": {
+      "provider": "local",
+      "reason": "Locally maintained Weston input method integration"
     },
     "openwrt-flatpak": {
       "provider": "local",
@@ -561,6 +597,10 @@
       "index": "https://xorg.freedesktop.org/archive/individual/xserver/",
       "filename_pattern": "xwayland\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
       "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    },
+    "openwrt-desktop-launcher": {
+      "provider": "local",
+      "reason": "Locally maintained Weston application launcher"
     }
   }
 }

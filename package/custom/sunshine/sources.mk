@@ -173,3 +173,10 @@ define Download/sunshine-source-24
   HASH:=2255bc74d038b95aa4be30f5f66322c2176acbdb90ada1851db6993536fbeaf7
 endef
 $(eval $(call Download,sunshine-source-24))
+
+define Download/sunshine-wlr-protocols
+  FILE:=sunshine-wlr-protocols-bf4fc79abc35.tar.gz
+  URL:=https://codeload.github.com/LizardByte-infrastructure/wlr-protocols/tar.gz/bf4fc79abc359eea5a0edec0ac6d4a2b2955f82a?
+  HASH:=9e0fd2be5ba7c84b81acdd086f84c2da2c2b5e4946a17bda3e9850c62e14057f
+endef
+$(eval $(call Download,sunshine-wlr-protocols))

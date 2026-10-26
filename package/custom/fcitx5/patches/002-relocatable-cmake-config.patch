@@ -1,0 +1,13 @@
+Resolve compiler settings relative to the staged package config.
+
+--- a/src/lib/fcitx-utils/Fcitx5UtilsConfig.cmake.in
++++ b/src/lib/fcitx-utils/Fcitx5UtilsConfig.cmake.in
+@@ -4,7 +4,7 @@
+ include("${CMAKE_CURRENT_LIST_DIR}/Fcitx5Macros.cmake")
+ 
+ set(FCITX_SYS_INSTALL_PREFIX "@FCITX_INSTALL_PREFIX@")
+-set(FCITX_INSTALL_CMAKECONFIG_DIR "@FCITX_INSTALL_CMAKECONFIG_DIR@")
++set(FCITX_INSTALL_CMAKECONFIG_DIR "${CMAKE_CURRENT_LIST_DIR}/..")
+ 
+ set(_default_FCITX_INSTALL_USE_FCITX_SYS_PATHS Off)
+ if (NOT DEFINED FCITX_INSTALL_USE_FCITX_SYS_PATHS)

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Terminal
+Comment=Open a command-line terminal
+Exec=weston-terminal
+TryExec=weston-terminal
+Icon=utilities-terminal
+Terminal=false
+Categories=System;TerminalEmulator;
