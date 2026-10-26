@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=antigravity-cli
-PKG_VERSION:=1.3.3
+PKG_VERSION:=1.4.7
 PKG_RELEASE:=1
 
 PKG_SOURCE:=agy_cli_linux_x64-$(PKG_VERSION).tar.gz
