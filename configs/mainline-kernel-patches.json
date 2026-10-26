@@ -405,6 +405,17 @@
       "source_sha256": "44c61dea645a84f981995a696eeacb17cb904f467b79116c013c73581c57a9f1"
     },
     {
+      "source": "target/linux/generic/backport-6.18/706-04-v7.3-netfilter-flowtable-use-the-vlan-id-not-the-full-tci.patch",
+      "files": [
+        "net/netfilter/nf_flow_table_ip.c"
+      ],
+      "status": "rebased",
+      "reason": "Ported after upstream merge 1702bf52fc; verified against Linux 7.3 source, not inferred from patch filename",
+      "source_sha256": "42332f09256e4136b25bbd9d7b02f6763fa9b2b33565cd23a69177b5de8632d1",
+      "ported": "target/linux/generic/backport-7.3/706-04-v7.3-netfilter-flowtable-use-the-vlan-id-not-the-full-tci.patch",
+      "ported_sha256": "7289b412649138dea87417d89e5e917305be631b32bcdd391f16557323f83f8c"
+    },
+    {
       "source": "target/linux/generic/backport-6.18/710-01-v7.1-net-sfp-add-quirk-for-ZOERAX-SFP-2.5G-T.patch",
       "files": [
         "drivers/net/phy/sfp.c"
@@ -2724,6 +2735,32 @@
       "ported_sha256": "7bd2c74cbba42dcd4bb45f034c3b45c362eb4f32ca4a2c4a94b6b566b8e97bee"
     },
     {
+      "source": "target/linux/generic/pending-6.18/642-net-bridge-switchdev-add-br_switchdev_fdb_find_port.patch",
+      "files": [
+        "include/linux/if_bridge.h",
+        "net/bridge/br_switchdev.c"
+      ],
+      "status": "refreshed",
+      "reason": "Ported after upstream merge 1702bf52fc; verified against Linux 7.3 source, not inferred from patch filename",
+      "source_sha256": "57f9a9c16d787eefd864a3904651f8a85794685ac02d48ee3c0ecb1de917089a",
+      "ported": "target/linux/generic/pending-7.3/642-net-bridge-switchdev-add-br_switchdev_fdb_find_port.patch",
+      "ported_sha256": "57f9a9c16d787eefd864a3904651f8a85794685ac02d48ee3c0ecb1de917089a"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/643-net-dsa-fix-host-fdb-refcount-when-a-bridge-fdb-entry-roams.patch",
+      "files": [
+        "net/dsa/port.c",
+        "net/dsa/port.h",
+        "net/dsa/user.c",
+        "net/dsa/user.h"
+      ],
+      "status": "refreshed",
+      "reason": "Ported after upstream merge 1702bf52fc; verified against Linux 7.3 source, not inferred from patch filename",
+      "source_sha256": "d857901c306329146871968200e846c2a8ab8d22269304bda3964d19f0cd6d4b",
+      "ported": "target/linux/generic/pending-7.3/643-net-dsa-fix-host-fdb-refcount-when-a-bridge-fdb-entry-roams.patch",
+      "ported_sha256": "d857901c306329146871968200e846c2a8ab8d22269304bda3964d19f0cd6d4b"
+    },
+    {
       "source": "target/linux/generic/pending-6.18/655-increase_skb_pad.patch",
       "files": [
         "include/linux/skbuff.h"
@@ -2888,6 +2925,37 @@
       "source_sha256": "2844537ead3a09366c713e62900907201fcac7a39beb59052640ff0fef2b455e"
     },
     {
+      "source": "target/linux/generic/pending-6.18/708-00-net-mlx5e-ignore-FLOW_ACTION_PRIORITY-on-flowtable-offload.patch",
+      "files": [
+        "drivers/net/ethernet/mellanox/mlx5/core/Makefile",
+        "drivers/net/ethernet/mellanox/mlx5/core/en/tc/act/act.c",
+        "drivers/net/ethernet/mellanox/mlx5/core/en/tc/act/act.h",
+        "drivers/net/ethernet/mellanox/mlx5/core/en/tc/act/skbedit_prio.c"
+      ],
+      "status": "refreshed",
+      "reason": "Ported after upstream merge 1702bf52fc; verified against Linux 7.3 source, not inferred from patch filename",
+      "source_sha256": "4b765b645a57d99405d2c579ec2171e3a7030caa48463ff5a49ead56612fe168",
+      "ported": "target/linux/generic/pending-7.3/708-00-net-mlx5e-ignore-FLOW_ACTION_PRIORITY-on-flowtable-offload.patch",
+      "ported_sha256": "4b765b645a57d99405d2c579ec2171e3a7030caa48463ff5a49ead56612fe168"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/708-netfilter-flowtable-carry-a-priority-into-the-offload.patch",
+      "files": [
+        "include/net/netfilter/nf_flow_table.h",
+        "net/netfilter/nf_flow_table_offload.c",
+        "net/netfilter/nft_flow_offload.c",
+        "net/netfilter/nf_flow_table_ip.c",
+        "Documentation/networking/nf_flowtable.rst",
+        "drivers/net/ethernet/airoha/airoha_ppe.c",
+        "drivers/net/ethernet/mediatek/mtk_ppe_offload.c"
+      ],
+      "status": "refreshed",
+      "reason": "Ported after upstream merge 1702bf52fc; verified against Linux 7.3 source, not inferred from patch filename",
+      "source_sha256": "1f7a5222f62cd5362f90567945a93c86202015f66025b281919a0cbafb432dd9",
+      "ported": "target/linux/generic/pending-7.3/708-netfilter-flowtable-carry-a-priority-into-the-offload.patch",
+      "ported_sha256": "1f7a5222f62cd5362f90567945a93c86202015f66025b281919a0cbafb432dd9"
+    },
+    {
       "source": "target/linux/generic/pending-6.18/708-netfilter-flowtable-tear-down-direct-xmit-flows-when.patch",
       "files": [
         "include/linux/netfilter.h",
@@ -2901,9 +2969,20 @@
         "net/netfilter/nf_flow_table_path.c"
       ],
       "status": "merged",
-      "source_sha256": "f08e1ba0ac2fafcaef341a711f9b45544ad196daf982e3727a36e782b899f4c9",
+      "source_sha256": "caa04daa5d8a552dbe60280626231502bf8872d2bc0dbbe765f1855dcb6c50f5",
       "ported": "target/linux/generic/pending-7.3/708-netfilter-flowtable-tear-down-direct-xmit-flows-when.patch",
-      "ported_sha256": "d54d79a7107dcab6d6cf7be286ac0256da8b9682ae1d24807cf0abe5ad0ef0e4"
+      "ported_sha256": "fb944c3a2b3ea98a89a53e8be110a9d055a62855f98e6f5b26e7bcd2f91c20ef"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/709-netfilter-flowtable-advertise-the-vlan-match-in-used_keys.patch",
+      "files": [
+        "net/netfilter/nf_flow_table_offload.c"
+      ],
+      "status": "refreshed",
+      "reason": "Ported after upstream merge 1702bf52fc; verified against Linux 7.3 source, not inferred from patch filename",
+      "source_sha256": "9e83efcc69671f36ba2187639563104871809bdfabb9c5b6370d5a97aa472af0",
+      "ported": "target/linux/generic/pending-7.3/709-netfilter-flowtable-advertise-the-vlan-match-in-used_keys.patch",
+      "ported_sha256": "9e83efcc69671f36ba2187639563104871809bdfabb9c5b6370d5a97aa472af0"
     },
     {
       "source": "target/linux/generic/pending-6.18/710-bridge-add-knob-for-filtering-rx-tx-BPDU-pack.patch",
@@ -3231,7 +3310,7 @@
         "drivers/net/ethernet/mediatek/mtk_ppe_offload.c"
       ],
       "status": "rebased",
-      "source_sha256": "cc32728d874583f5368a8ccb0d5eee8834cd01e695ab144c021237787c4f22e6",
+      "source_sha256": "045070d7a55a9b9cddc30697b679b1535e46ef1db958e7d5796add89e839be81",
       "ported": "target/linux/generic/pending-7.3/736-04-net-ethernet-mediatek-fix-ppe-flow-accounting-for-L2.patch",
       "ported_sha256": "c24e5fd28bc612202cb81cd890cdf46551f2ac026cd877512454d1c8563aef70"
     },
@@ -3753,7 +3832,7 @@
         "drivers/net/ethernet/mediatek/mtk_ppe_offload.c"
       ],
       "status": "rebased",
-      "source_sha256": "3a64f5ed3943fe1e9eae87afd65492a45bf1f93b99eaf6da12fecb1d69babb9d",
+      "source_sha256": "3e53607d8b72f352eb8df2663e6ede3215f6989cb84707b019ba34b5b447547c",
       "ported": "target/linux/generic/pending-7.3/795-01-net-ethernet-mtk_ppe_offload-use-rhashtable_lookup_f.patch",
       "ported_sha256": "81d11423c7caf3d428b908dc74a922bd0870108c930cb697896c07c9c9dcfbcf"
     },
@@ -3774,7 +3853,7 @@
         "drivers/net/ethernet/mediatek/mtk_ppe_offload.c"
       ],
       "status": "merged",
-      "source_sha256": "7ee795bfe10e44b2f9bf9205e1ea7228377b4fbfd88893c86252bd798ea057ba",
+      "source_sha256": "3f9073d2ba987474adb4c883168e52a73c0c608dd5ff3040b38ec595ac1d7250",
       "ported": "target/linux/generic/pending-7.3/795-03-net-ethernet-mtk_ppe_offload-set-output-device-befor.patch",
       "ported_sha256": "ad297b3668dbcb74cb3499763903c105d54525f2fbaa0e3020e69c976e43b212"
     },
@@ -4660,7 +4739,7 @@
         "net/netfilter/xt_FLOWOFFLOAD.c"
       ],
       "status": "rebased",
-      "source_sha256": "9346e09ff02df7eaa7f6a06b9a88436e8ac9667b8eba50f9c4beb5b1642d8eda",
+      "source_sha256": "202a3ec7e5a3092a29e9539dfa34153ca3f5e04151f4f7669f299b608e1fa4d8",
       "ported": "target/linux/generic/hack-7.3/650-netfilter-add-xt_FLOWOFFLOAD-target.patch",
       "ported_sha256": "f7689ca4065facd851f9dbbb3a76d89171584b06bd058c92837f2f41ae0e7705"
     },

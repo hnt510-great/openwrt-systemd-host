@@ -280,3 +280,109 @@ The original `.config`, prepared kernel build, image/module packages and
 unrelated local edits are preserved. No publication, installation, VM test,
 physical-device test or reboot was performed. The three earlier optional
 feature findings are independent of this change and remain open.
+
+### Incoming merge review, 2026-10-26 (`1702bf52fc`)
+
+This review compares the latest merge with its first parent (`cddf35c0bd`).
+The selected target remains x86/64 on Linux 7.3. The current 6.18 generic/x86
+stack contains 488 patches; the registry still covers the preceding 482.
+There are six unregistered additions and five changed source hashes, with no
+removed entries. All registered 7.3 ported-patch hashes still match.
+
+The new changes are **not fully carried into 7.3**. The following work is
+needed to bring the maintained 7.3 stack in line with the merge:
+
+| Source patch/change | Finding and required action | Current x86 build relevance |
+| --- | --- | --- |
+| `706-04-v7.3-netfilter-flowtable-use-the-vlan-id-not-the-full-tci.patch` | Port both VLAN tuple-key masks. Despite the filename, the verified 7.3 archive and prepared source still use `skb_vlan_tag_get(skb)` and unmasked `ntohs(veth->h_vlan_TCI)`. Nonzero PCP bits can prevent flowtable lookup from matching the programmed VID. | Flowtable support is enabled as modules. Relevant when VLAN traffic carries priority bits. |
+| Existing `708-netfilter-flowtable-tear-down-direct-xmit-flows-when.patch` | Carry the new `info->port_vlans = 0` on each bridge path into `net/netfilter/nf_flow_table_path.c`. The existing 7.3 port sets `bridge_path` without clearing this counter. A later bridge in the path must start its own VLAN-layer count so FDB checks resolve the intended port. | Relevant to bridge paths, especially paths traversing multiple bridges/VLAN layers. Bridge and VLAN filtering are enabled. |
+| `708-netfilter-flowtable-carry-a-priority-into-the-offload.patch` | Port the flow priority field, nftables capture, software forwarding behavior and hardware action. The similarly named existing `nf_flowtable.priority` is the control-plane hook priority, not this missing `flow_offload.priority`. | Relevant to `meta priority set` before `flow add`, and IPv4 forwarding's per-packet TOS priority behavior. |
+| `709-netfilter-flowtable-advertise-the-vlan-match-in-used_keys.patch` | Carry the VLAN/CVLAN `used_keys` bits. The 7.3 `NF_FLOW_DISSECTOR` macro only sets offsets; the current match code does not advertise these VLAN keys. | Hardware flow offload correctness; mlx5 is one affected consumer. |
+| `708-00-net-mlx5e-ignore-FLOW_ACTION_PRIORITY-on-flowtable-offload.patch` | Carry with the priority series to avoid rejecting formerly accepted mlx5 flowtable rules. The action handler is absent in 7.3. | `CONFIG_MLX5_CORE` is disabled in the current kernel; needed for completeness when that driver is enabled. |
+| `642-net-bridge-switchdev-add-br_switchdev_fdb_find_port.patch` and `643-net-dsa-fix-host-fdb-refcount-when-a-bridge-fdb-entry-roams.patch` | Carry together. The switchdev lookup helper and per-port DSA host-FDB records are absent. The series avoids undercounting/leaking host-FDB references when bridge entries roam and notifications race. | `CONFIG_NET_DSA` is disabled. Not required by this x86 kernel's enabled drivers, but needed for 7.3 parity with the generic stack. |
+
+Four changed existing patches contain no new added/deleted code: 650,
+736-04, 795-01 and 795-03 only have hunk-line changes. They need source-hash
+provenance refresh, not another functional port. The previous 650 forward-path
+port remains intact. The fifth changed patch is the 708 bridge-path fix above;
+its other changes are attribution/context updates.
+
+Architecture-specific Airoha, ath79, Kirkwood, Octeon, Qualcomm, ramips and
+Realtek changes in this merge are outside the selected generic/x86 stack.
+They should not be copied into the x86/64 patch set merely to match upstream.
+
+Review evidence:
+
+- `.git/kernel-review-20261026T143649Z/audit.json` records the source/ported
+  hash audit, changed-patch code comparison and forward/reverse dry runs.
+- The Linux 7.3 archive was rehashed to
+  `87363c24f10e06321eb362765521094e94471f6bff8bce2d6b3e40f39f004953`.
+  Affected pristine files were extracted from that archive. Prepared-source
+  inspection uses the retained zero-fuzz 288-patch validation tree from the
+  earlier FLOWOFFLOAD port; all corresponding registered patch hashes match.
+- Five of the six new patches pass forward dry runs against both pristine
+  and prepared source with zero fuzz (line offsets are allowed), and fail
+  forced reverse dry runs. The VLAN-ID patch needs a context refresh because
+  the 7.3 function has additional local declarations. Both old expressions
+  are visibly present in its source; neither failed dry-run direction alone
+  is used as proof of upstream inclusion or omission.
+- `CONFIG_NFT_FLOW_OFFLOAD=m`, `CONFIG_NF_FLOW_TABLE=m`, `CONFIG_BRIDGE=y`,
+  `CONFIG_BRIDGE_VLAN_FILTERING=y`, `CONFIG_NET_SWITCHDEV=y`, with DSA and
+  mlx5 disabled, were read from the existing prepared kernel configuration.
+
+The earlier optional MAP-E, RM500Q-AE binding and DMA-BUF heap findings remain
+open: the prepared source still contains the two-argument wildcard `HASH()`
+calls, an unreferenced `mhi_quectel_rm500q_info`, and unconsumed
+`dma-buf-objs-*` heap rules, respectively.
+
+This is a check-only review. Kernel patches and the registry were not changed;
+the registry remains stale for the incoming merge and must be reconciled with
+the actual ports. Dry-run application is not compile/runtime validation. No
+kernel build, VM test, publication, deployment or reboot was performed.
+
+### Incoming fixes ported to 7.3, 2026-10-26
+
+The follow-up implements all six additions and the existing bridge-path
+correction listed above:
+
+- The VLAN tuple-key fix is carried in `backport-7.3/706-04-...`, with its
+  context refreshed for the additional 7.3 tunnel/parser declarations.
+- Pending patches 642/643 carry the bridge switchdev lookup and DSA host-FDB
+  synchronization together.
+- Pending patches 708-00 and `708-...carry-a-priority...` carry mlx5 acceptance
+  and the complete flowtable priority handling together, including the driver
+  action cases for Airoha and MediaTek.
+- The existing `708-...tear-down-direct-xmit...` clears `port_vlans` on each
+  bridge path in the 7.3 `nf_flow_table_path.c`. Its attribution was also
+  synchronized with the corrected incoming source patch header.
+- Pending patch 709 advertises the VLAN and CVLAN dissector keys.
+
+`configs/mainline-kernel-patches.json` now represents all 488 generic/x86
+6.18 source patches. The six new ports are registered, the five changed source
+hashes are refreshed, and the modified bridge-path port hash is updated.
+There are no missing/stale source entries or source/ported hash mismatches.
+The earlier table's missing-port findings and stale-registry warning are
+resolved by this follow-up; the three earlier optional-feature findings remain
+open and were not changed by this batch.
+
+Validation evidence: `.git/kernel-backport-20261026T144039Z/`.
+
+- A fresh extraction of the hash-verified Linux 7.3 archive plus the target
+  overlays accepts all 294 carried patches with zero fuzz.
+- Eleven affected objects compile with the OpenWrt GCC 14.4.0 toolchain in an
+  isolated copy of the existing SDK: `nf_flow_table_core`, `nf_flow_table_ip`,
+  `nf_flow_table_offload`, `nf_flow_table_path`, `nft_flow_offload`,
+  `xt_FLOWOFFLOAD`, bridge `br_switchdev`, DSA `port`/`user`, and mlx5 TC action
+  `act`/`skbedit_prio`. DSA, mlx5 Ethernet/eswitch/TC and its required
+  `NET_TC_SKB_EXT` configuration are explicitly enabled for that compilation.
+  The copied source files match the freshly validated patch tree.
+- The 20 mainline updater tests and 7 kernel build-input tests pass.
+- Checkpatch reports zero errors for all seven affected patches. The only
+  warnings are its inability to resolve the two inherited Linux `Fixes:`
+  commit IDs in this OpenWrt Git checkout. `git diff --check` passes.
+
+The original `.config`, prepared kernel build and unrelated local edits are
+preserved. This validates patch application and focused compilation, not a
+full kernel/module link, firmware/package build or runtime behavior. No VM or
+physical-device test, publication, installation, reboot, commit or push was
+performed for this batch.
