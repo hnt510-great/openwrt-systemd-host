@@ -195,3 +195,88 @@ It does not rebuild firmware or APKs, prove MIPS execution, or replace the
 generation-30 VM and hardware evidence. The three optional-feature findings
 above remain open. No feed publication, physical installation, or reboot is
 part of this synchronization.
+
+## Upstream synchronization review, 2026-10-26
+
+Reviewed the 14 incoming main-tree commits through `6c9452a35b`, merged as
+`45abcc3128`. The only generic/x86 patch-stack change is OpenWrt commit
+`2d7e2a4ae6574279e3c2c60b28785fcf692ff2ba` (flowtable forward-path fix).
+The review found one downstream change requiring a Linux 7.3 port:
+
+- **Port the updated `hack-6.18/650-netfilter-add-xt_FLOWOFFLOAD-target.patch`
+  behavior into `hack-7.3/650-netfilter-add-xt_FLOWOFFLOAD-target.patch`.**
+  The current 7.3 patch still declares `nf_dev_path_info()` and
+  `nf_dev_forward_path()` as `void`, ignores forward-path discovery failures,
+  and falls back to the destination device's interface index. The incoming
+  change propagates errors, releases both route destinations on failure,
+  validates bridge encapsulation counts, and adds `DEV_PATH_IEEE80211` /
+  `.ieee80211 = true` handling. These changes are absent from the local port.
+  Upstream explains that retaining failed-path offload can emit packets with
+  a zero destination MAC and flood bridge ports. The inspected existing
+  build configuration has `CONFIG_NETFILTER_XT_TARGET_FLOWOFFLOAD` unset;
+  this is an optional-feature port requirement, not a reproduced runtime
+  failure of the currently enabled nftables path.
+- The new `backport-6.18/706-03-v7.2-netfilter-flowtable-bail-out-if-forward-path-cannot-b.patch`
+  carries upstream `871df5007eda`. Its nftables error-propagation behavior
+  already exists in Linux 7.3: failed discovery returns `-ENOENT`, and the
+  caller releases both destinations. Checked the pristine cached Linux 7.3
+  source and the existing prepared source. Do not duplicate that backport.
+- Deleted `pending-6.18/699-...` was already classified as superseded by
+  `871df5007eda` in the 7.3 registry. It does not need a replacement port.
+- The `pending-6.18/708-...` changes only refresh context and hunk locations
+  against the new `int` function signatures. Its carried 7.3 behavior does
+  not need another code change from this synchronization.
+- The layerscape patch refresh and ath79, mpc85xx and Realtek changes are
+  board-specific. Those targets retain their existing kernel series and
+  do not belong in the x86/64 7.3 stack.
+
+This was a check-only review of the 7.3 patches. No carried patch was changed.
+The registry still describes the previous source snapshot: one source entry
+was removed upstream (699), one added (706-03), and two source hashes changed
+(650 and 708). Reconcile that provenance together with the 650 port; the
+registry must not be treated as a hash-current audit of this new merge.
+All existing registered ported-patch hashes still match.
+
+Evidence is in `.git/pull-preserve/20261026T012820Z/`, including
+`kernel-patch-audit.json`, pristine source excerpts and the release check.
+The explicit release checker reports current/latest `7.3`. This review did
+not build, publish, install or reboot a kernel. The three earlier optional
+feature findings remain recorded above.
+
+### FLOWOFFLOAD port completed, 2026-10-26
+
+The follow-up port resolves the new 650 finding above. The 7.3 patch now
+propagates forward-path/parser failures to the route caller, releases both
+route destinations on failure, validates bridge encapsulation counts, and
+handles IEEE80211 paths. Its target implementation matches the updated 6.18
+implementation, with an additional explicit `linux/netfilter/x_tables.h`
+include required to compile against Linux 7.3's headers. The optional target
+remains disabled in the working kernel configuration.
+
+The registry is reconciled with the merged 6.18 source stack: 706-03 is
+classified as already upstream, the removed 699 entry is dropped, the 708
+source hash is refreshed, and both 650 hashes reflect the port. All 482
+current generic/x86 source patches are represented, with no missing/stale
+entries or mismatched source/ported hashes.
+
+Validation evidence is retained in `.git/kernel-port-20261026/`:
+
+- The source archive SHA256 matches the recorded Linux 7.3 hash. All 288
+  carried patches apply to a fresh extraction plus overlays with zero fuzz.
+- The actual ported `net/netfilter/xt_FLOWOFFLOAD.c` compiles with
+  `CONFIG_NETFILTER_XT_TARGET_FLOWOFFLOAD=m` in an isolated copy of the
+  existing 7.3 build, using the OpenWrt GCC 14.4.0 toolchain.
+- An isolated external-module build of the same source links
+  `xt_FLOWOFFLOAD.ko` with successful modpost dependency resolution using
+  the existing full kernel's `Module.symvers`. This is compilation/link
+  evidence, not a replacement full firmware/package build or runtime test.
+- The 20 mainline updater tests and 7 kernel build-input tests pass.
+- `git diff --check` passes. Checkpatch retains inherited declaration
+  indentation errors and style warnings from the existing patch; no new
+  error category is introduced by this port. Modpost reports the inherited
+  missing `MODULE_DESCRIPTION()` warning.
+
+The original `.config`, prepared kernel build, image/module packages and
+unrelated local edits are preserved. No publication, installation, VM test,
+physical-device test or reboot was performed. The three earlier optional
+feature findings are independent of this change and remain open.

@@ -1908,6 +1908,15 @@
       "source_sha256": "70b7fd4ede1204aea25cfaf23c725ba92f6d7a53277313184964e2ba491c7be0"
     },
     {
+      "source": "target/linux/generic/backport-6.18/706-03-v7.2-netfilter-flowtable-bail-out-if-forward-path-cannot-b.patch",
+      "files": [
+        "net/netfilter/nf_flow_table_path.c"
+      ],
+      "status": "upstream",
+      "reason": "Upstream 871df5007eda is already present in Linux 7.3; failed forward-path discovery refuses offload",
+      "source_sha256": "3fe6e3f26f1d76c2ffd41eed5c920f5a9d8cae2b158ebab0727c959b0f403ce3"
+    },
+    {
       "source": "target/linux/generic/pending-6.18/100-compiler.h-only-include-asm-rwonce.h-for-kernel-code.patch",
       "files": [
         "include/linux/compiler.h"
@@ -2798,15 +2807,6 @@
       "ported_sha256": "b75fe0d727bab06f51c1d56a232df2ea279196379b89a384418a9c9d2a4b78fc"
     },
     {
-      "source": "target/linux/generic/pending-6.18/699-netfilter-flowtable-set-out-ifindex-when-the-forward.patch",
-      "files": [
-        "net/netfilter/nf_flow_table_path.c"
-      ],
-      "status": "superseded",
-      "reason": "Superseded by mainline 871df5007eda: failed path discovery refuses offload",
-      "source_sha256": "0991a7fe856bd9bdfaac1555b7d990aceec5849a36945802336274f052be52ec"
-    },
-    {
       "source": "target/linux/generic/pending-6.18/700-netfilter-nft_flow_offload-handle-netdevice-events-f.patch",
       "files": [
         "net/netfilter/nf_flow_table_core.c",
@@ -2901,7 +2901,7 @@
         "net/netfilter/nf_flow_table_path.c"
       ],
       "status": "merged",
-      "source_sha256": "a7f95c1d57f850225e1c098d57c1f7899ba4d011671184aa98a32eee553594f9",
+      "source_sha256": "f08e1ba0ac2fafcaef341a711f9b45544ad196daf982e3727a36e782b899f4c9",
       "ported": "target/linux/generic/pending-7.3/708-netfilter-flowtable-tear-down-direct-xmit-flows-when.patch",
       "ported_sha256": "d54d79a7107dcab6d6cf7be286ac0256da8b9682ae1d24807cf0abe5ad0ef0e4"
     },
@@ -4660,9 +4660,9 @@
         "net/netfilter/xt_FLOWOFFLOAD.c"
       ],
       "status": "rebased",
-      "source_sha256": "cf79d2603a2cc05fccd6c4a6aae5588c5ad48927f80f601cd70e39744a73b1db",
+      "source_sha256": "9346e09ff02df7eaa7f6a06b9a88436e8ac9667b8eba50f9c4beb5b1642d8eda",
       "ported": "target/linux/generic/hack-7.3/650-netfilter-add-xt_FLOWOFFLOAD-target.patch",
-      "ported_sha256": "ac636a4dddbbdce199eea06f54b64aece1fd8b66d12d12dcd2c2ac0726bad9b2"
+      "ported_sha256": "f7689ca4065facd851f9dbbb3a76d89171584b06bd058c92837f2f41ae0e7705"
     },
     {
       "source": "target/linux/generic/hack-6.18/651-wireless_mesh_header.patch",
