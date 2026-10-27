@@ -86,6 +86,10 @@ userspace and kernel snapshots before changing either active pointer. It then:
    target-ABI views, preserving external feeds. Both upgrade paths must pass,
    alongside the publisher's signature, dependency-ABI and ucode checks.
 4. Rechecks the router baseline, policy/rule hashes and every prepared file.
+   Snapshot hashes are recorded before simulation; the coordinator rechecks
+   both views before either pointer moves. The preflight helper does not
+   repeat this full-file check immediately before the coordinator does it.
+   Each promotion also rechecks its own view at the commit boundary.
    A production dry run discards its own prepared snapshots. Formal publication
    writes a private receipt, exposes userspace first, then the kernel channel.
    If committing the kernel pointer fails, the coordinator restores its own

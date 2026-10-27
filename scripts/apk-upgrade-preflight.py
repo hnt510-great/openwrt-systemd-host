@@ -4,6 +4,7 @@ import hashlib
 import base64
 import importlib.util
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import re
 import shlex
@@ -233,7 +234,11 @@ def same_baseline(before, after):
 
 def snapshot_hashes(snapshot):
     root = Path(snapshot)
-    return {str(p.relative_to(root)): digest(p) for p in sorted(root.rglob('*')) if p.is_file()}
+    paths = [p for p in sorted(root.rglob('*')) if p.is_file()]
+    # Rehash every file on EVERY pass. Only independent reads run in parallel;
+    # no stat/mtime cache may bypass the post-validation integrity checks.
+    with ThreadPoolExecutor(max_workers=4) as workers:
+        return dict(zip((str(p.relative_to(root)) for p in paths), workers.map(digest, paths)))
 
 
 def validate_elf_transition(baseline, userspace_manifest, simulation):
@@ -313,8 +318,11 @@ def check_prepared(result, record):
         raise ValueError('Prepared release changed after upgrade validation')
 
 
-def preflight(destination, origin, userspace, kernel):
+def preflight(destination, origin, userspace, kernel, *, progress=None):
+    """Bind simulation to snapshot hashes; authorize() rechecks before promotion."""
     selected_policy = policy(destination)
+    if progress:
+        progress(0, 'Record snapshot hashes')
     stages = {'userspace': prepared_record(userspace), 'kernel': prepared_record(kernel)}
     receipt = {'schema': 1, 'status': 'passed', 'stages': stages, 'baseline': None,
                'policy_sha256': digest(TREE / 'configs/lan-apk-feeds.json'),
@@ -324,6 +332,8 @@ def preflight(destination, origin, userspace, kernel):
                'elf_rebuilds_sha256': digest(ELF.REBUILDS_FILE)}
     if selected_policy:
         target = selected_policy['ssh_target']
+        if progress:
+            progress(10, 'Read router baseline')
         before = capture(target)
         userspace_manifest = json.loads((Path(userspace['snapshot']) / 'manifest.json').read_text()) if (Path(userspace['snapshot']) / 'manifest.json').exists() else {}
         mapped_world, world_changes = migration_world(before, userspace_manifest)
@@ -346,6 +356,8 @@ def preflight(destination, origin, userspace, kernel):
                 relative = index.relative_to(Path(destination) / 'public').as_posix()
                 indexes.append({'url': origin.rstrip('/') + '/' + relative,
                                 'sha256': digest(index)})
+        if progress:
+            progress(30, 'Simulate router upgrade')
         simulation = remote(target, SIMULATE, {'indexes': indexes, **migration})
         receipt['simulation'] = simulation
         if simulation['returncode']:
@@ -358,6 +370,8 @@ def preflight(destination, origin, userspace, kernel):
                 relative = index.relative_to(Path(destination) / 'public').as_posix()
                 target_indexes.append({'url': origin.rstrip('/') + '/' + relative,
                                        'sha256': digest(index)})
+            if progress:
+                progress(60, 'Simulate target ABI upgrade')
             target_simulation = remote(target, SIMULATE, {'indexes': target_indexes,
                                        'replace_managed': True, 'origin': origin, **migration})
             receipt['target_abi_simulation'] = target_simulation
@@ -365,11 +379,15 @@ def preflight(destination, origin, userspace, kernel):
                 raise ValueError('Router rejects target ABI userspace view: ' +
                                  target_simulation['stderr'][-8192:])
             receipt['elf_transition'] = validate_elf_transition(before, userspace_manifest, target_simulation)
+        if progress:
+            progress(80, 'Recheck router baseline')
         if not same_baseline(before, capture(target)):
             raise ValueError('Router baseline changed during upgrade validation')
         receipt['baseline'] = {k: v for k, v in before.items() if k not in ('world', 'installed', 'elf')}
-    for name, result in (('userspace', userspace), ('kernel', kernel)):
-        check_prepared(result, stages[name])
+    # The coordinator calls authorize() for BOTH views before any pointer can
+    # move. Rehashing here would immediately duplicate that integrity check.
+    if progress:
+        progress(100, 'Upgrade preflight passed')
     return receipt
 
 

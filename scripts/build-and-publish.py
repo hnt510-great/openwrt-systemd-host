@@ -30,6 +30,50 @@ INPUTS = load('kernel_build_inputs', 'kernel-build-inputs.py')
 GUARD = load('build_upgrade_preflight', 'apk-upgrade-preflight.py')
 
 
+class Progress:
+    """Show workflow progress on stderr, keeping stdout available for JSON."""
+    def __init__(self, enabled=True, stream=None):
+        self.stream = stream if stream is not None else sys.stderr
+        self.enabled = enabled
+        self.terminal = self.stream.isatty()
+        self.started = time.monotonic()
+        self.updated = 0
+        self.percent = 0
+        self.phase = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *error):
+        if self.enabled and self.terminal and self.phase is not None:
+            print(file=self.stream, flush=True)
+
+    def __call__(self, percent, phase, detail=''):
+        if not self.enabled:
+            return
+        now = time.monotonic()
+        changed = phase != self.phase
+        self.percent = max(self.percent, min(100, int(percent)))
+        if not changed and (not self.terminal or now - self.updated < 0.1):
+            return
+        self.phase = phase
+        self.updated = now
+        label = phase + (': ' + detail if detail else '')
+        elapsed = f'{now - self.started:.1f}s'
+        if self.terminal:
+            filled = self.percent // 5
+            bar = '#' * filled + '-' * (20 - filled)
+            width = max(1, shutil.get_terminal_size().columns - 1)
+            prefix, suffix = f'[{bar}] {self.percent:3d}% ', f' ({elapsed})'
+            available = max(0, width - len(prefix) - len(suffix))
+            if len(label) > available:
+                label = label[:max(0, available - 3)] + '...'[:available]
+            line = prefix + label + suffix
+            print('\r\033[2K' + line[:width], end='', file=self.stream, flush=True)
+        else:
+            print(f'[{self.percent:3d}%] {label} ({elapsed})', file=self.stream, flush=True)
+
+
 def configuration(tree):
     path = tree / '.config'
     if not path.exists():
@@ -189,7 +233,7 @@ def newest(entries, apk):
     return selected
 
 
-def project(tree, work, apk):
+def project(tree, work, apk, progress=None):
     config = configuration(tree)
     sequence = int(config.get('CONFIG_OPENWRT_KERNEL_SEQUENCE', '0'))
     abi = (tree / 'staging_dir/target-x86_64_glibc/kernel.version').read_text().strip()
@@ -208,19 +252,25 @@ def project(tree, work, apk):
     repos = [('target', root / 'targets/x86/64-glibc/packages')] + [
         (p.name, p) for p in sorted((root / 'packages/x86_64').iterdir())
         if p.is_dir() and any(p.glob('*.apk'))]
+    inputs = [(repo, sorted(folder.glob('*.apk'))) for repo, folder in repos]
+    total = sum(len(paths) for _, paths in inputs)
+    examined = 0
     userspace = work / 'userspace'
     channel = work / 'kernel'
     channel.mkdir()
     candidates = {}
     payloads = {}
     support = {}
-    for repo, folder in repos:
+    for repo, paths in inputs:
         output = userspace / ('bin/systemd/targets/x86/64-glibc/packages' if repo == 'target'
                               else 'bin/systemd/packages/x86_64/' + repo)
         output.mkdir(parents=True, exist_ok=True)
-        for path in sorted(folder.glob('*.apk')):
-            info = json.loads(subprocess.check_output(
-                [str(apk), 'adbdump', '--format', 'json', str(path)]))['info']
+        for path, metadata in LAN.dump_indexes(apk, paths):
+            examined += 1
+            if progress:
+                progress(2 + 26 * examined / total, 'Read and stage APKs',
+                         f'{examined}/{total} ({repo})')
+            info = metadata['info']
             name = info['name']
             # All kernel packages, including stale logical trackers left in
             # bin/, are selected separately. Userspace remains ABI-specific.
@@ -266,7 +316,7 @@ def project(tree, work, apk):
                      and name + '-' + generation + '=' + p[1]['version'] in p[1].get('depends', [])]
         if not valid:
             raise ValueError('Missing matching kernel tracker/payload: ' + name)
-        if len({LAN.sha256(p[0]) for p in valid}) != 1:
+        if len(valid) > 1 and len({LAN.sha256(p[0]) for p in valid}) != 1:
             raise ValueError('Conflicting kernel tracker copies: ' + name)
         selected[name] = valid[0]
     for name, (path, info) in selected.items():
@@ -281,46 +331,71 @@ def project(tree, work, apk):
     return userspace, channel, abi, generation
 
 
-def publish(tree, data, dry_run=False):
+def publish(tree, data, dry_run=False, progress=None):
     apk = TREE / 'staging_dir/host/bin/apk'
+    if progress:
+        progress(0, 'Wait for publication lock')
     if configuration(tree).get('CONFIG_OPENWRT_KERNEL_UPGRADE') != 'y':
-        return LAN.publish(argparse.Namespace(source_root=tree, kernel=data.get('kernel'),
+        if progress:
+            progress(5, 'Prepare userspace feeds', 'signatures and ABI checks')
+        result = LAN.publish(argparse.Namespace(source_root=tree, kernel=data.get('kernel'),
             destination=data['destination'], base_url=data['base_url'], incremental=True,
             dry_run=dry_run, kernel_upgrade_view=False))
+        if progress:
+            progress(100, 'Dry run complete' if dry_run else 'Publication complete')
+        return result
     destination = data['destination']
     destination.mkdir(parents=True, exist_ok=True)
     with (destination / '.upgrade-publish.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        return publish_locked(tree, data, apk, dry_run)
+        result = publish_locked(tree, data, apk, dry_run, progress)
+    if progress:
+        progress(100, 'Dry run complete' if dry_run else 'Publication complete')
+    return result
 
 
-def publish_locked(tree, data, apk, dry_run):
+def publish_locked(tree, data, apk, dry_run, progress=None):
     destination = data['destination']
     prepared = []
     with tempfile.TemporaryDirectory(prefix='.build-publish-', dir=destination) as temporary:
-        userspace, channel, abi, generation = project(tree, Path(temporary), apk)
+        if progress:
+            progress(2, 'Read and stage APKs')
+        userspace, channel, abi, generation = project(tree, Path(temporary), apk, progress)
         if data.get('kernel') and data['kernel'] != abi:
             raise ValueError('Requested ABI differs from compiled generation')
         args = argparse.Namespace(source_root=userspace, kernel=abi, destination=destination,
             base_url=data['base_url'], incremental=True, dry_run=False, kernel_upgrade_view=True,
             stage_only=True)
         try:
+            if progress:
+                progress(30, 'Prepare userspace feeds', 'signatures and ABI checks')
             lan = LAN.publish(args)
             prepared.append(lan)
+            if progress:
+                progress(45, 'Prepare kernel feed', 'signatures and generation checks')
             kernel = KERNEL.publish(channel, destination, apk, TREE / 'private-key.pem', TREE,
                                     stage_only=True)
             prepared.append(kernel)
-            receipt = GUARD.preflight(destination, data['base_url'], lan, kernel)
+            def preflight_progress(percent, phase):
+                progress(55 + percent * 0.25, phase)
+            receipt = GUARD.preflight(destination, data['base_url'], lan, kernel,
+                                      progress=preflight_progress if progress else None)
             # Recheck BOTH before moving either alias. These are the exact
             # staged snapshots, never a second projection of mutable bin/.
             for name, result in (('userspace', lan), ('kernel', kernel)):
+                if progress:
+                    progress(82 if name == 'userspace' else 86, 'Verify prepared ' + name + ' snapshot')
                 GUARD.authorize(destination, result, receipt, name)
                 GUARD.check_alias(result)
             selected_policy = GUARD.policy(destination)
+            if progress and selected_policy:
+                progress(90, 'Recheck router before promotion')
             if selected_policy and not GUARD.same_baseline(
                     receipt['baseline'], GUARD.capture(selected_policy['ssh_target'])):
                 raise ValueError('Router baseline changed before release promotion')
             if not dry_run:
+                if progress:
+                    progress(94, 'Save publication receipt')
                 receipts = destination / 'upgrade-receipts'
                 receipts.mkdir(exist_ok=True)
                 save_receipt = receipts / (str(time.time_ns()) + '.json')
@@ -329,7 +404,11 @@ def publish_locked(tree, data, apk, dry_run):
                     stream.flush()
                     os.fsync(stream.fileno())
                 try:
+                    if progress:
+                        progress(96, 'Promote userspace feed')
                     lan = LAN.promote(lan, destination, receipt)
+                    if progress:
+                        progress(98, 'Promote kernel feed')
                     kernel = KERNEL.promote(kernel, destination, receipt)
                 except BaseException:
                     # The kernel pointer is the commit boundary. An interrupt
@@ -338,6 +417,8 @@ def publish_locked(tree, data, apk, dry_run):
                             Path(prepared[1]['alias']).resolve() != Path(prepared[1]['snapshot']).resolve()):
                         LAN.restore_alias(prepared[0])
                     raise
+            if progress:
+                progress(99, 'Clean up staging snapshots')
             return {'userspace': {**lan, 'status': 'dry-run' if dry_run and lan['status'] != 'unchanged' else lan['status']},
                     'kernel': {**kernel, 'status': 'dry-run' if dry_run and kernel['status'] != 'unchanged' else kernel['status']},
                     'generation': generation, 'upgrade_preflight': receipt}
@@ -415,6 +496,7 @@ def main():
         parser.add_argument('--kernel')
         parser.add_argument('--incremental', action='store_true', help='Compatibility; always incremental')
         parser.add_argument('--dry-run', action='store_true')
+        parser.add_argument('--no-progress', action='store_true', help='Disable progress on stderr')
         args = parser.parse_args()
         data = json.loads(args.config.read_text())
         data.update({k: v for k, v in vars(args).items()
@@ -423,9 +505,11 @@ def main():
         tree = args.source_root.resolve()
         lockdir = tree / 'tmp'
         lockdir.mkdir(exist_ok=True)
-        with (lockdir / '.build-and-publish.lock').open('a') as lock:
+        with Progress(enabled=not args.no_progress) as progress, \
+                (lockdir / '.build-and-publish.lock').open('a') as lock:
+            progress(0, 'Wait for build/publication lock')
             fcntl.flock(lock, fcntl.LOCK_EX)
-            result = publish(tree, data, args.dry_run)
+            result = publish(tree, data, args.dry_run, progress)
     print(json.dumps(result, indent=2))
 
 

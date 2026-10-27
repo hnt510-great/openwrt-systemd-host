@@ -96,6 +96,23 @@ projected `custom` repository together. Unchanged packages and indexes are
 reused through hard links to retained snapshots; replacements always use
 new inodes so older snapshots remain unchanged.
 
+The coordinated publisher reads APK metadata in batches of up to 32 files,
+with at most four concurrent `apk adbdump` processes. Results are consumed in
+source order. Snapshot integrity checks hash files with four workers and
+record each snapshot once before simulation, then rehash both snapshots in
+the coordinator before either pointer can move. Formal publication also
+rehashes each view at its own promotion boundary. The redundant rehash at
+the end of simulation is omitted. No persistent metadata or mtime cache is
+used. Signature, ABI, immutable-version and router upgrade checks still run
+as before. The coordinator still performs its router upgrade preflight when
+both feeds are unchanged.
+
+On 2026-10-27, batching and parallel hashing reduced an unprofiled no-change
+dry run over 1,566 build APKs (about 0.93 GiB) from 41.5 to 32.6 seconds on
+this host, before removing the redundant hash passes. Feed results, snapshot
+hashes, generation and router baseline matched. This measures the no-change
+case; router/network time can vary.
+
 Previously published APKs are retained when a package clean removes their
 build output. With no changes, the command reports `"status": "unchanged"`
 and creates no snapshot. The first run against an older publication may
@@ -105,6 +122,16 @@ To preview changes, including signature and ABI validation, use:
 
 ```sh
 ./scripts/publish-changed-feeds.sh --dry-run
+```
+
+The coordinated command shows a progress bar on stderr in a terminal,
+including the APK scan count, current stage and elapsed time. Percentages
+describe workflow stages, not an estimate of remaining time. Redirected stderr
+uses one plain-text line per stage, while stdout remains the JSON result.
+Use `--no-progress` to suppress this output:
+
+```sh
+./scripts/publish-changed-feeds.sh --dry-run --no-progress
 ```
 
 To publish immediately after a successful package build:

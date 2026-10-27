@@ -59,6 +59,27 @@ class LinkFileTests(unittest.TestCase):
             self.assertFalse(destination.exists())
 
 
+class MetadataBatchTests(unittest.TestCase):
+    def test_empty_input_does_not_invoke_apk(self):
+        with mock.patch.object(publisher.subprocess, 'check_output') as command:
+            self.assertEqual(list(publisher.dump_indexes(APK, [])), [])
+        command.assert_not_called()
+
+    def test_incomplete_or_extra_output_is_rejected(self):
+        paths = [Path('first.apk'), Path('second.apk')]
+        for output in ('{}', '{} {} {}', '{} broken'):
+            with self.subTest(output=output), mock.patch.object(
+                    publisher.subprocess, 'check_output', return_value=output):
+                with self.assertRaises(ValueError):
+                    list(publisher.dump_indexes(APK, paths))
+
+    def test_failed_batch_does_not_yield_partial_metadata(self):
+        with mock.patch.object(publisher.subprocess, 'check_output',
+                side_effect=subprocess.CalledProcessError(1, 'apk', output='{}')):
+            with self.assertRaises(subprocess.CalledProcessError):
+                next(publisher.dump_indexes(APK, [Path('good.apk'), Path('bad.apk')]))
+
+
 class PublisherTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -135,6 +156,17 @@ class PublisherTests(unittest.TestCase):
     def test_detect_kernel_without_override(self):
         self.command = self.command[:2] + self.command[4:]
         self.assertEqual(self.publish()['kernel'], self.kernel)
+
+    def test_batched_metadata_matches_individual_signed_apks_across_batches(self):
+        paths = [self.target / self.kernel_apk.name,
+                 self.base / 'feed-probe-1.0-r1.apk',
+                 self.base / 'feed-kernel-probe-1.0-r1.apk'] * 45
+        expected = {path: publisher.dump_index(APK, path) for path in set(paths)}
+        with mock.patch.object(publisher.subprocess, 'check_output',
+                wraps=subprocess.check_output) as command:
+            actual = list(publisher.dump_indexes(APK, paths))
+        self.assertEqual(actual, [(path, expected[path]) for path in paths])
+        self.assertEqual(command.call_count, 5)
 
     def test_kernel_upgrade_view_keeps_userspace_kmod_in_its_repository(self):
         self.make_package('kmod', '32-r3', 'userspace module tool', custom=False)

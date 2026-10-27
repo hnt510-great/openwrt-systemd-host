@@ -2,6 +2,7 @@
 """Cross-version omissions, explicit migrations and immutable prepared releases."""
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -169,6 +170,37 @@ class PreflightTests(unittest.TestCase):
             (Path(self.results['kernel']['snapshot']) / 'probe.apk').write_bytes(b'changed')
             with self.assertRaisesRegex(ValueError, 'changed after'):
                 G.authorize(self.root, self.results['kernel'], receipt, 'kernel')
+
+    def test_simulation_time_change_is_rejected_without_intermediate_rehash(self):
+        def simulate(*args):
+            (Path(self.results['kernel']['snapshot']) / 'probe.apk').write_bytes(b'changed')
+            return {'returncode': 0}
+
+        with patch.object(G, 'policy', return_value={'ssh_target': 'router'}), \
+                patch.object(G, 'capture', return_value=self.baseline), \
+                patch.object(G, 'remote', side_effect=simulate), \
+                patch.object(G, 'snapshot_hashes', wraps=G.snapshot_hashes) as hashes:
+            receipt = G.preflight(self.root, 'http://host', **self.results)
+            self.assertEqual(hashes.call_count, 2)
+            with self.assertRaisesRegex(ValueError, 'changed after'):
+                G.authorize(self.root, self.results['kernel'], receipt, 'kernel')
+
+    def test_snapshot_rehashes_same_size_change_with_restored_mtime(self):
+        snapshot = Path(self.results['userspace']['snapshot'])
+        nested = snapshot / '.hidden/subdir'
+        nested.mkdir(parents=True)
+        package = nested / 'payload.apk'
+        package.write_bytes(b'before')
+        before = G.snapshot_hashes(snapshot)
+        self.assertEqual(before, {str(p.relative_to(snapshot)): G.digest(p)
+                                 for p in sorted(snapshot.rglob('*')) if p.is_file()})
+        st = package.stat()
+        package.write_bytes(b'after!')
+        os.utime(package, ns=(st.st_atime_ns, st.st_mtime_ns))
+        after = G.snapshot_hashes(snapshot)
+        self.assertEqual(before.keys(), after.keys())
+        self.assertNotEqual(before['.hidden/subdir/payload.apk'],
+                            after['.hidden/subdir/payload.apk'])
 
     def test_production_cannot_use_receipt_without_router(self):
         with patch.object(G, 'policy', return_value=None):

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Publish signed native-systemd/glibc APK feeds, optionally incrementally."""
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import datetime
 import errno
 import fcntl
@@ -46,6 +47,36 @@ def dump_index(apk, index):
     if 'info' not in result:
         result.setdefault('packages', [])
     return result
+
+
+def dump_indexes(apk, paths):
+    """Read metadata in bounded batches, preserving APK's input/output order."""
+    paths = list(paths)
+
+    def read(batch):
+        output = subprocess.check_output(
+            [str(apk), 'adbdump', '--format', 'json', *map(str, batch)], encoding='utf-8')
+        decoder = json.JSONDecoder()
+        offset = 0
+        results = []
+        for path in batch:
+            while offset < len(output) and output[offset].isspace():
+                offset += 1
+            result, offset = decoder.raw_decode(output, offset)
+            if 'info' not in result:
+                result.setdefault('packages', [])
+            results.append((path, result))
+        if output[offset:].strip():
+            raise ValueError('Unexpected extra APK metadata in adbdump output')
+        return results
+
+    with ThreadPoolExecutor(max_workers=4) as workers:
+        # Limit both outstanding commands and buffered metadata. Consume results
+        # in source order so duplicate selection and diagnostics stay stable.
+        for start in range(0, len(paths), 128):
+            batches = [paths[i:i + 32] for i in range(start, min(start + 128, len(paths)), 32)]
+            for results in workers.map(read, batches):
+                yield from results
 
 
 def verify(apk, keys, files):

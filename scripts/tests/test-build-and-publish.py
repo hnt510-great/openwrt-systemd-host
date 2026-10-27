@@ -171,6 +171,20 @@ class BuildPublicationTests(unittest.TestCase):
         self.assertEqual(result['kernel']['status'], 'unchanged')
         self.assertEqual(self.aliases(), before)
 
+    def test_duplicate_kernel_trackers_still_require_identical_bytes(self):
+        name = 'kmod-nic'
+        version = '1000.1.6.18.55-r1'
+        package = self.target / (name + '-' + version + '.apk')
+        shutil.copyfile(package, self.base / package.name)
+        B.publish(self.tree, self.data)
+        before = self.aliases()
+        payload = name + '-6.18.55-owrt-' + 'a' * 32 + '-r1-g1'
+        self.make_package(name, version, ['kernel=' + ABI, payload + '=' + version],
+                          content='different signed tracker with the same identity')
+        with self.assertRaisesRegex(ValueError, 'Conflicting kernel tracker copies'):
+            B.publish(self.tree, self.data)
+        self.assertEqual(self.aliases(), before)
+
     def test_new_lower_sorting_abi_preserves_old_router_view(self):
         B.publish(self.tree, self.data)
         original_alias = (self.server / 'public/abi' / ABI).resolve()
@@ -215,8 +229,8 @@ class BuildPublicationTests(unittest.TestCase):
         self.generation(2)
         before = self.aliases()
         original = B.GUARD.preflight
-        def mutate(*args):
-            receipt = original(*args)
+        def mutate(*args, **kwargs):
+            receipt = original(*args, **kwargs)
             root = Path(args[3]['snapshot'])
             next(root.glob('*.apk')).write_bytes(b'changed after validation')
             return receipt
@@ -229,8 +243,8 @@ class BuildPublicationTests(unittest.TestCase):
         probe = self.base / 'user-probe-1-r1.apk'
         expected = probe.read_bytes()
         original = B.GUARD.preflight
-        def mutate(*args):
-            receipt = original(*args)
+        def mutate(*args, **kwargs):
+            receipt = original(*args, **kwargs)
             probe.write_bytes(b'concurrent build wrote a different APK')
             return receipt
         with patch.object(B.GUARD, 'preflight', side_effect=mutate):
@@ -329,6 +343,36 @@ class BuildPublicationTests(unittest.TestCase):
         self.assertEqual(result['kernel']['status'], 'dry-run')
         self.assertEqual(result['userspace']['status'], 'dry-run')
         self.assertEqual(self.aliases(), before)
+
+    def test_cli_progress_keeps_json_stdout_and_can_be_disabled(self):
+        before = self.aliases()
+        command = ['python3', str(TREE / 'scripts/build-and-publish.py'),
+                   '--source-root', str(self.tree), '--destination', str(self.server),
+                   '--base-url', self.data['base_url'], '--dry-run']
+        for options in ([], ['--no-progress']):
+            with self.subTest(options=options):
+                result = subprocess.run(command + options, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout)['kernel']['status'], 'dry-run')
+                self.assertEqual(self.aliases(), before)
+                if options:
+                    self.assertEqual(result.stderr, '')
+                else:
+                    self.assertIn('Read and stage APKs', result.stderr)
+                    self.assertIn('[100%] Dry run complete', result.stderr)
+                    self.assertNotIn('\x1b', result.stderr)
+
+    def test_failed_publication_does_not_report_complete(self):
+        events = []
+        def progress(percent, phase, detail=''):
+            events.append((percent, phase))
+        before = self.aliases()
+        with patch.object(B.GUARD, 'preflight', side_effect=ValueError('rejected')):
+            with self.assertRaisesRegex(ValueError, 'rejected'):
+                B.publish(self.tree, self.data, dry_run=True, progress=progress)
+        self.assertEqual(self.aliases(), before)
+        self.assertTrue(events)
+        self.assertTrue(all(percent < 100 for percent, _ in events))
 
     def test_sequence_advances_without_changing_other_config(self):
         B.publish(self.tree, self.data)
