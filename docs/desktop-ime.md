@@ -38,7 +38,9 @@ cache because the base GTK package does not generate one.
 
 ## macOS RDP clients
 
-Use **Control+Shift+Space** on the Mac keyboard. This does not use Command or
+Use **Control+Shift+Enter (Return)** in macOS Microsoft Remote Desktop.
+**Control+Shift+Space** remains available for Windows RDP and Moonlight.
+These shortcuts do not use Command or
 Option and avoids the default Control+Space and Control+Option+Space shortcuts
 for switching macOS input sources ([Apple shortcut reference](https://support.apple.com/en-us/102650)). Keep the Mac input source on ABC/English
 when composing with remote Pinyin, and use the RDP client's physical/scancode
@@ -58,6 +60,7 @@ if needed:
 ```ini
 [Hotkey/TriggerKeys]
 0=Control+Shift+space
+1=Control+Shift+Return
 ```
 
 Run `fcitx5-remote -r` in the desktop session after editing settings. The
@@ -193,3 +196,35 @@ IME failure; an unfocused test window must fail the harness before any typing.
 Diagnostic attempts and the profile repair record are retained under
 `bin/validation/desktop-ime-windows-rdp/`. No browser backend, RDP credential,
 remote-client configuration, or global shortcut was changed for this repair.
+
+## macOS Microsoft Remote Desktop / Windows App
+
+For the remote Fcitx5 Pinyin engine, use the client's **Connections > Keyboard
+Mode > Scancode** setting. Microsoft documents **Control+Command+K** as the
+shortcut for this mode. Then focus a text field in the remote Firefox window
+and use **Control+Shift+Space** (the physical Control key).
+
+Unicode mode translates local input into characters and is intended for uses
+including the local macOS IME; it may not preserve the remote IME's shortcut
+path. A macOS-specific failure with working Windows-client switching does not
+by itself prove which mode or local shortcut interception caused it. Confirm
+client mode and retest before changing the server's working trigger.
+
+Reference: https://learn.microsoft.com/en-us/windows-app/input-keyboard-mouse-touch-pen?tabs=macos
+
+### Confirmed macOS RDP shortcut repair (2026-10-26)
+
+The Mac was already in Scancode mode. A passive Fcitx D-Bus monitor received
+Control and Shift press/release events for repeated Control+Shift+Space attempts,
+but no Space events within those chords. Standalone Space arrived normally.
+This locates the loss before the Fcitx input context; it does not distinguish
+macOS interception, client handling, and compositor processing. Moonlight
+switching only changed the shared IME state and did not prove RDP switching.
+
+Added Control+Shift+Return as a second trigger in the package defaults and the
+physical user's existing configuration. Reloaded Fcitx configuration through
+its controller without restarting Firefox or the desktop. The original user
+configuration is backed up under
+`~/.local/state/desktop-ime-macos-20261026T142328Z/`. The user confirmed the new
+shortcut works in macOS RDP. Default package release 2 contains the additional
+trigger; existing user settings remain preserved by the first-use installer.

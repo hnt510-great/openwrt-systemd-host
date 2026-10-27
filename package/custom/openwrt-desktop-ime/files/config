@@ -8,6 +8,7 @@ DeactivateKeys=
 
 [Hotkey/TriggerKeys]
 0=Control+Shift+space
+1=Control+Shift+Return
 
 [Behavior]
 ActiveByDefault=False
