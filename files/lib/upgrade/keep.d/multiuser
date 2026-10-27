@@ -1,4 +1,4 @@
-/home/
+# Config-only: never include all of /home (downloads, caches, containers).
 /etc/gshadow
 /etc/subuid
 /etc/subgid
