@@ -1,0 +1,14 @@
+[Unit]
+Description=Remote access for the active GNOME desktop
+PartOf=gnome-session.target
+After=graphical-session-pre.target
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/desktop-gnome-remotes
+Restart=on-failure
+RestartSec=5s
+UMask=0077
+
+[Install]
+WantedBy=gnome-session.target

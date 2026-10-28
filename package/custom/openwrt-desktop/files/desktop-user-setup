@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+[ "$(id -u)" -ge 1000 ] || exit 1
+umask 077
+config_home=${XDG_CONFIG_HOME:-$HOME/.config}
+wants="$config_home/systemd/user/gnome-session.target.wants"
+mkdir -p "$wants"
+for unit in openwrt-gnome-remotes.service openwrt-fcitx5.service; do
+	[ ! -f "/usr/lib/systemd/user/$unit" ] || ln -sfn "/usr/lib/systemd/user/$unit" "$wants/$unit"
+done

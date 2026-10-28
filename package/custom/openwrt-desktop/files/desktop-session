@@ -1,197 +1,21 @@
 #!/bin/sh
 set -eu
-[ "$#" = 5 ] || [ "$#" = 6 ] || [ "$#" = 9 ] || [ "$#" = 10 ] || [ "$#" = 11 ] || exit 1
-output="$1"
-address="$2"
-export OPENWRT_DESKTOP_LAN_ADDRESS="$address"
-export OPENWRT_DESKTOP_OUTPUT="$output"
-export XDG_CURRENT_DESKTOP=Weston
-port="$3"
-key="$4"
-cert="$5"
-renderer="${6:-gl}"
-rdp_enabled="${7:-0}"
-rdp_port="${8:-3389}"
-rdp_refresh_rate="${9:-30}"
-mode="${10:-preferred}"
-force_composition="${11:-1}"
-# KMS capture cannot combine client buffers on separate hardware planes.
-# Weston still uses the selected renderer (including GL) for composition.
-case "$force_composition" in
-	1) export WESTON_FORCE_RENDERER=1 ;;
-	0) unset WESTON_FORCE_RENDERER ;;
-	*) echo 'Invalid desktop force_composition value' >&2; exit 1 ;;
-esac
-. /usr/libexec/desktop-common.sh
-desktop_validate_mode "$mode"
-backends=drm,vnc
-capture=$(uci -q get desktop.main.sunshine_capture || :)
-capture=${capture:-kms}
-case "$capture" in kms|weston) ;; *) echo 'Invalid Sunshine capture mode' >&2; exit 1 ;; esac
-case "$rdp_enabled" in 0|1) ;; *) exit 1 ;; esac
-case "$renderer" in pixman|gl) ;; *) exit 1 ;; esac
-if [ "$rdp_enabled" = 1 ]; then
-	desktop_validate_rdp "$rdp_port" "$rdp_refresh_rate" "$port"
-	sam="/etc/desktop/rdp/$USER.sam"
-	[ -r "$sam" ] && [ -f "$sam" ] && [ ! -L "$sam" ] || exit 1
-	backends=drm,vnc,rdp
-fi
-if [ "$capture" = weston ] && [ -d /run/systemd/system ]; then
-	# PipeWire must exist before its Weston backend connects. Audio autolaunch
-	# runs after compositor initialization, which is too late for this backend.
-	pipewire_backend=
-	for module in /usr/lib/libweston-*/pipewire-backend.so; do
-		[ ! -f "$module" ] || pipewire_backend=$module
-	done
-	if [ -n "$pipewire_backend" ] &&
-	   [ -f /usr/lib/spa-0.2/videoconvert/libspa-videoconvert.so ] &&
-	   systemctl --user start pipewire.service; then
-		backends=$backends,pipewire
-	else
-		echo 'Weston PipeWire capture unavailable; retaining local/RDP/VNC desktop' >&2
-	fi
-fi
+[ "$(id -u)" -ge 1000 ] || exit 1
+: "${XDG_RUNTIME_DIR:?PAM did not create a user runtime directory}"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+export XDG_CURRENT_DESKTOP=GNOME XDG_SESSION_DESKTOP=gnome DESKTOP_SESSION=gnome
+export XDG_SESSION_TYPE=wayland XMODIFIERS=@im=fcitx
+# The native text-input path uses Fcitx's IBus frontend. Do not inherit the
+# Weston-only GTK module override or its privileged input-method socket.
+unset WAYLAND_SOCKET GTK_IM_MODULE GTK_IM_MODULE_FILE LIBSEAT_BACKEND
+for attempt in 1 2 3 4 5; do
+	[ ! -S "$XDG_RUNTIME_DIR/bus" ] || break
+	sleep 1
+done
+[ -S "$XDG_RUNTIME_DIR/bus" ] || exit 1
+systemctl --user unset-environment WAYLAND_SOCKET GTK_IM_MODULE GTK_IM_MODULE_FILE LIBSEAT_BACKEND
+/usr/libexec/desktop-keyring-unlock
 cd "$HOME"
-if [ -x /usr/bin/flatpak ]; then
-	export XDG_CURRENT_DESKTOP=Weston
-	case ":${XDG_DATA_DIRS:-}:" in
-		*":$HOME/.local/share/flatpak/exports/share:"*) ;;
-		*) export XDG_DATA_DIRS="$HOME/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" ;;
-	esac
-fi
-# GTK3/Firefox on Weston needs the Fcitx module (Weston uses text-input-v1).
-# The compositor starts Fcitx on its privileged input-method socket below.
-if [ -x /usr/libexec/desktop-ime-session ]; then
-	export GTK_IM_MODULE=fcitx
-	export GTK_IM_MODULE_FILE=/usr/share/fcitx5-gtk/immodules.cache
-fi
-umask 077
-# This script runs as the desktop user, including all runtime file writes.
-cat > "$XDG_RUNTIME_DIR/weston.ini" <<EOF
-[core]
-shell=desktop-shell.so
-idle-time=0
-
-[shell]
-locking=false
-panel-position=top
-background-color=0xff203040
-
-[launcher]
-icon=/usr/share/weston/terminal.png
-path=/usr/bin/weston-terminal
-
-EOF
-if [ -x /usr/bin/desktop-applications ]; then
-	cat >> "$XDG_RUNTIME_DIR/weston.ini" <<EOF
-[launcher]
-icon=/usr/share/icons/hicolor/32x32/apps/desktop-applications.png
-path=/usr/bin/desktop-applications
-
-EOF
-fi
-if [ -x /usr/libexec/desktop-ime-session ]; then
-	cat >> "$XDG_RUNTIME_DIR/weston.ini" <<EOF
-[input-method]
-path=/usr/libexec/desktop-ime-session
-
-EOF
-fi
-if [ -x /usr/bin/Xwayland ]; then
-	# Weston reserves DISPLAY before launching desktop clients and starts
-	# the X server on demand. Do not start a second X server here.
-	for module in /usr/lib/libweston-*/xwayland.so; do
-		[ -f "$module" ] || continue
-		sed -i '/^idle-time=0$/a xwayland=true' "$XDG_RUNTIME_DIR/weston.ini"
-		break
-	done
-fi
-if [ -x /usr/libexec/virt-manager-launch ]; then
-	cat >> "$XDG_RUNTIME_DIR/weston.ini" <<EOF
-[launcher]
-icon=/usr/share/icons/hicolor/48x48/apps/virt-manager.png
-path=/usr/libexec/virt-manager-launch
-
-EOF
-fi
-if [ -x /usr/bin/firefox-esr ]; then
-	cat >> "$XDG_RUNTIME_DIR/weston.ini" <<EOF
-[launcher]
-icon=/usr/share/icons/hicolor/32x32/apps/firefox-esr.png
-path=/usr/bin/firefox-esr
-
-EOF
-fi
-if [ -x /usr/libexec/desktop-audio-session ] || [ -x /usr/libexec/desktop-flatpak-session ]; then
-	autolaunch=/usr/libexec/desktop-flatpak-session
-	[ ! -x /usr/libexec/desktop-audio-session ] || autolaunch=/usr/libexec/desktop-audio-session
-	cat >> "$XDG_RUNTIME_DIR/weston.ini" <<EOF
-[autolaunch]
-path=$autolaunch
-watch=false
-
-EOF
-fi
-cat >> "$XDG_RUNTIME_DIR/weston.ini" <<EOF
-[output]
-name=$output
-mode=$mode
-
-[output]
-name=vnc
-mirror-of=$output
-resizeable=false
-
-[vnc]
-refresh-rate=30
-tls-key=$key
-tls-cert=$cert
-EOF
-if [ "$rdp_enabled" = 1 ]; then
-	rdp_audio=false
-	if [ -x /usr/libexec/desktop-audio-session ] && [ -d /run/systemd/system ] &&
-	   [ "$(uci -q get desktop.main.audio_enabled || :)" = 1 ] &&
-	   [ "$(uci -q get desktop.main.audio_user || :)" = "$USER" ]; then
-		rdp_audio=true
-	fi
-	cat >> "$XDG_RUNTIME_DIR/weston.ini" <<EOF
-
-[output]
-name=rdp-0
-mirror-of=$output
-
-[rdp]
-address=$address
-port=$rdp_port
-refresh-rate=$rdp_refresh_rate
-tls-key=$key
-tls-cert=$cert
-nla-ntlm-db=$sam
-audio-playback=$rdp_audio
-audio-capture=$rdp_audio
-EOF
-fi
-case ",$backends," in
-	*,pipewire,*)
-		cat >> "$XDG_RUNTIME_DIR/weston.ini" <<EOF
-
-[pipewire]
-num-outputs=1
-
-[output]
-name=pipewire
-mirror-of=$output
-
-EOF
-		;;
-esac
-set -- /usr/libexec/desktop-dbus-session /usr/bin/weston --backends="$backends" --renderer="$renderer" \
-	--continue-without-input --address="$address" --port="$port" \
-	--config="$XDG_RUNTIME_DIR/weston.ini"
-if [ "$rdp_enabled" = 1 ]; then
-	set -- "$@" --no-resizeable
-fi
-if [ -x /usr/libexec/desktop-no-caps ]; then
-	set -- /usr/libexec/desktop-no-caps "$@"
-fi
-exec "$@"
+export XDG_DATA_DIRS="$HOME/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+systemctl --user import-environment XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP DESKTOP_SESSION XDG_SESSION_TYPE XMODIFIERS XDG_DATA_DIRS
+exec /usr/bin/gnome-session --session=gnome

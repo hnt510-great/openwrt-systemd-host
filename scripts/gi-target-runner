@@ -4,6 +4,10 @@ root=$(CDPATH= cd -- "${0%/*}/.." && pwd)
 staging="$root/staging_dir/target-x86_64_glibc"
 loader="$root/staging_dir/toolchain-x86_64_gcc-14.4.0_glibc/lib/ld-linux-x86-64.so.2"
 libs="$staging/usr/lib:$staging/lib:$root/staging_dir/toolchain-x86_64_gcc-14.4.0_glibc/lib"
+for private in "$staging"/usr/lib/mutter-* "$staging"/usr/lib/gnome-shell \
+	"$staging"/usr/lib/evolution-data-server "$staging"/usr/lib/pulseaudio; do
+	[ ! -d "$private" ] || libs="$private:$libs"
+done
 # g-ir-scanner supplies directories of not-yet-installed target libraries.
 old_ifs=$IFS
 IFS=:
@@ -11,5 +15,28 @@ for path in ${GI_TARGET_LIBRARY_PATH:-}; do
 	case "$path" in "$root"/build_dir/target-x86_64_glibc/*) libs="$path:$libs" ;; esac
 done
 IFS=$old_ifs
+for data in "$staging"/usr/share/icu/*/icudt*.dat; do
+	[ ! -f "$data" ] || export ICU_DATA="${data%/*}"
+done
 unset LD_LIBRARY_PATH LD_PRELOAD
-exec "$loader" --inhibit-cache --library-path "$libs" "$@"
+# Match target iconv's loadable converters rather than the host's libc ABI.
+export GCONV_PATH="$root/staging_dir/toolchain-x86_64_gcc-14.4.0_glibc/lib/gconv"
+list_mode=
+if [ "${1:-}" = --list ]; then list_mode=--list; shift; fi
+program=$1
+shift
+# Autotools/libtool places a shell launcher beside the actual dumper ELF.
+# Use that ELF with our loader, keeping libtool's host shell out of target libc.
+case "$program" in
+	"$root"/build_dir/target-x86_64_glibc/*)
+		actual="${program%/*}/.libs/${program##*/}"
+		if [ -f "$actual" ] && [ "$(head -c 2 "$program")" = '#!' ]; then
+			# The dumper lives in a temporary subdirectory, whereas the
+			# library it inspects is in its parent's libtool directory.
+			local_libs="${program%/*}/../.libs"
+			[ ! -d "$local_libs" ] || libs="$local_libs:$libs"
+			program=$actual
+		fi
+		;;
+esac
+exec "$loader" --inhibit-cache --library-path "$libs" ${list_mode:+--list} "$program" "$@"

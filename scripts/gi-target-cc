@@ -3,4 +3,21 @@
 # dumper. GCC and collect2 are host programs and must never load those libraries.
 set -eu
 unset LD_LIBRARY_PATH LD_PRELOAD
+root=$(CDPATH= cd -- "${0%/*}/.." && pwd)
+# A dumper also needs the indirect dependencies of an uninstalled library.
+# -L finds direct libraries; GNU ld requires -rpath-link for their DT_NEEDED
+# entries. Keep these build-only paths out of the resulting runtime RPATH.
+for argument in "$@"; do
+	case "$argument" in
+		-L"$root"/build_dir/target-x86_64_glibc/*|-L"$root"/staging_dir/target-x86_64_glibc/*)
+			set -- "$@" "-Wl,-rpath-link,${argument#-L}"
+			;;
+	esac
+done
+for private in "$root"/staging_dir/target-x86_64_glibc/usr/lib/mutter-* \
+	"$root"/staging_dir/target-x86_64_glibc/usr/lib/gnome-shell \
+	"$root"/staging_dir/target-x86_64_glibc/usr/lib/evolution-data-server \
+	"$root"/staging_dir/target-x86_64_glibc/usr/lib/pulseaudio; do
+	[ ! -d "$private" ] || set -- "$@" "-Wl,-rpath-link,$private"
+done
 exec "$@"

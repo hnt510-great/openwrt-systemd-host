@@ -3,70 +3,45 @@ set -eu
 set +x
 umask 077
 . /usr/libexec/desktop-common.sh
-
 [ "$(id -u)" = 0 ] || { desktop_error 'Run desktop-rdp-setup as root'; exit 1; }
-[ "$#" = 1 ] || { printf 'Usage: desktop-rdp-setup USER\n' >&2; exit 1; }
-user="$1"
+[ "$#" = 1 ] || { [ "$#" = 2 ] && [ "$2" = --password-stdin ]; } || {
+	printf 'Usage: desktop-rdp-setup USER [--password-stdin]\n' >&2; exit 1;
+}
+user=$1
 desktop_validate_user "$user"
-[ "$(uci -q get desktop.main.user)" = "$user" ] &&
-	[ "$(uci -q get desktop.main.enabled)" = 1 ] || {
+[ "$(uci -q get desktop.main.user || :)" = "$user" ] && 	[ "$(uci -q get desktop.main.enabled || :)" = 1 ] || {
 	desktop_error 'Run desktop-setup for this user first'; exit 1;
 }
-[ -x /usr/bin/winpr-hash ] || { desktop_error 'RDP support is not installed'; exit 1; }
-for module in /usr/lib/libweston-*/rdp-backend.so; do
-	[ -f "$module" ] && break
-done
-[ -f "$module" ] || { desktop_error 'Weston RDP backend is not installed'; exit 1; }
-rdp_port="$(uci -q get desktop.main.rdp_port || printf 3389)"
-rdp_rate="$(uci -q get desktop.main.rdp_refresh_rate || printf 30)"
-vnc_port="$(uci -q get desktop.main.port || printf 5900)"
-desktop_validate_rdp "$rdp_port" "$rdp_rate" "$vnc_port"
-[ -d /etc/desktop ] && [ ! -L /etc/desktop ] || exit 1
-[ ! -L /etc/desktop/rdp ] || { desktop_error 'Unsafe RDP credential directory'; exit 1; }
-mkdir -p /etc/desktop/rdp
-chown 0:0 /etc/desktop/rdp
-chmod 0755 /etc/desktop/rdp
-tmp="$(mktemp /etc/desktop/rdp/.credentials.XXXXXX)"
+[ -x /usr/bin/grdctl ] || { desktop_error 'GNOME Remote Desktop is not installed'; exit 1; }
+port="$(uci -q get desktop.main.rdp_port || printf 3389)"
+desktop_validate_rdp "$port"
 tty_state=
 cleanup() {
 	[ -z "$tty_state" ] || stty "$tty_state" <&3
-	rm -f "$tmp"
 	unset password confirm
 }
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
-exec 3</dev/tty 4>/dev/tty
-tty_state="$(stty -g <&3)"
-stty -echo <&3
-printf 'New RDP password: ' >&4
-IFS= read -r password <&3
-printf '\nConfirm RDP password: ' >&4
-IFS= read -r confirm <&3
-printf '\n' >&4
-stty "$tty_state" <&3
-tty_state=
-[ -n "$password" ] && [ "$password" = "$confirm" ] || {
-	desktop_error 'Passwords must be nonempty and match'; exit 1;
-}
-printf '%s\n' "$password" | winpr-hash -u "$user" --password-stdin -f sam > "$tmp"
-unset password confirm
-awk -F: -v user="$user" '
-	NR == 1 { valid = NF == 7 && $1 == user && $2 == "" && $3 == "" &&
-		length($4) == 32 && $4 !~ /[^0-9a-fA-F]/ && $5 == "" && $6 == "" && $7 == "" }
-	END { exit !(NR == 1 && valid) }
-' "$tmp" || { desktop_error 'RDP credential generation failed'; exit 1; }
-chown "$DESKTOP_USER_UID:$DESKTOP_USER_GID" "$tmp"
-chmod 0600 "$tmp"
-mv -f "$tmp" "/etc/desktop/rdp/$user.sam"
-was_enabled="$(uci -q get desktop.main.rdp_enabled || :)"
-uci set desktop.main.rdp_enabled='1'
-uci commit desktop
-if [ "$was_enabled" != 1 ]; then
-	printf 'Enabling RDP restarts the desktop and its applications.\n'
-	/etc/init.d/desktop restart
+if [ "${2:-}" = --password-stdin ]; then
+	IFS= read -r password
+else
+	exec 3</dev/tty 4>/dev/tty
+	tty_state="$(stty -g <&3)"
+	stty -echo <&3
+	printf 'New RDP password: ' >&4
+	IFS= read -r password <&3
+	printf '\nConfirm RDP password: ' >&4
+	IFS= read -r confirm <&3
+	printf '\n' >&4
+	stty "$tty_state" <&3
+	tty_state=
+	[ "$password" = "$confirm" ] || { desktop_error 'Passwords do not match'; exit 1; }
 fi
-printf 'RDP configured for %s on LAN port %s. Use the separate RDP password.\n' \
-	"$user" "$rdp_port"
-printf 'Existing connections remain authenticated until disconnected.\n'
-printf 'Certificate SHA256 fingerprint:\n'
+[ -n "$password" ] || { desktop_error 'The RDP password must be nonempty'; exit 1; }
+printf '%s\n' "$password" | su -s /bin/sh -c /usr/libexec/desktop-rdp-configure "$user"
+unset password confirm
+uci set desktop.main.rdp_enabled=1
+uci commit desktop
+/etc/init.d/desktop reload
+printf 'RDP configured for %s on LAN port %s. The local GNOME session remains running.\n' "$user" "$port"
 openssl x509 -in "/etc/desktop/tls/$user.crt" -noout -fingerprint -sha256

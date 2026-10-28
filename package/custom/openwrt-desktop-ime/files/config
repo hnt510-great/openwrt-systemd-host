@@ -7,7 +7,7 @@ ActivateKeys=
 DeactivateKeys=
 
 [Hotkey/TriggerKeys]
-0=Control+Shift+space
+0=Control+space
 1=Control+Shift+Return
 
 [Behavior]

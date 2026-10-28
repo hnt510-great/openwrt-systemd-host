@@ -1,0 +1,13 @@
+Subject: Keep the keyboard previewer executable at its installed path
+
+--- a/panels/keyboard/meson.build
++++ b/panels/keyboard/meson.build
+@@ -121,7 +121,7 @@
+ if tecla_is_subproject
+   keyboard_previewer_exec = get_option('prefix') / get_option('bindir') / 'tecla'
+ else
+-  keyboard_previewer_exec = tecla_dep.get_variable('app')
++  keyboard_previewer_exec = tecla_dep.get_variable('app', pkgconfig_define: ['prefix', get_option('prefix')])
+ endif
+ 
+ keyboard_panel_lib = static_library(

@@ -1,10 +1,10 @@
 include $(TOPDIR)/rules.mk
 PKG_NAME:=libvte3
-PKG_VERSION:=0.82.4
+PKG_VERSION:=0.84.1
 PKG_RELEASE:=1
-PKG_SOURCE:=vte-0.82.4.tar.xz
-PKG_SOURCE_URL:=https://download.gnome.org/sources/vte/0.82/
-PKG_HASH:=6b1c06fb4df10c82661e3596130fc6bf77a2fa9f57d8432826b1d5eca23bf3e1
+PKG_SOURCE:=vte-$(PKG_VERSION).tar.xz
+PKG_SOURCE_URL:=https://download.gnome.org/sources/vte/0.84/
+PKG_HASH:=aca1caa8478aebcdbb1d67897fb3511eb7601debae6810e16a15b6fa25f31ac8
 PKG_BUILD_DIR:=$(BUILD_DIR)/vte-$(PKG_VERSION)
 PKG_LICENSE:=LGPL-2.1-or-later
 PKG_INSTALL:=1

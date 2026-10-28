@@ -18,6 +18,7 @@ def main():
     parser.add_argument('prefix', type=Path)
     parser.add_argument('--width', type=int, default=1920)
     parser.add_argument('--height', type=int, default=1080)
+    parser.add_argument('--threads', type=int, default=2, help='Offline decoder thread limit')
     args = parser.parse_args()
     prefix = str(args.prefix)
     rows = list(csv.reader(Path(prefix + '.csv').open()))
@@ -25,10 +26,13 @@ def main():
     inputs = [float(row[1]) for row in rows if row[0] == 'input']
     if len(frames) < 2:
         raise SystemExit('Not enough received frames')
-    pixels = subprocess.check_output(['ffmpeg', '-v', 'error', '-i', prefix + '.h264',
+    if args.threads < 1:
+        parser.error('--threads must be positive')
+    decoder = ['ffmpeg', '-v', 'error', '-threads', str(args.threads), '-filter_threads', '1']
+    pixels = subprocess.check_output([*decoder, '-i', prefix + '.h264',
                                       '-vf', f'crop=16:16:{args.width // 4}:{args.height // 2},scale=1:1',
                                       '-pix_fmt', 'gray', '-f', 'rawvideo', '-'])
-    hashes = subprocess.check_output(['ffmpeg', '-v', 'error', '-i', prefix + '.h264',
+    hashes = subprocess.check_output([*decoder, '-i', prefix + '.h264',
                                       '-vf', 'scale=32:18', '-pix_fmt', 'gray', '-f', 'framemd5', '-'], text=True)
     hashes = [line.rsplit(',', 1)[1].strip() for line in hashes.splitlines() if line and not line.startswith('#')]
     if len(pixels) != len(frames) or len(hashes) != len(frames):
@@ -44,6 +48,8 @@ def main():
     percentile = lambda values: sorted(values)[int((len(values) - 1) * .95)] if values else None
     distinct = 1 + sum(a != b for a, b in zip(hashes, hashes[1:]))
     result = {'received_frames': len(frames), 'decoded_frames': len(pixels),
+              'frame_number_gaps': sum(max(0, int(b[2]) - int(a[2]) - 1)
+                                       for a, b in zip(frames, frames[1:])),
               'received_fps': (len(frames) - 1) / duration,
               'distinct_frame_fps': (distinct - 1) / duration,
               'frame_gap_p95_ms': percentile(gaps), 'input_events': len(inputs),

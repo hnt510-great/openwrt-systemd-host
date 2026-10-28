@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=pipewire
 PKG_VERSION:=1.6.10
-PKG_RELEASE:=4
+PKG_RELEASE:=5
 PKG_BUILD_DIR:=$(BUILD_DIR)/pipewire-$(PKG_VERSION)
 PKG_SOURCE:=pipewire-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/PipeWire/pipewire/tar.gz/refs/tags/$(PKG_VERSION)?
@@ -27,7 +27,7 @@ define Package/pipewire
   SECTION:=sound
   CATEGORY:=Sound
   TITLE:=PipeWire desktop audio server
-  DEPENDS:=+libpipewire +alsa-lib +libudev-zero +alsa-ucm-conf +libsndfile +glib2
+  DEPENDS:=+libpipewire +alsa-lib +libudev +alsa-ucm-conf +libsndfile +glib2
 endef
 
 define Package/pipewire-pulse

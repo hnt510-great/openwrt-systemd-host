@@ -2,40 +2,8 @@
 set -eu
 [ -d /run/systemd/system ] || exit 0
 : "${XDG_RUNTIME_DIR:?}" "${WAYLAND_DISPLAY:?}"
-export XDG_CURRENT_DESKTOP=Weston
+export XDG_CURRENT_DESKTOP=GNOME
 export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
-case ":${XDG_DATA_DIRS:-}:" in
-	*":$HOME/.local/share/flatpak/exports/share:"*) ;;
-	*) export XDG_DATA_DIRS="$HOME/.local/share/flatpak/exports/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" ;;
-esac
-if [ "${1:-}" != --monitor ]; then
-	# The monitor must survive the compositor's PAM session being terminated.
-	# Otherwise its cleanup can be killed together with the desktop.
-	compositor_pid=${WESTON_COMPOSITOR_PID:-$PPID}
-	systemctl --user stop openwrt-flatpak-session-monitor.service 2>/dev/null || :
-	systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_DATA_DIRS DBUS_SESSION_BUS_ADDRESS
-	if [ -n "${DISPLAY:-}" ]; then
-		systemctl --user import-environment DISPLAY
-	else
-		systemctl --user unset-environment DISPLAY 2>/dev/null || :
-	fi
-	exec systemd-run --user --quiet --collect --unit=openwrt-flatpak-session-monitor \
-		--property=Type=exec /usr/libexec/desktop-flatpak-session --monitor "$compositor_pid"
-fi
-compositor_pid=${2:?}
-case "$compositor_pid" in ''|*[!0-9]*) exit 1;; esac
-cleanup() {
-	systemctl --user stop xdg-desktop-portal.service xdg-desktop-portal-gtk.service \
-		openwrt-flatpak-session.target 2>/dev/null || :
-	systemctl --user unset-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP DISPLAY 2>/dev/null || :
-}
-trap cleanup EXIT
-trap 'exit 0' HUP INT TERM
+systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_DATA_DIRS DBUS_SESSION_BUS_ADDRESS
+if [ -n "${DISPLAY:-}" ]; then systemctl --user import-environment DISPLAY; fi
 systemctl --user start openwrt-flatpak-session.target
-# A restart replaces services activated before this compositor became ready.
-systemctl --user restart xdg-desktop-portal-gtk.service xdg-desktop-portal.service
-case "$WAYLAND_DISPLAY" in
-	/*) socket="$WAYLAND_DISPLAY" ;;
-	*) socket="$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ;;
-esac
-while kill -0 "$compositor_pid" 2>/dev/null && [ -S "$socket" ]; do sleep 2; done

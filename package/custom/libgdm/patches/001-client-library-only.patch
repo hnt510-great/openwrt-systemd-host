@@ -1,0 +1,27 @@
+Subject: Build only GDM client library for the native GNOME session
+
+OpenWrt starts its user session through systemd/PAM. Build the real GDM
+client API and typelib used by Shell without installing a display manager.
+
+--- a/meson.build
++++ b/meson.build
+@@ -257,19 +257,11 @@
+ configure_file(output: 'config.h', configuration: conf)
+ 
+ # Subdirs
+-subdir('data')
+ subdir('common')
+ if pam_extensions_supported
+   subdir('pam-extensions')
+ endif
+-subdir('daemon')
+ subdir('libgdm')
+-subdir('utils')
+-subdir('pam_gdm')
+-subdir('po')
+-if libcheck_dep.found()
+-  subdir('tests')
+-endif
+ 
+ gnome.post_install(
+   glib_compile_schemas: true,

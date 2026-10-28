@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=wireplumber
 PKG_VERSION:=0.5.18
-PKG_RELEASE:=1
+PKG_RELEASE:=4
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/PipeWire/wireplumber/tar.gz/refs/tags/$(PKG_VERSION)?
 PKG_HASH:=8c8a326a5b2a570681c1503c83f1fce0cc54ba862019815604b2bc92a7d483a1

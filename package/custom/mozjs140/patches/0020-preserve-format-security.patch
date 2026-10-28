@@ -1,0 +1,12 @@
+From: OpenWrt desktop integration <noreply@openwrt.org>
+Subject: Keep format checks enabled for xsum with hardened toolchains
+
+OpenWrt enables -Werror=format-security. Disabling -Wformat on this single
+source makes GCC reject the option combination before compiling the file.
+Keep the format checks instead of weakening security diagnostics globally.
+
+--- a/js/src/xsum/moz.build
++++ b/js/src/xsum/moz.build
+@@ -21,1 +21,1 @@
+-SOURCES['xsum.cpp'].flags += ['-Wno-implicit-fallthrough', '-Wno-format', '-Wno-unused-value']
++SOURCES['xsum.cpp'].flags += ['-Wno-implicit-fallthrough', '-Wno-unused-value']

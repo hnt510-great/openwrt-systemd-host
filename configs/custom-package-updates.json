@@ -1,6 +1,12 @@
 {
   "schema": 1,
   "packages": {
+    "accountsservice": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://gitlab.freedesktop.org/accountsservice/accountsservice/-/tags",
+      "filename_pattern": "accountsservice-v?(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.gz"
+    },
     "adwaita-icons": {
       "provider": "directory",
       "policy": "series",
@@ -21,6 +27,24 @@
       "filename_pattern": "at\\-spi2\\-core\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/at-spi2-core/"
     },
+    "blueprint-compiler": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/blueprint-compiler/0.20/",
+      "filename_pattern": "blueprint-compiler-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+    },
+    "cargo-c-bin": {
+      "provider": "github",
+      "policy": "series",
+      "project": "lu-zero/cargo-c",
+      "catalog": "releases"
+    },
+    "cbindgen-bin": {
+      "provider": "github",
+      "policy": "series",
+      "project": "mozilla/cbindgen",
+      "catalog": "releases"
+    },
     "cmake-bin": {
       "provider": "github",
       "policy": "series",
@@ -31,6 +55,12 @@
     "cockpit-runtime-deps": {
       "provider": "local",
       "reason": "Locally maintained integration package"
+    },
+    "colord": {
+      "provider": "github",
+      "policy": "series",
+      "project": "hughsie/colord",
+      "catalog": "tags"
     },
     "dconf": {
       "provider": "directory",
@@ -50,6 +80,13 @@
       "policy": "series",
       "index": "https://duktape.org/download",
       "filename_pattern": "duktape\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz"
+    },
+    "evolution-data-server": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/evolution-data-server/3.60/",
+      "filename_pattern": "evolution-data-server-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/evolution-data-server/"
     },
     "extra-cmake-modules": {
       "provider": "local",
@@ -89,6 +126,40 @@
       "index": "https://pub.freerdp.com/releases/",
       "filename_pattern": "freerdp\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.gz"
     },
+    "gcr3": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/gcr/3.41/",
+      "filename_pattern": "gcr\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/gcr/"
+    },
+    "gcr4": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/gcr/4.4/",
+      "filename_pattern": "gcr\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/gcr/"
+    },
+    "geoclue": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://gitlab.freedesktop.org/geoclue/geoclue/-/tags",
+      "filename_pattern": "geoclue-v?(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.gz"
+    },
+    "geocode-glib": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/geocode-glib/3.26/",
+      "filename_pattern": "geocode\\-glib-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.(?:xz|gz)",
+      "series_index": "https://download.gnome.org/sources/geocode-glib/"
+    },
+    "gjs": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/gjs/1.90/",
+      "filename_pattern": "gjs-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.(?:xz|gz)",
+      "series_index": "https://download.gnome.org/sources/gjs/"
+    },
     "glib2-build-tools": {
       "provider": "local",
       "reason": "Locally maintained integration package"
@@ -102,9 +173,24 @@
       "provider": "local",
       "reason": "Version follows the target kernel/libc"
     },
+    "glibc-gconv": {
+      "provider": "local",
+      "reason": "Version follows the target kernel/libc"
+    },
     "glibc-getent": {
       "provider": "local",
       "reason": "Version follows the target kernel/libc"
+    },
+    "glibc-locale-utf8": {
+      "provider": "local",
+      "reason": "Version follows the target kernel/libc"
+    },
+    "glycin": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/glycin/2.2/",
+      "filename_pattern": "glycin-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/glycin/"
     },
     "gmmlib": {
       "provider": "github",
@@ -112,6 +198,73 @@
       "project": "intel/gmmlib",
       "catalog": "tags",
       "tag_pattern": "intel-gmmlib-(?P<version>[0-9]+(?:\\.[0-9]+)*)"
+    },
+    "gnome-autoar": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/gnome-autoar/0.4/",
+      "filename_pattern": "gnome\\-autoar-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/gnome-autoar/"
+    },
+    "gnome-control-center": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/gnome-control-center/51/",
+      "filename_pattern": "gnome-control-center-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/gnome-control-center/"
+    },
+    "gnome-desktop": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/gnome-desktop/51/",
+      "filename_pattern": "gnome\\-desktop\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/gnome-desktop/"
+    },
+    "gnome-keyring": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/gnome-keyring/51/",
+      "filename_pattern": "gnome\\-keyring\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/gnome-keyring/"
+    },
+    "gnome-remote-desktop": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/gnome-remote-desktop/51/",
+      "filename_pattern": "gnome\\-remote\\-desktop-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.(?:xz|gz)",
+      "series_index": "https://download.gnome.org/sources/gnome-remote-desktop/"
+    },
+    "gnome-session": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/gnome-session/51/",
+      "filename_pattern": "gnome\\-session-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.(?:xz|gz)",
+      "series_index": "https://download.gnome.org/sources/gnome-session/"
+    },
+    "gnome-settings-daemon": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/gnome-settings-daemon/51/",
+      "filename_pattern": "gnome\\-settings\\-daemon-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.(?:xz|gz)",
+      "series_index": "https://download.gnome.org/sources/gnome-settings-daemon/"
+    },
+    "gnome-shell": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/gnome-shell/51/",
+      "filename_pattern": "gnome\\-shell-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/gnome-shell/"
+    },
+    "gnome-shell-extension-kimpanel": {
+      "provider": "local",
+      "reason": "Pinned to the GNOME Shell 51 compatible upstream commit; review Shell API compatibility before updating"
+    },
+    "gnome-terminal": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/gnome-terminal/3.60/",
+      "filename_pattern": "gnome\\-terminal-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.(?:xz|gz)",
+      "series_index": "https://download.gnome.org/sources/gnome-terminal/"
     },
     "gnu-time": {
       "provider": "directory",
@@ -126,12 +279,32 @@
       "filename_pattern": "gobject\\-introspection\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/gobject-introspection/"
     },
+    "gsettings-desktop-schemas": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/gsettings-desktop-schemas/51/",
+      "filename_pattern": "gsettings\\-desktop\\-schemas\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/gsettings-desktop-schemas/"
+    },
+    "gsound": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/gsound/1.0/",
+      "filename_pattern": "gsound-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+    },
     "gtk-vnc": {
       "provider": "directory",
       "policy": "series",
       "index": "https://download.gnome.org/sources/gtk-vnc/1.5/",
       "filename_pattern": "gtk\\-vnc\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/gtk-vnc/"
+    },
+    "gtk4": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/gtk/4.24/",
+      "filename_pattern": "gtk\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/gtk/"
     },
     "hicolor-icon-theme": {
       "provider": "directory",
@@ -262,17 +435,36 @@
       "filename_pattern": "libXxf86vm\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
       "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
     },
+    "libadwaita": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/libadwaita/1.10/",
+      "filename_pattern": "libadwaita\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/libadwaita/"
+    },
     "libaml": {
       "provider": "github",
       "policy": "series",
       "project": "any1/aml",
       "catalog": "tags"
     },
+    "libcanberra": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://0pointer.de/lennart/projects/libcanberra/",
+      "filename_pattern": "libcanberra-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.(?:xz|gz)"
+    },
     "libcups-runtime": {
       "provider": "github",
       "policy": "series",
       "project": "OpenPrinting/cups",
       "catalog": "releases"
+    },
+    "libei": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://gitlab.freedesktop.org/libinput/libei/-/tags",
+      "filename_pattern": "libei\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.gz"
     },
     "libfontenc": {
       "provider": "directory",
@@ -287,6 +479,12 @@
       "project": "pantoniou/libfyaml",
       "catalog": "releases"
     },
+    "libgdm": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/gdm/51/",
+      "filename_pattern": "gdm-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+    },
     "libglvnd": {
       "provider": "github",
       "policy": "series",
@@ -300,6 +498,38 @@
       "filename_pattern": "gtk\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/gtk/"
     },
+    "libgtop": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/libgtop/2.41/",
+      "filename_pattern": "libgtop-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+    },
+    "libgusb": {
+      "provider": "github",
+      "policy": "series",
+      "project": "hughsie/libgusb",
+      "catalog": "releases"
+    },
+    "libgweather": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/libgweather/4.4/",
+      "filename_pattern": "libgweather-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.(?:xz|gz)",
+      "series_index": "https://download.gnome.org/sources/libgweather/"
+    },
+    "libhandy": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/libhandy/1.8/",
+      "filename_pattern": "libhandy-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.(?:xz|gz)",
+      "series_index": "https://download.gnome.org/sources/libhandy/"
+    },
+    "libibus": {
+      "provider": "github",
+      "policy": "series",
+      "project": "ibus/ibus",
+      "catalog": "releases"
+    },
     "libime": {
       "provider": "directory",
       "policy": "series",
@@ -311,6 +541,13 @@
       "policy": "series",
       "project": "any1/neatvnc",
       "catalog": "tags"
+    },
+    "libnotify": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/libnotify/0.8/",
+      "filename_pattern": "libnotify\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/libnotify/"
     },
     "libosinfo": {
       "provider": "gitlab",
@@ -324,6 +561,44 @@
       "provider": "github",
       "policy": "stable",
       "project": "ostreedev/ostree",
+      "catalog": "releases"
+    },
+    "libportal": {
+      "provider": "github",
+      "policy": "series",
+      "project": "flatpak/libportal",
+      "catalog": "releases"
+    },
+    "libpwquality": {
+      "provider": "github",
+      "policy": "series",
+      "project": "libpwquality/libpwquality",
+      "catalog": "releases"
+    },
+    "librsvg": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/librsvg/2.62/",
+      "filename_pattern": "librsvg-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/librsvg/"
+    },
+    "libsecret": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/libsecret/0.21/",
+      "filename_pattern": "libsecret\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/libsecret/"
+    },
+    "libstartup-notification": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://www.freedesktop.org/software/startup-notification/releases/",
+      "filename_pattern": "startup\\-notification-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.(?:xz|gz)"
+    },
+    "libudisks2": {
+      "provider": "github",
+      "policy": "series",
+      "project": "storaged-project/udisks",
       "catalog": "releases"
     },
     "libva-utils": {
@@ -352,7 +627,7 @@
     "libvte3": {
       "provider": "directory",
       "policy": "series",
-      "index": "https://download.gnome.org/sources/vte/0.82/",
+      "index": "https://download.gnome.org/sources/vte/0.84/",
       "filename_pattern": "vte\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/vte/"
     },
@@ -363,12 +638,24 @@
       "filename_pattern": "libxcb\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
       "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
     },
+    "libxcb-util": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://xorg.freedesktop.org/archive/individual/xcb/",
+      "filename_pattern": "xcb-util-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+    },
     "libxcvt": {
       "provider": "directory",
       "policy": "series",
       "index": "https://xorg.freedesktop.org/archive/individual/lib/",
       "filename_pattern": "libxcvt\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
       "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    },
+    "libxinerama": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://xorg.freedesktop.org/archive/individual/lib/",
+      "filename_pattern": "libXinerama\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
     },
     "libxkbfile": {
       "provider": "directory",
@@ -400,6 +687,19 @@
       "provider": "local",
       "reason": "Locally maintained integration package"
     },
+    "mozjs140": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://archive.mozilla.org/pub/firefox/releases/140.15.0esr/source/",
+      "filename_pattern": "firefox\\-(?P<version>140(?:\\.[0-9]+)+)esr\\.source\\.tar\\.xz"
+    },
+    "mutter": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/mutter/51/",
+      "filename_pattern": "mutter-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.(?:xz|gz)",
+      "series_index": "https://download.gnome.org/sources/mutter/"
+    },
     "native-build-deps": {
       "provider": "local",
       "reason": "Locally maintained integration package"
@@ -407,6 +707,13 @@
     "native-libs-dev": {
       "provider": "local",
       "reason": "Locally maintained integration package"
+    },
+    "nautilus": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/nautilus/51/",
+      "filename_pattern": "nautilus-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/nautilus/"
     },
     "node-bin": {
       "provider": "node",
@@ -418,6 +725,12 @@
       "project": "notofonts/noto-cjk",
       "catalog": "tags",
       "tag_pattern": "Sans(?P<version>[0-9]+(?:\\.[0-9]+)+)"
+    },
+    "nv-codec-headers": {
+      "provider": "github",
+      "policy": "series",
+      "project": "FFmpeg/nv-codec-headers",
+      "catalog": "tags"
     },
     "openwrt-appimage": {
       "provider": "local",
@@ -434,6 +747,10 @@
     "openwrt-desktop-ime": {
       "provider": "local",
       "reason": "Locally maintained Weston input method integration"
+    },
+    "openwrt-desktop-launcher": {
+      "provider": "local",
+      "reason": "Locally maintained Weston application launcher"
     },
     "openwrt-flatpak": {
       "provider": "local",
@@ -513,10 +830,35 @@
       "provider": "local",
       "reason": "Release and hashed gitlink archives in sources.json must be updated together"
     },
+    "tecla": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/tecla/49/",
+      "filename_pattern": "tecla-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+    },
+    "tinysparql": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/tinysparql/3.12/",
+      "filename_pattern": "tinysparql-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/tinysparql/"
+    },
+    "tpm2-tss": {
+      "provider": "github",
+      "policy": "series",
+      "project": "tpm2-software/tpm2-tss",
+      "catalog": "releases"
+    },
     "traceroute": {
       "provider": "sourceforge",
       "policy": "series",
       "project": "traceroute"
+    },
+    "upower": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://gitlab.freedesktop.org/upower/upower/-/tags",
+      "filename_pattern": "upower-v?(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.gz"
     },
     "util-macros": {
       "provider": "directory",
@@ -556,6 +898,13 @@
       "policy": "series",
       "project": "flatpak/xdg-desktop-portal",
       "catalog": "releases"
+    },
+    "xdg-desktop-portal-gnome": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/xdg-desktop-portal-gnome/51/",
+      "filename_pattern": "xdg\\-desktop\\-portal\\-gnome-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.(?:xz|gz)",
+      "series_index": "https://download.gnome.org/sources/xdg-desktop-portal-gnome/"
     },
     "xdg-desktop-portal-gtk": {
       "provider": "github",
@@ -597,10 +946,6 @@
       "index": "https://xorg.freedesktop.org/archive/individual/xserver/",
       "filename_pattern": "xwayland\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
       "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
-    },
-    "openwrt-desktop-launcher": {
-      "provider": "local",
-      "reason": "Locally maintained Weston application launcher"
     }
   }
 }

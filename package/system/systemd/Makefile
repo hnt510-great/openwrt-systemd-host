@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=systemd
 PKG_VERSION:=262
-PKG_RELEASE:=7
+PKG_RELEASE:=10
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/systemd/systemd/tar.gz/refs/tags/v$(PKG_VERSION)?
 PKG_HASH:=6aa77506c0644aa67f940a48e3d3a7368601f787e4f249139516d353f107bcab
@@ -11,7 +11,7 @@ PKG_LICENSE_FILES:=LICENSES/LGPL-2.1-or-later.txt
 PKG_INSTALL:=1
 PKG_BUILD_PARALLEL:=1
 PKG_BUILD_DEPENDS:=python-jinja2/host
-PKG_CONFIG_DEPENDS:=CONFIG_PACKAGE_systemd-machined CONFIG_PACKAGE_systemd-nspawn \
+PKG_CONFIG_DEPENDS:=CONFIG_PACKAGE_libudev-systemd CONFIG_PACKAGE_systemd-udev CONFIG_PACKAGE_systemd-machined CONFIG_PACKAGE_systemd-nspawn \
 	CONFIG_PACKAGE_systemd-coredump CONFIG_PACKAGE_systemd-oomd CONFIG_PACKAGE_systemd-hostnamed
 
 MESON_USE_STAGING_PYTHON:=1
@@ -33,6 +33,23 @@ define Package/systemd
   TITLE:=systemd system and service manager
   DEPENDS:=@OPENWRT_SYSTEMD +libsystemd +libpam +libacl +libpcre2 +mount-utils +swap-utils
   USERID:=:systemd-journal=190
+endef
+
+define Package/libudev-systemd
+  SECTION:=libs
+  CATEGORY:=Libraries
+  TITLE:=Native systemd device enumeration library
+  # Preserve an unpinned legacy world selection while replacing its provider.
+  PROVIDES:=libudev libudev-zero
+  CONFLICTS:=libudev-zero eudev udev
+  # APK does not consume the IPK Conflicts field.
+  EXTRA_DEPENDS:=$(if $(CONFIG_USE_APK),!libudev-zero (>=0)$(comma) !eudev (>=0)$(comma) !udev (>=0))
+endef
+
+define Package/systemd-udev
+  $(call Package/systemd/optional)
+  TITLE:=Native device manager for logind desktops
+  DEPENDS+=+libudev-systemd
 endef
 
 define Package/systemd/conffiles
@@ -105,6 +122,8 @@ MESON_ARGS += \
 
 define Build/InstallDev
 	$(INSTALL_DIR) $(1)/usr/include/systemd $(1)/usr/lib/pkgconfig
+	$(INSTALL_DIR) $(1)/usr/share/pkgconfig
+	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/pkgconfig/systemd.pc $(1)/usr/share/pkgconfig/
 	$(CP) $(PKG_INSTALL_DIR)/usr/include/systemd/*.h $(1)/usr/include/systemd/
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libsystemd.so* $(1)/usr/lib/
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/libsystemd.pc $(1)/usr/lib/pkgconfig/
@@ -113,6 +132,37 @@ define Build/InstallDev
 		/^includedir=/ { print "includedir=" sprintf("%c", 36) "{prefix}/include"; next } \
 		{ print }' $(1)/usr/lib/pkgconfig/libsystemd.pc > $(1)/usr/lib/pkgconfig/libsystemd.pc.tmp
 	mv $(1)/usr/lib/pkgconfig/libsystemd.pc.tmp $(1)/usr/lib/pkgconfig/libsystemd.pc
+	$(if $(CONFIG_PACKAGE_libudev-systemd),$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/include/libudev.h $(1)/usr/include/)
+	$(if $(CONFIG_PACKAGE_libudev-systemd),$(CP) $(PKG_INSTALL_DIR)/usr/lib/libudev.so* $(1)/usr/lib/)
+	$(if $(CONFIG_PACKAGE_libudev-systemd),$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/libudev.pc $(1)/usr/lib/pkgconfig/)
+	$(if $(CONFIG_PACKAGE_systemd-udev),$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/pkgconfig/udev.pc $(1)/usr/share/pkgconfig/)
+	$(if $(CONFIG_PACKAGE_libudev-systemd),awk ' \
+		/^libdir=/ { print "libdir=" sprintf("%c", 36) "{prefix}/lib"; next } \
+		/^includedir=/ { print "includedir=" sprintf("%c", 36) "{prefix}/include"; next } \
+		{ print }' $(1)/usr/lib/pkgconfig/libudev.pc > $(1)/usr/lib/pkgconfig/libudev.pc.tmp)
+	$(if $(CONFIG_PACKAGE_libudev-systemd),mv $(1)/usr/lib/pkgconfig/libudev.pc.tmp $(1)/usr/lib/pkgconfig/libudev.pc)
+endef
+
+define Package/libudev-systemd/install
+	$(INSTALL_DIR) $(1)/usr/lib
+	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libudev.so.* $(1)/usr/lib/
+endef
+
+define Package/systemd-udev/install
+	$(INSTALL_DIR) $(1)/usr/bin $(1)/usr/lib/systemd/system $(1)/usr/lib/udev/rules.d
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/udevadm $(1)/usr/bin/
+	$(CP) $(PKG_INSTALL_DIR)/usr/lib/systemd/systemd-udevd $(1)/usr/lib/systemd/
+	$(CP) $(PKG_INSTALL_DIR)/usr/lib/systemd/system/systemd-udev* $(1)/usr/lib/systemd/system/
+	# procd remains responsible for network names, module loading and firmware.
+	# Install only desktop identification, permissions and seat rules.
+	for rule in 50-udev-default 60-drm 60-input-id 60-persistent-input 60-sensor \
+		60-serial 70-uaccess 71-seat 73-seat-late; do \
+		[ ! -f $(PKG_INSTALL_DIR)/usr/lib/udev/rules.d/$$$$rule.rules ] || \
+			$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/lib/udev/rules.d/$$$$rule.rules $(1)/usr/lib/udev/rules.d/; \
+	done
+	$(INSTALL_DIR) $(1)/usr/lib/systemd/system/sysinit.target.wants
+	$(LN) ../systemd-udevd-kernel.socket $(1)/usr/lib/systemd/system/sysinit.target.wants/
+	$(LN) ../systemd-udevd-control.socket $(1)/usr/lib/systemd/system/sysinit.target.wants/
 endef
 
 define Package/libsystemd/install
@@ -143,6 +193,8 @@ define Package/systemd/install
 	touch $(1)/etc/machine-id
 	# OpenWrt retains its own init, device-event and syslog owners.
 	rm -f $(1)/usr/bin/{halt,poweroff,reboot,shutdown,init,udevadm}
+	rm -f $(1)/usr/lib/systemd/systemd-udevd
+	find $(1)/usr/lib/systemd/system -name 'systemd-udev*' -delete
 	rm -f $(1)/usr/lib/systemd/system-generators/systemd-{getty,fstab,gpt-auto,ssh}-generator
 	# Optional components own their executables, activation and configuration.
 	rm -f $(1)/usr/bin/{hostnamectl,machinectl,systemd-nspawn,coredumpctl,oomctl}
@@ -219,6 +271,8 @@ endef
 
 $(eval $(call BuildPackage,libsystemd))
 $(eval $(call BuildPackage,systemd))
+$(eval $(call BuildPackage,libudev-systemd))
+$(eval $(call BuildPackage,systemd-udev))
 $(eval $(call BuildPackage,systemd-hostnamed))
 $(eval $(call BuildPackage,systemd-machined))
 $(eval $(call BuildPackage,systemd-nspawn))

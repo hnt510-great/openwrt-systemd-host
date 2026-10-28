@@ -1,0 +1,182 @@
+Subject: Allow omitting panels whose services are owned outside GNOME
+
+The OpenWrt profile keeps networking in netifd/LuCI and omits unported
+optional Bluetooth, Wacom, online-account, printer and color panels.
+Other builds retain the upstream panel set by default.
+
+--- a/meson_options.txt
++++ b/meson_options.txt
+@@ -9,3 +9,5 @@
+ option('ssh_socket_activation', type: 'boolean', value: false, description: 'build with SSH socket activation support')
+ option('distributor_logo', type: 'string', description: 'absolute path to distributor logo for the About panel')
+ option('dark_mode_distributor_logo', type: 'string', description: 'absolute path to distributor logo dark mode variant')
++
++option('disabled_panels', type: 'array', value: [], description: 'Panels omitted on systems with external service ownership')
+--- a/meson.build
++++ b/meson.build
+@@ -20,6 +20,7 @@
+ 
+ control_center_gettext = meson.project_name() + '-2.0'
+ 
++disabled_panels = get_option('disabled_panels')
+ host_is_linux = host_machine.system().contains('linux')
+ host_is_linux_not_s390 = host_is_linux and not host_machine.cpu().contains('s390')
+ 
+@@ -232,7 +233,9 @@
+ gnome_bg_dep = dependency('gnome-bg-4')
+ gnome_qr_gtk_dep = dependency('gnome-qr-gtk-4')
+ gnome_settings_dep = dependency('gnome-settings-daemon', version: '>= 48.rc', fallback: 'gsd')
+-goa_dep = dependency('goa-1.0', version: goa_req_version, fallback: 'goa')
++if not disabled_panels.contains('online-accounts')
++  goa_dep = dependency('goa-1.0', version: goa_req_version, fallback: 'goa')
++endif
+ gsettings_desktop_dep = dependency('gsettings-desktop-schemas', version: '>= 51.beta')
+ libxml_dep = dependency('libxml-2.0')
+ pulse_dep = dependency('libpulse', version: pulse_req_version)
+@@ -270,6 +273,7 @@
+                description: 'Define if langinfo.h supports _NL_TIME_FIRST_WEEKDAY')
+ endif
+ 
++if not disabled_panels.contains('printers')
+ # Check for CUPS 1.4 or newer
+ cups_dep = dependency('cups', version : '>= 1.4', required: false)
+ assert(cups_dep.found(), 'CUPS 1.4 or newer not found')
+@@ -294,6 +298,8 @@
+                cc.has_function('httpConnect2', dependencies: cups_dep),
+                description: 'Define if httpConnect2() is available in CUPS')
+ 
++
++endif
+ 
+ # IBus support
+ enable_ibus = get_option('ibus')
+@@ -347,7 +353,7 @@
+ config_h.set('HAVE_SSH_SOCKET_ACTIVATION', ssh_socket_activation,
+              description: 'Whether SSH socket activation is enabled')
+ 
+-if host_is_linux
++if host_is_linux and not disabled_panels.contains('network')
+   # ModemManager
+   mm_dep =  dependency('mm-glib', version: '>= 0.7')
+   # NetworkManager
+@@ -358,16 +364,17 @@
+     mm_dep,
+   ]
+ endif
+-config_h.set('BUILD_NETWORK', host_is_linux,
++config_h.set('BUILD_NETWORK', host_is_linux and not disabled_panels.contains('network'),
+              description: 'Define to 1 to build the Network panel')
+-config_h.set('HAVE_NETWORK_MANAGER', host_is_linux,
++config_h.set('HAVE_NETWORK_MANAGER', host_is_linux and not disabled_panels.contains('network'),
+              description: 'Define to 1 if NetworkManager is available')
+-config_h.set('BUILD_WWAN', host_is_linux,
++config_h.set('BUILD_WWAN', host_is_linux and not disabled_panels.contains('wwan'),
+              description: 'Define to 1 to build the WWan panel')
+-config_h.set('HAVE_WWAN', host_is_linux,
++config_h.set('HAVE_WWAN', host_is_linux and not disabled_panels.contains('wwan'),
+              description: 'Define to 1 if WWan is available')
+ 
+-if host_is_linux_not_s390
++wacom_deps = []
++if host_is_linux_not_s390 and not disabled_panels.contains('bluetooth')
+   # gnome-bluetooth
+   gnome_bluetooth_dep = dependency('gnome-bluetooth-ui-3.0')
+ 
+@@ -380,16 +387,20 @@
+   message('Bluetooth and Wacom panels will not be built (no USB support on this platform)')
+   message('Thunderbolt panel will not be built (not supported on this platform)')
+ endif
+-config_h.set('BUILD_BLUETOOTH', host_is_linux_not_s390,
++config_h.set('BUILD_BLUETOOTH', host_is_linux_not_s390 and not disabled_panels.contains('bluetooth'),
+              description: 'Define to 1 to build the Bluetooth panel')
+-config_h.set('HAVE_BLUETOOTH', host_is_linux_not_s390,
++config_h.set('HAVE_BLUETOOTH', host_is_linux_not_s390 and not disabled_panels.contains('bluetooth'),
+              description: 'Define to 1 if bluetooth support is available')
+-config_h.set('BUILD_WACOM', host_is_linux_not_s390,
++config_h.set('BUILD_WACOM', host_is_linux_not_s390 and not disabled_panels.contains('wacom'),
+              description: 'Define to 1 to build the Wacom panel')
+-config_h.set('HAVE_WACOM', host_is_linux_not_s390,
++config_h.set('HAVE_WACOM', host_is_linux_not_s390 and not disabled_panels.contains('wacom'),
+              description: 'Define to 1 if Wacom is supportted')
+ config_h.set('BUILD_THUNDERBOLT', host_is_linux_not_s390,
+              description: 'Define to 1 to build the Thunderbolt panel')
++
++foreach panel : ['online-accounts', 'printers', 'color']
++  config_h.set('BUILD_' + panel.to_upper().replace('-', '_'), not disabled_panels.contains(panel))
++endforeach
+ 
+ fs = import('fs')
+ gnome = import('gnome')
+--- a/panels/meson.build
++++ b/panels/meson.build
+@@ -39,6 +39,9 @@
+ panels_list = []
+ panels_libs = []
+ foreach cappletname: dependent_panels + panels
++  if disabled_panels.contains(cappletname)
++    continue
++  endif
+   cflags = [
+     '-DG_LOG_DOMAIN="cc-@0@-panel"'.format(cappletname),
+     '-DPANEL_ID="@0@"'.format(cappletname)
+--- a/shell/cc-panel-loader.c
++++ b/shell/cc-panel-loader.c
+@@ -36,7 +36,9 @@
+ #ifdef BUILD_BLUETOOTH
+ extern GType cc_bluetooth_panel_get_type (void);
+ #endif /* BUILD_BLUETOOTH */
++#ifdef BUILD_COLOR
+ extern GType cc_color_panel_get_type (void);
++#endif
+ extern GType cc_date_time_panel_get_type (void);
+ extern GType cc_display_panel_get_type (void);
+ extern GType cc_keyboard_panel_get_type (void);
+@@ -47,9 +49,13 @@
+ extern GType cc_wifi_panel_get_type (void);
+ #endif /* BUILD_NETWORK */
+ extern GType cc_notifications_panel_get_type (void);
++#ifdef BUILD_ONLINE_ACCOUNTS
+ extern GType cc_online_accounts_panel_get_type (void);
++#endif
+ extern GType cc_power_panel_get_type (void);
++#ifdef BUILD_PRINTERS
+ extern GType cc_printers_panel_get_type (void);
++#endif
+ extern GType cc_privacy_panel_get_type (void);
+ extern GType cc_search_panel_get_type (void);
+ extern GType cc_sharing_panel_get_type (void);
+@@ -90,7 +96,9 @@
+ #ifdef BUILD_BLUETOOTH
+     PANEL_TYPE ("bluetooth", cc_bluetooth_panel_get_type, NULL),
+ #endif
++#ifdef BUILD_COLOR
+     PANEL_TYPE ("color", cc_color_panel_get_type, NULL),
++#endif
+     PANEL_TYPE ("display", cc_display_panel_get_type, NULL),
+     PANEL_TYPE ("keyboard", cc_keyboard_panel_get_type, NULL),
+     PANEL_TYPE ("mouse", cc_mouse_panel_get_type, NULL),
+@@ -100,9 +108,13 @@
+     PANEL_TYPE ("wifi", cc_wifi_panel_get_type, cc_wifi_panel_static_init_func),
+ #endif
+     PANEL_TYPE ("notifications", cc_notifications_panel_get_type, NULL),
++#ifdef BUILD_ONLINE_ACCOUNTS
+     PANEL_TYPE ("online-accounts", cc_online_accounts_panel_get_type, NULL),
++#endif
+     PANEL_TYPE ("power", cc_power_panel_get_type, NULL),
++#ifdef BUILD_PRINTERS
+     PANEL_TYPE ("printers", cc_printers_panel_get_type, NULL),
++#endif
+     PANEL_TYPE ("privacy", cc_privacy_panel_get_type, NULL),
+     PANEL_TYPE ("search", cc_search_panel_get_type, NULL),
+     PANEL_TYPE ("sharing", cc_sharing_panel_get_type, cc_sharing_panel_static_init_func),
+--- a/panels/applications/meson.build
++++ b/panels/applications/meson.build
+@@ -62,7 +62,7 @@
+ 
+ deps = common_deps + [keyboard_shortcuts_dep]
+ 
+-if host_is_linux
++if host_is_linux and not disabled_panels.contains('wwan')
+   deps += mm_dep
+ endif
+ 

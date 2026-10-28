@@ -1,0 +1,157 @@
+--- a/src/platform/linux/portalgrab.cpp
++++ b/src/platform/linux/portalgrab.cpp
+@@ -108,9 +108,19 @@
+    * @brief DBus response loop and response variant for portal calls.
+    */
+   struct dbus_response_t {
+-    GMainLoop *loop;  ///< GLib main loop waiting for a portal response signal.
+-    GVariant *response;  ///< DBus response payload returned by the portal.
+-    guint subscription_id;  ///< Subscription ID.
++    GMainLoop *loop = nullptr;
++    GVariant *response = nullptr;
++    guint subscription_id = 0;
++    GDBusConnection *conn = nullptr;
++
++    ~dbus_response_t() {
++      if (subscription_id) {
++        g_dbus_connection_signal_unsubscribe(conn, subscription_id);
++      }
++      if (response) {
++        g_variant_unref(response);
++      }
++    }
+   };
+ 
+   /**
+@@ -231,7 +241,14 @@
+      * @return 0 when a portal session is ready; nonzero when D-Bus or portal setup fails.
+      */
+     int connect_to_portal() {
+-      g_autoptr(GMainLoop) loop = g_main_loop_new(nullptr, FALSE);
++      // Capture and encoder discovery can negotiate portals on different
++      // threads. Each negotiation must dispatch only its own response callbacks.
++      g_autoptr(GMainContext) context = g_main_context_new();
++      g_main_context_push_thread_default(context);
++      auto context_guard = util::fail_guard([&]() {
++        g_main_context_pop_thread_default(context);
++      });
++      g_autoptr(GMainLoop) loop = g_main_loop_new(context, FALSE);
+       g_autofree gchar *session_path = nullptr;
+       g_autofree gchar *session_token = nullptr;
+       create_session_path(conn, nullptr, &session_token);
+@@ -356,7 +373,11 @@
+ 
+       dbus_response_t response {};
+       g_autofree gchar *request_token = nullptr;
+-      create_request_path(conn, nullptr, &request_token);
++      g_autofree gchar *request_path = nullptr;
++      create_request_path(conn, &request_path, &request_token);
++      // Subscribe before calling: the portal may answer before the method
++      // returns. handle_token determines this request path in advance.
++      dbus_response_init(&response, loop, conn, request_path);
+ 
+       GVariantBuilder builder;
+       g_variant_builder_init(&builder, G_VARIANT_TYPE("(a{sv})"));
+@@ -373,10 +394,6 @@
+         return -1;
+       }
+ 
+-      const gchar *request_path = nullptr;
+-      g_variant_get(reply, "(o)", &request_path);
+-      dbus_response_init(&response, loop, conn, request_path);
+-
+       g_autoptr(GVariant) create_response = dbus_response_wait(&response);
+ 
+       if (!create_response) {
+@@ -417,7 +434,11 @@
+     int select_remote_desktop_devices(GMainLoop *loop, const gchar *session_path) {
+       dbus_response_t response {};
+       g_autofree gchar *request_token = nullptr;
+-      create_request_path(conn, nullptr, &request_token);
++      g_autofree gchar *request_path = nullptr;
++      create_request_path(conn, &request_path, &request_token);
++      // Subscribe before calling: the portal may answer before the method
++      // returns. handle_token determines this request path in advance.
++      dbus_response_init(&response, loop, conn, request_path);
+ 
+       GVariantBuilder builder;
+       g_variant_builder_init(&builder, G_VARIANT_TYPE("(oa{sv})"));
+@@ -439,10 +460,6 @@
+         return -1;
+       }
+ 
+-      const gchar *request_path = nullptr;
+-      g_variant_get(reply, "(o)", &request_path);
+-      dbus_response_init(&response, loop, conn, request_path);
+-
+       g_autoptr(GVariant) devices_response = dbus_response_wait(&response);
+ 
+       if (!devices_response) {
+@@ -465,7 +482,11 @@
+     int select_screencast_sources(GMainLoop *loop, const gchar *session_path, bool persist) {
+       dbus_response_t response {};
+       g_autofree gchar *request_token = nullptr;
+-      create_request_path(conn, nullptr, &request_token);
++      g_autofree gchar *request_path = nullptr;
++      create_request_path(conn, &request_path, &request_token);
++      // Subscribe before calling: the portal may answer before the method
++      // returns. handle_token determines this request path in advance.
++      dbus_response_init(&response, loop, conn, request_path);
+ 
+       GVariantBuilder builder;
+       g_variant_builder_init(&builder, G_VARIANT_TYPE("(oa{sv})"));
+@@ -490,10 +511,6 @@
+         return -1;
+       }
+ 
+-      const gchar *request_path = nullptr;
+-      g_variant_get(reply, "(o)", &request_path);
+-      dbus_response_init(&response, loop, conn, request_path);
+-
+       g_autoptr(GVariant) sources_response = dbus_response_wait(&response);
+ 
+       if (!sources_response) {
+@@ -519,7 +536,11 @@
+ 
+       dbus_response_t response {};
+       g_autofree gchar *request_token = nullptr;
+-      create_request_path(conn, nullptr, &request_token);
++      g_autofree gchar *request_path = nullptr;
++      create_request_path(conn, &request_path, &request_token);
++      // Subscribe before calling: the portal may answer before the method
++      // returns. handle_token determines this request path in advance.
++      dbus_response_init(&response, loop, conn, request_path);
+ 
+       GVariantBuilder builder;
+       g_variant_builder_init(&builder, G_VARIANT_TYPE("(osa{sv})"));
+@@ -535,10 +556,6 @@
+         BOOST_LOG(error) << "[portalgrab] Could not start "sv << session_type << " session: "sv << err->message;
+         return -1;
+       }
+-
+-      const gchar *request_path = nullptr;
+-      g_variant_get(reply, "(o)", &request_path);
+-      dbus_response_init(&response, loop, conn, request_path);
+ 
+       g_autoptr(GVariant) start_response = dbus_response_wait(&response);
+ 
+@@ -692,12 +709,17 @@
+ 
+     static void dbus_response_init(struct dbus_response_t *response, GMainLoop *loop, GDBusConnection *conn, const char *request_path) {
+       response->loop = loop;
++      response->conn = conn;
+       response->subscription_id = g_dbus_connection_signal_subscribe(conn, PORTAL_NAME, REQUEST_IFACE, "Response", request_path, nullptr, G_DBUS_SIGNAL_FLAGS_NONE, on_response_received_cb, response, nullptr);
+     }
+ 
+     static GVariant *dbus_response_wait(struct dbus_response_t *response) {
+-      g_main_loop_run(response->loop);
+-      return response->response;
++      if (!response->response) {
++        g_main_loop_run(response->loop);
++      }
++      GVariant *result = response->response;
++      response->response = nullptr;
++      return result;
+     }
+   };
+ 

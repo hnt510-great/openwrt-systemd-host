@@ -1,0 +1,8 @@
+#!/bin/sh
+# Native generator dependencies must never inherit target pkg-config paths.
+set -eu
+root=$(CDPATH= cd -- "${0%/*}/.." && pwd)
+export PKG_CONFIG_PATH="$root/staging_dir/hostpkg/lib/pkgconfig:$root/staging_dir/hostpkg/share/pkgconfig:$root/staging_dir/host/lib/pkgconfig"
+export PKG_CONFIG_LIBDIR="$PKG_CONFIG_PATH"
+unset PKG_CONFIG_SYSROOT_DIR PKG_CONFIG_EXTRAARGS
+exec "$root/staging_dir/host/bin/pkg-config.real" --static "$@"

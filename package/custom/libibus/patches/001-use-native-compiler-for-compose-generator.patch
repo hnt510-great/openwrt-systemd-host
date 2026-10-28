@@ -1,0 +1,42 @@
+Subject: Honor native generator flags despite target make command-line overrides
+
+OpenWrt supplies CC/CFLAGS on the make command line. Native compose-table
+generator target-specific settings need override so its objects and executable
+use the same native toolchain.
+
+--- a/src/Makefile.am
++++ b/src/Makefile.am
+@@ -204,11 +204,11 @@
+ glib_cflags = @GLIB_CFLAGS_FOR_BUILD@
+ glib_libs = @GLIB_LIBS_FOR_BUILD@
+ 
+-$(noinst_PROGRAMS): CC=$(CC_FOR_BUILD)
+-$(noinst_PROGRAMS): CCLD=$(CC_FOR_BUILD)
+-$(noinst_PROGRAMS): CFLAGS=$(CFLAGS_FOR_BUILD)
+-$(noinst_PROGRAMS): CPPFLAGS=$(CPPFLAGS_FOR_BUILD)
+-$(noinst_PROGRAMS): LDFLAGS=$(LDFLAGS_FOR_BUILD)
++$(noinst_PROGRAMS): override CC=$(CC_FOR_BUILD)
++$(noinst_PROGRAMS): override CCLD=$(CC_FOR_BUILD)
++$(noinst_PROGRAMS): override CFLAGS=$(CFLAGS_FOR_BUILD)
++$(noinst_PROGRAMS): override CPPFLAGS=$(CPPFLAGS_FOR_BUILD)
++$(noinst_PROGRAMS): override LDFLAGS=$(LDFLAGS_FOR_BUILD)
+ else
+ libnativeibus = $(libibus)
+ parser_extra_sources =
+--- a/configure.ac
++++ b/configure.ac
+@@ -917,12 +917,12 @@
+ PKG_CHECK_MODULES(ISOCODES, [
+     iso-codes
+ ])
+-ISOCODES_PREFIX=`$PKG_CONFIG iso-codes --variable=prefix`
++ISOCODES_PREFIX=`$PKG_CONFIG --define-variable=prefix="$prefix" iso-codes --variable=prefix`
+ AC_SUBST(ISOCODES_PREFIX)
+ 
+ PKG_CHECK_MODULES(XKBCONFIG,
+     [xkeyboard-config],
+-    [XKBCONFIG_BASE=`$PKG_CONFIG xkeyboard-config --variable=xkb_base`],
++    [XKBCONFIG_BASE=`$PKG_CONFIG --define-variable=prefix="$prefix" xkeyboard-config --variable=xkb_base`],
+     [XKBCONFIG_BASE='$(datarootdir)/X11/xkb']
+ )
+ AC_SUBST(XKBCONFIG_BASE)

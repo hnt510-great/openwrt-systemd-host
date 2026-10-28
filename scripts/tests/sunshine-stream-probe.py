@@ -51,6 +51,8 @@ def main():
     parser.add_argument('--height', type=int, default=1080)
     parser.add_argument('--fps', type=int, default=60)
     parser.add_argument('--cancel', action='store_true')
+    parser.add_argument('--require-paired', action='store_true',
+                        help='Fail instead of pairing again; use for persistence acceptance')
     args = parser.parse_args()
     os.umask(0o077)
     args.state.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -83,7 +85,15 @@ def main():
     web = f'https://{args.host}:{args.port + 1}'
 
     def xml(base, path, **values):
-        response = session.get(base + path, params=dict(params, **values), timeout=30)
+        for attempt in range(2):
+            try:
+                response = session.get(base + path, params=dict(params, **values), timeout=30)
+                break
+            except requests.ConnectionError:
+                # A server may close a reused HTTPS connection between reads.
+                # Only repeat queries: launch, resume and pairing change state.
+                if attempt or path not in ('/serverinfo', '/applist'):
+                    raise
         response.raise_for_status()
         tree = ET.fromstring(response.content)
         if tree.get('status_code') == '401':
@@ -102,6 +112,8 @@ def main():
         paired = xml(https, '/serverinfo').findtext('PairStatus') == '1'
     except (requests.HTTPError, PermissionError):
         paired = False
+    if args.require_paired and not paired:
+        raise PermissionError('The previously paired test client is no longer trusted')
     if not paired:
         pin, salt = f'{secrets.randbelow(10000):04d}', os.urandom(16)
         aes_key = hashlib.sha256(salt + pin.encode()).digest()[:16]

@@ -18,8 +18,12 @@ if [ "$(stat -c %U:%G:%a /usr/bin/sunshine)" != root:sunshine:750 ]; then
 	chmod 0750 /usr/bin/sunshine
 fi
 setfacl -m "u:$DESKTOP_USER_UID:rx" /usr/bin/sunshine
-if [ "$(getcap /usr/bin/sunshine)" != '/usr/bin/sunshine cap_sys_admin=p' ]; then
-	setcap cap_sys_admin+p /usr/bin/sunshine
+if [ "$(uci -q get desktop.main.sunshine_capture || :)" = kms ]; then
+	if [ "$(getcap /usr/bin/sunshine)" != '/usr/bin/sunshine cap_sys_admin=p' ]; then
+		setcap cap_sys_admin+p /usr/bin/sunshine
+	fi
+elif [ -n "$(getcap /usr/bin/sunshine)" ]; then
+	setcap -r /usr/bin/sunshine
 fi
 if [ -c /dev/uinput ]; then
 	setfacl -m "u:$DESKTOP_USER_UID:rw" /dev/uinput

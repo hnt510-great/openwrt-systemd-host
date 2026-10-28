@@ -1,0 +1,21 @@
+#!/bin/sh
+set -eu
+set +x
+[ "$(id -u)" -ge 1000 ] || exit 1
+: "${XDG_RUNTIME_DIR:?}" "${CREDENTIALS_DIRECTORY:?}"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+export GNOME_KEYRING_CONTROL="$XDG_RUNTIME_DIR/keyring"
+secret="$CREDENTIALS_DIRECTORY/keyring-passphrase"
+[ -f "$secret" ] && [ ! -L "$secret" ] && [ -s "$secret" ] || exit 1
+systemctl --user start gnome-keyring-daemon.service
+/usr/libexec/desktop-keyring-control-unlock < "$secret"
+for attempt in 1 2 3 4 5; do
+	state=$(gdbus call --session --dest org.freedesktop.secrets \
+		--object-path /org/freedesktop/secrets/aliases/default \
+		--method org.freedesktop.DBus.Properties.Get \
+		org.freedesktop.Secret.Collection Locked 2>/dev/null || :)
+	[ "$state" != '(<false>,)' ] || exit 0
+	sleep 1
+done
+echo 'The desktop keyring could not be unlocked; remote credentials remain unavailable' >&2
+exit 1

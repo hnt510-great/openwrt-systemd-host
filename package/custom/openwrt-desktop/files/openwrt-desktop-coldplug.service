@@ -1,0 +1,10 @@
+[Unit]
+Description=Identify desktop devices for logind
+Requires=systemd-udevd.service
+After=systemd-udevd.service systemd-logind.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/udevadm trigger --action=add --type=devices --subsystem-match=drm --subsystem-match=input --subsystem-match=sound --subsystem-match=usb --subsystem-match=graphics --subsystem-match=hidraw
+ExecStart=/usr/bin/udevadm settle --timeout=30
+RemainAfterExit=yes

@@ -2,9 +2,14 @@
 set -eu
 . /usr/libexec/desktop-common.sh
 [ "$(id -u)" = 0 ] || { echo 'Run sunshine-setup as root' >&2; exit 1; }
-[ "$#" = 2 ] && [ "$2" = --enable-kms ] || {
-	echo 'Usage: sunshine-setup USER --enable-kms' >&2; exit 1;
+[ "$#" = 2 ] || {
+	echo 'Usage: sunshine-setup USER --capture=portal|--enable-kms' >&2; exit 1;
 }
+case "$2" in
+	--capture=portal) capture=portal ;;
+	--enable-kms|--capture=kms) capture=kms ;;
+	*) echo 'Invalid Sunshine capture option' >&2; exit 1 ;;
+esac
 user=$1
 desktop_validate_user "$user"
 [ -d /run/systemd/system ] && [ "$(uci -q get desktop.main.user || :)" = "$user" ] || {
@@ -13,15 +18,17 @@ desktop_validate_user "$user"
 /usr/sbin/desktop-audio-setup "$user"
 grep -q '^sunshine:' /etc/group || groupadd -r sunshine
 usermod -a -G sunshine,video,render "$user"
-# Explicit enrollment grants broad KMS capture capability and virtual input access.
+# Enrollment grants virtual input access; only explicit KMS grants capture capability.
 [ ! -L /etc/desktop/sunshine-users ] || { echo 'Unsafe Sunshine enrollment file' >&2; exit 1; }
 umask 077
 tmp=$(mktemp /etc/desktop/.sunshine-users.XXXXXX)
 trap 'rm -f "$tmp"' EXIT HUP INT TERM
 printf '%s\n' "$user" > "$tmp"
 mv "$tmp" /etc/desktop/sunshine-users
+uci set desktop.main.sunshine_capture="$capture"
+uci commit desktop
 /usr/libexec/sunshine-permissions
 runtime=/run/user/$DESKTOP_USER_UID
-su -s /bin/sh -c "XDG_RUNTIME_DIR=$runtime DBUS_SESSION_BUS_ADDRESS=unix:path=$runtime/bus systemctl --user --no-reload enable sunshine.service" "$user"
-printf 'Sunshine enrolled for %s: CAP_SYS_ADMIN permits KMS capture; /dev/uinput permits virtual input.\n' "$user"
+su -s /bin/sh -c "XDG_RUNTIME_DIR=$runtime DBUS_SESSION_BUS_ADDRESS=unix:path=$runtime/bus systemctl --user --no-reload enable app-dev.lizardbyte.app.Sunshine.service" "$user"
+printf 'Sunshine enrolled for %s with %s capture and virtual input.\n' "$user" "$capture"
 printf 'Start a new desktop session to apply group membership. Set Web UI credentials and pair Moonlight at https://LAN-IP:47990.\n'

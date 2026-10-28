@@ -1,0 +1,15 @@
+Subject: Allow disabling NetworkManager on netifd systems
+
+The sources already guard NetworkManager calls with HAVE_NETWORK_MANAGER.
+OpenWrt retains netifd as its only network manager.
+
+--- a/meson.build
++++ b/meson.build
+@@ -224,7 +224,6 @@
+ 
+ # Sharing plugin
+ enable_network_manager = get_option('network_manager')
+-assert(enable_network_manager or not host_is_linux, 'NetworkManager support is not optional on Linux platforms')
+ if enable_network_manager
+   # network manager
+   libnm_dep = dependency('libnm', version: '>= 1.0')

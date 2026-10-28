@@ -1,0 +1,13 @@
+Subject: Use the Cargo cache populated from the locked source manifest
+
+--- a/meson.build
++++ b/meson.build
+@@ -21,7 +21,7 @@
+ includedir = get_option('prefix') / get_option('includedir')
+ 
+ cargo_target_dir = meson.project_build_root() / 'cargo-target'
+-cargo_home = meson.project_build_root() / 'cargo-home'
++cargo_home = run_command('sh', '-c', 'printf %s "$CARGO_HOME"', check: true).stdout()
+ cargo_manifest = meson.project_source_root() / 'Cargo.toml'
+ 
+ cargo_env = environment()

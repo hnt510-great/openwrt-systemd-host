@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+[ "$(id -u)" -ge 1000 ] || exit 1
+export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+exec systemctl --user start gnome-session-shutdown.target

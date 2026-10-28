@@ -12,12 +12,9 @@ desktop_validate_mode() {
 }
 
 desktop_validate_rdp() {
-	case "$1:$2" in *[!0-9:]*|:*|*:) desktop_error 'Invalid RDP port or refresh rate'; return 1 ;; esac
-	[ "$1" -ge 1024 ] && [ "$1" -le 65535 ] && [ "$1" -ne "$3" ] || {
-		desktop_error 'RDP port must be between 1024 and 65535 and differ from VNC'; return 1;
-	}
-	[ "$2" -ge 1 ] && [ "$2" -le 60 ] || {
-		desktop_error 'RDP refresh rate must be between 1 and 60'; return 1;
+	case "$1" in ''|*[!0-9]*) desktop_error 'Invalid RDP port'; return 1 ;; esac
+	[ "$1" -ge 1024 ] && [ "$1" -le 65535 ] || {
+		desktop_error 'RDP port must be between 1024 and 65535'; return 1;
 	}
 }
 
@@ -89,4 +86,42 @@ desktop_select_output() {
 		return 0
 	done
 	desktop_error "No connected DRM output matches $requested"
+}
+
+# Root-only account setup owns the directory; key files belong to the user.
+desktop_setup_tls() {
+	local key cert tmp address
+	[ ! -L /etc/desktop ] && [ ! -L /etc/desktop/tls ] || {
+		desktop_error 'Unsafe desktop TLS directory'; return 1;
+	}
+	mkdir -p /etc/desktop/tls
+	chmod 0755 /etc/desktop /etc/desktop/tls
+	key="/etc/desktop/tls/$DESKTOP_USER_NAME.key"
+	cert="/etc/desktop/tls/$DESKTOP_USER_NAME.crt"
+	if [ ! -e "$key" ] && [ ! -e "$cert" ]; then
+		address="$(desktop_lan_address)"
+		case "$address" in ''|0.0.0.0|*[!0-9.]*) desktop_error 'Bring up the LAN before desktop-setup'; return 1 ;; esac
+		tmp="$(mktemp -d /etc/desktop/.tls.XXXXXX)" || return 1
+		if ! openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 3650 \
+		-subj '/CN=OpenWrt GNOME desktop' -addext "subjectAltName=IP:$address" \
+		-keyout "$tmp/key" -out "$tmp/cert" >/dev/null 2>&1; then
+			rm -rf "$tmp"; return 1
+		fi
+		chmod 0600 "$tmp/key"
+		chmod 0644 "$tmp/cert"
+		chown "$DESKTOP_USER_UID:$DESKTOP_USER_GID" "$tmp/key" "$tmp/cert"
+		mv "$tmp/key" "$key"
+		mv "$tmp/cert" "$cert"
+		rmdir "$tmp"
+	fi
+	[ -f "$key" ] && [ ! -L "$key" ] && [ -f "$cert" ] && [ ! -L "$cert" ] || {
+		desktop_error 'Desktop TLS credentials are incomplete or unsafe'; return 1;
+	}
+	openssl x509 -in "$cert" -noout -checkend 0 >/dev/null || return 1
+	[ "$(openssl pkey -in "$key" -pubout 2>/dev/null)" = 	  "$(openssl x509 -in "$cert" -pubkey -noout 2>/dev/null)" ] || {
+		desktop_error 'The TLS certificate and key do not match'; return 1;
+	}
+	chown "$DESKTOP_USER_UID:$DESKTOP_USER_GID" "$key" "$cert"
+	chmod 0600 "$key"
+	chmod 0644 "$cert"
 }

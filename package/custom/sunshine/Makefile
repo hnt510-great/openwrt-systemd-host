@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=sunshine
 PKG_VERSION:=2026.914.233613
-PKG_RELEASE:=5
+PKG_RELEASE:=7
 PKG_SOURCE:=sunshine-source-63d35f702ee9.tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/LizardByte/Sunshine/tar.gz/63d35f702ee9e362e43263742981836ec0710384?
 PKG_HASH:=2564df7ee9c1ac1d617e30b406ec0ed7d358cbba485cfb013956bdab528dae5f
@@ -37,8 +37,8 @@ CMAKE_OPTIONS += -DBUILD_DOCS=OFF -DBUILD_TESTS=OFF -DBUILD_EXAMPLES=OFF \
 	-DBOOST_USE_STATIC=OFF -DSUNSHINE_ENABLE_TRAY=OFF -DSUNSHINE_ENABLE_CUDA=OFF \
 	-DSUNSHINE_ENABLE_DRM=ON -DSUNSHINE_ENABLE_VAAPI=ON -DSUNSHINE_ENABLE_VULKAN=OFF \
 	-DSUNSHINE_ENABLE_WAYLAND=ON -DSUNSHINE_ENABLE_X11=OFF \
-	-DSUNSHINE_ENABLE_WESTON=ON -DSUNSHINE_SYSTEM_WAYLAND_PROTOCOLS=ON \
-	-DSUNSHINE_ENABLE_KWIN=OFF -DSUNSHINE_ENABLE_PORTAL=OFF \
+	-DSUNSHINE_SYSTEM_WAYLAND_PROTOCOLS=ON \
+	-DSUNSHINE_ENABLE_KWIN=OFF -DSUNSHINE_ENABLE_PORTAL=ON \
 	-DLIBVIRTUALHID_ENABLE_XTEST=OFF -DLIBVIRTUALHID_BUILD_TOOLS=OFF \
 	-DSUNSHINE_ASSETS_DIR=/usr/share/sunshine -DFFMPEG_CBS_ARCHIVE=$(PKG_BUILD_DIR)/libcbs.a \
 	-DGLAD_SKIP_PIP_INSTALL=ON -DNPM=$(STAGING_DIR_HOSTPKG)/bin/npm -DPython_EXECUTABLE=$(STAGING_DIR_HOSTPKG)/bin/python3
@@ -56,7 +56,6 @@ export npm_config_fund:=false
 # Submodules are separately hashed downloads, not live git checkouts.
 define Build/Prepare
 	$(call Build/Prepare/Default)
-	$(CP) ./files/westongrab.cpp $(PKG_BUILD_DIR)/src/platform/linux/
 	$(INSTALL_DIR) $(PKG_BUILD_DIR)/third-party/wlr-protocols
 	$(TAR) -xf $(DL_DIR)/sunshine-wlr-protocols-bf4fc79abc35.tar.gz -C $(PKG_BUILD_DIR)/third-party/wlr-protocols --strip-components=1
 	$(INSTALL_DIR) $(PKG_BUILD_DIR)/third-party/build-deps
@@ -127,11 +126,13 @@ define Package/sunshine/install
 	$(INSTALL_DIR) $(1)/usr/bin $(1)/usr/sbin $(1)/usr/libexec $(1)/usr/share
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/sunshine $(1)/usr/bin/
 	$(CP) $(PKG_INSTALL_DIR)/usr/share/sunshine $(1)/usr/share/
+	$(CP) $(PKG_INSTALL_DIR)/usr/share/applications $(PKG_INSTALL_DIR)/usr/share/icons $(1)/usr/share/
 	$(INSTALL_BIN) ./files/sunshine-setup $(1)/usr/sbin/
 	$(INSTALL_BIN) ./files/sunshine-permissions $(1)/usr/libexec/
 	$(INSTALL_BIN) ./files/sunshine-session $(1)/usr/libexec/
 	$(INSTALL_DIR) $(1)/usr/lib/systemd/user $(1)/etc/init.d $(1)/etc/hotplug.d/misc $(1)/etc/hotplug.json.d $(1)/lib/upgrade/keep.d
-	$(INSTALL_DATA) ./files/sunshine.service $(1)/usr/lib/systemd/user/
+	$(INSTALL_DATA) ./files/sunshine.service $(1)/usr/lib/systemd/user/app-dev.lizardbyte.app.Sunshine.service
+	$(LN) app-dev.lizardbyte.app.Sunshine.service $(1)/usr/lib/systemd/user/sunshine.service
 	$(INSTALL_BIN) ./files/sunshine-permissions.init $(1)/etc/init.d/sunshine-permissions
 	$(INSTALL_BIN) ./files/sunshine.hotplug $(1)/etc/hotplug.d/misc/95-sunshine
 	$(INSTALL_DATA) ./files/sunshine-uinput.json $(1)/etc/hotplug.json.d/

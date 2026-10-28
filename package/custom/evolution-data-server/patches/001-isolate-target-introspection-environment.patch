@@ -1,0 +1,49 @@
+Subject: Isolate target introspection and include the private D-Bus library
+
+--- a/cmake/modules/GObjectIntrospection.cmake
++++ b/cmake/modules/GObjectIntrospection.cmake
+@@ -122,7 +122,7 @@
+ 		file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/${_gir_name}_files "${_gir_files}")
+ 
+ 		add_custom_command(
+-			COMMAND ${CMAKE_COMMAND} -E env "CC='${CMAKE_C_COMPILER}'" LDFLAGS=
++			COMMAND ${CMAKE_COMMAND} -E env "CC=${CMAKE_C_COMPILER}" LDFLAGS=
+ 				${INTROSPECTION_SCANNER_ENV}
+ 				${G_IR_SCANNER}
+ 				${INTROSPECTION_SCANNER_ARGS}
+@@ -235,6 +235,7 @@
+ 		--add-include-path=${CMAKE_CURRENT_SOURCE_DIR}
+ 		--library-path=${CMAKE_BINARY_DIR}
+ 		--library-path=${CMAKE_BINARY_DIR}/src
++		--library-path=${CMAKE_BINARY_DIR}/src/private
+ 		--library-path=${CMAKE_CURRENT_BINARY_DIR}
+ 		${_gir_extra_libdirs}
+ 		${_gir_identifies_prefixes}
+@@ -257,8 +258,8 @@
+ 		set(_loader_library_path_var "DYLD_LIBRARY_PATH")
+ 		set(_loader_library_path_native "$ENV{DYLD_LIBRARY_PATH}")
+ 	else()
+-		set(_loader_library_path_var "LD_LIBRARY_PATH")
+-		set(_loader_library_path_native "$ENV{LD_LIBRARY_PATH}")
++		set(_loader_library_path_var "GI_TARGET_LIBRARY_PATH")
++		set(_loader_library_path_native "$ENV{GI_TARGET_LIBRARY_PATH}")
+ 	endif ()
+ 
+ 	file(TO_CMAKE_PATH
+@@ -269,6 +270,7 @@
+ 	set(_extra_loader_library_path_cmake
+ 		${CMAKE_BINARY_DIR}
+ 		${CMAKE_BINARY_DIR}/src
++		${CMAKE_BINARY_DIR}/src/private
+ 		${CMAKE_CURRENT_BINARY_DIR}
+ 		${${gir_extra_libdirs_var}}
+ 		${LIB_INSTALL_DIR}
+@@ -292,7 +294,7 @@
+ 	endif(UNIX)
+ 
+ 	set(INTROSPECTION_SCANNER_ENV
+-		${_loader_library_path_var}="${_extra_loader_library_path_native}"
++		"${_loader_library_path_var}=${_extra_loader_library_path_native}"
+ 	)
+ 
+ 	gir_add_introspection(${gir_name})

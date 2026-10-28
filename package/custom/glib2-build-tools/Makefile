@@ -4,7 +4,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=glib2-build-tools
 PKG_VERSION:=1
-PKG_RELEASE:=1
+PKG_RELEASE:=4
 PKG_LICENSE:=LGPL-2.1-or-later
 PKG_BUILD_DEPENDS:=glib2
 

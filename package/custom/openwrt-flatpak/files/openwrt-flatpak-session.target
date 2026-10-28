@@ -1,4 +1,4 @@
 [Unit]
-Description=OpenWrt Weston Flatpak session
-BindsTo=graphical-session.target
+Description=OpenWrt GNOME Flatpak session
+PartOf=gnome-session.target
 After=graphical-session-pre.target

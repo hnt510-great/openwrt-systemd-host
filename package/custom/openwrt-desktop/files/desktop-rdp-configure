@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+set +x
+[ "$(id -u)" -ge 1000 ] || exit 1
+export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+grdctl rdp set-tls-cert "/etc/desktop/tls/$USER.crt"
+grdctl rdp set-tls-key "/etc/desktop/tls/$USER.key"
+grdctl rdp set-port "$(/sbin/uci -q get desktop.main.rdp_port || printf 3389)"
+grdctl rdp disable-view-only
+gsettings set org.gnome.desktop.remote-desktop.rdp negotiate-port false
+gsettings set org.gnome.desktop.remote-desktop.rdp screen-share-mode mirror-primary
+# Use one stdin prompt: grdctl creates a fresh buffered stream for each prompt,
+# so sending username and password together can consume the second line early.
+# The public account name is an argument; the password stays on stdin.
+grdctl rdp set-credentials "$(id -un)"
+grdctl rdp enable

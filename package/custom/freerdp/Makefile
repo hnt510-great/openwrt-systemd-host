@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=freerdp
 PKG_VERSION:=3.32.2
-PKG_RELEASE:=2
+PKG_RELEASE:=5
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://pub.freerdp.com/releases
 PKG_HASH:=e95a505c0057e4d06a3b120477c421028769deba4db9c639ef3465d050f0955c
@@ -26,8 +26,8 @@ endef
 define Package/libfreerdp3
   SECTION:=libs
   CATEGORY:=Libraries
-  TITLE:=FreeRDP 3 core and server libraries
-  DEPENDS:=+libwinpr3 +libopenssl +zlib +libpthread +libopus +libsoxr
+  TITLE:=FreeRDP 3 core, client and server libraries
+  DEPENDS:=+libwinpr3 +libopenssl +zlib +libpthread +libopus +libsoxr +libusb-1.0
 endef
 
 define Package/winpr-hash
@@ -39,7 +39,7 @@ endef
 
 CMAKE_OPTIONS += \
 	-DBUILD_SHARED_LIBS=ON -DBUILD_TESTING=OFF -DWITH_MANPAGES=OFF \
-	-DWITH_CLIENT=OFF -DWITH_CLIENT_COMMON=OFF -DWITH_CLIENT_CHANNELS=OFF \
+	-DWITH_CLIENT=ON -DWITH_CLIENT_COMMON=ON -DWITH_CLIENT_CHANNELS=ON \
 	-DWITH_SERVER=ON -DWITH_SERVER_CHANNELS=ON -DWITH_CHANNELS=ON \
 	-DWITH_SHADOW=OFF -DWITH_PROXY=OFF -DWITH_SAMPLE=OFF -DWITH_PLATFORM_SERVER=OFF \
 	-DWITH_WINPR_TOOLS=ON -DWITH_X11=OFF -DWITH_WAYLAND=OFF \
@@ -68,6 +68,7 @@ define Package/libfreerdp3/install
 	$(INSTALL_DIR) $(1)/usr/lib
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libfreerdp3.so.* $(1)/usr/lib/
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libfreerdp-server3.so.* $(1)/usr/lib/
+	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libfreerdp-client3.so.* $(1)/usr/lib/
 endef
 
 define Package/winpr-hash/install

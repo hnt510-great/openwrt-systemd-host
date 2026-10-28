@@ -1,0 +1,83 @@
+Subject: Bind RDP only to the LAN address supplied by the desktop supervisor
+
+Reject a missing or wildcard address and port negotiation. A LAN change
+restarts this user service without disturbing the compositor session.
+
+--- a/src/grd-utils.c
++++ b/src/grd-utils.c
+@@ -171,51 +171,31 @@
+                  gboolean          negotiate_port,
+                  GError          **error)
+ {
+-  gboolean is_bound = FALSE;
+-  int i;
+-
+-  if (!negotiate_port)
++  const char *address = g_getenv ("OPENWRT_RDP_ADDRESS");
++  g_autoptr (GInetAddress) inet_address = NULL;
++  g_autoptr (GSocketAddress) socket_address = NULL;
++
++  (void) negotiate_port;
++  if (address)
++    inet_address = g_inet_address_new_from_string (address);
++  if (!inet_address ||
++      g_inet_address_get_family (inet_address) != G_SOCKET_FAMILY_IPV4 ||
++      g_inet_address_get_is_any (inet_address) ||
++      g_inet_address_get_is_multicast (inet_address) || port == 0)
+     {
+-      is_bound = g_socket_listener_add_inet_port (server,
+-                                                  port,
+-                                                  NULL,
+-                                                  error);
+-      goto out;
+-    }
+-
+-  for (i = 0; i < GRD_SERVER_PORT_RANGE; i++, port++)
+-    {
+-      g_autoptr (GError) local_error = NULL;
+-
+-      g_assert (port < G_MAXUINT16);
+-
+-      is_bound = g_socket_listener_add_inet_port (server,
+-                                                  port,
+-                                                  NULL,
+-                                                  &local_error);
+-      if (local_error)
+-        {
+-          g_debug ("\tServer could not be bound to TCP port %hu: %s",
+-                   port, local_error->message);
+-        }
+-
+-      if (is_bound)
+-        break;
+-    }
+-
+-  if (!is_bound)
+-    port = g_socket_listener_add_any_inet_port (server, NULL, error);
+-
+-  is_bound = port != 0;
+-
+-out:
+-  if (is_bound)
+-    {
+-      g_debug ("\tServer bound to TCP port %hu", port);
+-      *selected_port = port;
+-    }
+-
+-  return is_bound;
++      g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
++                           "A concrete LAN IPv4 address and port are required");
++      return FALSE;
++    }
++
++  socket_address = g_inet_socket_address_new (inet_address, port);
++  if (!g_socket_listener_add_address (server, socket_address,
++                                      G_SOCKET_TYPE_STREAM,
++                                      G_SOCKET_PROTOCOL_TCP, NULL, NULL, error))
++    return FALSE;
++
++  *selected_port = port;
++  return TRUE;
+ }
+ 
+ void

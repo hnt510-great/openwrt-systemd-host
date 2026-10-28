@@ -20,4 +20,4 @@ uci commit desktop
 if [ -S "$runtime/bus" ]; then
 	su -s /bin/sh -c "XDG_RUNTIME_DIR=$runtime DBUS_SESSION_BUS_ADDRESS=unix:path=$runtime/bus systemctl --user daemon-reload; XDG_RUNTIME_DIR=$runtime DBUS_SESSION_BUS_ADDRESS=unix:path=$runtime/bus systemctl --user start pipewire.socket pipewire-pulse.socket wireplumber.service" "$user"
 fi
-printf 'Audio enabled for %s. Device ACLs also cover existing user services. Restart the desktop to enable RDP audio.\n' "$user"
+printf 'Audio enabled for %s. Device ACLs also cover existing user services.\n' "$user"

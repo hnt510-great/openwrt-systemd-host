@@ -1,0 +1,7 @@
+Subject: Keep build staging paths out of the runtime ISO code lookup
+
+--- a/meson.build
++++ b/meson.build
+@@ -530,1 +530,1 @@
+-    cdata.set_quoted('ISO_CODES_PREFIX', iso_codes_dep.get_variable(pkgconfig: 'prefix'))
++    cdata.set_quoted('ISO_CODES_PREFIX', get_option('prefix'))

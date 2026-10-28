@@ -30,40 +30,32 @@ class DesktopAudio(unittest.TestCase):
         path.chmod(0o755)
         return path
 
-    def test_rdp_audio_requires_enrolled_native_session(self):
-        stub = self.tool('launch', '#!/bin/sh\nexit 0\n')
-        helper = self.tool('audio-session', '#!/bin/sh\nexit 0\n')
+    def test_audio_requires_enrolled_native_session(self):
         native = self.tmp / 'native'
         native.mkdir()
-        (self.tmp / 'alice.sam').write_text('fixture\n')
-        text = (DESKTOP / 'desktop-session').read_text()
-        text = text.replace('/usr/libexec/desktop-common.sh', str(DESKTOP / 'desktop-common.sh'))
-        text = text.replace('/usr/libexec/desktop-dbus-session', str(stub))
-        text = text.replace('/usr/libexec/desktop-audio-session', str(helper))
+        log = self.tmp / 'units'
+        self.env.update(XDG_RUNTIME_DIR=str(self.tmp), UNIT_LOG=str(log))
+        self.tool('id', '#!/bin/sh\necho alice\n')
+        self.tool('systemctl', '#!/bin/sh\nprintf "%s\\n" "$*" >> "$UNIT_LOG"\n')
+        text = (AUDIO / 'desktop-audio-session').read_text()
         text = text.replace('/run/systemd/system', str(native))
-        text = text.replace('/etc/desktop/rdp', str(self.tmp))
-        for name in ['flatpak', 'Xwayland']:
-            text = text.replace('/usr/bin/' + name, str(self.tmp / name))
-        for name in ['desktop-no-caps', 'virt-manager-launch', 'desktop-flatpak-session']:
-            text = text.replace('/usr/libexec/' + name, str(self.tmp / name))
-        session = self.tmp / 'session'
-        session.write_text(text)
-        self.env['XDG_RUNTIME_DIR'] = str(self.tmp)
+        path = self.tmp / 'audio-session'
+        path.write_text(text)
         cases = [('1', 'alice', True, True), ('0', 'alice', True, False),
                  ('1', 'bob', True, False), ('1', 'alice', False, False)]
         for enabled, user, systemd, expected in cases:
             with self.subTest(enabled=enabled, user=user, systemd=systemd):
                 if not systemd:
                     native.rmdir()
-                result = subprocess.run(['sh', str(session), 'HDMI-A-1', '192.0.2.1',
-                                         '5900', 'key', 'cert', 'gl', '1', '3389', '30'],
+                log.unlink(missing_ok=True)
+                result = subprocess.run(['sh', str(path)],
                                         env=dict(self.env, AUDIO_ENABLED=enabled, AUDIO_USER=user),
                                         capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                config = (self.tmp / 'weston.ini').read_text()
-                value = 'true' if expected else 'false'
-                self.assertIn('audio-playback=' + value, config)
-                self.assertIn('audio-capture=' + value, config)
+                units = log.read_text() if log.exists() else ''
+                self.assertEqual('start pipewire.socket pipewire-pulse.socket wireplumber.service' in units,
+                                 expected)
+                self.assertNotIn('stop ', units)
 
     def test_ssh_stream_account_and_format(self):
         runtime = self.tmp / 'run'
@@ -88,28 +80,6 @@ class DesktopAudio(unittest.TestCase):
                                     env=dict(self.env, **changes), capture_output=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(result.stdout, b'')
-
-    def test_audio_monitor_preserves_compositor_identity(self):
-        self.tool('systemctl', '#!/bin/sh\nexit 0\n')
-        output = self.tmp / 'monitor.json'
-        self.env.update(XDG_RUNTIME_DIR=str(self.tmp), WAYLAND_DISPLAY='wayland-1',
-                        MONITOR_OUTPUT=str(output))
-        self.tool('systemd-run', '#!/usr/bin/env python3\nimport json,os,sys\n'
-                  'open(os.environ["MONITOR_OUTPUT"],"w").write(json.dumps(sys.argv[1:]))\n')
-        native = self.tmp / 'native'
-        native.mkdir()
-        flatpak = self.tool('flatpak-session', '#!/bin/sh\nprintf "%s" "$WESTON_COMPOSITOR_PID" > "$MONITOR_OUTPUT.flatpak"\n')
-        text = (AUDIO / 'desktop-audio-session').read_text()
-        text = text.replace('/run/systemd/system', str(native))
-        text = text.replace('/usr/libexec/desktop-flatpak-session', str(flatpak))
-        path = self.tmp / 'audio-session'
-        path.write_text(text)
-        result = subprocess.run(['sh', str(path)], env=self.env, capture_output=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        args = json.loads(output.read_text())
-        self.assertEqual(args[-2], '--monitor')
-        self.assertEqual(args[-1], str(os.getpid()))
-        self.assertEqual(Path(str(output) + '.flatpak').read_text(), str(os.getpid()))
 
     def test_sunshine_gpu_probe_workaround_is_device_specific(self):
         self.tool('id', '#!/bin/sh\ncase \"$1\" in -u) echo 1000;; -un) echo alice;; esac\n')

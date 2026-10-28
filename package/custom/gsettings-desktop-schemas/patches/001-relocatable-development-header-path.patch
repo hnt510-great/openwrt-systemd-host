@@ -1,0 +1,12 @@
+Subject: Make the development header path follow pkg-config prefix
+
+OpenWrt relocates prefix into its target staging tree during compilation.
+
+--- a/gsettings-desktop-schemas.pc.in
++++ b/gsettings-desktop-schemas.pc.in
+@@ -3,4 +3,4 @@
+ Name: gsettings-desktop-schemas
+ Description: Shared GSettings schemas for the desktop, including helper headers
+ Version: @VERSION@
+-Cflags: -I@includedir@/gsettings-desktop-schemas
++Cflags: -I${prefix}/include/gsettings-desktop-schemas

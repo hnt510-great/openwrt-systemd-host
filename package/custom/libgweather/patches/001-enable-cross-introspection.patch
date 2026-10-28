@@ -1,0 +1,10 @@
+Subject: Allow introspection with the configured target executable launcher
+
+OpenWrt's scanner uses an isolated target loader, so cross builds can
+generate the runtime metadata required by GNOME Shell's JavaScript modules.
+
+--- a/meson.build
++++ b/meson.build
+@@ -54,1 +54,1 @@
+-build_gir = get_option('introspection') and g_ir_scanner.found() and not meson.is_cross_build()
++build_gir = get_option('introspection') and g_ir_scanner.found()

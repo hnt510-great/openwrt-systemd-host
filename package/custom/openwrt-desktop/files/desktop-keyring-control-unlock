@@ -1,0 +1,68 @@
+#!/usr/bin/python3
+"""Unlock the existing GNOME Keyring 51 daemon through its control socket.
+
+Protocol: upstream daemon/control/gkd-control-client.c and gkd-control-codes.h.
+The daemon CLI's --unlock mode starts a daemon; this operation addresses the
+service-owned daemon directly. The credential arrives only on stdin.
+"""
+import os
+from pathlib import Path
+import socket
+import stat
+import struct
+import sys
+
+
+def receive(stream, length):
+    data = bytearray()
+    while len(data) < length:
+        chunk = stream.recv(length - len(data))
+        if not chunk:
+            raise RuntimeError('Keyring control connection closed early')
+        data.extend(chunk)
+    return data
+
+
+def main():
+    uid = os.getuid()
+    if uid < 1000:
+        raise RuntimeError('Run as the ordinary desktop user')
+    runtime = Path(os.environ['XDG_RUNTIME_DIR'])
+    if not runtime.is_absolute():
+        raise RuntimeError('An absolute user runtime directory is required')
+    path = runtime / 'keyring/control'
+    info = path.lstat()
+    if info.st_uid != uid or not stat.S_ISSOCK(info.st_mode):
+        raise RuntimeError('Unsafe keyring control socket')
+    secret = bytearray(sys.stdin.buffer.read(4097))
+    packet = bytearray()
+    try:
+        if not secret or len(secret) > 4096 or b'\0' in secret:
+            raise RuntimeError('Invalid bootstrap credential')
+        # Header length, GKD_CONTROL_OP_UNLOCK, string byte length, string.
+        packet.extend(struct.pack('!III', 12 + len(secret), 1, len(secret)))
+        packet.extend(secret)
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as stream:
+            stream.settimeout(10)
+            stream.connect(str(path))
+            _, peer_uid, _ = struct.unpack('3i', stream.getsockopt(
+                socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize('3i')))
+            if peer_uid != uid:
+                raise RuntimeError('Keyring control peer has a different UID')
+            # Linux verifies the sender through SO_PEERCRED after this byte.
+            stream.sendall(b'\0')
+            stream.sendall(packet)
+            length, result = struct.unpack('!II', receive(stream, 8))
+            if length != 8 or result != 0:
+                raise RuntimeError('The login keyring rejected its bootstrap credential')
+    finally:
+        secret[:] = b'\0' * len(secret)
+        packet[:] = b'\0' * len(packet)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (KeyError, OSError, RuntimeError, struct.error) as error:
+        print(f'Keyring unlock failed: {error}', file=sys.stderr)
+        raise SystemExit(1)

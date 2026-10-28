@@ -1,0 +1,20 @@
+Subject: Keep installed runtime data paths separate from staging paths
+
+OpenWrt pkg-config rewrites prefix for build-time headers and libraries.
+Queries compiled into runtime data paths must use the installed prefix.
+
+--- a/meson.build
++++ b/meson.build
+@@ -90,9 +90,9 @@
+   seccomp_dep = dependency('', required: false)
+ endif
+ 
+-fontconfig_cache_path = fontconfig_dep.get_variable(pkgconfig: 'cachedir')
+-xkb_base = xkb_config_dep.get_variable(pkgconfig: 'xkb_base')
+-iso_codes_prefix = iso_codes_dep.get_variable(pkgconfig: 'prefix')
++fontconfig_cache_path = fontconfig_dep.get_variable(pkgconfig: 'cachedir', pkgconfig_define: ['prefix', get_option('prefix')])
++xkb_base = xkb_config_dep.get_variable(pkgconfig: 'xkb_base', pkgconfig_define: ['prefix', get_option('prefix')])
++iso_codes_prefix = iso_codes_dep.get_variable(pkgconfig: 'prefix', pkgconfig_define: ['prefix', get_option('prefix')])
+ 
+ cc = meson.get_compiler('c')
+ 

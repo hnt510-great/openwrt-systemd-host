@@ -1,7 +1,8 @@
 prefix=/usr
 libdir=${prefix}/lib
-girdir=@STAGING@/usr/share/gir-1.0
-typelibdir=@STAGING@/usr/lib/girepository-1.0
+datadir=${prefix}/share
+girdir=${datadir}/gir-1.0
+typelibdir=${libdir}/girepository-1.0
 g_ir_scanner=@STAGING@/usr/bin/g-ir-scanner
 g_ir_compiler=@STAGING@/usr/bin/g-ir-compiler
 gi_datadir=@HOSTPKG@/share/gobject-introspection-1.0

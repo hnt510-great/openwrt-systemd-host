@@ -1,5 +1,9 @@
 # Weston launcher and optional Sunshine capture validation
 
+Historical Weston results. The GNOME profile retires this capture route and
+its `test-sunshine-weston.py` fixture; current checks are documented in
+[GNOME validation](gnome-desktop-validation.md).
+
 Validated on 2026-10-26. The launcher and capture packages were built, installed
 in a disposable QEMU guest, then installed on the physical N5105. KMS remains
 the default. The Weston capture route is experimental and still requires

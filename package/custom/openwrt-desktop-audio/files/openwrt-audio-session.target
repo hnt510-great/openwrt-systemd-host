@@ -1,2 +1,4 @@
 [Unit]
-Description=Remote streaming for the active Weston desktop
+Description=Audio for the active GNOME desktop
+PartOf=gnome-session.target
+After=graphical-session-pre.target

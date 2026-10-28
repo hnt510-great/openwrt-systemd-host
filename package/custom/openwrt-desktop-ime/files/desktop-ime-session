@@ -1,7 +1,8 @@
 #!/bin/sh
 set -eu
-# Weston must launch this process directly: preserve its WAYLAND_SOCKET fd.
-# Do not daemonize or start a second copy from D-Bus/systemd autostart.
+# GNOME uses Fcitx's IBus compatibility frontend and Kimpanel candidate UI.
+# The graphical-session service owns the sole foreground process.
+unset WAYLAND_SOCKET
 umask 077
 config_home=${XDG_CONFIG_HOME:-$HOME/.config}
 mkdir -p "$config_home/fcitx5/conf"
@@ -14,4 +15,4 @@ done
 if [ ! -e "$config_home/fcitx5/conf/classicui.conf" ] && [ ! -L "$config_home/fcitx5/conf/classicui.conf" ]; then
 	(set -C; cat /usr/share/openwrt-desktop-ime/classicui.conf > "$config_home/fcitx5/conf/classicui.conf") || :
 fi
-exec /usr/bin/fcitx5 --disable=ibusfrontend
+exec /usr/bin/fcitx5 --replace --enable=ibusfrontend

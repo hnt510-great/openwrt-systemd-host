@@ -1,0 +1,24 @@
+Subject: Compile Vulkan compute shader using staged Khronos glslang
+
+--- a/meson.build
++++ b/meson.build
+@@ -64,7 +64,7 @@
+   vulkan_dep = dependency('vulkan', version: vulkan_req)
+   winpr_dep = dependency('winpr3', version: freerdp_req)
+ 
+-  glslc = find_program('glslc', required: true)
++  glslc = find_program('glslangValidator', required: true)
+   spirv_opt = find_program('spirv-opt', required: true)
+ endif
+ 
+--- a/src/shaders/meson.build
++++ b/src/shaders/meson.build
+@@ -6,7 +6,7 @@
+   spirv_sources = []
+ 
+   foreach shader : shaders
+-    run_command(glslc, '-o', shader + '.spv', shader + '.comp', check: true)
++    run_command(glslc, '-V', '-o', shader + '.spv', shader + '.comp', check: true)
+     run_command(spirv_opt, '-o', shader + '_opt.spv', '-O', shader + '.spv', check: true)
+     spirv_sources += [shader + '_opt.spv']
+   endforeach

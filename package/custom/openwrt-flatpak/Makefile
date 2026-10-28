@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openwrt-flatpak
 PKG_VERSION:=1
-PKG_RELEASE:=7
+PKG_RELEASE:=10
 PKG_LICENSE:=MIT
 
 include $(INCLUDE_DIR)/package.mk
@@ -10,8 +10,8 @@ include $(INCLUDE_DIR)/package.mk
 define Package/openwrt-flatpak
   SECTION:=utils
   CATEGORY:=Utilities
-  TITLE:=Ordinary-user Flatpak integration for Weston
-  DEPENDS:=@TARGET_x86_64 @USE_GLIBC @OPENWRT_SYSTEMD +flatpak +xdg-desktop-portal-gtk +openwrt-desktop
+  TITLE:=Ordinary-user Flatpak integration for GNOME
+  DEPENDS:=@TARGET_x86_64 @USE_GLIBC @OPENWRT_SYSTEMD +flatpak +xdg-desktop-portal-gtk +xdg-desktop-portal-gnome +openwrt-desktop
 endef
 
 define Build/Compile
@@ -25,7 +25,6 @@ define Package/openwrt-flatpak/install
 	$(INSTALL_BIN) ./files/flatpak-user-link $(1)/usr/libexec/
 	$(INSTALL_BIN) ./files/desktop-flatpak-session $(1)/usr/libexec/
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/desktop-no-caps $(1)/usr/libexec/
-	$(INSTALL_DATA) ./files/weston-portals.conf $(1)/usr/share/xdg-desktop-portal/
 	$(INSTALL_DIR) $(1)/etc/udev/rules.d
 	$(INSTALL_DATA) ./files/99-flatpak-fuse.rules $(1)/etc/udev/rules.d/
 	$(INSTALL_DIR) $(1)/etc/hotplug.json.d $(1)/usr/lib/systemd/user

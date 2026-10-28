@@ -1,54 +1,71 @@
 #!/bin/sh
 set -eu
+set +x
 . /usr/libexec/desktop-common.sh
-
 [ "$(id -u)" = 0 ] || { desktop_error 'Run desktop-setup as root'; exit 1; }
-[ "$#" = 1 ] || { printf 'Usage: desktop-setup USER\n' >&2; exit 1; }
-user="$1"
+[ "$#" = 1 ] || { [ "$#" = 2 ] && [ "$2" = --refresh-keyring ]; } || {
+	printf 'Usage: desktop-setup USER [--refresh-keyring]\n' >&2; exit 1;
+}
+[ -d /run/systemd/system ] && [ -x /usr/bin/gnome-session ] || {
+	desktop_error 'The GNOME desktop requires a native-systemd image'; exit 1;
+}
+user=$1
 desktop_validate_user "$user"
 usermod -a -G video,render "$user"
-
-mkdir -p /etc/desktop/tls
-chmod 0755 /etc/desktop /etc/desktop/tls
-key="/etc/desktop/tls/$user.key"
-cert="/etc/desktop/tls/$user.crt"
-if [ ! -e "$key" ] && [ ! -e "$cert" ]; then
-	tmp="$(mktemp -d /etc/desktop/.tls.XXXXXX)"
-	trap 'rm -rf "$tmp"' EXIT HUP INT TERM
-	address="$(desktop_lan_address)" || address=
-	if [ -n "$address" ]; then
-		openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 3650 \
-			-subj '/CN=OpenWrt desktop' -addext "subjectAltName=IP:$address" \
-			-keyout "$tmp/key" -out "$tmp/cert" >/dev/null 2>&1
+desktop_setup_tls
+secret_dir=/etc/desktop/gnome
+[ ! -L "$secret_dir" ] || { desktop_error 'Unsafe desktop credential directory'; exit 1; }
+mkdir -p "$secret_dir"
+chown 0:0 "$secret_dir"
+chmod 0700 "$secret_dir"
+secret="$secret_dir/$DESKTOP_USER_UID.keyring-passphrase"
+if [ ! -e "$secret" ] || [ "${2:-}" = --refresh-keyring ]; then
+	umask 077
+	tmp="$(mktemp "$secret_dir/.keyring.XXXXXX")"
+	tty_state=
+	cleanup() {
+		[ -z "$tty_state" ] || stty "$tty_state" <&3
+		rm -f "$tmp"
+		unset passphrase
+	}
+	trap cleanup EXIT
+	trap 'exit 1' HUP INT TERM
+	if [ -e "$DESKTOP_USER_HOME/.local/share/keyrings/login.keyring" ]; then
+		exec 3</dev/tty 4>/dev/tty
+		tty_state="$(stty -g <&3)"
+		stty -echo <&3
+		printf 'Existing login-keyring passphrase: ' >&4
+		IFS= read -r passphrase <&3
+		printf '\n' >&4
+		stty "$tty_state" <&3
+		tty_state=
+		[ -n "$passphrase" ] || { desktop_error 'An empty bootstrap passphrase is not accepted'; exit 1; }
+		printf '%s' "$passphrase" > "$tmp"
+		unset passphrase
 	else
-		desktop_error 'Bring up the LAN interface before desktop-setup'
-		exit 1
+		openssl rand -hex 48 | tr -d '\n' > "$tmp"
 	fi
-	chmod 0600 "$tmp/key"
-	chmod 0644 "$tmp/cert"
-	chown "$DESKTOP_USER_UID:$DESKTOP_USER_GID" "$tmp/key" "$tmp/cert"
-	mv "$tmp/key" "$key"
-	mv "$tmp/cert" "$cert"
-	rm -rf "$tmp"
+	# A separate PAM session supplies a user manager/bus for first-time setup.
+	# The system manager reads the root-only file into the user's credential mount.
+	systemd-run --quiet --collect --wait --pipe --unit="openwrt-keyring-setup-$DESKTOP_USER_UID" \
+		--uid="$user" --property=PAMName=openwrt-desktop \
+		--property="LoadCredential=keyring-passphrase:$tmp" \
+		--setenv=HOME="$DESKTOP_USER_HOME" --setenv=USER="$user" \
+		--setenv=LOGNAME="$user" /usr/libexec/desktop-keyring-unlock
+	mv "$tmp" "$secret"
 	trap - EXIT HUP INT TERM
 fi
-[ -f "$key" ] && [ ! -L "$key" ] && [ -f "$cert" ] && [ ! -L "$cert" ] || {
-	desktop_error 'TLS credentials are incomplete or unsafe; repair them before setup'; exit 1;
+[ -f "$secret" ] && [ ! -L "$secret" ] && [ -s "$secret" ] && 	[ "$(stat -c %u:%a "$secret")" = 0:600 ] || {
+	desktop_error 'Invalid unattended-keyring credential'; exit 1;
 }
-openssl x509 -in "$cert" -noout -checkend 0 >/dev/null
-[ "$(openssl pkey -in "$key" -pubout 2>/dev/null)" = \
-	"$(openssl x509 -in "$cert" -pubkey -noout 2>/dev/null)" ] || {
-	desktop_error 'The TLS certificate and private key do not match'; exit 1;
-}
-chown "$DESKTOP_USER_UID:$DESKTOP_USER_GID" "$key" "$cert"
-chmod 0600 "$key"
-chmod 0644 "$cert"
+su -s /bin/sh -c /usr/libexec/desktop-user-setup "$user"
 uci set desktop.main.user="$user"
-uci set desktop.main.enabled='1'
+uci set desktop.main.enabled=1
+case "$(uci -q get desktop.main.sunshine_capture || :)" in
+	''|weston) uci set desktop.main.sunshine_capture=portal ;;
+esac
 uci commit desktop
 /etc/init.d/desktop enable
 /etc/init.d/desktop restart
-printf 'Desktop configured for %s. Connect with a TLS-capable VNC client to the LAN address on port %s.\n' \
-	"$user" "$(uci -q get desktop.main.port)"
-printf 'Certificate SHA256 fingerprint:\n'
-openssl x509 -in "$cert" -noout -fingerprint -sha256
+printf 'GNOME configured for %s. Run desktop-rdp-setup %s to provision RDP credentials.\n' "$user" "$user"
+printf 'Use sunshine-setup %s --capture=portal for Moonlight.\n' "$user"

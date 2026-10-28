@@ -1,0 +1,45 @@
+#!/bin/sh
+set -eu
+[ "$(id -u)" -ge 1000 ] || exit 1
+: "${XDG_RUNTIME_DIR:?}"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+gdbus wait --session org.gnome.Mutter.DisplayConfig
+/usr/libexec/desktop-gnome-settings
+if [ "$(uci -q get desktop.main.audio_enabled || :)" = 1 ] &&
+   [ "$(uci -q get desktop.main.audio_user || :)" = "$USER" ]; then
+	systemctl --user start pipewire.socket pipewire-pulse.socket wireplumber.service
+fi
+if [ -x /usr/libexec/desktop-audio-session ]; then /usr/libexec/desktop-audio-session; fi
+if [ -x /usr/libexec/desktop-flatpak-session ]; then /usr/libexec/desktop-flatpak-session; fi
+address_file="/run/openwrt-desktop/$(id -u).env"
+previous=
+cleanup() {
+	systemctl --user stop gnome-remote-desktop.service sunshine.service 2>/dev/null || :
+}
+trap cleanup EXIT
+trap 'exit 0' HUP INT TERM
+while :; do
+	address=
+	if [ -f "$address_file" ] && [ ! -L "$address_file" ] &&
+	   [ "$(stat -c %u "$address_file")" = 0 ]; then
+		address=$(sed -n 's/^OPENWRT_DESKTOP_LAN_ADDRESS=//p' "$address_file")
+	fi
+	case "$address" in ''|0.0.0.0|*[!0-9.]*) address= ;; esac
+	if [ "$address" != "$previous" ]; then
+		cleanup
+		previous=$address
+	fi
+	if [ -n "$address" ]; then
+		if [ "$(uci -q get desktop.main.rdp_enabled || :)" = 1 ]; then
+			systemctl --user start gnome-remote-desktop.service || :
+		else
+			systemctl --user stop gnome-remote-desktop.service || :
+		fi
+		if systemctl --user is-enabled --quiet app-dev.lizardbyte.app.Sunshine.service 2>/dev/null; then
+			systemctl --user start sunshine.service || :
+		else
+			systemctl --user stop sunshine.service || :
+		fi
+	fi
+	sleep 2
+done

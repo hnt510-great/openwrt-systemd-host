@@ -1,10 +1,12 @@
 [Unit]
-Description=Sunshine Moonlight host for the Weston desktop
-PartOf=openwrt-audio-session.target
+Description=Sunshine Moonlight host for the GNOME desktop
+PartOf=gnome-session.target
+ConditionPathExists=/run/openwrt-desktop/%U.env
 Requires=pipewire-pulse.service wireplumber.service
 After=pipewire-pulse.service wireplumber.service
 
 [Service]
+EnvironmentFile=/run/openwrt-desktop/%U.env
 Type=simple
 ExecStart=/usr/libexec/sunshine-session
 Restart=on-failure
@@ -14,4 +16,4 @@ NoNewPrivileges=false
 UMask=0077
 
 [Install]
-WantedBy=openwrt-audio-session.target
+WantedBy=gnome-session.target

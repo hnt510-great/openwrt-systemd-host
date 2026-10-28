@@ -1,0 +1,34 @@
+Subject: Make AppStream catalog metadata optional in a runtime-only image
+
+The minimal image uses desktop entries and does not ship GNOME Software.
+Keep translated desktop entries and UI; omit the separate software-catalog
+metadata and its itstool-only build dependency. Default upstream builds
+retain metadata.
+
+--- a/meson_options.txt
++++ b/meson_options.txt
+@@ -41,3 +41,5 @@
+   description: 'Provide search integration for gnome-shell',
+ )
+ 
++
++option('appstream', type: 'boolean', value: true, description: 'Build AppStream catalog metadata')
+--- a/data/meson.build
++++ b/data/meson.build
+@@ -15,6 +15,7 @@
+ 
+ # Appstream data
+ 
++if get_option('appstream')
+ metainfo_its = [
+   'metainfo.its',
+ ]
+@@ -47,6 +48,8 @@
+   gt_dns_name + '.metainfo.xml',
+   gt_dns_name + '.Nautilus.metainfo.xml',
+ )
++
++endif
+ 
+ # Desktop file
+ 

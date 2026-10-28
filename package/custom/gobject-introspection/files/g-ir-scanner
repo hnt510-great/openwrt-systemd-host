@@ -4,4 +4,4 @@ export GI_SCANNER_DISABLE_CACHE=1
 export GI_CROSS_LAUNCHER=@TOPDIR@/scripts/gi-target-runner
 export CC="@TOPDIR@/scripts/gi-target-cc ${CC:?target compiler must be supplied}"
 export LD_LIBRARY_PATH=@HOSTPKG@/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
-exec @HOSTPKG@/bin/g-ir-scanner --lib-dirs-envvar=GI_TARGET_LIBRARY_PATH --use-ldd-wrapper=@TOPDIR@/scripts/gi-target-ldd "$@"
+exec @HOSTPKG@/bin/g-ir-scanner --add-include-path=@STAGING@/usr/share/gir-1.0 --lib-dirs-envvar=GI_TARGET_LIBRARY_PATH --use-ldd-wrapper=@TOPDIR@/scripts/gi-target-ldd "$@"

@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 PKG_NAME:=libgtk3
 PKG_VERSION:=3.24.52
-PKG_RELEASE:=2
+PKG_RELEASE:=5
 PKG_SOURCE:=gtk-3.24.52.tar.xz
 PKG_SOURCE_URL:=https://download.gnome.org/sources/gtk/3.24/
 PKG_HASH:=80931fa472a77b9a164f6740e3c0b444fac6770054632d35a7ff9d679e5e7b9f
@@ -33,6 +33,8 @@ define Build/InstallDev
 endef
 
 define Package/libgtk3/install
+	$(INSTALL_DIR) $(1)/usr/bin
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/gtk-query-immodules-3.0 $(1)/usr/bin/
 	$(INSTALL_DIR) $(1)/usr/lib
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/*.so* $(1)/usr/lib/
 	[ ! -d $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0 ] || $(CP) $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0 $(1)/usr/lib/

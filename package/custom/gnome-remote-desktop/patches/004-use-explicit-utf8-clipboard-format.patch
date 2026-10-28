@@ -1,0 +1,29 @@
+--- a/src/grd-clipboard-rdp.c
++++ b/src/grd-clipboard-rdp.c
+@@ -1608,7 +1608,7 @@ cliprdr_client_format_data_request (Clipr
+       needs_null_terminator = TRUE;
+       needs_conversion = TRUE;
+       src_format_id = ClipboardGetFormatId (clipboard_rdp->system,
+-                                            "text/plain");
++                                            "text/plain;charset=utf-8");
+       break;
+     case CF_UNICODETEXT:
+       mime_type = clipboard_rdp->which_unicode_format;
+@@ -1615,7 +1615,7 @@ cliprdr_client_format_data_request (Clipr
+       needs_null_terminator = TRUE;
+       needs_conversion = TRUE;
+       src_format_id = ClipboardGetFormatId (clipboard_rdp->system,
+-                                            "text/plain");
++                                            "text/plain;charset=utf-8");
+       break;
+     case GRD_CF_HTML:
+       mime_type = GRD_MIME_TYPE_TEXT_HTML;
+@@ -1829,7 +1829,7 @@ convert_client_content_for_server (GrdCl
+     case GRD_MIME_TYPE_TEXT_UTF8_STRING:
+       is_null_terminated = TRUE;
+       dst_format_id = ClipboardGetFormatId (clipboard_rdp->system,
+-                                            "text/plain");
++                                            "text/plain;charset=utf-8");
+       break;
+     case GRD_MIME_TYPE_TEXT_HTML:
+       is_null_terminated = TRUE;
