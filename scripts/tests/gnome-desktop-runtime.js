@@ -31,6 +31,10 @@ for (const [name, version, symbol] of probes) {
 }
 
 const Gio = imports.gi.Gio;
+const tls = Gio.TlsBackend.get_default();
+if (!tls.supports_tls())
+    throw new Error('GIO TLS backend is unavailable; install libgio-gnutls');
+print('GIO TLS: ' + tls.constructor.name);
 const schemas = Gio.SettingsSchemaSource.get_default();
 for (const name of ['org.gnome.login-screen', 'org.gnome.shell',
     'org.gnome.desktop.interface', 'org.gnome.desktop.remote-desktop.rdp']) {

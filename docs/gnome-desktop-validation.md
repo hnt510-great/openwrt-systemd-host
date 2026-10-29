@@ -113,6 +113,17 @@ and invoke `gjs gnome-desktop-runtime.js`. This loads the actual GTK4,
 libadwaita, calendar, accessibility, Mutter and Shell classes and checks their
 transitive typelib dependencies. It does not start a graphical session.
 
+Run `gjs gnome-desktop-https.js` as the desktop user to verify the GIO TLS
+backend, trusted HTTPS metadata and ZIP download from extensions.gnome.org.
+This downloads Kimpanel for GNOME 51 without installing it. A `gio info
+https://...` failure alone does not diagnose TLS: HTTPS file operations also
+need a GVfs HTTP backend, while Shell uses libsoup directly.
+
+Launch `nautilus /home/USER` in that user's Wayland session and verify a
+visible file window, directory navigation and filename search. Repeat without
+the optional `org.freedesktop.Tracker3.Miner.Files` schema to cover the
+minimal profile's startup path; a process version query alone is insufficient.
+
 ## Disposable VM
 
 Use a new Q35/UEFI VM with four vCPUs, 6 GiB memory and a disposable disk.

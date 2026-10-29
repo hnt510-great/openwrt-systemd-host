@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=nautilus
 PKG_VERSION:=51.1
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 PKG_SOURCE:=nautilus-51.1.tar.xz
 PKG_SOURCE_URL:=https://download.gnome.org/sources/nautilus/51/
 PKG_HASH:=a703bc152d18d161d9dab957e2390a36e6246bb5c24de7b15c9624fcfa2f2816

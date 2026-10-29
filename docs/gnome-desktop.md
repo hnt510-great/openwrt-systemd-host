@@ -33,6 +33,19 @@ introspection generators run through the matching target loader.
 First-boot cache initialization registers the SVG image loader as well as
 schemas, GIO modules and input modules, so GNOME application icons can load.
 
+GNOME Shell depends on `libgio-gnutls` (built by the `glib-networking`
+recipe) and `ca-bundle` for HTTPS extension downloads. Extension Manager
+delegates installation to Shell, so installing a TLS-capable browser alone
+does not provide this backend. After adding it to a running system, refresh
+the GIO cache with `/usr/libexec/glib2-cache-update` and restart the desktop
+session if Shell has already cached the unavailable TLS backend.
+
+GNOME Files (`nautilus`) is included. LocalSearch's indexer is optional in
+this profile; Nautilus handles its missing settings schema and retains basic
+file browsing and filesystem search without indexed content search.
+See the [physical TLS and Files validation](gnome-tls-files-validation.md)
+for the signed deployment and actual Shell/RDP checks.
+
 Full systemd libudev and udevd provide device tags for logind seats. The udev
 package installs device-identification, seat and access rules, not networking
 renaming, firmware or module-loading rules. Existing procd hotplug dispatch,
