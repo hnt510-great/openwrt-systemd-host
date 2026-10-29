@@ -46,6 +46,13 @@ file browsing and filesystem search without indexed content search.
 See the [physical TLS and Files validation](gnome-tls-files-validation.md)
 for the signed deployment and actual Shell/RDP checks.
 
+GNOME Tweaks (`gnome-tweaks`) is included for additional appearance, font,
+keyboard, mouse, startup-application and window preferences. Its Python
+modules install into the target Python site-packages directory, with explicit
+PyGObject, GTK4, libadwaita, GUdev, Notify and desktop-schema dependencies.
+See the [physical Tweaks validation](gnome-tweaks-validation.md) for the
+signed deployment and application checks.
+
 Full systemd libudev and udevd provide device tags for logind seats. The udev
 package installs device-identification, seat and access rules, not networking
 renaming, firmware or module-loading rules. Existing procd hotplug dispatch,

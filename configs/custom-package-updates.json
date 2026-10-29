@@ -266,6 +266,13 @@
       "filename_pattern": "gnome\\-terminal-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.(?:xz|gz)",
       "series_index": "https://download.gnome.org/sources/gnome-terminal/"
     },
+    "gnome-tweaks": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/gnome-tweaks/49/",
+      "filename_pattern": "gnome\\-tweaks-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/gnome-tweaks/"
+    },
     "gnu-time": {
       "provider": "directory",
       "policy": "series",

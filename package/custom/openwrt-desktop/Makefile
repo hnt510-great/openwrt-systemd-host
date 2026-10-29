@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openwrt-desktop
-PKG_RELEASE:=21
+PKG_RELEASE:=22
 PKG_CONFIG_DEPENDS:=CONFIG_OPENWRT_SYSTEMD
 PKG_LICENSE:=MIT
 
@@ -13,7 +13,7 @@ define Package/openwrt-desktop
   TITLE:=Shared GNOME desktop with LAN RDP and Sunshine
   DEPENDS:=@TARGET_x86_64 @USE_GLIBC @OPENWRT_SYSTEMD +input-support +video-support +accel-support +systemd-udev +glibc-locale-utf8 +libpam \
 	+gnome-shell +gnome-session +gnome-settings-daemon +gnome-control-center \
-	+nautilus +gnome-terminal +gnome-remote-desktop +gnome-keyring \
+	+nautilus +gnome-terminal +gnome-tweaks +gnome-remote-desktop +gnome-keyring \
 	+xdg-desktop-portal-gnome +python3-gobject +glib2-utils +xwayland \
 	+kmod-input-evdev +dejavu-fonts-ttf-DejaVuSans \
 	+dejavu-fonts-ttf-DejaVuSansMono +openssl-util \
