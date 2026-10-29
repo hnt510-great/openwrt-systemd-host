@@ -206,6 +206,14 @@ solver cannot select it automatically, request its matching tracker version
 explicitly. An incompatible request fails before package writes rather than
 installing another same-ABI image. Initial migration without an installed image
 tracker can still enroll its first versioned kernel.
+
+For a deliberate same-ABI trial, APK r16 accepts a direct exact constraint on
+its versioned image (for example `linux-image-...-g38=ABI`) or that signed
+image's local APK path, together with all matching module/header trackers.
+Pinning only `linux-image-openwrt` does not opt in. Old retained image pins do
+not opt in to newer images either. Protected payload constraints, signature
+verification and the complete kernelctl transaction checks still apply.
+
 The APK solver still enforces the exact OpenWrt kernel ABI. Old payloads are
 anchored by installed-package checksums;
 APK cannot silently replace or remove them. The manager checks the original

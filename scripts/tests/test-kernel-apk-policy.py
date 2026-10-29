@@ -203,6 +203,50 @@ int main(int argc, char **argv) {
         for name in next_payloads:
             self.assertIn(name, after)
 
+    def test_explicit_same_abi_image_with_matching_generation_is_allowed(self):
+        abi, old = self.installed_abi_generation()
+        protected = self.root / 'etc/openwrt-kernel/protected'
+        records = self.installed()
+        protected.write_text(protected.read_text() + ''.join(
+            name + '><' + records[name]['C'] + '\n' for name in old))
+        new = self.abi_generation(11, abi)
+        version = '1000.11.6.18.55-r1'
+        self.apk('add', new[0] + '=' + abi, 'linux-image-openwrt=1-r11',
+                 'kmod-abi-probe=' + version, 'kernel-dev-headers=' + version)
+        after = self.installed()
+        for name in (*old, *new):
+            self.assertIn(name, after)
+        self.assertEqual(after['linux-image-openwrt']['V'], '1-r11')
+        self.assertEqual(after['kmod-abi-probe']['V'], version)
+        self.assertEqual(after['kernel-dev-headers']['V'], version)
+
+    def test_explicit_local_same_abi_image_preserves_protected_generation(self):
+        abi, old = self.installed_abi_generation()
+        protected = self.root / 'etc/openwrt-kernel/protected'
+        records = self.installed()
+        protected.write_text(protected.read_text() + ''.join(
+            name + '><' + records[name]['C'] + '\n' for name in old))
+        new = self.abi_generation(11, abi)
+        version = '1000.11.6.18.55-r1'
+        (self.root / 'var/cache/apk').mkdir(parents=True, exist_ok=True)
+        self.apk('--cache', '--cache-packages', 'add', str(self.repo / (new[0] + '-' + abi + '.apk')),
+                 'linux-image-openwrt=1-r11', 'kmod-abi-probe=' + version,
+                 'kernel-dev-headers=' + version)
+        for name in (*old, *new):
+            self.assertIn(name, self.installed())
+        self.assertEqual(self.installed()['linux-image-openwrt']['V'], '1-r11')
+
+    def test_old_retained_image_pin_does_not_enable_same_abi_upgrade(self):
+        abi, _ = self.installed_abi_generation()
+        retained = self.abi_generation(9, abi)
+        self.apk('add', retained[0] + '=' + abi)
+        new = self.abi_generation(11, abi)
+        self.apk('upgrade')
+        after = self.installed()
+        self.assertEqual(after['linux-image-openwrt']['V'], '1-r10')
+        for name in new:
+            self.assertNotIn(name, after)
+
     def test_same_abi_targeted_upgrade_also_keeps_installed_generation(self):
         abi, old = self.installed_abi_generation()
         new = self.abi_generation(11, abi)
@@ -341,7 +385,8 @@ int main(int argc, char **argv) {
         self.index()
         payload = self.repo / 'payload-probe-1-r2.apk'
         data = payload.read_bytes()
-        payload.write_bytes(data[:-1] + bytes([data[-1] ^ 1]))
+        # Truncate signed content; a final-byte flip may only alter padding.
+        payload.write_bytes(data[:len(data) // 2])
         before = (self.root / 'lib/apk/db/installed').read_bytes()
         plan = self.work / 'plan.json'
         self.apk('upgrade', '--plan-json', str(plan), success=False)
@@ -397,6 +442,18 @@ int main(int argc, char **argv) {
     def test_protected_image_survives_explicit_delete(self):
         self.apk('del', 'linux-image-generation-one')
         self.assertIn('linux-image-generation-one', self.installed())
+
+    def test_delete_keeps_protected_orphan_generation(self):
+        self.apk('upgrade')
+        world = self.root / 'etc/apk/world'
+        subprocess.run(['sudo', '-n', 'chown', str(os.getuid()), str(world)], check=True)
+        world.write_text(''.join(line + '\n' for line in world.read_text().splitlines()
+                                 if not line.startswith('linux-image-generation-one')))
+        self.assertNotIn('linux-image-generation-one', world.read_text())
+        self.apk('del', 'legacy-headers')
+        self.assertNotIn('legacy-headers', self.installed())
+        self.assertIn('linux-image-generation-one', self.installed())
+        self.assertEqual((self.root / 'usr/share/kernel-one').read_bytes(), b'old image')
 
     def test_package_script_failure_reaches_activation_policy(self):
         source = self.work / 'fail.c'; source.write_text('int main(void) { return 1; }\n')

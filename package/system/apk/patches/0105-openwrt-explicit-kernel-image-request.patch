@@ -1,0 +1,29 @@
+Subject: [PATCH] apk: honor explicit versioned kernel image requests
+
+Keep same-ABI automatic upgrades conservative, while permitting the
+operator to request a specific signed image and its complete generation.
+Existing protected dependencies and kernelctl transaction checks remain.
+
+---
+--- a/src/commit.c
++++ b/src/commit.c
+@@ -136,6 +136,19 @@
+ 		    ga - a != gb - b || memcmp(a, b, ga - a) ||
+ 		    strtoul(gb + 2, NULL, 10) <= strtoul(ga + 2, NULL, 10))
+ 			continue;
++		/* Only a direct constraint on this newer image permits the trial.
++		 * Pins retaining older images must not enable automatic upgrades.
++		 */
++		apk_array_foreach(dep, world) {
++			if (dep->name != image || dep->op == APK_DEPMASK_ANY ||
++			    (dep->op & APK_VERSION_CONFLICT))
++				continue;
++			apk_array_foreach(provider, image->providers) {
++				if (!apk_blob_compare(*provider->pkg->version, version) &&
++				    apk_dep_is_materialized(dep, provider->pkg))
++					return false;
++			}
++		}
+ 		if (!apk_array_len(*solver_world))
+ 			apk_dependency_array_copy(solver_world, world);
+ 		keep = true;

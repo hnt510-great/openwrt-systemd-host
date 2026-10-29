@@ -1,0 +1,57 @@
+Subject: [PATCH] apk: retain protected kernel payloads when deleting packages
+
+The delete applet solves directly, bypassing the common commit wrapper.
+Apply the same protected checksum constraints before its solve so garbage
+collection cannot select an unrelated fallback generation for removal.
+
+---
+diff --git a/src/commit.c b/src/commit.c
+--- a/src/commit.c
++++ b/src/commit.c
+@@ -43,7 +43,7 @@
+  * The protected dependency file is root-owned and only created by kernelctl.
+  * Script arguments, rather than ambient environment, carry transaction state.
+  */
+-static int kernel_retain(struct apk_database *db, struct apk_dependency_array **world)
++int apk_solver_kernel_retain(struct apk_database *db, struct apk_dependency_array **world)
+ {
+ 	char line[4096];
+ 	int fd = openat(db->root_fd, "etc/openwrt-kernel/protected", O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+@@ -1509,7 +1509,8 @@
+ 	apk_dependency_array_init(&protected_world);
+ 	apk_dependency_array_init(&solver_world);
+ 	apk_dependency_array_copy(&protected_world, world);
+-	if (apk_db_check_world(db, world) != 0 || kernel_retain(db, &protected_world) < 0) {
++	if (apk_db_check_world(db, world) != 0 ||
++	    apk_solver_kernel_retain(db, &protected_world) < 0) {
+ 		blocker = "invalid-world-or-protected-dependencies";
+ 		r = -1;
+ 		goto out;
+diff --git a/src/apk_solver.h b/src/apk_solver.h
+--- a/src/apk_solver.h
++++ b/src/apk_solver.h
+@@ -38,6 +38,8 @@
+ void apk_solver_set_name_flags(struct apk_name *name,
+ 			       unsigned short solver_flags,
+ 			       unsigned short solver_flags_inheritable);
++int apk_solver_kernel_retain(struct apk_database *db, struct apk_dependency_array **world);
++
+ int apk_solver_solve(struct apk_database *db,
+ 		     unsigned short solver_flags,
+ 		     struct apk_dependency_array *world,
+diff --git a/src/app_del.c b/src/app_del.c
+--- a/src/app_del.c
++++ b/src/app_del.c
+@@ -159,6 +159,12 @@
+ 	apk_dependency_array_copy(&ctx->world, db->world);
+ 	if (apk_array_len(args)) apk_db_foreach_matching_name(db, args, delete_name, ctx);
+ 	if (ctx->errors) return ctx->errors;
++
++	if (apk_solver_kernel_retain(db, &ctx->world) < 0) {
++		apk_err(&db->ctx->out, "Invalid protected kernel dependencies; refusing deletion.");
++		apk_dependency_array_free(&ctx->world);
++		return -1;
++	}
+ 
+ 	r = apk_solver_solve(db, 0, ctx->world, &changeset);
+ 	if (r == 0) {
