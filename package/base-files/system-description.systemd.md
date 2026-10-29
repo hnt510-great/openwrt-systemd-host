@@ -67,7 +67,7 @@ ubus call network.interface dump
 
 Feature names in `OPENWRT_FEATURES` have these meanings:
 
-- `desktop`: ordinary-user Weston Wayland desktop; inspect `desktop-setup`
+- `desktop`: ordinary-user GNOME Wayland desktop; inspect `desktop-setup`
   and `/etc/config/desktop` for provisioning and session configuration.
 - `virtualization`: libvirt VM management; inspect `virsh -c qemu:///system list
   --all`, installed QEMU tools and `/dev/kvm`. KVM requires usable hardware
@@ -85,37 +85,58 @@ Feature names in `OPENWRT_FEATURES` have these meanings:
 
 ### Desktop, remote access and audio
 
-The desktop runs as an ordinary user, configured with `desktop-setup USER` and
-`/etc/config/desktop`. Weston supports a local display, authenticated TLS VNC,
-and optional NLA-authenticated RDP mirroring of that same desktop. RDP uses a
-separately configured password through `desktop-rdp-setup USER`. These mirrors
-require a connected display; reconnecting does not create a new session.
-Restarting the desktop closes its applications.
+The GNOME desktop runs as an ordinary user, configured with
+`desktop-setup USER` and `/etc/config/desktop`. GNOME Shell/Mutter manages the
+local Wayland session. GNOME Remote Desktop provides RDP sharing of that same
+session; `desktop-rdp-setup USER` configures its separate credentials. The
+listener follows the LAN address and defaults to LAN IPv4 TCP 3389. Reconnecting
+does not create another login session. This profile uses neither a VNC server
+nor xrdp. Restarting the desktop closes its applications and remote connections.
 
-GL composition uses EGL/GBM. `force_composition=1` exports
-`WESTON_FORCE_RENDERER=1` so client windows remain visible in Sunshine KMS
-capture while retaining GL rendering and hardware video acceleration.
-Hardware decoding/encoding depends on the GPU and codec; an accessible render
-node alone does not prove support. Firefox ESR runs as the desktop user;
-profiles, extensions and open tabs belong to that user.
+`desktop-setup` provisions unattended GNOME keyring access for session startup.
+Preserve the existing user keyring, root-only bootstrap credentials and RDP TLS
+identity across upgrades; do not replace them to recover a remote connection.
+Inspect the ordinary user's `gnome-keyring-daemon.service`,
+`gnome-remote-desktop.service` and `openwrt-gnome-remotes.service` alongside
+the root `openwrt-desktop.service`. Provisioning and an active listener alone
+do not prove successful client authentication or screen sharing.
+
+The desktop profile includes GNOME Files (`nautilus`), Terminal
+(`gnome-terminal`), Settings (`gnome-control-center`) and Tweaks
+(`gnome-tweaks`). Nautilus supports basic file browsing and filename search
+without the optional LocalSearch indexer. Settings omits network, WWAN,
+Bluetooth, Wacom, online-account, printer and color panels; router networking
+remains under LuCI/UCI/netifd. Firefox ESR runs as the desktop user; profiles,
+extensions and open tabs belong to that user.
+
+Shell extension downloads use libsoup and GIO TLS. `libgio-gnutls`, built by
+the `glib-networking` recipe, provides the TLS backend; `ca-bundle` provides
+trusted certificates. Extension Manager delegates installation to Shell.
+After adding a backend to a running installation, refresh caches with
+`/usr/libexec/glib2-cache-update` and restart the desktop after the package
+transaction if Shell has cached the unavailable backend.
 
 With `openwrt-desktop-audio`, `desktop-audio-setup USER` enrolls the user for
 PipeWire/WirePlumber playback and capture. Inspect `systemctl --user`,
-`wpctl status` and `pactl info` in that user's session. RDP can redirect playback
-and a client microphone; VNC can use the separate `desktop-audio-stream` SSH
-stream. Sunshine/Moonlight shares the current desktop and audio after explicit
-`sunshine-setup USER --enable-kms` enrollment and client pairing. Playback,
-microphone and remote-client acceptance require end-to-end checks.
+`wpctl status` and `pactl info` in that user's session. GNOME RDP redirects
+playback and a client microphone. Sunshine/Moonlight shares the same desktop
+and audio after enrollment and client pairing. `sunshine-setup USER
+--capture=portal` selects GNOME portal/PipeWire capture; `sunshine-setup USER
+--enable-kms` explicitly enrolls KMS capture. Existing pairings and capture
+preferences are preserved. Portal capture may require the user's screen
+selection permission. GPU and codec support, playback, microphone and client
+input require end-to-end checks; a render node or active service is insufficient.
 
-When `openwrt-desktop-ime` is installed, the next desktop session starts Fcitx5
-through Weston's input-method entry. It supplies offline Chinese Pinyin,
-libime dictionaries, a GTK3 input module and Chinese fonts. Fresh profiles
-start in English; **Ctrl+Shift+Space** toggles Pinyin. Type `nihao` and press
-Space to commit `你好`. On macOS RDP clients use Control+Shift+Space with the
-local input source set to ABC/English and physical/scancode forwarding.
-Existing personal Fcitx settings are preserved. Do not start a second Fcitx
-daemon; reconnecting RDP alone does not activate a newly installed IME.
-This integration does not supply Qt or XIM frontends.
+When `openwrt-desktop-ime` is installed, the GNOME session supervises Fcitx5.
+Its IBus compatibility frontend serves GNOME's native input path; the Kimpanel
+Shell extension displays candidates, and GTK3/GTK4 modules support other
+applications. Offline Chinese Pinyin, libime dictionaries and Chinese fonts
+are included. Fresh profiles start in English; **Ctrl+Space** toggles Pinyin.
+Type `nihao` and press Space to commit `你好`. Existing personal shortcuts,
+profiles and dictionaries are preserved; inspect the user's Fcitx configuration
+before assuming its trigger. Remote clients must forward the chosen shortcut
+to the session. Do not start another Fcitx daemon; RDP reconnection alone does not
+activate a newly installed session integration.
 
 ### Virtual machines, containers and development
 
@@ -179,28 +200,28 @@ restart advice when installed. A fresh `needrestart` scan inspects replaced or
 removed files and kernel/container state. Neither scan restarts workloads;
 check report freshness and coverage before acting.
 
-## Reference physical-router status, 2026-10-26
+## Inspect the live system
 
-This dated snapshot describes the reference router at `192.0.2.1`, not every
-image built from this source. Recheck live state before relying on it:
+This document describes the build's integration and available packages. Fixed
+build revisions, kernel generations, guest inventories and running-service
+snapshots become stale; query the machine before changing it. In particular,
+the kernel ABI in a repository URL does not identify its booted generation.
 
-- Native systemd is PID 1 on x86_64/glibc. Base-files reports build revision
-  `r37669+166-6c9452a35b`.
-- Running and known-good kernel:
-  `7.3-owrt-5001c59b1072ebdf1a2ed551a854f37a-r1-g30`.
-  `kernelctl check` passed; phase is `ready` with no pending trial.
-  Previous-good is generation 25 of Linux 6.18.55; rescue is `legacy-6.18.55`.
-- The persistent overlay is ext4 on `/dev/nvme0n1p1`; `/` uses overlayfs and
-  `/boot` is on `/dev/sda1`. Kernel health reports LAN, WAN, WireGuard,
-  IPv4/IPv6 default routes and KVM available.
-- The OpenWrt procd/services integration and optional service bridge are active.
-  Weston GL composition, RDP and desktop audio are configured for `desktop-user`;
-  Weston, PipeWire, WirePlumber and Sunshine processes were observed, and the
-  three audio/streaming user units were active. These observations do not
-  replace remote-client playback, capture or input acceptance checks.
-- Firefox ESR, Flatpak, AppImage integration, Distrobox, Podman, libvirt/QEMU,
-  virt-manager and native development packages are installed. The system
-  libvirt connection listed `freebsd15.1` as shut off, with no running domains.
-- Local APK sources select the generation-30 ABI and the protected kernel
-  channel through `apk.example.invalid:8088`. Chinese input is documented above
-  for use when its optional packages are installed and a new session starts.
+```sh
+uname -r
+kernelctl check
+# kernelctl status includes the full installed-generation inventory.
+kernelctl status
+apk info -e gnome-shell nautilus gnome-tweaks openwrt-desktop-ime
+systemctl --no-pager status openwrt-desktop.service
+loginctl list-sessions
+findmnt /overlay
+findmnt /boot
+virsh -c qemu:///system list --all
+ubus call network.interface dump
+```
+
+Run `systemctl --user`, `wpctl`, Flatpak and desktop application commands in
+the intended ordinary user's session. Root's user manager is a different
+context. Check RDP/Sunshine listener addresses with `ss -lntup` and preserve
+LAN-only bindings when repairing remote access.
