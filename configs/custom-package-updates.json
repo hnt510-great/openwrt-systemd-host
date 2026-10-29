@@ -2,10 +2,10 @@
   "schema": 1,
   "packages": {
     "accountsservice": {
-      "provider": "directory",
+      "provider": "gitlab",
       "policy": "series",
-      "index": "https://gitlab.freedesktop.org/accountsservice/accountsservice/-/tags",
-      "filename_pattern": "accountsservice-v?(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.gz"
+      "host": "https://gitlab.freedesktop.org",
+      "project": "accountsservice/accountsservice"
     },
     "adwaita-icons": {
       "provider": "directory",
@@ -141,10 +141,10 @@
       "series_index": "https://download.gnome.org/sources/gcr/"
     },
     "geoclue": {
-      "provider": "directory",
+      "provider": "gitlab",
       "policy": "series",
-      "index": "https://gitlab.freedesktop.org/geoclue/geoclue/-/tags",
-      "filename_pattern": "geoclue-v?(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.gz"
+      "host": "https://gitlab.freedesktop.org",
+      "project": "geoclue/geoclue"
     },
     "geocode-glib": {
       "provider": "directory",
@@ -468,10 +468,10 @@
       "catalog": "releases"
     },
     "libei": {
-      "provider": "directory",
+      "provider": "gitlab",
       "policy": "series",
-      "index": "https://gitlab.freedesktop.org/libinput/libei/-/tags",
-      "filename_pattern": "libei\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.gz"
+      "host": "https://gitlab.freedesktop.org",
+      "project": "libinput/libei"
     },
     "libfontenc": {
       "provider": "directory",
@@ -580,11 +580,13 @@
       "provider": "github",
       "policy": "series",
       "project": "libpwquality/libpwquality",
-      "catalog": "releases"
+      "catalog": "releases",
+      "tag_pattern": "libpwquality-(?P<version>[0-9]+(?:\\.[0-9]+)*)"
     },
     "librsvg": {
       "provider": "directory",
       "policy": "series",
+      "stable_pattern": "(?!.*\\.9[0-9]$)[0-9]+(?:\\.[0-9]+)*",
       "index": "https://download.gnome.org/sources/librsvg/2.62/",
       "filename_pattern": "librsvg-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/librsvg/"
@@ -606,7 +608,8 @@
       "provider": "github",
       "policy": "series",
       "project": "storaged-project/udisks",
-      "catalog": "releases"
+      "catalog": "releases",
+      "tag_pattern": "udisks-(?P<version>[0-9]+(?:\\.[0-9]+)*)"
     },
     "libva-utils": {
       "provider": "github",
@@ -737,7 +740,8 @@
       "provider": "github",
       "policy": "series",
       "project": "FFmpeg/nv-codec-headers",
-      "catalog": "tags"
+      "catalog": "tags",
+      "tag_pattern": "n(?P<version>[0-9]+(?:\\.[0-9]+)*)"
     },
     "openwrt-appimage": {
       "provider": "local",
@@ -862,10 +866,10 @@
       "project": "traceroute"
     },
     "upower": {
-      "provider": "directory",
+      "provider": "gitlab",
       "policy": "series",
-      "index": "https://gitlab.freedesktop.org/upower/upower/-/tags",
-      "filename_pattern": "upower-v?(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.gz"
+      "host": "https://gitlab.freedesktop.org",
+      "project": "upower/upower"
     },
     "util-macros": {
       "provider": "directory",

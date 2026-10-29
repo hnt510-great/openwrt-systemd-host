@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=appstream
-PKG_VERSION:=1.2.1
+PKG_VERSION:=1.2.2
 PKG_RELEASE:=1
 PKG_SOURCE:=appstream-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/ximion/appstream/tar.gz/refs/tags/v$(PKG_VERSION)?
-PKG_HASH:=2bc53d1d63ae28e7409a15747d4ae23a557409249461aab87a7947640402d1bd
+PKG_HASH:=6b554b90c2139aceef65e1aebe811cfe398af4ea749eb5ffa0b7286053ff9e50
 PKG_LICENSE:=LGPL-2.1-or-later
 PKG_LICENSE_FILES:=COPYING
 PKG_INSTALL:=1
