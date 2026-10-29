@@ -26,6 +26,12 @@ class FeedServerTest(unittest.TestCase):
                     (snapshot / filename).write_bytes(data)
                 (snapshot / 'private-key.pem').write_text('forbidden')
                 (snapshot / '.hidden.apk').write_text('forbidden')
+            images = public / 'images/7.3-g38-0123456789abcdef'
+            images.mkdir(parents=True)
+            image_files = ('openwrt-test.img.gz', 'SHA256SUMS', 'SHA256SUMS.sig',
+                           'image-signing.pub.pem')
+            for filename in (*image_files, 'private-key.pem', 'unapproved.img'):
+                (images / filename).write_bytes(b'image fixture')
             (public / 'abi').mkdir()
             alias = public / 'abi/kernel'
             alias.symlink_to('../old')
@@ -76,6 +82,14 @@ class FeedServerTest(unittest.TestCase):
                     self.assertEqual(request('/abi/kernel/missing.apk')[0], 404)
                     self.assertEqual(request('/abi/kernel/test.apk', 'POST')[0], 403)
                     self.assertEqual(request('/abi/kernel/test.apk', source=('127.0.0.2', 0))[0], 403)
+                    for filename in image_files:
+                        path = '/images/7.3-g38-0123456789abcdef/' + filename
+                        self.assertEqual(request(path)[::2], (200, b'image fixture'))
+                        self.assertEqual(request(path, 'HEAD')[0], 200)
+                        self.assertEqual(request(path, 'POST')[0], 403)
+                        self.assertEqual(request(path, source=('127.0.0.2', 0))[0], 403)
+                    for filename in ('private-key.pem', 'unapproved.img', ''):
+                        self.assertEqual(request('/images/7.3-g38-0123456789abcdef/' + filename)[0], 403)
                     replacement = public / 'abi/next'
                     replacement.symlink_to('../new')
                     replacement.replace(alias)
