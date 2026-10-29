@@ -386,3 +386,120 @@ preserved. This validates patch application and focused compilation, not a
 full kernel/module link, firmware/package build or runtime behavior. No VM or
 physical-device test, publication, installation, reboot, commit or push was
 performed for this batch.
+
+
+## Upstream additions reviewed, 2026-10-29
+
+Merged OpenWrt through `795f369b181cd128962fa8f60a03eaf0ac8afac6`
+(152 incoming main-tree commits). The selected target remains x86/64,
+Linux 7.3, glibc and native systemd. The source review compares the incoming
+changes, existing registry, hash-verified 7.3 archive and prepared source.
+
+There are **23 new generic 6.18 source patches**. The complete generic/x86
+6.18 inventory now contains 511 patches, while the unchanged registry still
+contains 488. All 488 existing source entries and their registered ported
+hashes match; there are no removed entries. The 23 additions need disposition
+and registry entries when their ports are implemented. This review does not
+classify a patch as already upstream from its filename or version prefix.
+
+| New series | Count | Linux 7.3 finding | Current x86 configuration |
+| --- | ---: | --- | --- |
+| `835-01` through `835-05`, netdev LED trigger | 5 | Worth porting together; fixes reference leakage, worker UAF, sysfs group races, invalid interval handling and concurrent stores | `CONFIG_LEDS_TRIGGER_NETDEV=y` |
+| `860-01` through `860-06`, AZ6007/DRXK/DVB core | 6 | Complete series applies to prepared 7.3 with zero fuzz; USB disconnect/error handling and release wakeups are absent | `CONFIG_DVB_CORE` disabled; media core alone is enabled |
+| `753`, ZYXEL PMG3000-D20B SFP quirk | 1 | Forward zero-fuzz dry run passes and forced reverse fails; optional module-specific fix | `CONFIG_SFP` disabled |
+| `735`, `793-01` through `793-04`, `794`, `797-00` through `797-02`, `798`, `799`, MediaTek/WED | 11 | Complete ordered series applies to prepared 7.3 with zero fuzz; platform fixes and wireless flow-priority/idle reporting integration | MediaTek SoC/WED not selected |
+
+### Priority: netdev LED trigger
+
+The five LED patches address code compiled into the current kernel and are the
+first porting candidates. Prepared 7.3 still lacks the error-path `dev_put()`,
+worker locking, `attr_lock` and shared software-blink predicate. Its interval
+store silently accepts invalid values, and attribute stores still modify state
+without the trigger mutex. Forced reverse dry runs do not find the new series.
+
+Patches 01, 02 and 04 apply in an ordered trial with zero fuzz. Patches 03 and
+05 each leave one context hunk unresolved in that trial. Linux 7.3 additionally
+supports 25/40/50/100-Gbit link modes: patch 03's visibility-loop locking and
+patch 05's conflicting-mode rejection must retain all those modes when rebased.
+Do not drop the high-speed cases to make the 6.18 patch apply. Carry the worker
+locking, asynchronous cancellation, hardware-control check and carrier check
+as a coordinated series, then compile and exercise concurrent trigger/sysfs
+updates and device removal. Application checks alone do not validate races.
+
+### Other candidates and scope
+
+All six DVB patches apply in sequence to copies of the actual prepared source
+with zero fuzz; offsets occur. Patch 04 depends on patch 03's disconnect error
+handling. These are useful optional-device candidates, but the selected kernel
+does not build DVB core or those tuner drivers.
+
+The eleven MediaTek patches also apply together with zero fuzz. In isolation,
+`797-02` fails because it depends on the earlier series; its ordered application
+succeeds. The DMA-unmap size fix `735-v7.3-...` is **not** present in the verified
+7.3 release: pristine and prepared `mtk_wed_wo_dequeue()` still unmap using
+`SKB_WITH_OVERHEAD(q->buf_size)`. Its filename is not proof of inclusion.
+The flow-query additions depend on the matching wireless/backports driver
+changes, so their integration needs platform-specific build/runtime validation.
+
+Incoming BCM, Octeon, Qualcomm and Realtek board patches belong to targets
+still selecting their own kernel series. Incoming mac80211 patches are merged
+in the separate backports package; they are not automatically additions to the
+native generic/x86 7.3 patch stack.
+
+### Evidence and limits
+
+Evidence is retained under
+`.git/pull-preserve/20261029T002206Z/kernel-audit/`: incoming commit/file lists,
+individual forced-reverse and forward dry runs, ordered-series trials, source
+hashes and archive provenance. The 7.3 archive SHA256 is
+`87363c24f10e06321eb362765521094e94471f6bff8bce2d6b3e40f39f004953`.
+All 18 affected prepared source files match the retained, previously validated
+294-patch tree byte for byte. Patch trials used isolated copies, preserving the
+normal prepared build tree.
+
+This is a review, with no new 7.3 patch or registry edit and no kernel build,
+package publication, device deployment or reboot. The earlier MAP-E,
+RM500Q-AE binding and DMA-BUF heap optional-feature findings remain open.
+Strict Kconfig checking still reports the pre-existing native-libudev provider
+recursion, also recorded before this synchronization in the GNOME deployment
+logs; this update does not establish a passing strict Kconfig or full image.
+
+
+### The 23 additions ported to Linux 7.3, 2026-10-29
+
+The follow-up implements all candidates listed above: five netdev LED fixes,
+six DVB hot-unplug fixes, the ZYXEL SFP quirk and eleven MediaTek/WED patches.
+Twenty-one patches retain the upstream 6.18 bytes exactly. LED patches 03
+and 05 are rebased for 7.3 while retaining the 25/40/50/100-Gbit visibility
+and conflicting-mode checks. Worker locking, asynchronous cancellation,
+carrier/offload gating and sysfs-group serialization are carried together.
+
+The audit registry now covers all **511 generic/x86 6.18 source patches**,
+with no missing/stale entries or source/ported hash mismatches. Existing 488
+entries and existing 7.3 patches are unchanged. The earlier 23-entry registry
+gap and LED-context failures are resolved. The older MAP-E, RM500Q-AE binding
+and DMA-BUF heap findings remain outside this batch and remain open.
+
+Evidence is under `.git/kernel-backport-20261029T003545Z/`:
+
+- A fresh extraction of the SHA256-verified 7.3 archive plus the target
+  overlays accepts all **317 patches with zero fuzz**.
+- Eleven affected C objects compile with OpenWrt GCC 14.4.0 in an independent
+  SDK copy: netdev LED, AZ6007, DRXK, DVB demux and CA, SFP, MediaTek Ethernet,
+  PPE, PPE offload, WED and WED WO. COMPILE_TEST, MediaTek SoC/WED, CFG80211,
+  DVB core/USB/AZ6007/DRXK and SFP are explicitly enabled in that copy.
+  All 18 affected source/header files match the freshly patched tree.
+- Twenty mainline-updater and seven kernel-input tests pass.
+- Checkpatch has no new diagnostics relative to the source patches. The
+  inherited three complex-macro-parenthesis errors in MediaTek patches 797-01
+  and 797-02 remain, as do upstream Fixes-reference, nominal-author/signature
+  and style warnings. The LED rebase introduces no checkpatch errors.
+  `git diff --check` passes for the working changes; new patch payloads were
+  checked separately.
+
+The original `.config`, normal prepared kernel tree, feed repositories,
+stashes and unrelated work are preserved. The optional configurations above
+exist only in the disposable SDK copy. This is patch-application and focused
+object-compilation validation; it is not a full kernel/module link, firmware
+build, race stress test, ARM/MediaTek device test or physical deployment.
+No publication, installation, reboot, commit or Git push was performed.

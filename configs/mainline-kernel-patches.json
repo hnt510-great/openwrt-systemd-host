@@ -5189,6 +5189,273 @@
       "source_sha256": "09f7f6ce05f383a0fbfff62112dd20d6ed8c81a55dcf264f64dbdf5945a4b8af",
       "ported": "target/linux/x86/patches-7.3/103-pcengines_apu6_platform.patch",
       "ported_sha256": "7252b08c8e932b53a958829f9a1cafce1645b6fbe5368c10acf3c526675d8e9e"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/735-v7.3-net-ethernet-mtk_wed-Fix-dma_unmap_single-size.patch",
+      "files": [
+        "drivers/net/ethernet/mediatek/mtk_wed_wo.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "5d738a09496f53ea415ee00889ba4192f644fa64055e9cdb7f99e0316bdd4d7d",
+      "ported": "target/linux/generic/backport-7.3/735-v7.3-net-ethernet-mtk_wed-Fix-dma_unmap_single-size.patch",
+      "ported_sha256": "5d738a09496f53ea415ee00889ba4192f644fa64055e9cdb7f99e0316bdd4d7d"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/753-net-sfp-add-quirk-for-ZYXEL-PMG3000-D20B.patch",
+      "files": [
+        "drivers/net/phy/sfp.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "e011762d0d8437e10967c5b08e3fe797cb7855fa81835870645eaf301b3c590c",
+      "ported": "target/linux/generic/pending-7.3/753-net-sfp-add-quirk-for-ZYXEL-PMG3000-D20B.patch",
+      "ported_sha256": "e011762d0d8437e10967c5b08e3fe797cb7855fa81835870645eaf301b3c590c"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/793-01-net-ethernet-mtk_wed-skip-ring-reset-in-wdma_tx_ring.patch",
+      "files": [
+        "drivers/net/ethernet/mediatek/mtk_wed.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "4f6f59e3713983ff7e2536a75a4d7e43f77205e01625dc898d6af92db35b8ded",
+      "ported": "target/linux/generic/pending-7.3/793-01-net-ethernet-mtk_wed-skip-ring-reset-in-wdma_tx_ring.patch",
+      "ported_sha256": "4f6f59e3713983ff7e2536a75a4d7e43f77205e01625dc898d6af92db35b8ded"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/793-02-net-ethernet-mtk_wed-fix-reset-condition-for-rx-wdma.patch",
+      "files": [
+        "drivers/net/ethernet/mediatek/mtk_wed.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "4e40cbc8f00a9f350bd23e0f1189d4454b4d0a149269fb48e3b2eb7401e2a4e0",
+      "ported": "target/linux/generic/pending-7.3/793-02-net-ethernet-mtk_wed-fix-reset-condition-for-rx-wdma.patch",
+      "ported_sha256": "4e40cbc8f00a9f350bd23e0f1189d4454b4d0a149269fb48e3b2eb7401e2a4e0"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/793-03-net-ethernet-mtk_wed-free-up-rings-during-detach.patch",
+      "files": [
+        "drivers/net/ethernet/mediatek/mtk_wed.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "b74f99364e455fc44a45c3d158dd3728298b00577c7d0b88aaa2dee49eb3eddd",
+      "ported": "target/linux/generic/pending-7.3/793-03-net-ethernet-mtk_wed-free-up-rings-during-detach.patch",
+      "ported_sha256": "b74f99364e455fc44a45c3d158dd3728298b00577c7d0b88aaa2dee49eb3eddd"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/793-04-net-ethernet-mtk_wed-setup-WDMA_RING_TX-0-for-non-DB.patch",
+      "files": [
+        "drivers/net/ethernet/mediatek/mtk_wed.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "b7c2bdfeb87561ed6f6aa04d8db37ece2b82d8fb11467c26a358d8e10a33def0",
+      "ported": "target/linux/generic/pending-7.3/793-04-net-ethernet-mtk_wed-setup-WDMA_RING_TX-0-for-non-DB.patch",
+      "ported_sha256": "b7c2bdfeb87561ed6f6aa04d8db37ece2b82d8fb11467c26a358d8e10a33def0"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/794-net-ethernet-mtk_wed-bypass-the-RROQM-when-hw_rro-is.patch",
+      "files": [
+        "drivers/net/ethernet/mediatek/mtk_wed.c",
+        "drivers/net/ethernet/mediatek/mtk_wed_regs.h"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "63e106394d0ec40fe41e8e3e385ac941571ebda134afb2ede9631726f1028206",
+      "ported": "target/linux/generic/pending-7.3/794-net-ethernet-mtk_wed-bypass-the-RROQM-when-hw_rro-is.patch",
+      "ported_sha256": "63e106394d0ec40fe41e8e3e385ac941571ebda134afb2ede9631726f1028206"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/797-00-wifi-cfg80211-add-the-flow-key-and-flow-description-.patch",
+      "files": [
+        "include/net/cfg80211.h"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "652595247573954cea49275a78a7e078df7b2a6f58b9fcf94107a35187d78799",
+      "ported": "target/linux/generic/pending-7.3/797-00-wifi-cfg80211-add-the-flow-key-and-flow-description-.patch",
+      "ported_sha256": "652595247573954cea49275a78a7e078df7b2a6f58b9fcf94107a35187d78799"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/797-01-net-ethernet-mtk_eth_soc-query-the-wireless-driver-f.patch",
+      "files": [
+        "drivers/net/ethernet/mediatek/mtk_eth_soc.h",
+        "drivers/net/ethernet/mediatek/mtk_ppe.c",
+        "drivers/net/ethernet/mediatek/mtk_ppe.h",
+        "drivers/net/ethernet/mediatek/mtk_ppe_offload.c",
+        "drivers/net/ethernet/mediatek/mtk_wed.c",
+        "drivers/net/ethernet/mediatek/mtk_wed.h",
+        "include/linux/soc/mediatek/mtk_wed.h",
+        "drivers/net/ethernet/mediatek/mtk_eth_soc.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "4e22cfd56957174e82d82fd0bf3a329790f2655ff6bbae48a9b13bdebd1c5177",
+      "ported": "target/linux/generic/pending-7.3/797-01-net-ethernet-mtk_eth_soc-query-the-wireless-driver-f.patch",
+      "ported_sha256": "4e22cfd56957174e82d82fd0bf3a329790f2655ff6bbae48a9b13bdebd1c5177"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/797-02-net-ethernet-mtk_eth_soc-report-the-idle-time-of-off.patch",
+      "files": [
+        "drivers/net/ethernet/mediatek/mtk_eth_soc.h",
+        "drivers/net/ethernet/mediatek/mtk_ppe.c",
+        "drivers/net/ethernet/mediatek/mtk_ppe.h",
+        "drivers/net/ethernet/mediatek/mtk_ppe_offload.c",
+        "drivers/net/ethernet/mediatek/mtk_wed.c",
+        "include/linux/soc/mediatek/mtk_wed.h"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "7082bae64197e6be1a3438b6b0df6a21d5fa59ac1597d1e26c71a52b93c482a3",
+      "ported": "target/linux/generic/pending-7.3/797-02-net-ethernet-mtk_eth_soc-report-the-idle-time-of-off.patch",
+      "ported_sha256": "7082bae64197e6be1a3438b6b0df6a21d5fa59ac1597d1e26c71a52b93c482a3"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/798-net-ethernet-mtk_wed-free-the-hw_rro-buffers-once-in.patch",
+      "files": [
+        "drivers/net/ethernet/mediatek/mtk_wed.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "a30166c0dc5e827ee49984f1aab210439c7eb98b448de43f12dfd12b91edba76",
+      "ported": "target/linux/generic/pending-7.3/798-net-ethernet-mtk_wed-free-the-hw_rro-buffers-once-in.patch",
+      "ported_sha256": "a30166c0dc5e827ee49984f1aab210439c7eb98b448de43f12dfd12b91edba76"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/799-net-ethernet-mtk_wed-attach-a-PCIe-device-of-domain-.patch",
+      "files": [
+        "drivers/net/ethernet/mediatek/mtk_wed.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "4ea6ebfe5b317bbc445823aef92789ce2bb5e7678e63a9719e1d83b2dd8404b8",
+      "ported": "target/linux/generic/pending-7.3/799-net-ethernet-mtk_wed-attach-a-PCIe-device-of-domain-.patch",
+      "ported_sha256": "4ea6ebfe5b317bbc445823aef92789ce2bb5e7678e63a9719e1d83b2dd8404b8"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/835-01-leds-trigger-netdev-put-netdev-on-activate-error-path.patch",
+      "files": [
+        "drivers/leds/trigger/ledtrig-netdev.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "b519dd9be079e4973c73e7900fb4a84acaef1ed060b23d5f9b8a8407f6a981e2",
+      "ported": "target/linux/generic/pending-7.3/835-01-leds-trigger-netdev-put-netdev-on-activate-error-path.patch",
+      "ported_sha256": "b519dd9be079e4973c73e7900fb4a84acaef1ed060b23d5f9b8a8407f6a981e2"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/835-02-leds-trigger-netdev-access-net-dev-under-trigger-data-lock-in-the-worker.patch",
+      "files": [
+        "drivers/leds/trigger/ledtrig-netdev.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "2c409072eee8862a1350ecc44cd38e7625f581841da85130f291dfcaa83b66fd",
+      "ported": "target/linux/generic/pending-7.3/835-02-leds-trigger-netdev-access-net-dev-under-trigger-data-lock-in-the-worker.patch",
+      "ported_sha256": "2c409072eee8862a1350ecc44cd38e7625f581841da85130f291dfcaa83b66fd"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/835-03-leds-trigger-netdev-fix-sysfs-update-group-races.patch",
+      "files": [
+        "drivers/leds/trigger/ledtrig-netdev.c"
+      ],
+      "status": "refreshed",
+      "reason": "Rebased preserving Linux 7.3 high-speed netdev LED modes after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "d86a3bc369ee9ef64578febe1808e94c1bf72ac846ee9e2fbf218e30df3411d1",
+      "ported": "target/linux/generic/pending-7.3/835-03-leds-trigger-netdev-fix-sysfs-update-group-races.patch",
+      "ported_sha256": "91de66dfe96068cc3194ecde31999b7cedf535efb66f366e2385946fa2dba04d"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/835-04-leds-trigger-netdev-report-invalid-interval-to-user-space.patch",
+      "files": [
+        "drivers/leds/trigger/ledtrig-netdev.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "4cdc6ec9d59feb5be50687f73af9ef83351d3be973c48baabdbc1b6feadb2ad5",
+      "ported": "target/linux/generic/pending-7.3/835-04-leds-trigger-netdev-report-invalid-interval-to-user-space.patch",
+      "ported_sha256": "4cdc6ec9d59feb5be50687f73af9ef83351d3be973c48baabdbc1b6feadb2ad5"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/835-05-leds-trigger-netdev-serialize-mode-interval-stores-with-trigger-lock.patch",
+      "files": [
+        "drivers/leds/trigger/ledtrig-netdev.c"
+      ],
+      "status": "refreshed",
+      "reason": "Rebased preserving Linux 7.3 high-speed netdev LED modes after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "e58223878cca16335d301a6deeb639c9444505418ccf048850d5b2ede297309a",
+      "ported": "target/linux/generic/pending-7.3/835-05-leds-trigger-netdev-serialize-mode-interval-stores-with-trigger-lock.patch",
+      "ported_sha256": "039818a753498829edfbbf3b17211418152e08d20129e00ef6aad6b8f1e43d38"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/860-01-media-az6007-fix-CAM-status-polling-after-disconnect.patch",
+      "files": [
+        "drivers/media/usb/dvb-usb-v2/az6007.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "0d9b4bc4044ace899d22b3f0496b0db6c27e41425080e09f8b1f8602fb58f2b2",
+      "ported": "target/linux/generic/pending-7.3/860-01-media-az6007-fix-CAM-status-polling-after-disconnect.patch",
+      "ported_sha256": "0d9b4bc4044ace899d22b3f0496b0db6c27e41425080e09f8b1f8602fb58f2b2"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/860-02-media-az6007-propagate-USB-errors-from-I2C-transfers.patch",
+      "files": [
+        "drivers/media/usb/dvb-usb-v2/az6007.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "b681b9bb3c67a57f8f9c0c441a1487e72e5f9c6730010726bc53e3e043573c60",
+      "ported": "target/linux/generic/pending-7.3/860-02-media-az6007-propagate-USB-errors-from-I2C-transfers.patch",
+      "ported_sha256": "b681b9bb3c67a57f8f9c0c441a1487e72e5f9c6730010726bc53e3e043573c60"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/860-03-media-drxk-stop-retrying-after-disconnect.patch",
+      "files": [
+        "drivers/media/dvb-frontends/drxk_hard.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "24282719cdfc802b0d3cde620cbd9c42f551292d60cd87ab7797de68516f602b",
+      "ported": "target/linux/generic/pending-7.3/860-03-media-drxk-stop-retrying-after-disconnect.patch",
+      "ported_sha256": "24282719cdfc802b0d3cde620cbd9c42f551292d60cd87ab7797de68516f602b"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/860-04-media-drxk-stop-accessing-a-disconnected-device.patch",
+      "files": [
+        "drivers/media/dvb-frontends/drxk_hard.c",
+        "drivers/media/dvb-frontends/drxk_hard.h"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "a06230f78d168dda9283091300629c23feb181266bfe592917bcb9ffaa5a7f71",
+      "ported": "target/linux/generic/pending-7.3/860-04-media-drxk-stop-accessing-a-disconnected-device.patch",
+      "ported_sha256": "a06230f78d168dda9283091300629c23feb181266bfe592917bcb9ffaa5a7f71"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/860-05-media-dvb-core-dmxdev-wake-up-readers-on-release.patch",
+      "files": [
+        "drivers/media/dvb-core/dmxdev.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "f0f7f76b031499b71cd9f266e871c22a1079aec27bcf60802b66c49990f69755",
+      "ported": "target/linux/generic/pending-7.3/860-05-media-dvb-core-dmxdev-wake-up-readers-on-release.patch",
+      "ported_sha256": "f0f7f76b031499b71cd9f266e871c22a1079aec27bcf60802b66c49990f69755"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/860-06-media-dvb-core-wake-up-CA-users-on-release.patch",
+      "files": [
+        "drivers/media/dvb-core/dvb_ca_en50221.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "a06da95a94aed785643a310a517fb0b0f69d36f435d314744387c4f06299ecd8",
+      "ported": "target/linux/generic/pending-7.3/860-06-media-dvb-core-wake-up-CA-users-on-release.patch",
+      "ported_sha256": "a06da95a94aed785643a310a517fb0b0f69d36f435d314744387c4f06299ecd8"
     }
   ],
   "additions": [
