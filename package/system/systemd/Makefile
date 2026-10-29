@@ -41,7 +41,8 @@ define Package/libudev-systemd
   TITLE:=Native systemd device enumeration library
   # Preserve an unpinned legacy world selection while replacing its provider.
   PROVIDES:=libudev libudev-zero
-  CONFLICTS:=libudev-zero eudev udev
+  # The legacy name is also provided here; its APK conflict is below.
+  CONFLICTS:=eudev udev
   # APK does not consume the IPK Conflicts field.
   EXTRA_DEPENDS:=$(if $(CONFIG_USE_APK),!libudev-zero (>=0)$(comma) !eudev (>=0)$(comma) !udev (>=0))
 endef

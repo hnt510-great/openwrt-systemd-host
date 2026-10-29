@@ -4,7 +4,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=native-libs-dev
 PKG_VERSION:=1
-PKG_RELEASE:=4
+PKG_RELEASE:=6
 
 # Export only target development files; never copy host staging or the whole
 # target sysroot. Runtime libraries remain owned by their original packages.
