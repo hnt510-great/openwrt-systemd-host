@@ -503,3 +503,48 @@ exist only in the disposable SDK copy. This is patch-application and focused
 object-compilation validation; it is not a full kernel/module link, firmware
 build, race stress test, ARM/MediaTek device test or physical deployment.
 No publication, installation, reboot, commit or Git push was performed.
+
+
+### Main/feed synchronization and new-patch review, 2026-10-29 (15:53 UTC)
+
+Merged nine new main-tree commits through `ca454c00b6` into local merge
+`7317e18d12`, retaining the working-tree changes and Linux 7.3 selection.
+The incoming changes contain no additions, modifications or removals in the
+generic/x86 6.18 or 7.3 patch directories. The Realtek GPIO interrupt change
+is in that target's device tree and does not belong to the x86/64 7.3 stack.
+The netfilter change corrects module package ownership in
+`package/kernel/linux/modules/netfilter.mk`; it is a packaging update and
+requires no additional native-kernel patch.
+
+The two new mt76 pending fixes restart `mac_work` after channel changes and
+limit MT7612U SuperSpeed TX A-MSDUs. They are already carried by
+`package/kernel/mt76/patches/100-*` and `101-*`, with package release 2.
+Both apply in order with zero fuzz to the SHA256-verified package source
+`0936617dc529ff9da0385221d3fa6de732231177`. This driver is built from its
+separate OpenWrt source package for the selected kernel; duplicating these
+patches in the native 7.3 patch stack would target a different source tree.
+All `kmod-mt76*` options are disabled in the preserved x86/64 configuration.
+No mt76 module build or hardware test was performed.
+
+All 511 source-patch registry entries and their recorded source/ported hashes
+match the current files. A fresh extraction of the verified Linux 7.3 archive,
+with the current target overlays, accepts all 317 patches with `--fuzz=0`.
+The kernel updater (20), kernel input tracking (7), custom updater (43), and
+APK source-version (2) tests pass. No new native 7.3 backport is required by
+this incoming batch; the previously documented optional-feature findings are
+unchanged.
+
+Evidence: `.git/pull-preserve/20261029T155316Z/kernel-audit/`, including
+`incoming-kernel-files.txt`, `registry-audit.json`, `mt76-audit.json`, and
+individual mt76 application logs. This validation does not build or deploy a
+new kernel, publish feeds, or reboot a device.
+
+The completed feed run processes all 160 custom entries: PipeWire advances
+from 1.6.10 to 1.6.11, 119 entries are current, 28 are locally maintained and
+12 retain their configured maintenance branch pending review. PipeWire source
+preparation verifies its SHA256 and applies both local patches. All nine feed
+indexes are nonempty, generated package links have no broken targets, and
+post-update strict Kconfig checking passes using a separate output file.
+All 387 protected files, original index/stash state and 11 local repository
+histories pass preservation checks. No original `.config` normalization was
+performed. The snapshot includes `sync-summary.json` and the complete logs.
