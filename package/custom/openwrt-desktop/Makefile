@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openwrt-desktop
-PKG_RELEASE:=22
+PKG_RELEASE:=23
 PKG_CONFIG_DEPENDS:=CONFIG_OPENWRT_SYSTEMD
 PKG_LICENSE:=MIT
 
@@ -11,7 +11,7 @@ define Package/openwrt-desktop
   SECTION:=utils
   CATEGORY:=Utilities
   TITLE:=Shared GNOME desktop with LAN RDP and Sunshine
-  DEPENDS:=@TARGET_x86_64 @USE_GLIBC @OPENWRT_SYSTEMD +input-support +video-support +accel-support +systemd-udev +glibc-locale-utf8 +libpam \
+  DEPENDS:=@TARGET_x86_64 @USE_GLIBC @OPENWRT_SYSTEMD +input-support +video-support +accel-support +systemd-udev +kmod +glibc-locale-utf8 +libpam \
 	+gnome-shell +gnome-session +gnome-settings-daemon +gnome-control-center \
 	+nautilus +gnome-terminal +gnome-tweaks +gnome-remote-desktop +gnome-keyring \
 	+xdg-desktop-portal-gnome +python3-gobject +glib2-utils +xwayland \
@@ -45,6 +45,7 @@ define Package/openwrt-desktop/install
 	$(INSTALL_BIN) ./files/desktop-rdp-configure ./files/desktop-gnome-remotes ./files/desktop-gnome-settings $(1)/usr/libexec/
 	$(INSTALL_DIR) $(1)/usr/lib/systemd/system $(1)/usr/lib/systemd/user/gnome-remote-desktop.service.d
 	$(INSTALL_DATA) ./files/openwrt-desktop-coldplug.service $(1)/usr/lib/systemd/system/
+	$(INSTALL_BIN) ./files/desktop-gpu-coldplug $(1)/usr/libexec/
 	$(INSTALL_DATA) ./files/openwrt-gnome-remotes.service $(1)/usr/lib/systemd/user/
 	$(INSTALL_DATA) ./files/gnome-rdp-openwrt.conf $(1)/usr/lib/systemd/user/gnome-remote-desktop.service.d/openwrt.conf
 	$(INSTALL_DIR) $(1)/usr/share/glib-2.0/schemas

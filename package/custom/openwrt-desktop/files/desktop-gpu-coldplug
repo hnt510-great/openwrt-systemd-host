@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+# DRM-only udev coldplug cannot load a PCI GPU whose DRM nodes do not exist yet.
+# Finish probing display controllers before GNOME can select simpledrm.
+for device in /sys/bus/pci/devices/*; do
+	[ -r "$device/class" ] && [ -r "$device/modalias" ] || continue
+	case "$(cat "$device/class")" in
+		0x03*) /usr/sbin/modprobe --use-blacklist "$(cat "$device/modalias")" ;;
+	esac
+done
