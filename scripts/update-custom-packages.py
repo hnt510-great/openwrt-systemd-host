@@ -26,9 +26,11 @@ class FetchError(UpdateError):
         self.status = status
 
 
-def fields(text):
+def fields(text, names=None):
     result = {}
     for key, value in re.findall(r'^(PKG_[A-Z_]+):=(.*)$', text, re.M):
+        if names is not None and key not in names:
+            continue
         if key in result:
             raise UpdateError('Duplicate metadata field: ' + key)
         result[key] = value.strip()
@@ -431,9 +433,12 @@ class Updater:
     def discover(self, name, planned):
         entry = self.entries[name]
         text = self.recipe(name).read_text()
-        metadata = fields(text)
+        metadata = fields(text, {'PKG_VERSION', 'PKG_RELEASE'} if entry['provider'] == 'git-checkout' else None)
         row = {'old_version': metadata.get('PKG_VERSION'), 'provider': entry['provider']}
         self.report['packages'][name] = row
+        if entry['provider'] == 'git-checkout':
+            self.update_checkout(name, entry, row)
+            return None
         if entry['provider'] == 'local':
             row.update(status='local', reason=entry['reason'])
             return None
@@ -544,6 +549,77 @@ class Updater:
                        if a['name'] == filename) else 'downloaded-https-source')
         return rewrite_recipe(text, version, digest, entry.get('source_url'), meta.get('source_version'))
 
+    def update_checkout(self, name, entry, row):
+        """Merge an upstream branch into a separately maintained source checkout."""
+        path = self.recipe(name).parent
+        if not (path / '.git').exists():
+            raise UpdateError('Initialize the nested Git checkout first: ' + str(path))
+
+        def git(*args, check=True):
+            result = subprocess.run(['git', '-C', str(path), '-c', 'merge.autoStash=false',
+                                     *args], capture_output=True, text=True, timeout=120,
+                                    env=dict(os.environ, GIT_TERMINAL_PROMPT='0'))
+            if check and result.returncode:
+                raise UpdateError('Git checkout ' + name + ': ' + result.stderr.strip())
+            return result
+
+        if Path(git('rev-parse', '--show-toplevel').stdout.strip()).resolve() != path.resolve():
+            raise UpdateError('Expected an independent Git repository: ' + name)
+        url, branch = entry['url'], entry['branch']
+        if urlparse(url).scheme not in ('https', 'file') or not re.fullmatch(r'[A-Za-z0-9_./-]+', branch):
+            raise UpdateError('Invalid checkout upstream: ' + name)
+        head = git('rev-parse', 'HEAD').stdout.strip()
+        remote = git('ls-remote', '--exit-code', url, 'refs/heads/' + branch).stdout.split()
+        if len(remote) != 2 or not re.fullmatch(r'[0-9a-f]{40,64}', remote[0]):
+            raise UpdateError('Ambiguous checkout branch: ' + name)
+        target = remote[0]
+        row.update(old_revision=head, new_revision=target, catalog=url, branch=branch)
+        if git('merge-base', '--is-ancestor', target, head, check=False).returncode == 0:
+            row.update(status='current', new_version=row['old_version'])
+            return
+        row['status'] = 'available'
+        if not self.update:
+            return
+        if git('symbolic-ref', '-q', 'HEAD', check=False).returncode:
+            raise UpdateError('Detached checkout blocks updating: ' + name)
+        # Preserve untracked directories; Git itself rejects any overwritten paths.
+        if git('status', '--porcelain=v1', '--untracked-files=no').stdout:
+            raise UpdateError('Local checkout changes block updating: ' + name)
+        if any(line[:1].islower() or line.startswith('S ') for line in git('ls-files', '-v').stdout.splitlines()):
+            raise UpdateError('Hidden checkout changes may block updating: ' + name)
+        gitdir = Path(git('rev-parse', '--absolute-git-dir').stdout.strip())
+        for marker in ('MERGE_HEAD', 'CHERRY_PICK_HEAD', 'rebase-merge', 'rebase-apply', 'index.lock'):
+            if (gitdir / marker).exists():
+                raise UpdateError('Finish the pending checkout Git operation: ' + marker)
+        git('fetch', '--no-tags', url, 'refs/heads/' + branch)
+        if git('rev-parse', 'FETCH_HEAD').stdout.strip() != target:
+            raise UpdateError('Upstream moved during checkout update; retry: ' + name)
+        # Detect conflicts before touching the working tree or index.
+        preview = git('merge-tree', '--write-tree', head, target, check=False)
+        if preview.returncode:
+            raise UpdateError('Upstream merge requires manual conflict resolution: ' + name)
+        if git('rev-parse', 'HEAD').stdout.strip() != head:
+            raise UpdateError('Checkout changed while checking upstream: ' + name)
+        stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ')
+        backup = 'refs/custom-package-updates/' + stamp
+        git('update-ref', backup, head)
+        old = fields(self.recipe(name).read_text(), {'PKG_VERSION', 'PKG_RELEASE'})
+        if self.record:
+            saved = self.record / 'before' / self.recipe(name).relative_to(self.root)
+            saved.parent.mkdir(parents=True, exist_ok=True)
+            saved.write_text(self.recipe(name).read_text())
+        git('merge', '--no-edit', '--no-stat', target)
+        text = self.recipe(name).read_text()
+        metadata = fields(text, {'PKG_VERSION', 'PKG_RELEASE'})
+        # Branch updates can change payloads without changing the upstream version.
+        # Leave the release bump for the maintainer to commit, like recipe updates.
+        if metadata['PKG_VERSION'] == old['PKG_VERSION'] and int(metadata['PKG_RELEASE']) <= int(old['PKG_RELEASE']):
+            release = str(max(int(datetime.now(timezone.utc).strftime('%Y%m%d')), int(old['PKG_RELEASE']) + 1))
+            text = re.sub(r'^PKG_RELEASE:=.*$', 'PKG_RELEASE:=' + release, text, flags=re.M)
+            self.recipe(name).write_text(text)
+        row.update(status='updated', new_version=metadata['PKG_VERSION'], backup_ref=backup,
+                   merged_revision=git('rev-parse', 'HEAD').stdout.strip())
+
     def apply(self, changes, originals):
         self.assert_clean(list(changes))
         for path, original in self.followed_inputs.items():
@@ -650,7 +726,7 @@ def main():
             finally:
                 (record / 'report.json').write_text(json.dumps(updater.report, indent=2) + '\n')
                 print('Custom update report: ' + str(record / 'report.json'), flush=True)
-    except (UpdateError, OSError, ValueError, KeyError, subprocess.CalledProcessError, ET.ParseError) as error:
+    except (UpdateError, OSError, ValueError, KeyError, subprocess.SubprocessError, ET.ParseError) as error:
         print('Custom update failed: ' + str(error), file=sys.stderr)
         return 2
 

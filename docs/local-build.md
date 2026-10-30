@@ -65,3 +65,42 @@ SPICE、EGL/GBM、VirGL 并保留 VNC。新建客体仍默认关闭 3D；手动�
 校验和、嵌套 GPU 测试和实体 Intel 测试边界见
 [virtio-spice-validation.md](virtio-spice-validation.md)。现有 weechat Kconfig
 循环属于此前问题；本次已修复图形能力包的依赖选择循环。
+
+## Fastfetch 和 Argon 的 custom feed 更新
+
+这两个包位于 `package/custom/fastfetch` 和
+`package/custom/luci-theme-argon`，由 `configs/custom-package-updates.json`
+登记。`./scripts/feeds update custom`（或 `update -a`）自动检查上游；
+`./scripts/feeds update -i custom` 只重建索引。
+
+Fastfetch 按 `fastfetch-cli/fastfetch` 的最新稳定 release 更新版本与
+SHA256，允许跨次版本升级，保留本地 CMake 裁剪选项。
+`PKG_VERSION` 使用上游版本（当前为 `2.70.0`），源码目录和下载地址
+也使用该版本。安装包版本保留固定兼容前缀 `2026.06.28.`，生成
+`2026.06.28.2.70.0-r1`，高于旧快照 `2026.06.28~0e90f3a7-r3`，
+可以正常升级，无需显式降级。此前缀保持不变，后续稳定版仍按上游
+版本递增，例如 `2026.06.28.2.71.0-r1`。
+
+Argon 保留独立 Git 仓库，追踪 `jerrykuku/luci-theme-argon` 的 `master`
+（包括稳定版发布后的修复）。新 checkout 可通过
+`git submodule update --init -- package/custom/luci-theme-argon` 从本地
+GitLab 初始化已保存的历史。更新器合并上游并保留本地提交；合并前先检测
+冲突，有已跟踪文件改动、隐藏索引标记或未完成 Git 操作时停止，不覆盖
+未跟踪文件。更新前的 HEAD 保存在嵌套仓库的
+`refs/custom-package-updates/`，报告位于 `logs/custom-package-updates/`。
+同版本源码更新会递增 `PKG_RELEASE`，该工作区改动应在下次更新前于
+Argon 仓库单独审阅并提交。版本或内容冲突需要人工解决。
+
+仅检查这两个包，不更新其他 custom 包：
+
+```sh
+python3 scripts/update-custom-packages.py --check --package fastfetch --package luci-theme-argon
+python3 scripts/update-custom-packages.py --update --package fastfetch --package luci-theme-argon
+./scripts/feeds update -i custom
+./scripts/feeds install -p custom fastfetch luci-theme-argon
+make package/custom/fastfetch/compile V=s
+make package/custom/luci-theme-argon/compile V=s
+```
+
+更新新迁移但尚未提交的 Fastfetch 配方时，现有的脏配方保护仍然生效；
+先审阅并提交主仓库中的迁移，再让后续 feed 更新修改该配方。

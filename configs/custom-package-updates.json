@@ -92,6 +92,12 @@
       "provider": "local",
       "reason": "Pinned CMake modules for desktop input method builds"
     },
+    "fastfetch": {
+      "provider": "github",
+      "policy": "stable",
+      "project": "fastfetch-cli/fastfetch",
+      "catalog": "releases"
+    },
     "fcitx5": {
       "provider": "directory",
       "policy": "series",
@@ -696,6 +702,11 @@
     "luci-app-systemd-journal": {
       "provider": "local",
       "reason": "Locally maintained integration package"
+    },
+    "luci-theme-argon": {
+      "provider": "git-checkout",
+      "url": "https://github.com/jerrykuku/luci-theme-argon.git",
+      "branch": "master"
     },
     "mozjs140": {
       "provider": "directory",

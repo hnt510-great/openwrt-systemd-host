@@ -102,6 +102,87 @@ class UpdateTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             return updater.execute(selected)
 
+    def checkout_fixture(self):
+        path = self.recipe('theme')
+        # A real source checkout can contain conditional translation versions.
+        path.write_text('PKG_VERSION:=3.1.0\nPKG_RELEASE:=7\n'
+                        'ifneq ($(CONFIG_USE_APK),)\nPKG_PO_VERSION:=apk\n'
+                        'else\nPKG_PO_VERSION:=ipk\nendif\n')
+        upstream = self.root.parent / 'upstream'
+        upstream.mkdir()
+        def source(*args):
+            return subprocess.check_output(['git', '-C', str(upstream), *args], stderr=subprocess.PIPE)
+        source('init', '-q', '-b', 'master')
+        source('config', 'user.name', 'Fixture')
+        source('config', 'user.email', 'fixture@localhost')
+        (upstream / 'Makefile').write_text(path.read_text())
+        (upstream / 'theme.css').write_text('original\n')
+        source('add', '.')
+        source('commit', '-qm', 'upstream base')
+        shutil.rmtree(path.parent)
+        subprocess.run(['git', 'clone', '-q', upstream.as_uri(), str(path.parent)], check=True)
+        subprocess.run(['git', '-C', str(path.parent), 'config', 'user.name', 'Fixture'], check=True)
+        subprocess.run(['git', '-C', str(path.parent), 'config', 'user.email', 'fixture@localhost'], check=True)
+        self.entries['theme'] = {'provider': 'git-checkout', 'url': upstream.as_uri(), 'branch': 'master'}
+        return path, upstream, source
+
+    def test_checkout_check_is_read_only_and_merge_preserves_local_history(self):
+        path, upstream, source = self.checkout_fixture()
+        nested = lambda *a: subprocess.check_output(['git', '-C', str(path.parent), *a])
+        (path.parent / 'local').write_text('local feature\n')
+        nested('add', 'local')
+        nested('commit', '-qm', 'local feature')
+        local_head = nested('rev-parse', 'HEAD')
+        (path.parent / 'private').write_text('untracked private content\n')
+        (upstream / 'theme.css').write_text('updated upstream\n')
+        source('commit', '-qam', 'upstream update')
+        readonly = self.updater(False)
+        self.assertEqual(self.execute(readonly), 1)
+        self.assertEqual(nested('rev-parse', 'HEAD'), local_head)
+        updater = self.updater()
+        self.assertEqual(self.execute(updater), 0)
+        row = updater.report['packages']['theme']
+        self.assertEqual(row['status'], 'updated')
+        self.assertEqual(nested('rev-parse', row['backup_ref']), local_head)
+        nested('merge-base', '--is-ancestor', local_head.decode().strip(), 'HEAD')
+        self.assertEqual((path.parent / 'theme.css').read_text(), 'updated upstream\n')
+        self.assertEqual((path.parent / 'local').read_text(), 'local feature\n')
+        self.assertEqual((path.parent / 'private').read_text(), 'untracked private content\n')
+        self.assertGreater(int(U.fields(path.read_text(), {'PKG_RELEASE'})['PKG_RELEASE']), 7)
+        self.assertEqual(self.execute(self.updater(False)), 0)
+        # A maintainer's uncommitted release bump blocks the next payload update.
+        (upstream / 'theme.css').write_text('another update\n')
+        source('commit', '-qam', 'next upstream update')
+        with self.assertRaisesRegex(U.UpdateError, 'Local checkout changes'):
+            self.execute(self.updater())
+
+    def test_checkout_conflict_does_not_touch_worktree_or_index(self):
+        path, upstream, source = self.checkout_fixture()
+        nested = lambda *a: subprocess.check_output(['git', '-C', str(path.parent), *a])
+        (path.parent / 'theme.css').write_text('local incompatible change\n')
+        nested('commit', '-qam', 'local change')
+        before = nested('rev-parse', 'HEAD')
+        index = (path.parent / '.git/index').read_bytes()
+        (upstream / 'theme.css').write_text('upstream incompatible change\n')
+        source('commit', '-qam', 'upstream conflict')
+        with self.assertRaisesRegex(U.UpdateError, 'manual conflict resolution'):
+            self.execute(self.updater())
+        self.assertEqual(nested('rev-parse', 'HEAD'), before)
+        self.assertEqual((path.parent / '.git/index').read_bytes(), index)
+        self.assertFalse((path.parent / '.git/MERGE_HEAD').exists())
+        self.assertEqual((path.parent / 'theme.css').read_text(), 'local incompatible change\n')
+
+    def test_checkout_untracked_collision_is_preserved(self):
+        path, upstream, source = self.checkout_fixture()
+        (path.parent / 'private').write_text('private content\n')
+        (upstream / 'private').write_text('upstream content\n')
+        source('add', 'private')
+        source('commit', '-qm', 'new upstream file')
+        with self.assertRaises(U.UpdateError):
+            self.execute(self.updater())
+        self.assertEqual((path.parent / 'private').read_text(), 'private content\n')
+        self.assertFalse((path.parent / '.git/MERGE_HEAD').exists())
+
     def test_check_is_read_only_and_reports_numeric_version_order(self):
         path = self.recipe('fixture')
         self.releases('fixture', version='1.2.9')
@@ -116,6 +197,42 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(path.read_bytes(), before)
         self.assertFalse(self.fetcher.downloads)
         self.assertFalse((self.root / 'record').exists())
+
+    def test_fastfetch_stable_updates_upgrade_legacy_snapshot_versions(self):
+        apk = TREE / 'staging_dir/host/bin/apk'
+        if not apk.exists():
+            self.skipTest('Build host apk first')
+        source = (TREE / 'package/custom/fastfetch/Makefile').read_text()
+
+        def package_version(recipe):
+            metadata = '\n'.join(line for line in recipe.splitlines()
+                                 if line.startswith(('PKG_VERSION:=', 'PKG_RELEASE:=')))
+            package = recipe.split('define Package/fastfetch\n', 1)[1].split('\nendef', 1)[0]
+            return subprocess.check_output(
+                ['make', '-s', '-f', '-'], cwd=self.root,
+                input=metadata + '\n' + package + '\nall:\n\t@echo "$(VERSION)"\n',
+                text=True).strip()
+
+        current = package_version(source)
+        metadata = U.fields(source)
+        self.assertEqual(current, '2026.06.28.' + metadata['PKG_VERSION'] + '-r' + metadata['PKG_RELEASE'])
+        for previous in ('2.70.0-r1', *(f'2026.06.28~0e90f3a7-r{r}' for r in (1, 2, 3))):
+            self.assertEqual(subprocess.check_output(
+                [str(apk), 'version', '-t', previous, current], text=True).strip(), '<')
+        # Use the actual feed updater and recipe to check future tag transitions.
+        source = U.rewrite_recipe(source, '2.70.0', DIGEST)
+        current = package_version(source)
+        for version in ('2.70.1', '2.71.0', '2.100.0', '3.0.0'):
+            source = U.rewrite_recipe(source, version, DIGEST)
+            metadata = U.fields(source)
+            self.assertEqual(metadata['PKG_VERSION'], version)
+            self.assertEqual(metadata['PKG_SOURCE_URL_FILE'], '$(PKG_VERSION)')
+            self.assertEqual(U.source_location(source)[0], f'fastfetch-{version}.tar.gz')
+            following = package_version(source)
+            subprocess.run([str(apk), 'version', '-c', following], check=True)
+            self.assertEqual(subprocess.check_output(
+                [str(apk), 'version', '-t', current, following], text=True).strip(), '<')
+            current = following
 
     def test_update_preserves_patches_config_and_unrelated_staged_work(self):
         path = self.recipe('fixture', literal=True)

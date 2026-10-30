@@ -1,13 +1,13 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=fastfetch
+PKG_VERSION:=2.70.0
 PKG_RELEASE:=1
 
-PKG_SOURCE_PROTO:=git
-PKG_SOURCE_URL:=https://github.com/fastfetch-cli/fastfetch.git
-PKG_SOURCE_DATE:=2026-06-28
-PKG_SOURCE_VERSION:=0e90f3a7d4ac5a7857a968a6f52ea1205be5f404
-PKG_MIRROR_HASH:=9f2e9d186b5d7e03f1cefb665a6d6012abc1c41ce0bafff60391b98c77115ff8
+PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
+PKG_SOURCE_URL:=https://codeload.github.com/fastfetch-cli/fastfetch/tar.gz/refs/tags/
+PKG_SOURCE_URL_FILE:=$(PKG_VERSION)
+PKG_HASH:=8aa01bd3faff2be1d94f231d76489ce6d9f781f51f6e93eafe82359d6d8669af
 
 PKG_MAINTAINER:=Fastfetch-cli <https://github.com/fastfetch-cli/fastfetch>
 PKG_LICENSE:=MIT
@@ -19,6 +19,9 @@ include $(INCLUDE_DIR)/package.mk
 include $(INCLUDE_DIR)/cmake.mk
 
 define Package/fastfetch
+  # Keep the old snapshot date as a fixed compatibility prefix so stable
+  # releases upgrade dated packages. PKG_VERSION still tracks upstream tags.
+  VERSION:=2026.06.28.$(PKG_VERSION)-r$(PKG_RELEASE)
   SECTION:=utils
   CATEGORY:=Utilities
   TITLE:=A maintained, feature-rich and performance oriented, neofetch like tool.
