@@ -30,6 +30,11 @@ toolchain and require its exact libc release. GNOME audio clients use the
 optional PulseAudio GLib main-loop adapter with PipeWire's Pulse server.
 Blueprint uses staged host PyGObject and shared GLib libraries; target
 introspection generators run through the matching target loader.
+The selected `glibc-locale-utf8` package supplies `C.UTF-8`, `en_US.UTF-8`
+and `zh_CN.UTF-8`. It also accepts `en_us.utf-8` through a directory alias
+to the English locale, without duplicating its data. Select it for a process
+with `LANG=en_US.UTF-8` (or `LANG=en_us.utf-8`); installing locale data does
+not change the system or user language preference.
 First-boot cache initialization registers the SVG image loader as well as
 schemas, GIO modules and input modules, so GNOME application icons can load.
 
