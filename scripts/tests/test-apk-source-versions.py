@@ -25,6 +25,8 @@ class SourceVersionTests(unittest.TestCase):
         helpers = source[source.index('elf_rebuild_upstream ='):
                          source.index('find_library_dependency_names =')]
         for name, recipe, previous in (
+                ('ppp', 'package/network/services/ppp', '2.5.4-r5'),
+                ('ppp-mod-pppoe', 'package/network/services/ppp', '2.5.4-r4'),
                 ('nginx-ssl', 'feeds/packages/net/nginx', '1.30.5-r3'),
                 ('nginx-ssl-util', 'feeds/packages/net/nginx-util', '1.7-r4'),
                 ('ffmpeg', 'feeds/packages/multimedia/ffmpeg', '9.0.1-r7'),
