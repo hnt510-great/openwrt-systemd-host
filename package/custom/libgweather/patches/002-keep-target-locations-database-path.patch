@@ -1,0 +1,15 @@
+Subject: Keep the target prefix when reading the locations database path
+
+OpenWrt's pkg-config prefix relocation points into staging. That path is useful
+for build dependencies but must not be embedded as a runtime database filename.
+
+--- a/meson.build
++++ b/meson.build
+@@ -54,6 +54,7 @@
+ 
+ locations_bin = dependency('gweather-locations').get_variable(
+   pkgconfig: 'locations_db',
++  pkgconfig_define: ['prefix', get_option('prefix')],
+   default_value: get_option('prefix') / get_option('libdir') / 'gweather-locations/Locations.bin',
+ )
+ 

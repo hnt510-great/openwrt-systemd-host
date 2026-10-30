@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=systemd
 PKG_VERSION:=262
-PKG_RELEASE:=10
+PKG_RELEASE:=11
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/systemd/systemd/tar.gz/refs/tags/v$(PKG_VERSION)?
 PKG_HASH:=6aa77506c0644aa67f940a48e3d3a7368601f787e4f249139516d353f107bcab
@@ -39,6 +39,9 @@ define Package/libudev-systemd
   SECTION:=libs
   CATEGORY:=Libraries
   TITLE:=Native systemd device enumeration library
+  # Use the same preferred provider for libudev and its legacy package alias.
+  VARIANT:=default
+  DEFAULT_VARIANT:=1
   # Preserve an unpinned legacy world selection while replacing its provider.
   PROVIDES:=libudev libudev-zero
   # The legacy name is also provided here; its APK conflict is below.

@@ -2,7 +2,8 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=gnome-shell
 PKG_VERSION:=51.1
-PKG_RELEASE:=2
+# Rebuild the calendar server against EDS 3.62's libedataserver SONAME 28.
+PKG_RELEASE:=3
 PKG_SOURCE:=gnome-shell-51.1.tar.xz
 PKG_SOURCE_URL:=https://download.gnome.org/sources/gnome-shell/51/
 PKG_HASH:=c1eb08d9651a567ed5d9b2791371f1898e657cf45e75e1d88adefbab807977d6

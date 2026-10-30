@@ -1,17 +1,25 @@
+Subject: Respect Wayland-only GTK when probing X11 and VA-X11
+
 --- a/meson.build
 +++ b/meson.build
-@@ -152,11 +152,14 @@
+@@ -149,14 +149,17 @@
    spice_gtk_deps += d
+   spice_gtk_deps += dependency('epoxy', required: spice_gtk_has_egl)
    if host_machine.system() != 'windows'
-     spice_gtk_deps += dependency('epoxy')
--    spice_gtk_deps += dependency('x11')
+-    d = dependency('x11', required: false)
+-    if d.found()
+-      spice_gtk_deps += d
+-    endif
 -    d = dependency('libva-x11', required: false)
 -    if d.found()
 -      spice_gtk_deps += d
 -      spice_gtk_config_data.set('HAVE_LIBVA', '1')
-+    # A Wayland-only GTK build does not need X11 or VA-X11.
++    # Honor the GTK build's backend selection even when X11 is staged.
 +    if compiler.has_header('gtk-3.0/gdk/gdkx.h')
-+      spice_gtk_deps += dependency('x11')
++      d = dependency('x11', required: false)
++      if d.found()
++        spice_gtk_deps += d
++      endif
 +      d = dependency('libva-x11', required: false)
 +      if d.found()
 +        spice_gtk_deps += d

@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=spice-gtk
-PKG_VERSION:=0.41
-PKG_RELEASE:=3
+PKG_VERSION:=0.43
+PKG_RELEASE:=1
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=https://www.spice-space.org/download/gtk
-PKG_HASH:=d8f8b5cbea9184702eeb8cc276a67d72acdb6e36e7c73349fb8445e5bca0969f
+PKG_HASH:=cee26e5b2d22909f35b40a94398d1e863ca3962ee46494ca97aab206abc3203b
 PKG_LICENSE:=LGPL-2.1-or-later
 PKG_LICENSE_FILES:=COPYING
 PKG_INSTALL:=1
@@ -35,7 +35,7 @@ define Package/spice-gtk
   CATEGORY:=Libraries
   TITLE:=SPICE GTK3 Wayland console with OpenGL and Python metadata
   URL:=https://www.spice-space.org/
-  DEPENDS:=@TARGET_x86_64 @USE_GLIBC +libgtk3 +libepoxy +libwayland +wayland-protocols +pixman +libopenssl +libjpeg +zlib +json-glib +libgst1app +libgst1audio +libgst1video +libgstreamer1 \
+  DEPENDS:=@TARGET_x86_64 @USE_GLIBC +libgtk3 +libepoxy +libwayland +wayland-protocols +pixman +libopenssl +libjpeg +zlib +json-glib +libudev +libgst1app +libgst1audio +libgst1video +libgstreamer1 \
 	+gst1-mod-app +gst1-mod-audioconvert +gst1-mod-audioresample +gst1-mod-autodetect +gst1-mod-pulse
 endef
 

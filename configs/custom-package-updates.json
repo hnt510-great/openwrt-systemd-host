@@ -23,7 +23,7 @@
     "at-spi2-core": {
       "provider": "directory",
       "policy": "series",
-      "index": "https://download.gnome.org/sources/at-spi2-core/2.60/",
+      "index": "https://download.gnome.org/sources/at-spi2-core/2.62/",
       "filename_pattern": "at\\-spi2\\-core\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/at-spi2-core/"
     },
@@ -84,7 +84,7 @@
     "evolution-data-server": {
       "provider": "directory",
       "policy": "series",
-      "index": "https://download.gnome.org/sources/evolution-data-server/3.60/",
+      "index": "https://download.gnome.org/sources/evolution-data-server/3.62/",
       "filename_pattern": "evolution-data-server-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/evolution-data-server/"
     },
@@ -319,6 +319,12 @@
       "filename_pattern": "gtk\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/gtk/"
     },
+    "gweather-locations": {
+      "provider": "directory",
+      "policy": "major",
+      "index": "https://download.gnome.org/sources/gweather-locations/2026/",
+      "filename_pattern": "gweather-locations-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+    },
     "hicolor-icon-theme": {
       "provider": "directory",
       "policy": "series",
@@ -526,7 +532,7 @@
     "libgweather": {
       "provider": "directory",
       "policy": "series",
-      "index": "https://download.gnome.org/sources/libgweather/4.4/",
+      "index": "https://download.gnome.org/sources/libgweather/4.6/",
       "filename_pattern": "libgweather-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.(?:xz|gz)",
       "series_index": "https://download.gnome.org/sources/libgweather/"
     },

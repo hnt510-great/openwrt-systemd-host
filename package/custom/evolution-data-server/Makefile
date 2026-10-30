@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=evolution-data-server
-PKG_VERSION:=3.60.2
+PKG_VERSION:=3.62.1
 PKG_RELEASE:=1
-PKG_SOURCE:=evolution-data-server-3.60.2.tar.xz
-PKG_SOURCE_URL:=https://download.gnome.org/sources/evolution-data-server/3.60/
-PKG_HASH:=2084dbdac396371b365d504c1ff45866ba8dca2f1252e5da1d3d9c33abdc1286
+PKG_SOURCE:=evolution-data-server-3.62.1.tar.xz
+PKG_SOURCE_URL:=https://download.gnome.org/sources/evolution-data-server/3.62/
+PKG_HASH:=b75c823445d7d30bca797eee929809e8d389abbb8d471f68ae2af60972779f26
 PKG_LICENSE:=LGPL-2.1-or-later
 PKG_INSTALL:=1
 PKG_BUILD_PARALLEL:=1

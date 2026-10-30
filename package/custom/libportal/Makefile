@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=libportal
-PKG_VERSION:=0.9.1
+PKG_VERSION:=0.11.0
 PKG_RELEASE:=1
-PKG_SOURCE:=libportal-0.9.1.tar.xz
-PKG_SOURCE_URL:=https://github.com/flatpak/libportal/releases/download/0.9.1/
-PKG_HASH:=de801ee349ed3c255a9af3c01b1a401fab5b3fc1c35eb2fd7dfb35d4b8194d7f
+PKG_SOURCE:=libportal-0.11.0.tar.xz
+PKG_SOURCE_URL:=https://github.com/flatpak/libportal/releases/download/0.11.0/
+PKG_HASH:=abb9e452a1c372133bd3eb8f0bb30d07b2d0a8fb02001c4155cf287555db4040
 PKG_LICENSE:=LGPL-2.1-or-later
 PKG_BUILD_DEPENDS:=
 GNOME_TITLE:=libportal

@@ -2,12 +2,12 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=node-bin
 # Updated by package/custom/scripts/update-prebuilt-packages.sh.
-PKG_VERSION:=24.22.2
+PKG_VERSION:=26.13.0
 PKG_RELEASE:=1
 
 PKG_SOURCE:=node-v$(PKG_VERSION)-linux-x64.tar.xz
 PKG_SOURCE_URL:=https://nodejs.org/dist/v$(PKG_VERSION)/
-PKG_HASH:=48cc0e21e048790e54c0cf5749c2725005313d652651c40b7a21feb9697aaf75
+PKG_HASH:=d28a96af6c38596f6d9d97c0ee531c13d238d757742387d1928de822d959e997
 
 PKG_BUILD_DIR:=$(BUILD_DIR)/node-v$(PKG_VERSION)-linux-x64
 
@@ -18,7 +18,7 @@ define Package/node-bin
   CATEGORY:=Languages
   TITLE:=Node.js pre-compiled binary (glibc x64)
   URL:=https://nodejs.org/
-  DEPENDS:=@x86_64 +libstdcpp +libpthread
+  DEPENDS:=@x86_64 @USE_GLIBC +libstdcpp +libpthread +libatomic
 endef
 
 define Package/node-bin/description
@@ -43,7 +43,10 @@ define Package/node-bin/install
 	# 3. Safely recreate the relative symlinks for NPM and NPX
 	ln -sf ../lib/node_modules/npm/bin/npm-cli.js $(1)/usr/bin/npm
 	ln -sf ../lib/node_modules/npm/bin/npx-cli.js $(1)/usr/bin/npx
-	ln -sf ../lib/node_modules/corepack/dist/corepack.js $(1)/usr/bin/corepack
+	# Node 25+ no longer bundles Corepack. Only expose tools actually shipped.
+	if [ -f $(PKG_BUILD_DIR)/lib/node_modules/corepack/dist/corepack.js ]; then \
+		ln -sf ../lib/node_modules/corepack/dist/corepack.js $(1)/usr/bin/corepack; \
+	fi
 endef
 
 $(eval $(call BuildPackage,node-bin))
