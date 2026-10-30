@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 TREE = Path(__file__).resolve().parents[2]
 APK = TREE / 'staging_dir/host/bin/apk'
@@ -502,7 +503,7 @@ class ElfAbiTests(unittest.TestCase):
             if metadata:
                 output = root / 'usr/lib/apk/packages' / (name + '.elf.json')
                 output.parent.mkdir(parents=True)
-                output.write_text(json.dumps(inventory))
+                output.write_text('{bad json' if metadata == 'malformed' else json.dumps(inventory))
             package = repository / (name + '-' + version + '.apk')
             args = [str(APK), 'mkpkg', '--files', str(root), '--output', str(package),
                     '--sign-key', str(TREE / 'private-key.pem')]
@@ -531,8 +532,17 @@ class ElfAbiTests(unittest.TestCase):
         build('application', '1-r2', 'unused', new)
         self.assertEqual(check()['elf_files'], 2)
         build('unmigrated', '1-r1', 'liblegacy.so.1', metadata=False)
-        with self.assertRaisesRegex(ValueError, 'missing/stale ELF inventory'):
-            check()
+        build('also-unmigrated', '1-r1', 'libother.so.1', metadata=False)
+        build('broken-inventory', '1-r1', 'libbroken.so.1', metadata='malformed')
+        with patch.object(publisher.ELF, 'migration_releases', return_value={
+                'unmigrated': [{'before': '1-r1', 'after': '1-r2'}]}):
+            with self.assertRaisesRegex(ValueError, 'missing/stale ELF inventory') as failure:
+                check()
+        self.assertIn('unmigrated-1-r1:', str(failure.exception))
+        self.assertIn('also-unmigrated-1-r1:', str(failure.exception))
+        self.assertIn('broken-inventory-1-r1:', str(failure.exception))
+        self.assertIn('allocated migration release 1-r2', str(failure.exception))
+        self.assertIn('3 packages need rebuilding', str(failure.exception))
 
 
 if __name__ == '__main__':

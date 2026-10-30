@@ -82,6 +82,54 @@ def configuration(tree):
                 if line.startswith('CONFIG_') and '=' in line)
 
 
+def retained_migration_options(tree, make_args, destination=None):
+    """Include unselected legacy APKs with an allocated ELF rebuild identity."""
+    ledger = tree / 'configs/apk-elf-rebuilds.mk'
+    metadata = tree / 'tmp/.packageinfo'
+    if not ledger.is_file() or not metadata.is_file():
+        return []
+    versions = {}
+    name = None
+    for line in metadata.read_text().splitlines():
+        if line.startswith('Package: '):
+            name = line.removeprefix('Package: ')
+        elif name and line.startswith('Version: '):
+            versions[name] = line.removeprefix('Version: ')
+    selected = configuration(tree)
+    selected.update(arg.split('=', 1) for arg in make_args if arg.startswith('CONFIG_PACKAGE_') and '=' in arg)
+    outputs = [tree / 'bin/systemd/packages/x86_64']
+    abi_file = tree / 'staging_dir/target-x86_64_glibc/kernel.version'
+    if destination is not None and abi_file.is_file():
+        outputs.append(destination / 'public/abi' / abi_file.read_text().strip())
+    filenames = {p.name for output in outputs for p in output.glob('*/*.apk')}
+    options = []
+    for name, entries in sorted(LAN.ELF.migration_releases(ledger).items()):
+        if name.startswith(('kmod-', 'kernel-dev-headers', 'linux-image-')) or name == 'kernel':
+            continue
+        key = 'CONFIG_PACKAGE_' + name
+        # Respect both configured selections and explicit command-line intent.
+        if key in selected:
+            continue
+        entry = next((e for e in entries if e['before'] == versions.get(name)), None)
+        if (entry and f'{name}-{entry["before"]}.apk' in filenames and
+                f'{name}-{entry["after"]}.apk' not in filenames):
+            apk = TREE / 'staging_dir/host/bin/apk'
+            newer = False
+            for output in outputs:
+                for package in output.glob(f'*/{name}-*.apk'):
+                    info = LAN.dump_index(apk, package)['info']
+                    if info['name'] != name:
+                        continue
+                    order = subprocess.check_output([str(apk), 'version', '--test',
+                        entry['after'], info['version']], text=True).strip()
+                    if order in ('<', '='):
+                        newer = True
+            if newer:
+                continue
+            options.append(key + '=m')
+    return options
+
+
 def settings(tree):
     data = json.loads((tree / 'configs/lan-apk-feeds.json').read_text())
     if not data.get('base_url') or not data.get('destination'):
@@ -363,6 +411,10 @@ def publish_locked(tree, data, apk, dry_run, progress=None):
         userspace, channel, abi, generation = project(tree, Path(temporary), apk, progress)
         if data.get('kernel') and data['kernel'] != abi:
             raise ValueError('Requested ABI differs from compiled generation')
+        if progress:
+            progress(29, 'Check router trackers and constraints')
+        baseline = GUARD.readiness(destination,
+            (metadata['info'] for _, metadata in LAN.dump_indexes(apk, sorted(channel.glob('*.apk')))), abi)
         args = argparse.Namespace(source_root=userspace, kernel=abi, destination=destination,
             base_url=data['base_url'], incremental=True, dry_run=False, kernel_upgrade_view=True,
             stage_only=True)
@@ -379,6 +431,7 @@ def publish_locked(tree, data, apk, dry_run, progress=None):
             def preflight_progress(percent, phase):
                 progress(55 + percent * 0.25, phase)
             receipt = GUARD.preflight(destination, data['base_url'], lan, kernel,
+                                      expected_baseline=baseline,
                                       progress=preflight_progress if progress else None)
             # Recheck BOTH before moving either alias. These are the exact
             # staged snapshots, never a second projection of mutable bin/.
@@ -453,7 +506,7 @@ def build(tree, make_args, publish_after=True):
         enabled = configuration(tree).get('CONFIG_OPENWRT_KERNEL_UPGRADE') == 'y'
         full = not targets or targets == ['world']
         plan = None
-        if enabled and (full or state_path(tree).exists()):
+        if full or (enabled and state_path(tree).exists()):
             run_make(tree, ['prepare-tmpinfo'])
         if enabled and full:
             prepare_sequence(tree, data['destination'], make_args)
@@ -463,6 +516,11 @@ def build(tree, make_args, publish_after=True):
             if INPUTS.fingerprint(tree, configuration(tree), make_args) != plan['inputs']:
                 raise ValueError('Kernel inputs changed; run a complete build to reserve a new generation')
         arguments = list(make_args)
+        if full:
+            migrations = retained_migration_options(tree, make_args, data['destination'])
+            if migrations:
+                print('Including retained ELF migration packages: ' + ' '.join(migrations), file=sys.stderr)
+                arguments.extend(migrations)
         if plan and not any(arg.startswith('KBUILD_BUILD_TIMESTAMP=') for arg in arguments):
             arguments.append('KBUILD_BUILD_TIMESTAMP=' + plan['timestamp'])
         run_make(tree, arguments)

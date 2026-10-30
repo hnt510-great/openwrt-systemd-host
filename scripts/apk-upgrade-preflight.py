@@ -65,13 +65,35 @@ def validate_transition(baseline, packages, abi, migrations=None):
     records = installed_records(baseline['installed'])
     current = baseline['abi']
     candidates = {p['name']: p for p in packages
-                  if 'kernel=' + abi in p.get('depends', [])}
+                  if 'kernel=' + abi in p.get('depends', []) or
+                  (p['name'] == 'kernel' and p['version'] == abi)}
     payloads = {p['name']: p for p in packages if p.get('origin') == 'kernel-generations'}
     logical = {n for n in records if n.startswith('kmod-') and '-owrt-' not in n and n != 'kmod'}
     if current != abi:
+        issues = []
         missing = sorted(logical - candidates.keys())
         if missing:
-            raise ValueError('Upgrade preflight: installed modules have no target ABI tracker: ' + ', '.join(missing))
+            issues.append('installed modules have no target ABI tracker: ' + ', '.join(missing))
+        pinned = []
+        for line in baseline['world'].splitlines():
+            match = re.fullmatch(r'([^@<>=~\s]+)(?:@[^<>=~\s]+)?(.*)', line)
+            if not match:
+                continue
+            name, constraint = match.groups()
+            if name not in logical | {'kernel', 'kernel-dev-headers', 'linux-image-openwrt'}:
+                continue
+            record, target = records.get(name, {}), candidates.get(name)
+            if (not target or not constraint or
+                    (constraint.startswith('=') and constraint[1:] == target['version'])):
+                continue
+            if (constraint == '=' + record.get('V', '') or
+                    constraint == '><' + record.get('C', '')):
+                pinned.append(line)
+        if pinned:
+            issues.append('world locks block the target kernel ABI:\n  ' + '\n  '.join(sorted(pinned)) +
+                          '\nReview these exact logical tracker locks; keep generation payload protection pins intact.')
+        if issues:
+            raise ValueError('Upgrade preflight: ' + '\n'.join(issues))
         for name in sorted(logical):
             pins = [d.split('=', 1) for d in candidates[name].get('depends', [])
                     if d.startswith(name + '-') and '-owrt-' in d and '=' in d]
@@ -96,6 +118,23 @@ def validate_transition(baseline, packages, abi, migrations=None):
                     re.fullmatch(r'usr/lib/openwrt-kernel/[^/]+/kmods/' + re.escape(old) + r'\.json', name))
                 if not bookkeeping:
                     raise ValueError('Upgrade preflight: empty compatibility rule would discard a real file: ' + name)
+
+
+def readiness(destination, packages, abi):
+    """Catch router compatibility omissions before expensive feed staging."""
+    selected_policy = policy(destination)
+    if not selected_policy:
+        return None
+    baseline = remote(selected_policy['ssh_target'], BASELINE)
+    validate_transition(baseline, list(packages), abi)
+    return baseline
+
+
+def solver_error(stderr):
+    """Keep the root conflict and final blocker when dependency output is long."""
+    if len(stderr) <= 8192:
+        return stderr
+    return stderr[:6144] + '\n... dependency details omitted ...\n' + stderr[-2048:]
 
 
 BASELINE = r'''
@@ -318,7 +357,7 @@ def check_prepared(result, record):
         raise ValueError('Prepared release changed after upgrade validation')
 
 
-def preflight(destination, origin, userspace, kernel, *, progress=None):
+def preflight(destination, origin, userspace, kernel, *, progress=None, expected_baseline=None):
     """Bind simulation to snapshot hashes; authorize() rechecks before promotion."""
     selected_policy = policy(destination)
     if progress:
@@ -335,6 +374,12 @@ def preflight(destination, origin, userspace, kernel, *, progress=None):
         if progress:
             progress(10, 'Read router baseline')
         before = capture(target)
+        # Readiness captures the APK/configuration baseline only. The full
+        # capture adds an ELF fingerprint, which remains mandatory for all
+        # subsequent same_baseline() checks and the promotion receipt.
+        readiness_view = {**before, 'hashes': {k: v for k, v in before['hashes'].items() if k != 'elf'}}
+        if expected_baseline is not None and not same_baseline(expected_baseline, readiness_view):
+            raise ValueError('Router baseline changed during feed preparation; retry publication')
         userspace_manifest = json.loads((Path(userspace['snapshot']) / 'manifest.json').read_text()) if (Path(userspace['snapshot']) / 'manifest.json').exists() else {}
         mapped_world, world_changes = migration_world(before, userspace_manifest)
         migration = {'migration_world': mapped_world} if world_changes else {}
@@ -361,7 +406,7 @@ def preflight(destination, origin, userspace, kernel, *, progress=None):
         simulation = remote(target, SIMULATE, {'indexes': indexes, **migration})
         receipt['simulation'] = simulation
         if simulation['returncode']:
-            raise ValueError('Router rejects prepared release: ' + simulation['stderr'][-8192:])
+            raise ValueError('Router rejects prepared release: ' + solver_error(simulation['stderr']))
         if abi == before['abi']:
             receipt['elf_transition'] = validate_elf_transition(before, userspace_manifest, simulation)
         if abi != before['abi']:
@@ -377,7 +422,7 @@ def preflight(destination, origin, userspace, kernel, *, progress=None):
             receipt['target_abi_simulation'] = target_simulation
             if target_simulation['returncode']:
                 raise ValueError('Router rejects target ABI userspace view: ' +
-                                 target_simulation['stderr'][-8192:])
+                                 solver_error(target_simulation['stderr']))
             receipt['elf_transition'] = validate_elf_transition(before, userspace_manifest, target_simulation)
         if progress:
             progress(80, 'Recheck router baseline')

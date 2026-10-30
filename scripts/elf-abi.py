@@ -16,10 +16,10 @@ POLICY = json.loads(POLICY_FILE.read_text()) if POLICY_FILE.exists() else {'load
 REBUILDS_FILE = Path(__file__).resolve().parents[1] / 'configs/apk-elf-rebuilds.mk'
 
 
-def migration_releases():
+def migration_releases(path=None):
     """Explicit, exact-version ledger; never loosen arbitrary world pins."""
     result = {}
-    for line in REBUILDS_FILE.read_text().splitlines():
+    for line in (Path(path) if path is not None else REBUILDS_FILE).read_text().splitlines():
         if not line.startswith('ELF_DEP_'):
             continue
         key, value = line.removeprefix('ELF_DEP_').split(':=', 1)

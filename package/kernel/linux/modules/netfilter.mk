@@ -66,6 +66,30 @@ endef
 $(eval $(call KernelPackage,nf-ipt))
 
 
+# Also build the channel tracker for configurations predating this compatibility
+# recipe, without changing their image package selections.
+ifeq ($(CONFIG_OPENWRT_KERNEL_UPGRADE),y)
+  CONFIG_PACKAGE_kmod-iptables ?= m
+endif
+
+define KernelPackage/iptables
+  SUBMENU:=$(NF_MENU)
+  TITLE:=Iptables legacy compatibility tracker
+  HIDDEN:=1
+  DEFAULT:=y if OPENWRT_KERNEL_UPGRADE
+  DEPENDS:=+kmod-nf-ipt
+endef
+
+define KernelPackage/iptables/description
+ Preserve the installed kmod-iptables name across kernel ABI upgrades after
+ upstream ca454c00b6 moved its modules and flags to kmod-nf-ipt. The replacement
+ owns ip_tables.ko, x_tables.ko and their autoload entries; this package only
+ retains the dependency and immutable generation metadata.
+endef
+
+$(eval $(call KernelPackage,iptables))
+
+
 define KernelPackage/nf-ipt6
   SUBMENU:=$(NF_MENU)
   TITLE:=Ip6tables core

@@ -374,6 +374,52 @@ class BuildPublicationTests(unittest.TestCase):
         self.assertTrue(events)
         self.assertTrue(all(percent < 100 for percent, _ in events))
 
+    def test_router_readiness_failure_precedes_feed_staging(self):
+        before = self.aliases()
+        with patch.object(B.GUARD, 'readiness', side_effect=ValueError('world locks block')), \
+                patch.object(B.LAN, 'publish') as lan, patch.object(B.KERNEL, 'publish') as kernel:
+            with self.assertRaisesRegex(ValueError, 'world locks block'):
+                B.publish(self.tree, self.data, dry_run=True)
+            lan.assert_not_called()
+            kernel.assert_not_called()
+        self.assertEqual(self.aliases(), before)
+
+    def migration_fixture(self):
+        (self.tree / 'configs/apk-elf-rebuilds.mk').write_text(
+            'ELF_DEP_legacy-app_1-r1:=legacy-app=1-r2\n')
+        with (self.tree / 'tmp/.packageinfo').open('a') as metadata:
+            metadata.write('Source-Makefile: package/custom/legacy-app/Makefile\n'
+                           'Package: legacy-app\nVersion: 1-r1\n')
+        self.make_package('legacy-app', '1-r1')
+
+    def test_full_build_includes_unselected_retained_migration_without_config_edit(self):
+        self.migration_fixture()
+        config = (self.tree / '.config').read_bytes()
+        with patch.object(B, 'run_make') as make, patch.object(B, 'prepare_sequence'), \
+                patch.object(B, 'state_path', return_value=self.root / 'absent-state'), \
+                patch.object(B, 'configuration', return_value={'CONFIG_OPENWRT_KERNEL_UPGRADE': 'n'}):
+            B.build(self.tree, ['-j3'], publish_after=False)
+        self.assertIn('CONFIG_PACKAGE_legacy-app=m', make.call_args.args[1])
+        self.assertEqual((self.tree / '.config').read_bytes(), config)
+
+    def test_migration_build_options_respect_explicit_selection_and_existing_rebuild(self):
+        self.migration_fixture()
+        self.assertEqual(B.retained_migration_options(self.tree, []), ['CONFIG_PACKAGE_legacy-app=m'])
+        self.assertEqual(B.retained_migration_options(self.tree, ['CONFIG_PACKAGE_legacy-app=n']), [])
+        self.make_package('legacy-app', '1-r2')
+        self.assertEqual(B.retained_migration_options(self.tree, []), [])
+        (self.base / 'legacy-app-1-r2.apk').unlink()
+        self.make_package('legacy-app', '1-r3')
+        self.assertEqual(B.retained_migration_options(self.tree, []), [])
+
+    def test_retained_published_migration_is_built_even_without_local_apk(self):
+        self.migration_fixture()
+        package = self.base / 'legacy-app-1-r1.apk'
+        shutil.copyfile(package, self.old / 'base' / package.name)
+        package.unlink()
+        self.assertEqual(B.retained_migration_options(self.tree, [], self.server),
+                         ['CONFIG_PACKAGE_legacy-app=m'])
+
     def test_sequence_advances_without_changing_other_config(self):
         B.publish(self.tree, self.data)
         path = self.tree / '.config'

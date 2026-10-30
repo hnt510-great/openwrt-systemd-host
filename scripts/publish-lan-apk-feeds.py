@@ -181,7 +181,23 @@ def validate_elf_abi(apk, keys, payload, indexes, work):
                     continue
             selected[name] = (repo, info)
     records = {}
+    inventory_errors = []
     ledger = ELF.migration_releases()
+
+    def check_inventory(root, inventory, name, version):
+        if not inventory['files']:
+            return
+        stamp = root / 'usr/lib/apk/packages' / (name + '.elf.json')
+        try:
+            valid = stamp.exists() and json.loads(stamp.read_text()) == inventory
+        except (ValueError, UnicodeError):
+            valid = False
+        if not valid:
+            migration = next((e['after'] for e in ledger.get(name, []) if e['before'] == version), None)
+            action = ('rebuild using allocated migration release ' + migration if migration else
+                      'bump release and rebuild')
+            inventory_errors.append(f'{name}-{version}: missing/stale ELF inventory; {action}')
+
     for name, (repo, info) in sorted(selected.items()):
         root = work / 'elf-abi-check' / name
         root.mkdir(parents=True)
@@ -190,16 +206,9 @@ def validate_elf_abi(apk, keys, payload, indexes, work):
                         '--destination', str(root), str(package)], check=True, capture_output=True)
         inventory = ELF.inspect(root)
         inventory.update(package=name, version=info['version'])
-        if inventory['files']:
-            stamp = root / 'usr/lib/apk/packages' / (name + '.elf.json')
-            if not stamp.exists() or json.loads(stamp.read_text()) != inventory:
-                raise ValueError(f'ELF ABI preflight: {name}: missing/stale ELF inventory; bump release and rebuild')
+        check_inventory(root, inventory, name, info['version'])
         records[name] = {**info, 'elf': inventory}
-    report = ELF.validate(records)
-    report['package_info'] = {name: {k: record.get(k, [] if k in ('depends', 'provides') else '')
-                                    for k in ('name', 'version', 'hashes', 'depends', 'provides')}
-                              for name, record in records.items()}
-    report['alternatives'] = {}
+    alternatives = {}
     for repo, index in indexes.items():
         for info in index['packages']:
             name, version = info['name'], info['version']
@@ -207,7 +216,7 @@ def validate_elf_abi(apk, keys, payload, indexes, work):
                 continue
             if not any(e['after'] == version for e in ledger.get(name, [])):
                 continue
-            if version in report['alternatives'].get(name, {}):
+            if version in alternatives.get(name, {}):
                 continue
             root = work / 'elf-alternative-check' / name / version
             root.mkdir(parents=True)
@@ -216,11 +225,19 @@ def validate_elf_abi(apk, keys, payload, indexes, work):
                            check=True, capture_output=True)
             inventory = ELF.inspect(root)
             inventory.update(package=name, version=version)
-            marker = root / 'usr/lib/apk/packages' / (name + '.elf.json')
-            if inventory['files'] and (not marker.exists() or json.loads(marker.read_text()) != inventory):
-                raise ValueError(f'ELF ABI preflight: {name}-{version}: missing/stale alternative inventory')
+            check_inventory(root, inventory, name, version)
             alternative = {**info, 'elf': inventory}
-            report['alternatives'].setdefault(name, {})[version] = alternative
+            alternatives.setdefault(name, {})[version] = alternative
+    if inventory_errors:
+        raise ValueError('ELF ABI preflight: ' + str(len(inventory_errors)) +
+                         ' packages need rebuilding:\n  ' + '\n  '.join(inventory_errors) +
+                         '\nIncremental feeds retain packages even when excluded from .config. '
+                         'Rebuild them with CONFIG_PACKAGE_<name>=m; do not reuse a published identity.')
+    report = ELF.validate(records)
+    report['package_info'] = {name: {k: record.get(k, [] if k in ('depends', 'provides') else '')
+                                    for k in ('name', 'version', 'hashes', 'depends', 'provides')}
+                              for name, record in records.items()}
+    report['alternatives'] = alternatives
     # Historical migration pairs may use an older SONAME together. Inspect
     # their contracts against the audited pool; the router gate below checks
     # the ACTUAL single-version-per-package transaction, never this union.

@@ -129,6 +129,59 @@ class PreflightTests(unittest.TestCase):
     def test_same_abi_does_not_require_generation_replacement(self):
         G.validate_transition({**self.baseline, 'abi': NEW}, [], NEW)
 
+    def test_reports_all_old_tracker_locks_and_missing_modules_without_mutation(self):
+        self.baseline['installed'] += 'P:kmod-unknown\nV:1-r1\n\n'
+        self.baseline['installed'] = self.baseline['installed'].replace(
+            'P:kmod-nf-log6\nV:1-r1\n', 'P:kmod-nf-log6\nV:1-r1\nC:Q1old\n')
+        self.baseline['world'] += ('kmod-nf-log6@lan><Q1old\nkmod-nf-log=1-r1\n' +
+                                   'kmod-nf-log6-old-owrt-g1><Q1protected\n')
+        before = json.dumps(self.baseline, sort_keys=True)
+        with self.assertRaises(ValueError) as failure:
+            self.check()
+        message = str(failure.exception)
+        for expected in ('kmod-unknown', 'kmod-nf-log6@lan><Q1old', 'kmod-nf-log=1-r1'):
+            self.assertIn(expected, message)
+        self.assertNotIn('Q1protected', message)
+        self.assertEqual(json.dumps(self.baseline, sort_keys=True), before)
+
+    def test_kernel_version_lock_blocks_abi_transition_but_target_pin_is_allowed(self):
+        self.baseline['installed'] += 'P:kernel\nV:' + OLD + '\n\n'
+        self.packages.append({'name': 'kernel', 'version': NEW})
+        self.baseline['world'] = 'kernel=' + OLD + '\n'
+        with self.assertRaisesRegex(ValueError, 'world locks block'):
+            self.check()
+        self.baseline['world'] = 'kernel=' + NEW + '\n'
+        self.check()
+
+    def test_readiness_rejects_missing_tracker_before_staging(self):
+        with patch.object(G, 'policy', return_value={'ssh_target': 'router'}), \
+                patch.object(G, 'remote', return_value=self.baseline):
+            with self.assertRaisesRegex(ValueError, 'no target ABI tracker'):
+                G.readiness(self.root, [], NEW)
+
+    def test_changed_early_baseline_blocks_before_simulation(self):
+        stale = {**self.baseline, 'hashes': {'installed': 'changed'}}
+        with patch.object(G, 'policy', return_value={'ssh_target': 'router'}), \
+                patch.object(G, 'capture', return_value=self.baseline), \
+                patch.object(G, 'remote') as remote:
+            with self.assertRaisesRegex(ValueError, 'changed during feed preparation'):
+                G.preflight(self.root, 'http://host', **self.results, expected_baseline=stale)
+            remote.assert_not_called()
+
+    def test_readiness_baseline_accepts_added_elf_fingerprint_but_final_check_requires_it(self):
+        full = {**self.baseline, 'hashes': {**self.baseline['hashes'], 'elf': 'same'}}
+        with patch.object(G, 'policy', return_value={'ssh_target': 'router'}), \
+                patch.object(G, 'capture', return_value=full), \
+                patch.object(G, 'remote', return_value={'returncode': 0}):
+            self.assertEqual(G.preflight(self.root, 'http://host', **self.results,
+                             expected_baseline=self.baseline)['status'], 'passed')
+        changed = {**full, 'hashes': {**full['hashes'], 'elf': 'changed'}}
+        with patch.object(G, 'policy', return_value={'ssh_target': 'router'}), \
+                patch.object(G, 'capture', side_effect=[full, changed]), \
+                patch.object(G, 'remote', return_value={'returncode': 0}):
+            with self.assertRaisesRegex(ValueError, 'baseline changed'):
+                G.preflight(self.root, 'http://host', **self.results, expected_baseline=self.baseline)
+
     def test_fresh_router_simulation_and_bound_receipt(self):
         with patch.object(G, 'policy', return_value={'ssh_target': 'router'}), \
                 patch.object(G, 'capture', return_value=self.baseline), \
@@ -155,6 +208,22 @@ class PreflightTests(unittest.TestCase):
                 patch.object(G, 'remote', return_value={'returncode': 99, 'stderr': 'missing dependency'}):
             with self.assertRaisesRegex(ValueError, 'Router rejects'):
                 G.preflight(self.root, 'http://host', **self.results)
+
+    def test_long_solver_error_preserves_root_conflict_and_final_blocker(self):
+        error = 'ROOT: pinned tracker conflicts\n' + 'dependency details\n' * 1000 + 'FINAL BLOCKER'
+        for first in (True, False):
+            with self.subTest(first_simulation=first):
+                responses = [{'returncode': 99, 'stderr': error}]
+                if not first:
+                    responses.insert(0, {'returncode': 0})
+                with patch.object(G, 'policy', return_value={'ssh_target': 'router'}), \
+                        patch.object(G, 'capture', return_value=self.baseline), \
+                        patch.object(G, 'remote', side_effect=responses):
+                    with self.assertRaises(ValueError) as failure:
+                        G.preflight(self.root, 'http://host', **self.results)
+                self.assertIn('ROOT: pinned tracker conflicts', str(failure.exception))
+                self.assertIn('FINAL BLOCKER', str(failure.exception))
+                self.assertLess(len(str(failure.exception)), 8500)
 
     def test_database_change_invalidates_receipt(self):
         changed = {**self.baseline, 'hashes': {'installed': 'changed'}}
