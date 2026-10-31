@@ -64,6 +64,13 @@ PyGObject, GTK4, libadwaita, GUdev, Notify and desktop-schema dependencies.
 See the [physical Tweaks validation](gnome-tweaks-validation.md) for the
 signed deployment and application checks.
 
+The desktop ships DejaVu Sans/Sans Mono as primary fonts and
+`noto-sans-symbols2` (Noto Sans Symbols 2, OFL-1.1) as a fontconfig fallback.
+DejaVu lacks several Miscellaneous Technical and pictograph code points, such
+as U+23F5 used by terminal UIs like Claude Code's `⏵⏵` mode line; without
+the fallback, GTK terminals render them as hex boxes (`23F5`). Check coverage
+on the device with `fc-list :charset=23f5 family`.
+
 Full systemd libudev and udevd provide device tags for logind seats. The udev
 package installs device-identification, seat and access rules, not networking
 renaming, firmware or module-loading rules. Existing procd hotplug dispatch,
