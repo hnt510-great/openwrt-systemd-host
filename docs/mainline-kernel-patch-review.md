@@ -585,3 +585,65 @@ metadata/Kconfig (4) and APK source-version (2) tests all pass. All 136 protecte
 files and all 11 repository histories, staged intent and stashes pass the final
 preservation checks. The working `.config` is unchanged. The complete final
 receipt is `verification-final.json` in the snapshot directory.
+
+### Main/feed synchronization and new-patch review, 2026-10-31
+
+Merged 31 main-tree commits through `a516fe3151` into local merge
+`753820aaa7`, preserving the Linux 7.3 selection and local integration.
+The only conflict was the PPP release: upstream advanced it to 5 for quoting
+`REQPREFIX`/`IP6TABLE`, which merges cleanly with the local ujail changes.
+Because the local release was already 6, the merged recipe uses
+`PKG_RELEASE:=7` rather than reusing an existing identity.
+
+This batch adds build-system Rust support and two generic 6.18 patches:
+
+- `pending-6.18/803-rust-opp-pass-old-opp-to-config_clks.patch` adds the
+  old-OPP argument to the Rust `config_clks` trampoline. Linux 7.3
+  `rust/kernel/opp.rs` still has the old signature, while the carried
+  `pending-7.3/802-OPP-Provide-old-opp-to-config_clks-on-_set_opp.patch`
+  changes `config_clks_t` in the same way as 6.18. **Required for 7.3** when
+  `CONFIG_RUST` and `CONFIG_PM_OPP` are enabled.
+- `hack-6.18/791-net-phy-ax88796b-build-the-Rust-driver-next-to-the-C.patch`
+  builds the Rust ax88796b PHY driver as a separate module for the new
+  `kmod-phy-ax88796b-rust`. Linux 7.3 still replaces the C driver with the
+  Rust driver. **Required for 7.3** for that package.
+
+Both are carried unchanged as `pending-7.3/803-*` and `hack-7.3/791-*`; they
+apply with zero fuzz (offsets only) and no later 7.3 patch touches their files.
+The 30 generic configuration defaults added for 6.18 (Rust options and the
+auxiliary-display symbols of `kmod-seg-led-gpio`) are added to
+`config-7.3`; all exist in 7.3 Kconfig. Without them, selecting
+`kmod-seg-led-gpio` leaves eight 7.3 symbols for interactive prompting.
+`listnewconfig` with that driver enabled now reports only the three
+target-supplied values that were already present before this batch. Other
+incoming kernel changes are Realtek and Octeon target files, the PCA954x
+autoload and new module packages; none needs an x86/64 backport.
+
+The build-system Rust toolchain remains disabled (`USE_RUST_TOOLCHAIN` unset;
+`RUST_TOOLCHAINOPTS` is a new unset symbol), so feed `rust/host` users
+including glycin, librsvg and mozjs140 stay visible. Strict Kconfig checking
+of a copy of `.config` reports only `kmod-seg-led-gpio` and
+`RUST_TOOLCHAINOPTS` as new unset symbols. The working `.config` is unchanged.
+
+The mainline updater then advanced Linux 7.3 to **7.3.1** (SHA256
+`fa595aad93734f829c963c2a90ef7c3673224fd7fdae7b49406e397cde2de231`); all
+319 carried patches apply to it with `--fuzz=0`, so 7.3.1 absorbs none of
+them. 7.3.1 still lacks the RM500Q-AE binding; the three earlier
+optional-feature findings remain open.
+
+All 513 source-patch registry entries and all 319 ported patches have
+matching SHA256 values. The packages, LuCI and two Passwall feeds merge 26,
+42, one and one incoming commits without conflict. Routing, telephony, video
+and taskplan had no incoming commits. The custom updater advances libostree
+to 2026.6, tpm2-tss to 4.2.1 and wireplumber to 0.5.19; each source verifies
+and prepares with its local patches. Five entries retain their review
+branch. Mainline-updater (20), kernel-input (7), custom-updater (43),
+package metadata/Kconfig (4) and APK source-version (2) tests pass.
+
+This is source integration and patch-application validation. No Rust
+toolchain was available (`bindgen` is absent), so the Rust patches were checked
+against the C callback signature rather than compiled. The 7.3.1 kernel, a
+firmware image and the updated packages were not built. No packages were
+published, nothing was deployed to a device, and nothing was pushed.
+Backup branches are `backup/pre-sync-20261031T041546Z` in the main tree and
+in each feed.
