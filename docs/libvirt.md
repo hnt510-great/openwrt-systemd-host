@@ -35,9 +35,20 @@ AppArmor/SELinux and private mount namespaces are disabled in this first
 integration; libvirt retains DAC ownership management, disk locking and
 cgroup isolation. OpenWrt owns device hotplug, bridges, DHCP and firewall
 rules. This build does not expose libvirt network, interface, nwfilter or
-device-passthrough management. The host uses the existing OpenWrt shutdown
+device-passthrough management. Probes for these excluded drivers return
+`VIR_ERR_NO_SUPPORT`; they do not attempt to connect to absent modular daemon
+sockets. This lets virt-manager detect unsupported capabilities while retaining
+QEMU and storage management. Check this on the router with:
+
+    sudo python3 scripts/tests/test-libvirt-secondary-drivers.py
+
+Copy the test script to the router first if the source tree is not mounted.
+The check only queries APIs and does not change guests, pools or networks.
+
+The host uses the existing OpenWrt shutdown
 sequence; a native helper first requests ACPI shutdown for guests and waits
-up to 60 seconds. Shut guests down explicitly before maintenance if they
+up to 60 seconds. The helper wants and is ordered after virtqemud, so a daemon
+restart does not stop the helper and shut down guests. Shut guests down explicitly before maintenance if they
 cannot handle ACPI shutdown.
 
 The secret service uses a 32-byte key generated on first boot under

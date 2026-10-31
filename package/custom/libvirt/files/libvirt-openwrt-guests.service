@@ -1,6 +1,7 @@
 [Unit]
 Description=Graceful shutdown of OpenWrt libvirt guests
-Requires=virtqemud.service
+# Keep daemon maintenance from invoking the host-shutdown helper.
+Wants=virtqemud.service
 After=virtqemud.service virtstoraged.service virtsecretd.service
 
 [Service]
