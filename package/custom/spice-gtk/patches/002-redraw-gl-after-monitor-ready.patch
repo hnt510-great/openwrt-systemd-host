@@ -8,7 +8,7 @@ acknowledging GL draw messages while waiting for monitor configuration.
  
      d->ready = ready;
      g_object_notify(G_OBJECT(display), "ready");
-+#if HAVE_EGL
++#ifdef HAVE_EGL
 +    if (ready && egl_enabled(d) && d->egl.context_ready) {
 +        GtkWidget *area = gtk_stack_get_child_by_name(d->stack, "gl-area");
 +

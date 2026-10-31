@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=spice-gtk
 PKG_VERSION:=0.43
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=https://www.spice-space.org/download/gtk
 PKG_HASH:=cee26e5b2d22909f35b40a94398d1e863ca3962ee46494ca97aab206abc3203b
@@ -21,7 +21,7 @@ include $(INCLUDE_DIR)/gobject-introspection.mk
 
 MESON_VARS += PYTHONPATH="$(HOST_PYTHON3PATH)"
 MESON_ARGS += \
-	-Dauto_features=disabled -Dgtk=enabled -Dwayland-protocols=enabled \
+	-Dauto_features=disabled -Dgtk=enabled -Degl=enabled -Dwayland-protocols=enabled \
 	-Dintrospection=enabled -Dvapi=disabled -Dgtk_doc=disabled \
 	-Dwebdav=disabled -Dusbredir=disabled -Dlibcap-ng=disabled \
 	-Dpolkit=disabled -Dsmartcard=disabled -Dsasl=disabled \

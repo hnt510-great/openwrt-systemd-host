@@ -19,6 +19,12 @@ for name, version in [('SpiceClientGLib', '2.0'), ('SpiceClientGtk', '3.0')]:
     importlib.import_module('gi.repository.' + name)
     print(name, version, 'imported')
 
+from gi.repository import SpiceClientGLib
+
+assert SpiceClientGLib.Session().get_property('gl-scanout'), \
+    'SPICE client was built without EGL; VirtIO 3D consoles cannot display'
+print('SPICE client GL scanout is enabled by default')
+
 assert open('/proc/1/comm').read().strip() == 'systemd'
 raw = libvirt.open('qemu:///system')
 caps = ET.fromstring(raw.getDomainCapabilities(None, 'x86_64', None, 'kvm', 0))
