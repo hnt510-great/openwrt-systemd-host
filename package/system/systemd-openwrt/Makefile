@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=systemd-openwrt
-PKG_RELEASE:=12
+PKG_RELEASE:=13
 PKG_LICENSE:=GPL-2.0-only
 PKG_CONFIG_DEPENDS:=CONFIG_TARGET_ROOTFS_PERSIST_VAR CONFIG_PACKAGE_systemd-udev
 
@@ -16,7 +16,7 @@ define Package/systemd-openwrt
   SECTION:=base
   CATEGORY:=Base system
   TITLE:=OpenWrt native systemd boot and procd compatibility
-  DEPENDS:=@OPENWRT_SYSTEMD +systemd +polkit +dbus +procd +ubusd +ubus +coreutils-timeout +kmod-fs-vfat
+  DEPENDS:=@OPENWRT_SYSTEMD +systemd +polkit +dbus +procd +ubusd +ubus +jsonfilter +coreutils-timeout +kmod-fs-vfat
   DEPENDS+=+openssh-server-pam +logd
 endef
 
@@ -42,6 +42,7 @@ define Package/systemd-openwrt/install
 	$(INSTALL_BIN) ./files/openwrt-rcS $(1)/usr/libexec/
 	$(INSTALL_BIN) ./files/openwrt-dbus-ready $(1)/usr/libexec/
 	$(INSTALL_BIN) ./files/openwrt-systemd-prepare $(1)/usr/libexec/
+	$(INSTALL_BIN) ./files/openwrt-network-wait-online $(1)/usr/libexec/
 	$(INSTALL_DIR) $(1)/usr/lib/apk/commit_hooks.d
 	$(INSTALL_BIN) ./files/kmod-depmod.hook $(1)/usr/lib/apk/commit_hooks.d/20-kmod-depmod
 	$(INSTALL_DATA) ./files/openwrt-*.service ./files/dbus.service ./files/openwrt.slice $(1)/usr/lib/systemd/system/
@@ -58,6 +59,12 @@ define Package/systemd-openwrt/install
 	$(INSTALL_DATA) ./files/openwrt-journal-rotate.timer $(1)/usr/lib/systemd/system/
 	$(INSTALL_DIR) $(1)/etc/systemd/system/timers.target.wants
 	$(LN) /usr/lib/systemd/system/openwrt-journal-rotate.timer $(1)/etc/systemd/system/timers.target.wants/
+	# netifd has no other provider; without it network-online.target is reached at once.
+	# Rootless Quadlets poll the system target but cannot pull it in, so boot always does.
+	$(INSTALL_DIR) $(1)/etc/systemd/system/network-online.target.wants
+	$(LN) /usr/lib/systemd/system/openwrt-network-wait-online.service \
+		$(1)/etc/systemd/system/network-online.target.wants/
+	$(LN) /usr/lib/systemd/system/network-online.target $(1)/etc/systemd/system/multi-user.target.wants/
 	$(INSTALL_DATA) ./files/system.conf $(1)/etc/systemd/system.conf.d/openwrt.conf
 	$(INSTALL_DATA) ./files/logind.conf $(1)/etc/systemd/logind.conf.d/openwrt.conf
 	$(INSTALL_DIR) $(1)/etc/pam.d

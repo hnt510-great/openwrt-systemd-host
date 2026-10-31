@@ -92,8 +92,10 @@ defaults to procd.
 Systemd owns the manager, units, timers, sockets and journald. The bridge lives in
 `package/system/systemd-openwrt/`: `openwrt-ubusd.service` (ubusd), `openwrt-procd.service` (procd
 as service supervisor, hotplug and watchdog), `openwrt-services.service` (runs enabled
-`/etc/init.d/*` rc scripts in order). UCI, LuCI and rc scripts keep addressing procd-managed
-services, so most router-side work is still procd-shaped. See `docs/systemd.md`.
+`/etc/init.d/*` rc scripts in order), `openwrt-network-wait-online.service` (holds
+`network-online.target` until netifd's static local interfaces such as `lan` are up; rootless
+Quadlets depend on it). UCI, LuCI and rc scripts keep addressing procd-managed services, so most
+router-side work is still procd-shaped. See `docs/systemd.md`.
 
 An optional compatibility bridge (`CONFIG_OPENWRT_SYSTEMD_SERVICE_BRIDGE`, off by default,
 `package/system/systemd-openwrt-services/`) adds a C daemon that maps
@@ -308,7 +310,8 @@ python3 scripts/tests/test-<topic>.py        # host tests, e.g. test-elf-abi, te
                                              # test-apk-upgrade-preflight, test-lan-apk-publisher,
                                              # test-build-and-publish, test-kernel-upgrade,
                                              # test-mainline-kernel-updates, test-scheduled-maintenance,
-                                             # test-systemd-service-bridge, test-merge-usr, test-needrestart
+                                             # test-systemd-service-bridge, test-merge-usr, test-needrestart,
+                                             # test-network-wait-online
 node scripts/tests/test-<app>-view.js        # LuCI view logic
 sh scripts/tests/test-alternatives.sh        # alternative/symlink handling
 sh scripts/test-<feature>.sh                 # appimage, distrobox, full-utils, native-libs,

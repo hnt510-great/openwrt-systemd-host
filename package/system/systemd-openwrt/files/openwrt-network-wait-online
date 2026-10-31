@@ -1,0 +1,80 @@
+#!/bin/sh
+# netifd has no systemd wait-online provider, so network-online.target would be
+# reached before any interface exists. Hold it until netifd reports the selected
+# interfaces up, like systemd-networkd-wait-online. By default these are the
+# statically configured local networks; name upstream interfaces explicitly.
+set -eu
+usage() {
+	echo 'Usage: openwrt-network-wait-online [--any] [--timeout SECONDS] [-i|--interface NAME]...' >&2
+	exit 2
+}
+any=0
+timeout=120
+names=
+while [ $# -gt 0 ]; do
+	case "$1" in
+		--any) any=1 ;;
+		--timeout) [ $# -gt 1 ] || usage; timeout=$2; shift ;;
+		--timeout=*) timeout=${1#*=} ;;
+		-i|--interface) [ $# -gt 1 ] || usage; names="$names $2"; shift ;;
+		--interface=*) names="$names ${1#*=}" ;;
+		*) usage ;;
+	esac
+	shift
+done
+case "$timeout" in ''|*[!0-9]*) usage ;; esac
+for name in $names; do
+	case "$name" in *[!A-Za-z0-9_-]*) usage ;; esac
+done
+
+uptime_seconds() {
+	read -r seconds _ < /proc/uptime
+	echo "${seconds%%.*}"
+}
+
+# Sets $waiting and $online_names; returns 0 once the selection is online.
+check() {
+	waiting=' netifd'
+	online_names=
+	# netifd registers on ubus before loading its configuration.
+	dump=$(ubus -t 5 call network.interface dump 2>/dev/null) || return 1
+	up=$(jsonfilter -s "$dump" -e '@.interface[@.up=true].interface' 2>/dev/null) || up=
+	if [ -n "$names" ]; then
+		selected=$names
+	elif jsonfilter -s "$dump" -e '@.interface[@.autostart=true && @.dynamic=false &&
+		@.proto="static" && @.interface!="loopback"].interface' >/dev/null 2>&1; then
+		# A router's local networks do not depend on its upstream: a WAN, PPPoE
+		# or VPN outage must not hold LAN services. Statically configured
+		# interfaces are up once their device exists.
+		selected=$(jsonfilter -s "$dump" -e '@.interface[@.autostart=true && @.dynamic=false &&
+			@.proto="static" && @.available=true].interface' 2>/dev/null) || selected=
+	else
+		# Without local networks, wait for every interface whose device is present.
+		# Dynamic children such as DHCPv6 aliases are not waited for.
+		selected=$(jsonfilter -s "$dump" -e \
+			'@.interface[@.autostart=true && @.available=true && @.dynamic=false].interface' \
+			2>/dev/null) || selected=
+	fi
+	waiting=
+	for name in $selected; do
+		[ "$name" != loopback ] || continue
+		if printf '%s\n' "$up" | grep -qx -- "$name"; then
+			online_names="$online_names $name"
+		else
+			waiting="$waiting $name"
+		fi
+	done
+	# An empty selection is not online: interfaces may not be loaded yet.
+	[ -n "$online_names" ] || { [ -n "$waiting" ] || waiting=' interfaces'; return 1; }
+	[ "$any" = 1 ] || [ -z "$waiting" ]
+}
+
+deadline=$(( $(uptime_seconds) + timeout ))
+until check; do
+	if [ "$timeout" != 0 ] && [ "$(uptime_seconds)" -ge "$deadline" ]; then
+		echo "Timed out after ${timeout}s waiting for:${waiting}" >&2
+		exit 1
+	fi
+	sleep 1
+done
+echo "Network is online:${online_names}"

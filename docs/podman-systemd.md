@@ -193,9 +193,13 @@ ordinary login. Container startup still fails normally if TUN is unavailable.
 for procd recovery. Early autoload alone cannot guarantee device and ACL
 readiness before lingering user managers, especially with managed kernels.
 
-This barrier covers TUN, not WAN readiness. Applications that need WAN at
-startup should retry or use appropriate network readiness checks. The generic
-`network-online.target` alone does not establish that PPPoE or DNS is usable.
+This barrier covers TUN, not WAN readiness. Quadlets wait for the system
+`network-online.target` through `podman-user-wait-network-online.service`; on
+this image the target waits for netifd's static local interfaces such as `lan`,
+so `Network=pasta:-i,br-lan` containers start after `br-lan` exists. See
+[network readiness](systemd.md#network-readiness). The target does not wait for
+PPPoE or establish that DNS is usable by default. Applications that need WAN at
+startup should retry, or select the upstream interface in that service's drop-in.
 
 ## Rootful API (opt-in)
 

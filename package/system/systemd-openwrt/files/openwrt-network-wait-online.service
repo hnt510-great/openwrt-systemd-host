@@ -1,0 +1,16 @@
+[Unit]
+Description=Wait for OpenWrt network interfaces to come up
+Documentation=man:systemd.special(7)
+DefaultDependencies=no
+Conflicts=shutdown.target
+After=openwrt-procd.service
+Before=network-online.target shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# The helper owns the deadline; override its arguments with a drop-in.
+ExecStart=/usr/libexec/openwrt-network-wait-online
+
+[Install]
+WantedBy=network-online.target

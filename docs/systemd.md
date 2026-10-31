@@ -59,6 +59,42 @@ normal-boot enablement use systemctl; procd recovery retains its independent
 rc.d SSH setting. See [native OpenSSH](systemd-sshd.md).
 Display/input device access still uses seatd.
 
+### Network readiness
+
+netifd has no systemd wait-online provider, so `network-online.target` used to
+be reached before netifd started. `openwrt-network-wait-online.service` now holds
+the target until netifd reports the selected interfaces up, and the package pulls
+the target into every boot: rootless Quadlets wait for it through
+`podman-user-wait-network-online.service`, but user managers cannot pull in a
+system target. The service runs after procd and does not wait for the rc
+sequence. Units that are not ordered after the target, including
+`multi-user.target`, are not delayed.
+
+By default it waits for every autostart, statically configured interface whose
+device is present, such as `lan`; a WAN, PPPoE or VPN outage does not hold LAN
+services. Without static interfaces it waits for every autostart interface with
+a present device. Dynamic children such as `wan_6` are ignored. It gives up after
+120 seconds with a journal message naming the interfaces still down; the target
+is still reached. Select interfaces explicitly with a drop-in, for example when
+a unit needs the upstream link:
+
+```sh
+mkdir -p /etc/systemd/system/openwrt-network-wait-online.service.d
+cat > /etc/systemd/system/openwrt-network-wait-online.service.d/wan.conf <<'EOF'
+[Service]
+ExecStart=
+ExecStart=/usr/libexec/openwrt-network-wait-online --interface lan --interface wan --timeout 90
+EOF
+systemctl daemon-reload
+```
+
+`--any` accepts one selected interface. Interface readiness does not prove DNS
+or Internet reachability. Check the current selection without changing anything:
+
+```sh
+/usr/libexec/openwrt-network-wait-online --timeout 1
+```
+
 ### Optional systemd components
 
 Select these additional packages in menuconfig or `.config`, then build with
@@ -197,6 +233,7 @@ Host checks:
 
 ```sh
 python3 -B scripts/tests/test-merge-usr.py
+python3 -B scripts/tests/test-network-wait-online.py
 sh scripts/tests/test-alternatives.sh
 scripts/checkpatch.pl --no-tree --no-signoff package/system/procd/patches/100-systemd-compatibility.patch
 make package/system/systemd/compile V=s
@@ -252,3 +289,42 @@ Build and guest logs are saved in
 `/srv/openwrt-validation/systemd-validation-20261010/logs`; the VM disk and serial
 artifacts are in the parent directory. The disposable VM was powered off
 after validation.
+
+### Network readiness verified on 2026-10-31
+
+`systemd-openwrt` 13 adds `openwrt-network-wait-online.service`. The host test
+(14 cases) drives the helper with the target `jsonfilter` against scripted
+netifd dumps: netifd absent or still loading, loopback only, absent devices,
+dynamic and manual interfaces, upstream outages, a LAN device that appears after
+the upstream links, DHCP-only configuration, explicit and `--any` selections,
+timeouts and invalid arguments. Run read-only on the router, the helper selects
+`lan`; explicit `--interface lan --interface wan` reports both up.
+
+A disposable KVM/UEFI VM booted the published g42 image
+(SHA-256 `2fee3574e9f975e96ba2c522a59f4bb098ba4a5b0476bf71ad26acfb431389f9`)
+on a fresh overlay. It carried the router's network configuration, so its PPPoE
+WAN never connected. After first-boot kernel adoption completed, a lingering
+rootless user received a probe unit with a Quadlet's ordering
+(`After=podman-user-wait-network-online.service`) that requires `br-lan` and
+runs `pasta -i br-lan`.
+
+| Check | systemd-openwrt 12 | systemd-openwrt 13, two boots |
+| --- | --- | --- |
+| `network-online.target` reached | 9.2 s, before netifd | 22.9 s and 23.0 s |
+| `br-lan` up | 23.7 s | 22.7 s and 22.9 s |
+| Wait helper result | not present | `Network is online: lan` |
+| Rootless probe | `br-lan` absent; failed | `br-lan` present; pasta started |
+| PPPoE WAN down | n/a | did not hold the target |
+| `multi-user.target` reached | 31.5 s | 30.2 s and 30.4 s |
+| System state | running | running, no failed units |
+
+The version 12 run added `network-online.target` to `multi-user.target` by hand,
+reproducing the router, where netdata and other units want the target. Without
+any system consumer the target was never activated and Podman's user wait timed
+out after 90 seconds. The version 13 APK was installed with
+`apk --cache-dir`; the symlinks it ships replaced the manual one. This is VM
+validation. The router itself has not been updated, and physical PPPoE timing
+was not tested.
+
+Evidence: `bin/validation/sync-20261031/wait-online/` (APK, command scripts,
+controller output and serial logs).
