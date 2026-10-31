@@ -3,6 +3,7 @@
 boot task
 done task
 sysfixtime task
+desktop-audio-permissions task
 fstab task
 kernel-generation task
 lan-apk-feeds task
@@ -11,6 +12,7 @@ lm-sensors task
 openssl task
 podman-rootless task
 sudo task
+sunshine-permissions task
 sysctl task
 sysfsutils task
 wgserver task

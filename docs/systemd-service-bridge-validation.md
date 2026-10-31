@@ -134,3 +134,17 @@ Host publication and deployment receipts are in the validation directory's
 deployment/ subdirectory. The router's private configuration backup, transaction
 logs, and before/after inventories are under
 /root/service-bridge-deploy-20261019/ (root access only).
+
+## Permission setup tasks, 2026-10-31
+
+The g42 image added `desktop-audio-permissions` and `sunshine-permissions`,
+legacy boot scripts that set device ACLs and exit. Without an adapter the
+bridge reported them as `unknown (no health adapter)`, as observed on the
+router, and the host suite's installed-image coverage check failed. Version 4
+classifies both as setup tasks. The host suite passed 23 tests against the
+staged g42 root.
+
+In a disposable VM booted from the g42 image, `systemd-openwrt-services` 4 was
+installed, and both services reported `active (setup action completed; no daemon
+expected)` after a reboot, matching `led`. Evidence:
+`bin/validation/sync-20261031/kernel-adoption/`.
