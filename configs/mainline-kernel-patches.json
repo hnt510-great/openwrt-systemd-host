@@ -5456,6 +5456,29 @@
       "source_sha256": "a06da95a94aed785643a310a517fb0b0f69d36f435d314744387c4f06299ecd8",
       "ported": "target/linux/generic/pending-7.3/860-06-media-dvb-core-wake-up-CA-users-on-release.patch",
       "ported_sha256": "a06da95a94aed785643a310a517fb0b0f69d36f435d314744387c4f06299ecd8"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/803-rust-opp-pass-old-opp-to-config_clks.patch",
+      "files": [
+        "rust/kernel/opp.rs"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt c59b9de355; Linux 7.3 rust/kernel/opp.rs still lacks the old_opp argument that ported 802 adds to config_clks_t. The unchanged patch applies with zero fuzz (offset only). Needed only with CONFIG_RUST and CONFIG_PM_OPP.",
+      "source_sha256": "ee0f60566564babb63b6a1a4753ff658bd2af883b340b478d71bf19fb3f551e4",
+      "ported": "target/linux/generic/pending-7.3/803-rust-opp-pass-old-opp-to-config_clks.patch",
+      "ported_sha256": "ee0f60566564babb63b6a1a4753ff658bd2af883b340b478d71bf19fb3f551e4"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/791-net-phy-ax88796b-build-the-Rust-driver-next-to-the-C.patch",
+      "files": [
+        "drivers/net/phy/Kconfig",
+        "drivers/net/phy/Makefile"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt 9115e6ee48 for kmod-phy-ax88796b-rust; Linux 7.3 still builds the Rust driver in place of the C one. The unchanged patch applies with zero fuzz (offsets only).",
+      "source_sha256": "a7179837986243d037aac229722a94f2544506c17d3d9420be32bfb44411731a",
+      "ported": "target/linux/generic/hack-7.3/791-net-phy-ax88796b-build-the-Rust-driver-next-to-the-C.patch",
+      "ported_sha256": "a7179837986243d037aac229722a94f2544506c17d3d9420be32bfb44411731a"
     }
   ],
   "additions": [
