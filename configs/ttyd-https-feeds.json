@@ -1,0 +1,14 @@
+{
+  "packages": {
+    "url": "https://github.com/openwrt/packages.git",
+    "base": "825ca0e8472bdeceb5ab20bf3b72feaff25f7c0a",
+    "commit": "97f8488844519fb505c3c1d9ec8b7fe37f2da13d",
+    "patch": "patches/feeds/0027-packages-ttyd-https.patch"
+  },
+  "luci": {
+    "url": "https://github.com/openwrt/luci.git",
+    "base": "fa3bd04180bf7cf59841209c8168e08daad121d0",
+    "commit": "fce3f1d74e7778a17539413a7128b2666915bfd6",
+    "patch": "patches/feeds/0028-luci-ttyd-https.patch"
+  }
+}

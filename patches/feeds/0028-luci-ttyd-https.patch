@@ -1,0 +1,57 @@
+From fce3f1d74e7778a17539413a7128b2666915bfd6 Mon Sep 17 00:00:00 2001
+From: hnt510 <hnt510@gmail.com>
+Date: Sun, 1 Nov 2026 00:37:28 +0800
+Subject: [PATCH] luci-app-ttyd: warn about mixed content and link to the
+ terminal
+
+An http:// ttyd frame inside an HTTPS LuCI page is blocked silently.
+Show a warning in that case, and always offer a link that opens the
+terminal in a new tab, which is also how a browser accepts the ttyd
+certificate when the frame stays blank. Bracket IPv6 literal hosts and
+keep the frame filling the view.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../luci-static/resources/view/ttyd/term.js   | 26 ++++++++++++++++---
+ 1 file changed, 22 insertions(+), 4 deletions(-)
+
+diff --git a/applications/luci-app-ttyd/htdocs/luci-static/resources/view/ttyd/term.js b/applications/luci-app-ttyd/htdocs/luci-static/resources/view/ttyd/term.js
+index fac6da51a2..0e8d26d4c3 100644
+--- a/applications/luci-app-ttyd/htdocs/luci-static/resources/view/ttyd/term.js
++++ b/applications/luci-app-ttyd/htdocs/luci-static/resources/view/ttyd/term.js
+@@ -13,10 +13,28 @@ return view.extend({
+ 		if (port === '0')
+ 			return E('div', { class: 'alert-message warning' },
+ 					_('Random ttyd port (port=0) is not supported.<br />Change to a fixed port and try again.'));
+-		return E('iframe', {
+-			src: url || ((ssl === '1' ? 'https' : 'http') + '://' + window.location.hostname + ':' + port),
+-			style: 'width: 100%; min-height: 500px; border: none; border-radius: 3px; resize: vertical;'
+-		});
++
++		var host = window.location.hostname;
++		if (host.indexOf(':') !== -1)
++			host = '[' + host + ']';
++
++		var src = url || ((ssl === '1' ? 'https' : 'http') + '://' + host + ':' + port),
++			nodes = [];
++
++		/* An http:// frame inside an https:// page is blocked as mixed content. */
++		if (window.location.protocol === 'https:' && /^http:/i.test(src))
++			nodes.push(E('div', { class: 'alert-message warning' },
++				_('LuCI is served over HTTPS but ttyd is not. Enable SSL in the ttyd configuration, or open the terminal in a new tab.')));
++
++		nodes.push(E('iframe', {
++			src: src,
++			style: 'flex: 1; width: 100%; min-height: 500px; border: none; border-radius: 3px; resize: vertical;'
++		}));
++
++		nodes.push(E('p', {}, E('a', { href: src, target: '_blank', rel: 'noopener' },
++			_('Open the terminal in a new tab (also accepts its certificate if the frame stays blank)'))));
++
++		return E('div', { style: 'display: flex; flex-direction: column; height: 100%;' }, nodes);
+ 	},
+ 	handleSaveApply: null,
+ 	handleSave: null,
+-- 
+2.53.0
+

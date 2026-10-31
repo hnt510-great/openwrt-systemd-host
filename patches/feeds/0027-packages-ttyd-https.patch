@@ -1,0 +1,127 @@
+From 97f8488844519fb505c3c1d9ec8b7fe37f2da13d Mon Sep 17 00:00:00 2001
+From: hnt510 <hnt510@gmail.com>
+Date: Sun, 1 Nov 2026 00:37:28 +0800
+Subject: [PATCH] ttyd: serve TLS with the LuCI certificate when LuCI uses
+ HTTPS
+
+LuCI embeds ttyd in an iframe. When LuCI is served over HTTPS, a plain
+http:// ttyd frame is blocked by browsers as mixed content.
+
+- When ssl is enabled without ssl_cert/ssl_key, reuse uhttpd's main
+  certificate and key; fall back to plain HTTP if none exist.
+- Track the certificate files so a reload restarts ttyd after renewal,
+  and reload on uhttpd configuration changes.
+- Enable ssl on install for sections without an explicit setting when
+  uhttpd listens on HTTPS.
+- Reload ttyd from an acme hotplug hook after renewal or issue.
+
+PKG_RELEASE goes to 4: releases 1 and 2 map to the published r3 in the
+ELF rebuild ledger.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ utils/ttyd/Makefile                |  6 +++++-
+ utils/ttyd/files/ttyd.acme-hotplug |  6 ++++++
+ utils/ttyd/files/ttyd.init         | 14 +++++++++++++-
+ utils/ttyd/files/ttyd.uci-defaults | 15 +++++++++++++++
+ 4 files changed, 39 insertions(+), 2 deletions(-)
+ create mode 100644 utils/ttyd/files/ttyd.acme-hotplug
+ create mode 100644 utils/ttyd/files/ttyd.uci-defaults
+
+diff --git a/utils/ttyd/Makefile b/utils/ttyd/Makefile
+index c6733c47e..97907393b 100644
+--- a/utils/ttyd/Makefile
++++ b/utils/ttyd/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=ttyd
+ PKG_VERSION:=1.7.7
+-PKG_RELEASE:=1
++PKG_RELEASE:=4
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
+ PKG_SOURCE_URL:=https://codeload.github.com/tsl0922/ttyd/tar.gz/$(PKG_VERSION)?
+@@ -47,6 +47,10 @@ define Package/ttyd/install
+ 	$(INSTALL_CONF) ./files/ttyd.config $(1)/etc/config/ttyd
+ 	$(INSTALL_DIR) $(1)/etc/init.d/
+ 	$(INSTALL_BIN) ./files/ttyd.init $(1)/etc/init.d/ttyd
++	$(INSTALL_DIR) $(1)/etc/uci-defaults
++	$(INSTALL_BIN) ./files/ttyd.uci-defaults $(1)/etc/uci-defaults/80-ttyd-https
++	$(INSTALL_DIR) $(1)/etc/hotplug.d/acme
++	$(INSTALL_DATA) ./files/ttyd.acme-hotplug $(1)/etc/hotplug.d/acme/50-ttyd
+ endef
+ 
+ $(eval $(call BuildPackage,ttyd))
+diff --git a/utils/ttyd/files/ttyd.acme-hotplug b/utils/ttyd/files/ttyd.acme-hotplug
+new file mode 100644
+index 000000000..ce32d9a7e
+--- /dev/null
++++ b/utils/ttyd/files/ttyd.acme-hotplug
+@@ -0,0 +1,6 @@
++# Restart ttyd instances whose certificate changed after an ACME renewal.
++case "$ACTION" in
++renewed|issued)
++	[ -x /etc/init.d/ttyd ] && /etc/init.d/ttyd enabled && /etc/init.d/ttyd reload
++	;;
++esac
+diff --git a/utils/ttyd/files/ttyd.init b/utils/ttyd/files/ttyd.init
+index 7e24aeab2..d0e07b83b 100644
+--- a/utils/ttyd/files/ttyd.init
++++ b/utils/ttyd/files/ttyd.init
+@@ -59,6 +59,17 @@ ttyd_instance()
+ 	[ "$ipv6" = 0 ] && ipv6=""
+ 	[ "$ssl" = 0 ] && ssl=""
+ 
++	# Reuse the LuCI web server certificate unless one is configured,
++	# so the terminal can be embedded in an HTTPS LuCI page.
++	[ -n "$ssl" ] && {
++		[ -n "$ssl_cert" ] || ssl_cert="$(uci -q get uhttpd.main.cert)"
++		[ -n "$ssl_key" ] || ssl_key="$(uci -q get uhttpd.main.key)"
++		[ -s "$ssl_cert" ] && [ -s "$ssl_key" ] || {
++			echo "ttyd: no TLS certificate/key available, serving plain HTTP" >&2
++			ssl=""; ssl_cert=""; ssl_key=""
++		}
++	}
++
+ 	procd_open_instance
+ 	procd_set_param command "$PROG" \
+ 		${port:+-p $port} \
+@@ -82,6 +93,7 @@ ttyd_instance()
+ 		${debug:+-d $debug}
+ 	config_list_foreach "$1" client_option "procd_append_param command -t"
+ 	procd_append_param command $command
++	[ -n "$ssl" ] && procd_set_param file "$ssl_cert" "$ssl_key"
+ 	procd_set_param stdout 1
+ 	procd_set_param stderr 1
+ 	procd_close_instance
+@@ -98,5 +110,5 @@ shutdown() {
+ }
+ 
+ service_triggers() {
+-	procd_add_reload_trigger "$NAME"
++	procd_add_reload_trigger "$NAME" uhttpd
+ }
+diff --git a/utils/ttyd/files/ttyd.uci-defaults b/utils/ttyd/files/ttyd.uci-defaults
+new file mode 100644
+index 000000000..ddb095d98
+--- /dev/null
++++ b/utils/ttyd/files/ttyd.uci-defaults
+@@ -0,0 +1,15 @@
++#!/bin/sh
++
++# Serve ttyd over TLS when LuCI is served over HTTPS, otherwise browsers
++# block the embedded http:// terminal as mixed content. Only sections
++# without an explicit ssl setting are changed.
++
++[ -n "$(uci -q get uhttpd.main.listen_https)" ] || exit 0
++
++for section in $(uci -q show ttyd | sed -n 's/^ttyd\.\([^.=]*\)=ttyd$/\1/p'); do
++	[ -n "$(uci -q get "ttyd.$section.ssl")" ] && continue
++	uci -q set "ttyd.$section.ssl=1"
++done
++
++uci -q commit ttyd
++exit 0
+-- 
+2.53.0
+
