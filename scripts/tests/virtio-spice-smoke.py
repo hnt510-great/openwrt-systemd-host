@@ -56,9 +56,9 @@ try:
     assert xml.find('devices/video/model').get('type') == 'virtio'
     acceleration = xml.find('devices/video/model/acceleration')
     assert acceleration is None or acceleration.get('accel3d') != 'yes'
-    assert not xml.findall('devices/sound')
+    assert xml.findall('devices/sound'), 'new local SPICE guests should get a sound card'
     assert not xml.findall('devices/redirdev')
-    print('New defaults: local SPICE, VirtIO video, 3D off, no automatic sound/USB redirection')
+    print('New defaults: local SPICE, VirtIO video, 3D off, sound card, no automatic USB redirection')
 
     explicit = virtinst.Guest(conn, parsexml="""<domain type='kvm'>
       <name>existing-explicit-audit</name><memory>524288</memory><vcpu>1</vcpu>
