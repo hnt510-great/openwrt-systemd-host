@@ -9,6 +9,7 @@ Built the complete x86/64 glibc native-systemd GNOME firmware, including the
 - Release: `7.3-owrt-5001c59b1072ebdf1a2ed551a854f37a-r1-g38`.
 - EFI image: `openwrt-x86-64-generic-squashfs-combined-efi.img.gz` (710119230 bytes).
 - SHA256: `e155822c686c43385f4a8958ce42cc4b6ebc254fbca182bb336bedd8f17e10b0`.
+- The g38 image below was removed from the LAN server on 2026-10-31; the links no longer resolve.
 - [Download image](http://apk.example.invalid:8088/images/7.3-g38-e155822c686c4338/openwrt-x86-64-generic-squashfs-combined-efi.img.gz). LAN access restrictions remain enabled.
 - [Checksums](http://apk.example.invalid:8088/images/7.3-g38-e155822c686c4338/SHA256SUMS), [checksum signature](http://apk.example.invalid:8088/images/7.3-g38-e155822c686c4338/SHA256SUMS.sig)
   and [public verification key](http://apk.example.invalid:8088/images/7.3-g38-e155822c686c4338/image-signing.pub.pem).

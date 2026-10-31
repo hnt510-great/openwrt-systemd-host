@@ -47,7 +47,10 @@ processes are unchanged. Only the two pre-existing hostname-sync units remain
 failed. No workload or machine reboot was requested by this deployment.
 
 Private receipts, reviewed plans, source/build/policy-test logs and final health
-are in `bin/deployment/full-upgrade-20261029/`. Router rollback archives and
+are in `bin/deployment/full-upgrade-20261029/`. The staged g38 kernel APKs and
+their extracted copies (`kernel/`, `kernel-extract/`) were pruned on
+2026-10-31 after the router moved to g42; logs and JSON records remain.
+Router rollback archives and
 staged signed payloads remain under `/root/full-upgrade-20261029/` (root-only).
 The host `.config` is unchanged. Source changes are uncommitted and the r16
 support-tool hotfix has not been promoted to the public feed.
