@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import shlex
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -405,8 +406,9 @@ class KernelManager:
         config = gzip.decompress(config_path.read_bytes()).decode()
         name = identifier('legacy-' + release)
         destination = self.path('/usr/lib/openwrt-kernel') / name
-        if destination.exists():
-            raise KernelError('Incomplete adoption exists; inspect before retrying')
+        snapshot = self.boot / 'grub/grub.cfg.rescue'
+        if destination.exists() or snapshot.exists():
+            self.discard_interrupted_adoption(destination, snapshot)
         destination.mkdir(parents=True)
         shutil.copytree(self.path('/usr/lib/modules') / release, destination / 'modules', symlinks=True)
         for directory in ('modules.d', 'modules-boot.d', 'modprobe.d'):
@@ -415,9 +417,6 @@ class KernelManager:
                 source = self.path('/etc') / directory
             if source.exists():
                 shutil.copytree(source, destination / directory, symlinks=False)
-        snapshot = self.boot / 'grub/grub.cfg.rescue'
-        if snapshot.exists():
-            raise KernelError('Existing rescue GRUB configuration must be inspected')
         atomic(snapshot, (self.boot / 'grub/grub.cfg').read_bytes(), 0o644)
         required = ('CONFIG_BLK_DEV_INITRD', 'CONFIG_DEVTMPFS', 'CONFIG_CGROUPS',
                     'CONFIG_CGROUP_PIDS', 'CONFIG_MEMCG', 'CONFIG_SECCOMP', 'CONFIG_NAMESPACES',
@@ -434,13 +433,29 @@ class KernelManager:
                      'abi': records['kernel']['V'], 'kernel_sha256': sha256(self.boot / 'vmlinuz'),
                      'modules': inventory(destination / 'modules'),
                      'firmware_files': self.freeze_firmware(name)}}}
-        # Legacy files remain present when the old package ownership is retired.
-        atomic(self.policy / 'legacy-release', release + '\n')
         self.save(state)
-        self.protect()
         return self.finish_migrate(state)
 
+    def discard_interrupted_adoption(self, destination, snapshot):
+        """Until state.json is saved, adoption has only copied modules, rules,
+        firmware and grub.cfg; the originals are untouched. A reboot during the
+        first boot can interrupt it, so discard those copies and start again.
+        Once GRUB or the APK pins changed, a leftover still needs inspection."""
+        grub = (self.boot / 'grub/grub.cfg').read_bytes()
+        if ((self.policy / 'protected').exists() or b'--id=owrt-rescue' in grub or
+                (snapshot.exists() and snapshot.read_bytes() != grub)):
+            raise KernelError('Incomplete adoption exists; inspect before retrying')
+        print('kernelctl: discarding copies from an interrupted adoption', file=sys.stderr)
+        if destination.exists():
+            shutil.rmtree(destination)
+        snapshot.unlink(missing_ok=True)
+
     def finish_migrate(self, state):
+        # Resumable after state.json: every step below is idempotent.
+        # Legacy files remain present when the old package ownership is retired.
+        atomic(self.policy / 'legacy-release',
+               state['generations'][state['rescue']]['release'] + '\n')
+        self.protect()
         self.install_grub_modules()
         environment = self.boot / 'grub/grubenv'
         if not environment.exists():
@@ -988,7 +1003,14 @@ if [ -f $prefix/openwrt.cfg ]; then source $prefix/openwrt.cfg; fi
         atomic(self.boot / 'grub/openwrt.cfg', self.grub_config(state), 0o644)
 
 
+def exit_on_sigterm():
+    """systemd stops a starting unit with SIGTERM, e.g. on reboot. Unwind like
+    an exception so staging directories and temporary files are removed."""
+    signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(128 + signum))
+
+
 def main():
+    exit_on_sigterm()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=['status', 'check', 'migrate', 'prepare', 'boot',
                                          'confirm', 'rollback', 'retry', 'remove', 'retain',

@@ -186,6 +186,20 @@ On a freshly built opt-in image, the boot service performs adoption automaticall
 after the router services are healthy. Adoption must complete before a live APK
 transaction can install a versioned image. Offline image assembly is permitted.
 
+A reboot during the first boot can interrupt adoption. Until `state.json` is
+saved, adoption has only copied modules, rules, firmware and `grub.cfg`, so the
+next attempt discards those copies and starts again; the journal records
+`discarding copies from an interrupted adoption`. After `state.json` is saved,
+the `adopting` phase resumes, and its remaining steps (pins, `legacy-release`,
+GRUB entries and APK enrollment) are idempotent. Leftovers are kept and
+adoption still stops with `Incomplete adoption exists; inspect before retrying`
+if `grub.cfg` already holds the rescue dispatcher, the saved rescue
+configuration differs from `grub.cfg`, or APK pins exist. kernelctl turns
+systemd's SIGTERM into an orderly exit, so temporary staging is removed when a
+unit is stopped. Version 1-r17 and earlier lacked the restart: an interrupted
+copy left adoption failing on every boot. Installing 1-r18 and running
+`systemctl start openwrt-kernel-boot.service` recovers such a system.
+
 ## Upgrade and trial boot
 
 ```

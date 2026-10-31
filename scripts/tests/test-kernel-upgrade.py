@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -27,7 +28,8 @@ def load(name, path):
     return module
 
 
-K = load('kernelctl', TREE / 'package/custom/openwrt-kernel-upgrade/files/kernelctl')
+KERNELCTL = TREE / 'package/custom/openwrt-kernel-upgrade/files/kernelctl'
+K = load('kernelctl', KERNELCTL)
 P = load('kernel_package', TREE / 'scripts/kernel-package.py')
 F = load('kernel_feed', TREE / 'scripts/publish-kernel-upgrade-feed.py')
 APK = TREE / 'staging_dir/host/bin/apk'
@@ -678,6 +680,100 @@ class RuntimeTests(unittest.TestCase):
             self.manager.finish_migrate(state)
         self.assertEqual(world.read_text(),
             'base-files=1-r1\nkernel\nlibc=2.42-r1\nkmod-nic\nlinux-image-openwrt\n')
+
+    def fresh_image(self):
+        """A first boot before adoption: no state, pins or rescue snapshot."""
+        (self.manager.policy / 'state.json').unlink()
+        (self.manager.policy / 'protected').unlink()
+        support = self.root / 'usr/share/openwrt-kernel'
+        (support / 'grub/x86_64-efi').mkdir(parents=True)
+        (support / 'grub/x86_64-efi/loadenv.mod').write_bytes(b'grub module')
+        for capability in ('apk-policy', 'kmodloader-policy'):
+            (support / capability).write_text('1\n')
+        (self.root / 'boot/grub/grub.cfg').write_text(
+            "menuentry 'OpenWrt' {\n linux /boot/vmlinuz root=PARTUUID=abcd-02\n}\n")
+        (self.root / 'proc/config.gz').write_bytes(gzip.compress(b'CONFIG_BLK_DEV_INITRD=y\n'))
+        firmware = self.root / 'usr/lib/firmware/nic.bin'
+        firmware.parent.mkdir(parents=True)
+        firmware.write_bytes(b'nic firmware')
+        world = self.root / 'etc/apk/world'
+        world.parent.mkdir(parents=True)
+        world.write_text('kernel=' + ABI + '\nkmod-nic\n')
+        return self.root / 'usr/lib/openwrt-kernel/legacy-6.18.55'
+
+    def interrupted_copies(self, legacy):
+        (legacy / 'modules').mkdir(parents=True)
+        (legacy / 'modules/nic.ko').write_bytes(b'half copied')
+        (legacy / '.firmware-interrupted').mkdir()
+        grub = self.root / 'boot/grub'
+        (grub / 'grub.cfg.rescue').write_bytes((grub / 'grub.cfg').read_bytes())
+
+    def test_adoption_restarts_after_a_reboot_interrupted_its_copies(self):
+        legacy = self.fresh_image()
+        original_grub = (self.root / 'boot/grub/grub.cfg').read_bytes()
+        self.interrupted_copies(legacy)
+        state = self.manager.migrate()
+        self.assertEqual(state['phase'], 'ready')
+        entry = self.manager.check()['generations']['legacy-6.18.55']
+        self.assertEqual(entry['modules'], self.modules)
+        self.assertEqual(list(entry['firmware_files']),
+                         ['usr/lib/openwrt-kernel/legacy-6.18.55/firmware/nic.bin'])
+        self.assertFalse((legacy / '.firmware-interrupted').exists())
+        self.assertEqual((self.root / 'boot/grub/grub.cfg.rescue').read_bytes(), original_grub)
+        self.assertIn('--id=owrt-rescue', (self.root / 'boot/grub/grub.cfg').read_text())
+        self.assertEqual((self.manager.policy / 'legacy-release').read_text(), '6.18.55\n')
+        self.assertTrue((self.manager.policy / 'protected').exists())
+        self.assertEqual(K.sha256(self.root / 'boot/vmlinuz'), self.original)
+
+    def test_adoption_leftovers_need_inspection_after_grub_or_pins_changed(self):
+        changes = {
+            'dispatcher': ('boot/grub/grub.cfg',
+                           "menuentry 'OpenWrt original kernel (rescue)' --id=owrt-rescue {\n}\n"),
+            'snapshot': ('boot/grub/grub.cfg.rescue', 'another configuration\n'),
+            'pins': ('etc/openwrt-kernel/protected', ''),
+        }
+        for name, (path, content) in changes.items():
+            with self.subTest(name):
+                self.setUp()
+                grub = self.root / 'boot/grub'
+                legacy = self.fresh_image()
+                self.interrupted_copies(legacy)
+                (self.root / path).write_text(content)
+                with self.assertRaisesRegex(K.KernelError, 'Incomplete adoption'):
+                    self.manager.migrate()
+                self.assertEqual((legacy / 'modules/nic.ko').read_bytes(), b'half copied')
+                self.assertTrue((grub / 'grub.cfg.rescue').exists())
+                self.assertFalse((self.manager.policy / 'state.json').exists())
+
+    def test_adoption_interrupted_after_saving_state_resumes_with_pins(self):
+        self.fresh_image()
+        with patch.object(self.manager, 'finish_migrate', side_effect=SystemExit(143)):
+            with self.assertRaises(SystemExit):
+                self.manager.migrate()
+        self.assertEqual(self.manager.state()['phase'], 'adopting')
+        self.assertFalse((self.manager.policy / 'protected').exists())
+        self.assertFalse((self.manager.policy / 'legacy-release').exists())
+        self.assertEqual(self.manager.migrate()['phase'], 'ready')
+        self.assertTrue((self.manager.policy / 'protected').exists())
+        self.assertEqual((self.manager.policy / 'legacy-release').read_text(), '6.18.55\n')
+
+    def test_sigterm_unwinds_so_cleanup_runs(self):
+        marker = self.root / 'cleaned'
+        script = (
+            'import importlib.machinery, importlib.util, os, signal, time\n'
+            f'loader = importlib.machinery.SourceFileLoader("kernelctl", {str(KERNELCTL)!r})\n'
+            'spec = importlib.util.spec_from_loader("kernelctl", loader)\n'
+            'module = importlib.util.module_from_spec(spec)\n'
+            'loader.exec_module(module)\n'
+            'module.exit_on_sigterm()\n'
+            'try:\n'
+            '    os.kill(os.getpid(), signal.SIGTERM)\n'
+            '    time.sleep(10)\n'
+            'finally:\n'
+            f'    open({str(marker)!r}, "w").close()\n')
+        result = subprocess.run([sys.executable, '-c', script], timeout=20)
+        self.assertEqual(result.returncode, 143)
+        self.assertTrue(marker.exists())
 
     def test_additional_payload_to_confirmed_generation_is_protected(self):
         self.candidate()

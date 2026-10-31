@@ -584,3 +584,37 @@ Deployment evidence is in `tmp/apk-upgrade-guard/deploy-20261024/receipt.json`
 and its adjacent publication, offline simulation, installation, acceptance and
 post-install preflight logs. The retained root-only router backup is
 `/root/apk-upgrade-guard-20261024.Euocjs/`.
+
+## Interrupted first-boot adoption, 2026-10-31
+
+A reboot during the first boot of the g42 image interrupted adoption while it
+copied the legacy modules. Version 1-r17 then failed on every boot with
+`Incomplete adoption exists; inspect before retrying`, and APK refused
+transactions that needed adoption. Version 1-r18 discards the copies made
+before `state.json` exists and restarts adoption; resumed `adopting` phases now
+rewrite `legacy-release` and the APK pins. kernelctl exits through Python
+cleanup on SIGTERM.
+
+The kernel-upgrade suite passed 58 tests, including four new cases: restart
+after interrupted copies; refusal with leftovers preserved after the GRUB
+dispatcher, a differing rescue snapshot or APK pins; resume after the state
+save; and SIGTERM cleanup. Against 1-r17, the restart, resume-order and SIGTERM
+cases fail, and the restart case fails with the router's message.
+
+Disposable KVM/UEFI VMs booted the published g42 image
+(SHA-256 `2fee3574e9f975e96ba2c522a59f4bb098ba4a5b0476bf71ad26acfb431389f9`)
+on fresh overlays:
+
+| Check | Result |
+| --- | --- |
+| Reboot 1 s after the 1-r17 boot unit started copying | No `state.json`; leftover legacy tree, `.firmware-*` staging and `grub.cfg.rescue` |
+| Next boot with 1-r17 | `Incomplete adoption exists`; boot unit failed; system degraded |
+| Install 1-r18 `kernelctl`, start the boot unit | Copies discarded; phase `ready`; `kernelctl check` passed; rescue dispatcher installed |
+| Following reboot | System running; boot unit succeeded; no failed units |
+| Separate run: 1-r17 interrupted after the state save, 1-r18 next boot | `adopting` resumed in 2 s; phase `ready` |
+| APK after adoption | `openwrt-kernel-upgrade` 1-r18, `systemd-openwrt` 13 and `systemd-openwrt-services` 4 installed together |
+
+The serial controller becomes available after the boot unit starts, so a
+first-boot interruption of 1-r18 itself was not reproduced in a VM; the unit
+tests cover it. This is VM validation; no physical device was flashed.
+Evidence: `bin/validation/sync-20261031/kernel-adoption/`.
