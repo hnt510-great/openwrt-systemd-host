@@ -48,6 +48,12 @@ session if Shell has already cached the unavailable TLS backend.
 GNOME Files (`nautilus`) is included. LocalSearch's indexer is optional in
 this profile; Nautilus handles its missing settings schema and retains basic
 file browsing and filesystem search without indexed content search.
+Nautilus depends on a minimal `gvfs` build that supplies the Trash, Recent,
+Network, Computer, FTP and SFTP backends and the metadata daemon; without it
+the Trash and Network sidebar entries fail with "Operation not supported" and
+"volume doesn't implement mount". Backends needing absent services are
+disabled: removable-media mounting (no `udisksd`), SMB/DNS-SD, MTP/gphoto2,
+WebDAV, FUSE and keyring integration.
 See the [physical TLS and Files validation](gnome-tls-files-validation.md)
 for the signed deployment and actual Shell/RDP checks.
 
