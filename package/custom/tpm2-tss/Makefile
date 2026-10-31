@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=tpm2-tss
-PKG_VERSION:=4.2.0
+PKG_VERSION:=4.2.1
 PKG_RELEASE:=1
-PKG_SOURCE:=tpm2-tss-4.2.0.tar.gz
-PKG_SOURCE_URL:=https://github.com/tpm2-software/tpm2-tss/releases/download/4.2.0/
-PKG_HASH:=b53f0c5c8c4ce17f05701a410ca9688f725ca380c9bc4640eacd0eadb1fea124
+PKG_SOURCE:=tpm2-tss-4.2.1.tar.gz
+PKG_SOURCE_URL:=https://github.com/tpm2-software/tpm2-tss/releases/download/4.2.1/
+PKG_HASH:=d4aadbc1610876385a370494bbfd7d994356f446dff60cd09eea5933befb1471
 PKG_BUILD_DIR:=$(BUILD_DIR)/tpm2-tss-$(PKG_VERSION)
 PKG_LICENSE:=BSD-2-Clause
 PKG_INSTALL:=1
