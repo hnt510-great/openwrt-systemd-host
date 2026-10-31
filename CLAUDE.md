@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this tree is
 
-A personal OpenWrt fork tracking `openwrt/openwrt` `main`, roughly **180 commits ahead** of origin
+A personal OpenWrt fork tracking `openwrt/openwrt` `main`, roughly **200 commits ahead** of origin
 and still growing. It is not vanilla OpenWrt: it is an x86_64 "router plus desktop" firmware built
 on an unusual base combination that everything else depends on:
 
@@ -20,7 +20,7 @@ on an unusual base combination that everything else depends on:
 The fork modifies upstream core files directly — `include/kernel.mk`, `include/package-pack.mk`,
 `include/package.mk`, `include/rootfs.mk`, `package/base-files`, `package/system/{apk,procd,systemd}`,
 `target/linux/x86/image` — so a change in `package/custom/` may interact with build-system surgery
-described below. Read `docs/` (87 files, 41 hand-written validation records at last count) before
+described below. Read `docs/` (95 files, 43 hand-written validation records at last count) before
 non-trivial work; nearly every subsystem has a design doc plus a validation record.
 
 ## Build commands
@@ -33,7 +33,7 @@ make prereq                        # host build prerequisites
 make download                      # prefetch sources into dl/
 
 make V=s                           # full build, verbose (V=99 for debug)
-make package/<name>/compile V=s    # one package, e.g. package/custom/... or package/fastfetch/compile
+make package/<name>/compile V=s    # one package, e.g. package/custom/fastfetch/compile
 make target/linux/compile V=s      # kernel only
 make package/<name>/prepare|configure|install V=s
 make target/linux/refresh          # regenerate quilt patches (or make package/<pkg>/refresh)
@@ -70,11 +70,11 @@ sharing the toolchain and `dl/`.
   script:
   `./scripts/kconfig.pl + .config configs/<feature>.config > .config.new && mv .config.new .config && make defconfig`
 
-The snapshot still describes the **Weston** desktop. The current target is GNOME, selected by
-merging `configs/gnome-desktop.config`, which explicitly disables `weston`, `seatd`,
-`libudev-zero` and `openwrt-desktop-launcher` and selects `gnome-shell`, `gnome-remote-desktop`,
-`sunshine`, Flatpak/AppImage and the IME/audio meta-packages. Do not assume the snapshot alone
-reproduces the current desktop profile.
+The snapshot and the working `.config` now describe the native **GNOME** desktop on Linux 7.3
+(`CONFIG_PACKAGE_gnome-shell=y`, `weston` unset). `configs/gnome-desktop.config` is the fragment
+that produced it: it disables `weston`, `seatd`, `libudev-zero` and `openwrt-desktop-launcher` and
+selects `gnome-shell`, `gnome-remote-desktop`, `sunshine`, Flatpak/AppImage and the IME/audio
+meta-packages. Preserve the existing `.config`; do not overwrite it with the snapshot unprompted.
 
 `configs/*-feeds.json` are **feed patch-baseline manifests** (`base`, `commit`, `patch`) for each
 feature, not configs. `configs/lan-apk-feeds.json` is the one every publisher reads: it holds
@@ -319,7 +319,9 @@ Some checks must run **on the target or a guest VM** after flashing or booting a
 `scripts/tests/*-guest*.sh|py` (systemd, journald, libvirt, virt-manager, GNOME desktop, audio,
 input, SSH, cgroups, needrestart), `firefox-smoke.sh`, `desktop-kernel-smoke.py`,
 `sunshine-stream-*`, `kernel-upgrade/vm-console.py`, and the C probes (`appimage-probe.c`,
-`virtio-egl-probe.c`, `spice-gl-reset.py`, `desktop-seat-retirement.c`). For package builds prefer
+`virtio-egl-probe.c`, `spice-gl-reset.py`, `desktop-seat-retirement.c`). Despite its name,
+`scripts/tests/test-libvirt-secondary-drivers.py` is also target-only: run it with `sudo` on the
+router (read-only libvirt API probes; see `docs/libvirt.md`). For package builds prefer
 `make package/<name>/compile V=s`; use `scripts/deptest.sh <package>` for dependency checks and
 `scripts/checkpatch.pl` for C and kernel-adjacent patches. ELF/publication changes should also pass
 `git diff --check`.
@@ -327,7 +329,7 @@ input, SSH, cgroups, needrestart), `firefox-smoke.sh`, `desktop-kernel-smoke.py`
 ## Documentation and commit conventions
 
 Every feature is documented as a pair: a guide `docs/<topic>.md` and a validation record
-`docs/<topic>-validation.md` (41 validation files). Guides give setup commands, UCI option tables
+`docs/<topic>-validation.md` (43 validation files). Guides give setup commands, UCI option tables
 and recovery steps, and link to their validation doc. Validation records are **hand-written, not
 generated**, and contain the image path and SHA256, a `| Check | Result |` table, and an explicit
 scope statement (often "no physical device was flashed") plus an **Evidence** pointer to a dated
@@ -343,8 +345,11 @@ pulling upstream, a `backup/pre-upstream-<date>` branch is cut.
 
 ### Other agent-facing files
 
-- `AGENTS.md` and `GEMINI.md` are generic OpenWrt/agent summaries that omit or contradict the
-  systemd/APK/glibc specifics — prefer this file.
+- `AGENTS.md` holds the shorter repository guidelines (layout, style, test naming, commit and
+  workspace rules); this file expands on it. Its rules still apply: tabs in Makefile/C/shell/LuCI,
+  four spaces in Python, `NNN-description.patch` names, focused commits with feed histories kept
+  separate, explicit-path staging, and feed publication / device deployment only when explicitly
+  authorized.
 - `README.md` is unmodified upstream text; its "installed via the OpenWrt package manager called
   `opkg`" claim does not describe this tree, which uses APK.
 - `.github/llm-review-rules.md` holds project-specific review rules. Beyond patch regeneration, it
@@ -360,21 +365,21 @@ pulling upstream, a `backup/pre-upstream-<date>` branch is cut.
   `build-and-publish.sh` fail without a reachable `upgrade_preflight.ssh_target` and a passing
   simulation. There is no offline production publish, and direct low-level production publication
   is rejected. A dry run still performs the full router preflight.
-- **`.config` and the snapshot are not the GNOME profile.** Both currently select Weston; GNOME
-  requires merging `configs/gnome-desktop.config`. Re-check before claiming a desktop change was
-  built.
+- **Retained, unselected APKs are part of publication.** Incremental feeds keep APKs for packages
+  no longer in `.config`; they still need current ELF metadata and resolvable dependencies. See
+  `docs/publication-readiness.md` before debugging a publish failure that a clean build didn't show.
 - **Plain make does not reserve a kernel generation.** Use `build-and-publish.py build-only` or the
   wrappers for full builds; never pair a new image with old-ABI modules or headers.
 - **Published APK identities are immutable.** Changed bytes require a new `PKG_RELEASE`; the ELF
   rebuild ledger is not permission to overwrite a released version.
-- `package/luci-theme-argon` and `package/luci-app-argon-config` are **embedded git repositories**
+- `package/custom/luci-theme-argon` and `package/luci-app-argon-config` are **embedded git repositories**
   (gitlinks with no `.gitmodules`). Commits inside them are not recorded by the parent repo; treat
   version selection there as a separate repository operation.
 - `feeds/` is git-ignored but *is* source — `feeds/packages` and `feeds/video` hold local commits
   that the main repo only records as patches and JSON manifests. Never reset them.
 - Untracked clutter that is not source: `.DS_Store`/`._.DS_Store`, backup tarballs,
   `scripts/__pycache__/`, `scripts/tests/__pycache__/`,
-  `package/custom/openwrt-kernel-upgrade/files/__pycache__/`, `package/fastfetch/.claude/`,
+  `package/custom/openwrt-kernel-upgrade/files/__pycache__/`, `package/custom/fastfetch/.claude/`,
   `.claude/`. Root `private-key.pem`/`public-key.pem` are signing material and git-ignored.
 - `files/` is the rootfs overlay, and `.gitignore` ignores the whole directory (`/files`).
   Exactly **11 files were force-added** and are versioned: `etc/config/fstab`, `etc/skel/.zshrc`,
