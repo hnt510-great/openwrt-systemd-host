@@ -548,3 +548,40 @@ post-update strict Kconfig checking passes using a separate output file.
 All 387 protected files, original index/stash state and 11 local repository
 histories pass preservation checks. No original `.config` normalization was
 performed. The snapshot includes `sync-summary.json` and the complete logs.
+
+### Main/feed synchronization and new-patch review, 2026-10-30
+
+Merged three main-tree commits through `5700101d7c` into local merge
+`11f4a70bd0`, preserving the Linux 7.3 selection and local integration.
+This incoming batch changes hostapd initialization, IPQ40xx board-data
+selection and Realtek board network/LED defaults. It adds, modifies or removes
+no generic/x86 kernel patch, kernel source overlay or external kernel-module
+patch. The board-specific defaults do not require a native x86/64 backport.
+
+All 511 generic/x86 6.18 source patches and all 317 carried 7.3 patches have
+matching registry entries and SHA256 values. A fresh extraction of the
+SHA256-verified Linux 7.3 archive, with the current target overlays, accepts
+all 317 patches with `--fuzz=0`. No additional backport is required by this
+batch. The three earlier optional-feature findings remain open.
+
+Evidence is retained under `.git/pull-preserve/20261030T065000Z/`, including
+per-repository incoming commit/file lists and `kernel-audit/registry-audit.json`.
+This is source integration and patch-application validation; it does not
+build firmware, publish packages, deploy to a device or prove runtime behavior.
+
+The packages, LuCI and Passwall LuCI feed merges incorporate 11, one and one
+incoming commits respectively. The OpenSSH release conflict retains local
+`PKG_RELEASE:=3` and `CONFIG_OPENWRT_SYSTEMD` tracking, while adding upstream's
+`openssh-server-pam` conflict with `openssh-server`. Its other local recipe
+changes remain intact.
+
+The custom updater checks all 161 entries successfully: 128 are current,
+28 are locally maintained and five retain their configured maintenance branch
+pending review. No recipe version changes are available within those policies.
+All nine feed indexes are nonempty, generated package links have no broken
+targets, and strict Kconfig checking passes using a separate output file.
+The mainline-updater (20), kernel-input (7), custom-updater (43), package
+metadata/Kconfig (4) and APK source-version (2) tests all pass. All 136 protected
+files and all 11 repository histories, staged intent and stashes pass the final
+preservation checks. The working `.config` is unchanged. The complete final
+receipt is `verification-final.json` in the snapshot directory.
