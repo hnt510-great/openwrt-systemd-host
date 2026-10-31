@@ -258,9 +258,12 @@ kernel, boot ID, network, firewall, and DHCP state were unchanged.
 file is saved in `/root/custom-apk-feed-backup-20261014/`.
 
 HTTP serves only APKs, signed indexes, manifests, and repository lists from
-this separate publication directory. Directory listings, private keys,
-firmware images, and the build tree are not exposed. Requests are limited to
-`192.0.2.0/24`; APK signature verification remains enabled on the router.
+this separate publication directory, plus browsable directory indexes and
+approved firmware image files. Private keys, dot entries and the build tree are
+not exposed. Requests are limited to the LAN `192.0.2.0/24` and WireGuard
+clients in `10.0.0.0/24` (the router forwards the `wireguard` zone to `lan`
+without masquerading, so nginx sees the client address); APK signature
+verification remains enabled on the router.
 
 ## Kernel hash mismatch
 
@@ -357,6 +360,12 @@ is `/etc/openwrt-feeds/nginx.conf`, sourced from
 `configs/lan-apk-feeds.nginx.conf`. The service runs nginx as `desktop-user`, with
 a read-only filesystem and a writable `/run/lan-apk-feeds` runtime directory.
 It does not use the distribution `nginx.service` or its default website.
+
+Directory URLs ending in `/` are browsable LAN/WireGuard-only indexes (for example
+`http://apk.example.invalid:8088/abi/<kernel-abi>/base/`), so individual APKs can
+be found and downloaded from a browser. Listings omit dot entries; downloads are
+still limited to `*.apk`, `packages.adb`, `manifest.json`, `repositories.list`
+and approved image files, and only GET/HEAD are accepted.
 
 To install on a host with the nginx binary available:
 

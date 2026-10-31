@@ -2,6 +2,7 @@
 """Exercise the real nginx feed configuration without touching live feeds."""
 import http.client
 from pathlib import Path
+import re
 import shutil
 import socket
 import subprocess
@@ -39,6 +40,9 @@ class FeedServerTest(unittest.TestCase):
                 sock.bind(('127.0.0.1', 0))
                 port = sock.getsockname()[1]
             config = (ROOT / 'configs/lan-apk-feeds.nginx.conf').read_text()
+            # Only the LAN and WireGuard subnets may reach the feeds.
+            self.assertEqual(re.findall(r'^\s*allow\s+(\S+);', config, re.M),
+                             ['192.0.2.0/24', '10.0.0.0/24'])
             config = config.replace('/run/lan-apk-feeds', str(base / 'run'))
             config = config.replace('/srv/openwrt-feeds/public', str(public))
             config = config.replace('192.0.2.165:8088', f'127.0.0.1:{port}')
@@ -75,7 +79,18 @@ class FeedServerTest(unittest.TestCase):
                     self.assertEqual(request('/abi/kernel/test.apk', 'HEAD')[2], b'')
                     status, _, body = request('/abi/kernel/test.apk', headers={'Range': 'bytes=0-2'})
                     self.assertEqual((status, body), (206, b'old'))
-                    for path in ('/', '/abi/kernel/', '/private-key.pem',
+                    for path in ('/', '/abi/', '/abi/kernel/'):
+                        status, _, body = request(path)
+                        self.assertEqual(status, 200, path)
+                        self.assertNotIn(b'.hidden', body)
+                    listing = request('/abi/kernel/')[2]
+                    self.assertIn(b'href="test.apk"', listing)
+                    self.assertIn(b'href="packages.adb"', listing)
+                    self.assertIn(b'href="kernel/"', request('/abi/')[2])
+                    self.assertEqual(request('/abi/kernel/', 'POST')[0], 403)
+                    self.assertEqual(request('/abi/kernel/', source=('127.0.0.2', 0))[0], 403)
+                    self.assertEqual(request('/missing/')[0], 404)
+                    for path in ('/private-key.pem',
                                  '/abi/kernel/private-key.pem', '/abi/kernel/.hidden.apk',
                                  '/abi/kernel/%2ehidden.apk', '/../../etc/passwd'):
                         self.assertIn(request(path)[0], (400, 403))
@@ -88,8 +103,9 @@ class FeedServerTest(unittest.TestCase):
                         self.assertEqual(request(path, 'HEAD')[0], 200)
                         self.assertEqual(request(path, 'POST')[0], 403)
                         self.assertEqual(request(path, source=('127.0.0.2', 0))[0], 403)
-                    for filename in ('private-key.pem', 'unapproved.img', ''):
+                    for filename in ('private-key.pem', 'unapproved.img'):
                         self.assertEqual(request('/images/7.3-g38-0123456789abcdef/' + filename)[0], 403)
+                    self.assertEqual(request('/images/7.3-g38-0123456789abcdef/')[0], 200)
                     replacement = public / 'abi/next'
                     replacement.symlink_to('../new')
                     replacement.replace(alias)
