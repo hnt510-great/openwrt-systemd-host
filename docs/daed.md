@@ -1,0 +1,237 @@
+# daed (dae with a web dashboard)
+
+[dae](https://github.com/daeuniverse/dae) is a transparent proxy that splits
+traffic inside the kernel. eBPF programs on the LAN (and optionally WAN) tc
+hooks decide per packet whether a flow goes direct or to a proxy node. Direct
+traffic is forwarded by the kernel like any routed packet and never passes
+through a proxy process. Only proxied flows are redirected into dae's private
+`daens` network namespace and relayed by the daemon.
+
+[daed](https://github.com/daeuniverse/daed) is dae plus its GraphQL backend
+(dae-wing) and a web dashboard in one binary. The x86-64 native-systemd image
+ships `daed` **disabled** as an opt-in alternative to Passwall. Passwall stays
+installed and remains the default.
+
+## What is in the image
+
+| Package | Contents |
+| --- | --- |
+| `daed` | `/usr/bin/daed` (static Go binary with the embedded dashboard and BPF objects), `/etc/init.d/daed`, `/etc/config/daed` |
+| `daed-geoip`, `daed-geosite` | `/usr/share/dae/{geoip,geosite}.dat`, symlinks to the `v2ray-geoip`/`v2ray-geosite` data that Passwall also uses |
+| `kmod-sched-bpf` | `cls_bpf`/`act_bpf` for the tc BPF classifier |
+
+The recipe is `package/custom/daed`; the config fragment is
+`configs/daed.config`.
+
+### Upstream version and backports
+
+The daed **v2.1.1** release bundles a dae core from 2026-04-22 (`85a1fc3`,
+before dae v2.0.0rc1). Most fixes released in dae v2.1.1 live in or after the
+2026 "kdae" datapath and control-plane rework (`1ec85fe`), so they cannot be
+lifted onto that core individually: applying every fix from `85a1fc3` up to
+v2.1.1 produces the v2.1.1 core itself. This package therefore re-pins the
+core instead, the same way upstream dae-wing did after the daed release:
+
+| Component | Source |
+| --- | --- |
+| Backend | dae-wing `b089b56` ("bump dae-core to v2.1.1 and follow its control plane API"), the dae-wing main branch after daed v2.1.1 |
+| dae core | dae **v2.1.1** release `dae-full-src.tar.xz` (identical to the `v2.1.1` tag plus the BPF headers submodule) |
+| Dashboard | daed v2.1.1 `web.zip`, unchanged |
+
+On top of the v2.1.1 core, `package/custom/daed/patches/` carries three
+later upstream dae fixes (code only; docs and changelog hunks dropped):
+
+| Patch | Upstream | Fix |
+| --- | --- | --- |
+| `001-dae-core-restore-Marshaller-Bytes.patch` | `6f2f2aa` | Restores `config.Marshaller.Bytes`, which dae-wing `b089b56` calls; without it the backend does not compile against v2.1.1 |
+| `002-dae-core-exact-match-for-LAN-UDP-local-services.patch` | `fb5eae6` | LAN UDP is bypassed to a local service (such as dnsmasq on port 53) only on an exact address match |
+| `003-dae-core-stop-LAN-ICMP-redirects.patch` | `e3fee8f` | Also writes `conf/all/send_redirects=0`; the kernel ORs it with the per-interface value, so the router otherwise kept sending ICMP redirects that steer LAN hosts past dae |
+
+The dashboard of daed v2.1.1 is compatible with the re-pinned backend: the
+GraphQL schemas differ only in the global config, where `soMarkFromDaeSet` was
+removed and `disableThp`, `autoSniffPunt` and `bpfConnStateMapSize` were
+added; the dashboard never uses `soMarkFromDaeSet`, and every field it queries
+still exists. The new options keep their defaults because the dashboard does
+not show them.
+
+`daed --version` reports `2.1.1` (the dashboard release). Because the recipe
+is composed from three sources, `configs/custom-package-updates.json`
+registers it as `local`, so `./scripts/feeds update` does not bump it. When a
+daed release bundles dae core 2.1.1 or newer, switch the recipe back to that
+release's `daed-full-src.zip` and register it as a GitHub release with
+`"companion_assets": {"DAED_WEB_HASH": "web.zip"}` so the updater also
+refreshes the dashboard hash; drop patches that the new core contains.
+
+## Kernel requirements
+
+dae loads CO-RE BPF programs and needs these kernel options. The image
+enables them through `configs/daed.config`:
+
+| Option | Why |
+| --- | --- |
+| `CONFIG_KERNEL_DEBUG_INFO_BTF=y` (with `# CONFIG_KERNEL_DEBUG_INFO_REDUCED is not set`) | `/sys/kernel/btf/vmlinux` for BPF CO-RE relocations |
+| `CONFIG_KERNEL_MODULE_ALLOW_BTF_MISMATCH=y` | Out-of-tree modules built on the device against `kernel-dev-headers` (no `vmlinux`) still load |
+| `CONFIG_KERNEL_BPF_STREAM_PARSER=y` | `SOCKMAP`/`SOCKHASH` for the in-kernel TCP relay (new knob in `config/Config-kernel.in`) |
+| `CONFIG_KERNEL_NETKIT=y` | netkit link into `daens`; dae falls back to veth without it (new knob) |
+| `kmod-sched-bpf`, `kmod-sched-core` | `cls_bpf` classifier and the `clsact` qdisc |
+
+BPF syscall/JIT, cgroup BPF, kprobes and BPF trace events were already on.
+The `daed` package depends on the BTF and stream-parser knobs, so it cannot
+be selected without them.
+
+These options change the kernel ABI hash, so installing daed through APK on a
+router that runs an older generation needs the new **kernel generation** and
+a trial reboot first:
+
+1. Publish with `scripts/build-and-publish.sh` (or `build-and-publish.py`),
+   which reserves the generation.
+2. On the router: `apk upgrade`; APK installs the new kernel and complete
+   kmod set as a new generation and arms a trial boot.
+3. Reboot and confirm with `kernelctl check` (see
+   [kernel upgrades](kernel-upgrade.md)).
+
+BTF costs build time and size: the kernel is built with full DWARF and
+`pahole` (`tools/dwarves`) converts it to BTF; `vmlinux` carries the `.BTF`
+section and kmods carry split BTF. The eBPF objects are compiled with the
+LLVM BPF toolchain from `tools/llvm-bpf` (`CONFIG_BPF_TOOLCHAIN_BUILD_LLVM`),
+built once per build tree.
+
+## Enable
+
+daed and Passwall both intercept forwarded traffic (tc eBPF versus nftables
+TPROXY) and must not run together. The init script refuses to start daed
+while `passwall.@global[0].enabled` is `1` and logs:
+
+```
+daed: Passwall is enabled; disable it (uci set passwall.@global[0].enabled=0) before starting daed
+```
+
+It also watches the `passwall` config: enabling Passwall later and running
+`reload_config` (or saving it in LuCI) stops daed.
+
+```sh
+uci set passwall.@global[0].enabled=0
+uci commit passwall
+/etc/init.d/passwall stop
+
+uci set daed.config.enabled=1
+uci commit daed
+/etc/init.d/daed start
+```
+
+Then open `http://<router-lan-ip>:2023/` from the LAN and **create the admin
+account immediately**: daed lets the first visitor create it. The listener is
+`0.0.0.0:2023`; the `wan` zone's input policy rejects it from the internet,
+while `lan` and `wireguard` (both `input ACCEPT`) can reach it.
+
+In the dashboard:
+
+1. **Global**: set *LAN interface* to `br-lan`. Add the WAN device (for
+   example `eth1` or `pppoe-wan`) only if the router's own traffic should be
+   proxied too. Keep *auto config kernel parameter* on.
+2. **Nodes / Subscriptions**: import proxy links or a subscription.
+3. **Groups**: create a group (for example `proxy`) and add nodes.
+4. **Routing** and **DNS**: see below. Then select the config, routing and
+   DNS and press *Run*.
+
+The selection is stored in `/etc/daed/wing.db` (a conffile, kept by
+sysupgrade and APK upgrades); after a restart daed resumes the last running
+configuration.
+
+### UCI options (`config daed 'config'`)
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `enabled` | `0` | Start daed at boot and on `start` |
+| `listen_addr` | `0.0.0.0:2023` | Dashboard and GraphQL listener |
+| `log_maxbackups` | `1` | Rotated log files kept under `/var/log/daed/` |
+| `log_maxsize` | `5` | Log rotation size in MB |
+
+## Routing and DNS on this router
+
+A minimal routing that keeps LAN and mainland China traffic direct:
+
+```
+pname(dnsmasq) && l4proto(udp) && dport(53) -> must_direct
+dip(geoip:private) -> direct
+dip(geoip:cn) -> direct
+domain(geosite:cn) -> direct
+fallback: proxy
+```
+
+dae intercepts DNS from LAN clients, including queries sent to dnsmasq on the
+router, so it can learn which domain each flow belongs to. Keep dnsmasq as the
+LAN resolver (local `*.lan` names, DHCP host names, the existing
+`address=`/nftset entries) by sending DNS back to it:
+
+```
+upstream {
+  dnsmasq: 'udp://127.0.0.1:53'
+}
+routing {
+  request {
+    fallback: dnsmasq
+  }
+  response {
+    fallback: accept
+  }
+}
+```
+
+`fallback: asis` (send each query to the address the client asked) also
+works when clients use the router as their resolver. The `must_direct` rule
+above is only needed if the WAN device is bound, so that dnsmasq's own
+upstream queries are not intercepted again.
+
+The nftsets that dnsmasq fills for Passwall (`docs/dnsmasq-nftset.md`) are not
+used by dae; dae's `domain()` rules replace them.
+
+## Interaction with other router features
+
+- **Flow offloading** (`flow_offloading '1'`): dae's LAN ingress hook runs
+  before the netfilter flowtable, so it sees every packet. Proxied flows are
+  redirected before netfilter and are never offloaded; direct flows are
+  routed normally and can be offloaded. Validated with software offloading
+  on; see the [validation record](daed-validation.md).
+- **Full cone NAT** (`docs/fullcone-nat.md`): applies only to direct UDP that
+  reaches the router's masquerade. Proxied UDP gets the proxy's NAT behaviour.
+- **Firewall**: dae adds no fw4 rules. Hijacked packets enter `daens`
+  through `dae0` and never traverse the host `input` chain; dae's own
+  outbound connections and the replies it injects are covered by fw4's
+  established/related rules.
+- **systemd and procd**: daed is an rc service supervised by procd. In a
+  native boot `openwrt-services.service` starts it; in the `procd recovery`
+  boot procd does. Both mount bpffs at `/sys/fs/bpf` and cgroup2 at
+  `/sys/fs/cgroup`.
+
+## Recovery
+
+- `/etc/init.d/daed stop` detaches the BPF programs, removes `dae0` and the
+  `daens` namespace, and traffic is routed normally again.
+- On Linux 7.3 dae attaches with **tcx** BPF links, not `cls_bpf` filters, so
+  `tc filter show dev br-lan ingress` stays empty while dae is active. Check
+  the daemon's links instead:
+  `grep -l '^link_type:.*tcx' /proc/$(pidof daed)/fdinfo/*`, or install
+  `bpftool` and run `bpftool net show dev br-lan`. The link into `daens` is a
+  netkit pair (`ip -d link show dae0` shows `netkit`).
+- If the router is unreachable from the LAN after enabling daed, use the
+  serial or local console: `uci set daed.config.enabled=0; uci commit daed;
+  /etc/init.d/daed stop`.
+- Logs: `/var/log/daed/daed.log` (tmpfs) and the system journal
+  (`journalctl -t daed` for init script messages).
+- To start over, stop daed and remove `/etc/daed/wing.db`; the next visit to
+  the dashboard creates a new admin account.
+
+## Tests
+
+- `python3 scripts/tests/test-custom-package-updates.py` covers the updater's
+  `.zip` sources and `companion_assets` refresh used for daed releases.
+- `python3 scripts/tests/test-daed-vm.py --image <exact .img.gz> --work-dir <new dir>`
+  boots the image as router plus LAN client under KVM and checks the kernel
+  options, the Passwall interlock, direct and proxied routing through a fake
+  SOCKS5 node, DNS, flow offloading, the backported `send_redirects` fix and
+  cleanup on stop; it then boots the same disks once into the `procd
+  recovery` entry (GRUB `next_entry`, as for a kernel trial) and repeats the
+  autostart, routing and cleanup checks.
+
+See the [validation record](daed-validation.md).

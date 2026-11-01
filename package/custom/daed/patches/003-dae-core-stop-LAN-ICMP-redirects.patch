@@ -1,0 +1,203 @@
+From e3fee8fbc68a65167af13b685ab0b958757e20ee Mon Sep 17 00:00:00 2001
+From: itoywh <46450501+itoywh@users.noreply.github.com>
+Date: Wed, 30 Sep 2026 14:01:37 +0800
+Subject: [PATCH] fix(control): stop LAN ICMP redirects by writing
+ conf/all/send_redirects too (#1125)
+
+Co-authored-by: Markson Hon <50002150+MarksonHon@users.noreply.github.com>
+---
+ control/send_redirects_test.go | 103 +++++++++++++++++++++++++++++++++
+ control/utils.go               |  65 +++++++++++++++++----
+ 2 files changed, 158 insertions(+), 10 deletions(-)
+ create mode 100644 control/send_redirects_test.go
+
+--- /dev/null
++++ b/dae-core/control/send_redirects_test.go
+@@ -0,0 +1,103 @@
++/*
++ * SPDX-License-Identifier: AGPL-3.0-only
++ * Copyright (c) 2022-2026, daeuniverse Organization <dae@v2raya.org>
++ */
++
++package control
++
++import (
++	"os"
++	"path/filepath"
++	"testing"
++
++	"github.com/daeuniverse/dae/common/consts"
++	"github.com/stretchr/testify/require"
++)
++
++// redirectConfFixture points procSysNet at a throwaway copy of the sysctl nodes
++// that decide whether the kernel sends a redirect out of an interface.
++//
++// /proc/sys/net is root-owned, so a test touching the real tree would have to be
++// skipped in CI and the write/check pair would ship without an executable
++// contract. nodes maps a node name ("<ifname>" or "all") to the value to write;
++// a node left out of the map is left absent.
++func redirectConfFixture(t *testing.T, nodes map[string]string) string {
++	t.Helper()
++
++	root := t.TempDir()
++	previous := procSysNet
++	procSysNet = root
++	t.Cleanup(func() { procSysNet = previous })
++
++	for node, value := range nodes {
++		dir := filepath.Join(root, "ipv4", "conf", node)
++		require.NoError(t, os.MkdirAll(dir, 0o755))
++		require.NoError(t, os.WriteFile(filepath.Join(dir, "send_redirects"), []byte(value), 0o644))
++	}
++	return filepath.Join(root, "ipv4", "conf")
++}
++
++func readRedirectConf(t *testing.T, confDir, node string) string {
++	t.Helper()
++	b, err := os.ReadFile(filepath.Join(confDir, node, "send_redirects"))
++	require.NoError(t, err)
++	return string(b)
++}
++
++// TestCheckSendRedirectsRejectsConfAll is the regression this file exists for.
++//
++// The kernel ORs the two nodes (IN_DEV_TX_REDIRECTS is IN_DEV_ORCONF, and
++// ip-sysctl.rst says redirects are on if at least one of
++// conf/{all,interface}/send_redirects is TRUE), so a "0" written only to the
++// per-interface node is inert while conf/all keeps the kernel default of 1. The
++// old check read the per-interface node alone - the very value dae had just
++// written - so it could not fail while redirects were still being sent, and dae
++// kept advertising a route that leads clients around itself.
++func TestCheckSendRedirectsRejectsConfAll(t *testing.T) {
++	redirectConfFixture(t, map[string]string{"dae0": "0", "all": "1"})
++
++	err := CheckSendRedirects("dae0")
++	require.Error(t, err, "conf/all/send_redirects=1 still enables redirects out of dae0")
++	require.Contains(t, err.Error(), filepath.Join("conf", "all", "send_redirects"),
++		"the error must name the node that is actually keeping redirects on")
++}
++
++// TestSetSendRedirectsTurnsOffConfAll pins that one SetSendRedirects call writes
++// every node the decision depends on. Writing the kernel default back is the
++// part that makes the per-interface write take effect.
++func TestSetSendRedirectsTurnsOffConfAll(t *testing.T) {
++	confDir := redirectConfFixture(t, map[string]string{"dae0": "1", "all": "1"})
++
++	SetSendRedirects("dae0", "0")
++
++	require.Equal(t, "0", readRedirectConf(t, confDir, "dae0"))
++	require.Equal(t, "0", readRedirectConf(t, confDir, "all"),
++		"conf/all/send_redirects has to be overwritten, otherwise the per-interface write changes nothing")
++	require.NoError(t, CheckSendRedirects("dae0"),
++		"the write and the check have to agree once both nodes are off")
++}
++
++// TestSetSendRedirectsAttemptsConfAllAfterFailure keeps the two writes
++// independent: conf/all is the node that decides, so a failure on the
++// per-interface node must not skip it. A directory standing in for the node
++// fails the write for every uid, so this does not depend on running unprivileged.
++func TestSetSendRedirectsAttemptsConfAllAfterFailure(t *testing.T) {
++	confDir := redirectConfFixture(t, map[string]string{"dae0": "1", "all": "1"})
++
++	perIface := filepath.Join(confDir, "dae0", "send_redirects")
++	require.NoError(t, os.Remove(perIface))
++	require.NoError(t, os.Mkdir(perIface, 0o755))
++
++	require.Error(t, setSendRedirects("dae0", consts.IpVersionStr_4, "0"),
++		"a failed write has to be reported instead of being silently dropped")
++	require.Equal(t, "0", readRedirectConf(t, confDir, "all"),
++		"conf/all is the node that decides, so it must still be written")
++}
++
++// TestCheckSendRedirectsFailsClosed pins that an unreadable node is reported as
++// an error rather than read as "off".
++func TestCheckSendRedirectsFailsClosed(t *testing.T) {
++	redirectConfFixture(t, map[string]string{"dae0": "0"}) // conf/all missing
++
++	require.Error(t, CheckSendRedirects("dae0"))
++}
+--- a/dae-core/control/utils.go
++++ b/dae-core/control/utils.go
+@@ -325,16 +325,52 @@ func SetForwarding(ifname string, val st
+ 	_ = setForwarding(ifname, consts.IpVersionStr_6, val)
+ }
+ 
+-func checkSendRedirects(ifname string, ipversion consts.IpVersionStr) error {
+-	path := fmt.Sprintf("/proc/sys/net/ipv%v/conf/%v/send_redirects", ipversion, ifname)
+-	b, err := os.ReadFile(path)
+-	if err != nil {
+-		return err
++// procSysNet is the sysctl tree the kernel-parameter helpers read and write. It
++// is a variable rather than a literal so tests can point it at a fixture tree:
++// /proc/sys/net is only writable as root, so the write/check pair below would
++// otherwise have to ship without an executable contract.
++var procSysNet = "/proc/sys/net"
++
++// sendRedirectsSysctls returns the sysctl nodes that together decide whether the
++// kernel sends an ICMP redirect out of ifname.
++//
++// The decision is OR-ed, not AND-ed, and that is the whole point of listing more
++// than one node. ip_forward() hands the packet to ip_rt_send_redirect() when
++// IN_DEV_TX_REDIRECTS(in_dev) is set, and include/linux/inetdevice.h defines it
++// as IN_DEV_ORCONF, i.e.
++//
++//	IPV4_DEVCONF_ALL_RO(net, SEND_REDIRECTS) || IN_DEV_CONF_GET(in_dev, SEND_REDIRECTS)
++//
++// Documentation/networking/ip-sysctl.rst states the same in words: redirects for
++// an interface are enabled if at least one of conf/{all,interface}/send_redirects
++// is TRUE. So the two nodes are alternatives and both have to be 0 to stop them;
++// touching only conf/<ifname> is inert while conf/all keeps the kernel default of
++// 1, which is a state where the kernel still offers downstream clients a direct
++// path around dae.
++//
++// IPv4 only: there is no IPv6 send_redirects node to mirror this onto.
++func sendRedirectsSysctls(ifname string, ipversion consts.IpVersionStr) []string {
++	return []string{
++		fmt.Sprintf("%v/ipv%v/conf/%v/send_redirects", procSysNet, ipversion, ifname),
++		fmt.Sprintf("%v/ipv%v/conf/all/send_redirects", procSysNet, ipversion),
+ 	}
+-	if bytes.Equal(bytes.TrimSpace(b), []byte("0")) {
+-		return nil
++}
++
++// checkSendRedirects fails unless every node that can enable redirects for
++// ifname is off. Reading only the per-interface node would inspect the value dae
++// itself just wrote and never look at conf/all, so the check could not fail
++// while redirects were still being sent.
++func checkSendRedirects(ifname string, ipversion consts.IpVersionStr) error {
++	for _, path := range sendRedirectsSysctls(ifname, ipversion) {
++		b, err := os.ReadFile(path)
++		if err != nil {
++			return err
++		}
++		if !bytes.Equal(bytes.TrimSpace(b), []byte("0")) {
++			return fmt.Errorf("send_redirects is on for %v: %v; see docs of dae for help", ifname, path)
++		}
+ 	}
+-	return fmt.Errorf("send_directs on %v is on: %v; see docs of dae for help", ifname, path)
++	return nil
+ }
+ 
+ func CheckSendRedirects(ifname string) error {
+@@ -344,9 +380,18 @@ func CheckSendRedirects(ifname string) e
+ 	return nil
+ }
+ 
++// setSendRedirects writes val to every node that decides redirection for ifname,
++// so that one call actually takes effect; see sendRedirectsSysctls for why the
++// per-interface node alone is not enough. Every node is attempted even if an
++// earlier write fails, and the first error is returned.
+ func setSendRedirects(ifname string, ipversion consts.IpVersionStr, val string) error {
+-	path := fmt.Sprintf("/proc/sys/net/ipv%v/conf/%v/send_redirects", ipversion, ifname)
+-	return os.WriteFile(path, []byte(val), 0644)
++	var firstErr error
++	for _, path := range sendRedirectsSysctls(ifname, ipversion) {
++		if err := os.WriteFile(path, []byte(val), 0644); err != nil && firstErr == nil {
++			firstErr = err
++		}
++	}
++	return firstErr
+ }
+ 
+ func SetSendRedirects(ifname string, val string) {

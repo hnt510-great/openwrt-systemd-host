@@ -62,6 +62,10 @@
       "project": "hughsie/colord",
       "catalog": "tags"
     },
+    "daed": {
+      "provider": "local",
+      "reason": "Composed from the daed v2.1.1 dashboard, dae-wing b089b56 and dae v2.1.1 with backported fixes; return to the daed release recipe once a daed release bundles dae core 2.1.1 or newer"
+    },
     "dconf": {
       "provider": "directory",
       "policy": "series",

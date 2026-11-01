@@ -1,0 +1,25 @@
+From 6f2f2aa66084f3d736e4bf86a327e3523b3cdede Mon Sep 17 00:00:00 2001
+From: Zakk <zakk@gentoozh.org>
+Date: Thu, 24 Sep 2026 21:23:58 +1000
+Subject: [PATCH] fix(config): restore Marshaller.Bytes (#1117)
+
+Co-authored-by: Markson Hon <50002150+MarksonHon@users.noreply.github.com>
+---
+ config/marshal.go | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+--- a/dae-core/config/marshal.go
++++ b/dae-core/config/marshal.go
+@@ -42,6 +42,12 @@ type Marshaller struct {
+ 	buf         bytes.Buffer
+ }
+ 
++// Bytes returns the marshalled sections written so far. Embedding callers
++// such as dae-wing marshal a single section and need the raw output.
++func (m *Marshaller) Bytes() []byte {
++	return m.buf.Bytes()
++}
++
+ func (m *Marshaller) writeLine(depth int, line string) {
+ 	if depth < 0 {
+ 		depth = 0
