@@ -107,7 +107,7 @@ def gql(router, query, variables=None, token=None):
 
 
 def configure_daed(router, token):
-    password = secrets.token_urlsafe(18)
+    password = secrets.token_urlsafe(18) + 'a1'  # daed requires letters and digits
     gql(router, 'mutation($u:String!,$p:String!){createUser(username:$u,password:$p)}',
         {'u': 'admin', 'p': password})
     auth = gql(router, 'query($u:String!,$p:String!){token(username:$u,password:$p)}',
@@ -201,6 +201,8 @@ def test_daed(image, work):
                 '-device', 'virtio-net-pci,netdev=lan,mac=52:54:00:ed:02:01']
             router = NET.Guest('router', work, runtime, base, router_net, 2048)
             guests.append(router)
+            # Keep kernel printk off the serial console that carries framed output.
+            router.run('dmesg -n 1')
             receipt['router_init'] = router.run('cat /proc/1/comm')
             receipt['guest_kernel'] = router.run('uname -r')
 
@@ -245,6 +247,7 @@ def test_daed(image, work):
 
             client = NET.Guest('client', work, runtime, base, client_net, 1536)
             guests.append(client)
+            client.run('dmesg -n 1')
             NET.disable_external_integrations(client)
             client.run('for s in daed passwall passwall_server dnsmasq odhcpd firewall; do '
                        '[ ! -x /etc/init.d/$s ] || /etc/init.d/$s stop; done; true')
@@ -303,14 +306,16 @@ def test_daed(image, work):
                                  f'http://{PROXIED}:8080/{token} && exit 0; sleep 2; done; exit 1', timeout=150)
             checks['restart'] = proxied == f'proxied:{PROXIED}:8080/{token}'
 
-            # LuCI: a non-root rpcd login holding only the luci-app-daed ACL,
-            # driven from the LAN client exactly as the browser view does.
+            # LuCI: a non-root rpcd login holding only luci-base (which every LuCI
+            # user needs) and luci-app-daed, driven from the LAN client the way
+            # the browser view does; saves use uci apply like LuCI.
             ui_password = secrets.token_urlsafe(18)
-            router.run("uci -q delete rpcd.daedui; uci set rpcd.daedui=login; "
+            router.run(f"hash=$(uhttpd -m {shlex.quote(ui_password)}); test -n \"$hash\"; "
+                       "uci -q delete rpcd.daedui || :; uci set rpcd.daedui=login; "
                        "uci set rpcd.daedui.username=daedui; "
-                       f"uci set rpcd.daedui.password=\"$(uhttpd -m {shlex.quote(ui_password)})\"; "
-                       "uci add_list rpcd.daedui.read=luci-app-daed; "
-                       "uci add_list rpcd.daedui.write=luci-app-daed; uci commit rpcd; /etc/init.d/rpcd reload")
+                       "uci set rpcd.daedui.password=\"$hash\"; "
+                       "for g in luci-base luci-app-daed; do uci add_list rpcd.daedui.read=$g; "
+                       "uci add_list rpcd.daedui.write=$g; done; uci commit rpcd; /etc/init.d/rpcd reload")
             time.sleep(2)
             session = ubus(client, '0' * 32, 'session', 'login',
                            {'username': 'daedui', 'password': ui_password})[1]['ubus_rpc_session']
@@ -324,10 +329,10 @@ def test_daed(image, work):
             checks['luci-acl-denies-other-exec'] = denied != 0
             # Disable then enable through rpcd uci set/commit (LuCI save & apply).
             ubus(client, session, 'uci', 'set', {'config': 'daed', 'section': 'config', 'values': {'enabled': '0'}})
-            ubus(client, session, 'uci', 'commit', {'config': 'daed'})
+            ubus(client, session, 'uci', 'apply', {'rollback': False})
             wait(router, '! busybox pgrep -x daed >/dev/null', 60)
             ubus(client, session, 'uci', 'set', {'config': 'daed', 'section': 'config', 'values': {'enabled': '1'}})
-            ubus(client, session, 'uci', 'commit', {'config': 'daed'})
+            ubus(client, session, 'uci', 'apply', {'rollback': False})
             wait(router, f'[ "$({TCX_LAN})" -gt 0 ]', 90)
             proxied = client.run(f'for n in $(seq 1 30); do curl -4 --noproxy "*" -fsS --max-time 10 '
                                  f'http://{PROXIED}:8080/{token} && exit 0; sleep 2; done; exit 1', timeout=150)
@@ -357,6 +362,7 @@ def test_daed(image, work):
             guests.clear()
             router = NET.Guest('router', work, runtime, base, router_net, 2048)
             guests.append(router)
+            router.run('dmesg -n 1')
             receipt['recovery_cmdline'] = router.run('cat /proc/cmdline')
             checks['procd-init'] = (router.run('cat /proc/1/comm') == 'procd' and
                                     'openwrt.init=procd' in receipt['recovery_cmdline'])
@@ -364,6 +370,7 @@ def test_daed(image, work):
             checks['procd-daed-autostart'] = int(router.run(TCX_LAN)) > 0
             client = NET.Guest('client', work, runtime, base, client_net, 1536)
             guests.append(client)
+            client.run('dmesg -n 1')
             client.run('for s in daed passwall passwall_server dnsmasq odhcpd firewall; do '
                        '[ ! -x /etc/init.d/$s ] || /etc/init.d/$s stop; done; true')
             client.run("for n in $(seq 1 40); do ip -4 route | grep -q 'default via 192.0.2.1' && exit 0; "

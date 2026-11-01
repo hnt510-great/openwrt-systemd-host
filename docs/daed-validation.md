@@ -117,8 +117,37 @@ same build tree; no packages were installed on the router.
 | Kernel snapshot | `/srv/openwrt-feeds/public/kernel-snapshots/1793500924785524813`, generation `7.3.1-owrt-d4c77a6d354d9d21248f93d7f68211ce-r1-g45` |
 | Receipt | `/srv/openwrt-feeds/upgrade-receipts/1793500991307529129.json` (`passed`) |
 
+## LuCI app
+
+`luci-app-daed` was added afterwards and validated on a rebuilt image (same
+kernel generation 45; userspace only).
+
+| Artifact | SHA256 |
+| --- | --- |
+| `openwrt-x86-64-generic-squashfs-combined-efi.img.gz` (with `luci-app-daed`) | `5aa1ae750fad579d35dd642be5ffa07a25070b985d494206828dacbb36ca819b` |
+| `luci-app-daed-1.0.0-r1.apk` | `77b25b9a7157a371cb3e9250191b8946a76ea10c37f7f9361f99a07c5d73d0b3` |
+
+| Check | Result |
+| --- | --- |
+| `node scripts/tests/test-luci-daed-view.js` | Pass |
+| `msgfmt -c` on `po/zh_Hans/daed.po` | Pass |
+| `test-image-network.py` (daed disabled) | Pass, 9/9 |
+| `test-daed-vm.py`, all checks above | Pass (run 6 in `luci/`) |
+| Restricted login (`luci-base` + `luci-app-daed`) reads `daed` config | Pass |
+| Same login: `file.exec` of the tail command returns the daed log | Pass |
+| Same login: `file.exec /bin/sh -c id` | Denied |
+| Same login: `uci set enabled=0` + `uci apply` stops daed; `enabled=1` + `uci apply` starts it and the proxy route works | Pass |
+| Same login: `file.exec /etc/init.d/daed restart` | Pass |
+| `view/daed/settings.js` served by uhttpd; menu entry `admin/services/daed` installed | Pass |
+
+The first LuCI VM runs found a real ACL defect: `fs.exec` also needs
+`ubus: { file: [ exec ] }`, not only per-command `file` entries; it was fixed
+before run 6. Other failed runs were test-harness issues (kernel messages on
+the serial console, a random password without a digit, the rpcd login
+setup).
+
 ## Evidence
 
 `/srv/openwrt-validation/daed-validation-20261101/`: the exact image,
 `network/validation.json`, `daed-run{1..6}/validation.json` with per-guest
-command and serial logs. Build logs are in `logs/daed/` of the build tree.
+command and serial logs; the LuCI image and its runs are under `luci/`. Build logs are in `logs/daed/` of the build tree.

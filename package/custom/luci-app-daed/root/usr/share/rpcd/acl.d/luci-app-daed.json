@@ -5,12 +5,18 @@
 			"file": {
 				"/usr/bin/tail -n 200 /var/log/daed/daed.log": [ "exec" ]
 			},
-			"ubus": { "service": [ "list" ] },
+			"ubus": {
+				"file": [ "exec" ],
+				"service": [ "list" ]
+			},
 			"uci": [ "daed", "passwall" ]
 		},
 		"write": {
 			"file": {
 				"/etc/init.d/daed restart": [ "exec" ]
+			},
+			"ubus": {
+				"file": [ "exec" ]
 			},
 			"uci": [ "daed" ]
 		}

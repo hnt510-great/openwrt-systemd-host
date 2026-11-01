@@ -108,6 +108,9 @@ assert.match(String(h.statusInfo(false, false, true).text), /disabled/);
 	const acl = JSON.parse(fs.readFileSync('package/custom/luci-app-daed/root/usr/share/rpcd/acl.d/luci-app-daed.json'));
 	assert.ok(acl['luci-app-daed'].write.file['/etc/init.d/daed restart']);
 	assert.ok(acl['luci-app-daed'].read.file[execs[0]]);
+	// fs.exec goes through ubus file.exec, which needs its own grant.
+	assert.deepEqual(acl['luci-app-daed'].read.ubus.file, [ 'exec' ]);
+	assert.deepEqual(acl['luci-app-daed'].write.ubus.file, [ 'exec' ]);
 
 	// Read-only users cannot restart.
 	writable = false;

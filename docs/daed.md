@@ -138,6 +138,29 @@ The selection is stored in `/etc/daed/wing.db` (a conffile, kept by
 sysupgrade and APK upgrades); after a restart daed resumes the last running
 configuration.
 
+### LuCI
+
+`luci-app-daed` (in the image, with a Simplified Chinese translation) adds
+**Services → daed**:
+
+- **Enable** writes `daed.config.enabled`; *Save & Apply* starts or stops
+  daed through its procd reload trigger. Dashboard address and log rotation
+  map to the UCI options below.
+- **Status** shows whether procd runs daed and, when daed is enabled but
+  stopped because Passwall is enabled, says so.
+- **Open dashboard** opens `http://<host>:<port>/` using the host the
+  browser used for LuCI when daed listens on all addresses. It is disabled
+  while daed is stopped or listens only on loopback.
+- **Restart** runs `/etc/init.d/daed restart`; **Log** shows the last 200
+  lines of `/var/log/daed/daed.log`.
+
+Nodes, groups, routing and DNS are not on this page; they live in the
+daed dashboard. The ACL `luci-app-daed` grants the `daed` config (and read
+access to `passwall` for the status), the procd service list, and exactly
+two commands: `/usr/bin/tail -n 200 /var/log/daed/daed.log` and
+`/etc/init.d/daed restart`. A restricted LuCI login needs `luci-base` plus
+`luci-app-daed`.
+
 ### UCI options (`config daed 'config'`)
 
 | Option | Default | Meaning |
@@ -226,11 +249,16 @@ used by dae; dae's `domain()` rules replace them.
 
 - `python3 scripts/tests/test-custom-package-updates.py` covers the updater's
   `.zip` sources and `companion_assets` refresh used for daed releases.
+- `node scripts/tests/test-luci-daed-view.js` covers the LuCI view: listen
+  address parsing, dashboard URLs, status texts, the ACL commands and
+  read-only users.
 - `python3 scripts/tests/test-daed-vm.py --image <exact .img.gz> --work-dir <new dir>`
   boots the image as router plus LAN client under KVM and checks the kernel
   options, the Passwall interlock, direct and proxied routing through a fake
   SOCKS5 node, DNS, flow offloading, the backported `send_redirects` fix and
-  cleanup on stop; it then boots the same disks once into the `procd
+  cleanup on stop, and drives the LuCI ACL as a restricted `luci-base` +
+  `luci-app-daed` login (log, denied commands, enable/disable through
+  `uci apply`, restart); it then boots the same disks once into the `procd
   recovery` entry (GRUB `next_entry`, as for a kernel trial) and repeats the
   autostart, routing and cleanup checks.
 
