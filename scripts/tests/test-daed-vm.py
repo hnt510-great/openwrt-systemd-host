@@ -38,7 +38,7 @@ TCX_LAN = ("idx=$(cat /sys/class/net/br-lan/ifindex); n=0; "
            "p=$(find /sys/fs/bpf -name '*lan_ingress*' 2>/dev/null | wc -l); echo $((n+p))")
 REQUIRED = {
     'kernel-btf', 'kernel-config', 'daed-installed', 'daed-disabled-by-default',
-    'passwall-interlock', 'dashboard-lan', 'daed-configured', 'tc-hooks',
+    'passwall-interlock', 'dashboard-lan', 'daed-configured', 'default-lan-interface', 'tc-hooks',
     'route-direct', 'route-proxy', 'dns-through-dae', 'flow-offloading',
     'passwall-reload-stops-daed', 'stop-cleanup', 'restart', 'wan-dashboard-closed',
     'send-redirects-off', 'luci-acl-read', 'luci-log', 'luci-acl-denies-other-exec',
@@ -121,8 +121,10 @@ def configure_daed(router, token):
                 token=auth)['createGroup']['id']
     gql(router, 'mutation($g:ID!,$n:[ID!]!){groupAddNodes(id:$g,nodeIDs:$n)}',
         {'g': group, 'n': [nodes[0]['node']['id']]}, auth)
+    # Created like the dashboard's first-run setup, whose lanInterface is
+    # empty on this router; the package default (patch 004) must fill it.
     config = gql(router, 'mutation($g:globalInput){createConfig(name:"vm",global:$g){id}}', {'g': {
-        'lanInterface': ['br-lan'], 'wanInterface': [], 'logLevel': 'info',
+        'lanInterface': [], 'wanInterface': [], 'logLevel': 'info',
         'tcpCheckUrl': [f'http://{PROXIED}:8080/check', PROXIED],
         'udpCheckDns': [f'{PROXIED}:53'], 'checkInterval': '30s',
         'dialMode': 'ip', 'autoConfigKernelParameter': True}}, auth)['createConfig']['id']
@@ -133,8 +135,10 @@ def configure_daed(router, token):
              ' response {\n  fallback: accept\n }\n}\n'}, auth)['createDns']['id']
     for kind, ident in (('Config', config), ('Routing', routing), ('Dns', dns)):
         gql(router, f'mutation($i:ID!){{select{kind}(id:$i)}}', {'i': ident}, auth)
+    configs = gql(router, 'query{configs{id global{lanInterface}}}', token=auth)['configs']
+    lan = next(c['global']['lanInterface'] for c in configs if c['id'] == config)
     gql(router, 'mutation{run(dry:false)}', token=auth)
-    return auth
+    return auth, lan
 
 
 def ubus(client, session, obj, method, arguments, check=True):
@@ -264,8 +268,9 @@ def test_daed(image, work):
             checks['wan-dashboard-closed'] = 'reject' in router.run(
                 "nft list chain inet fw4 input_wan | tail -n 3")
 
-            configure_daed(router, token)
+            _, receipt['config_lan_interface'] = configure_daed(router, token)
             checks['daed-configured'] = True
+            checks['default-lan-interface'] = receipt['config_lan_interface'] == ['br-lan']
             wait(router, f'[ "$({TCX_LAN})" -gt 0 ]', 90)
             receipt['tcx_links_br_lan'] = int(router.run(TCX_LAN))
             hooks = router.run('ip -d link show dae0; tc qdisc show dev br-lan')

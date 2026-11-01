@@ -1,0 +1,114 @@
+From: hnt510 <hnt510@gmail.com>
+Subject: [PATCH] dae-wing: give new configs a default LAN interface
+
+The dashboard creates its first config with lan_interface taken from the
+interfaces that dae-wing flags as carrying a default route. That flag
+checks route.Dst == nil, but netlink v1.3.1 reports default routes as
+0.0.0.0/0 and ::/0, so no interface is ever flagged and the config is
+created with no lan_interface. dae then binds only the WAN: the router's
+own traffic is proxied while every forwarded LAN flow goes direct. On a
+router the default-route interface would be the WAN anyway, not the LAN.
+
+Fill an empty lan_interface of a newly created config from
+DAED_DEFAULT_LAN_INTERFACE (comma or space separated), which the OpenWrt
+init script sets from UCI. Updating a config is unchanged, so the
+dashboard can still clear the list.
+---
+Index: daed-2.1.1/graphql/service/config/default_lan_test.go
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ daed-2.1.1/graphql/service/config/default_lan_test.go	2026-11-01 21:44:37.823813493 +0800
+@@ -0,0 +1,48 @@
++package config
++
++import (
++	"reflect"
++	"strings"
++	"testing"
++
++	"github.com/daeuniverse/dae-wing/graphql/service/config/global"
++)
++
++func TestApplyDefaultLanInterface(t *testing.T) {
++	for _, tc := range []struct {
++		env   string
++		input *[]string
++		want  []string
++	}{
++		{"br-lan", nil, []string{"br-lan"}},
++		{"br-lan", &[]string{}, []string{"br-lan"}},
++		{"br-lan, br-guest", nil, []string{"br-lan", "br-guest"}},
++		{"br-lan", &[]string{"eth0"}, []string{"eth0"}},
++		{"", nil, nil},
++		{" , ", &[]string{}, []string{}},
++	} {
++		t.Setenv(DefaultLanInterfaceEnv, tc.env)
++		glob := &global.Input{LanInterface: tc.input}
++		applyDefaultLanInterface(glob)
++		var got []string
++		if glob.LanInterface != nil {
++			got = *glob.LanInterface
++		}
++		if !reflect.DeepEqual(got, tc.want) {
++			t.Errorf("env %q, input %v: got %v, want %v", tc.env, tc.input, got, tc.want)
++		}
++	}
++}
++
++func TestDefaultLanInterfaceIsMarshalled(t *testing.T) {
++	t.Setenv(DefaultLanInterfaceEnv, "br-lan")
++	glob := &global.Input{LanInterface: &[]string{}}
++	applyDefaultLanInterface(glob)
++	s, err := glob.Marshal()
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !strings.Contains(s, "lan_interface") || !strings.Contains(s, "br-lan") {
++		t.Fatalf("marshalled global lacks the default LAN interface:\n%s", s)
++	}
++}
+Index: daed-2.1.1/graphql/service/config/mutation_utils.go
+===================================================================
+--- daed-2.1.1.orig/graphql/service/config/mutation_utils.go	2026-09-23 19:13:42.000000000 +0800
++++ daed-2.1.1/graphql/service/config/mutation_utils.go	2026-11-01 21:44:42.169149030 +0800
+@@ -9,6 +9,7 @@
+ 	"context"
+ 	"errors"
+ 	"fmt"
++	"os"
+ 	"reflect"
+ 	"regexp"
+ 	"sort"
+@@ -26,10 +27,32 @@
+ 	"gorm.io/gorm/clause"
+ )
+ 
++// DefaultLanInterfaceEnv names the comma-separated LAN interfaces that a new
++// config gets when it is created without any. The dashboard fills
++// lan_interface from interfaces that carry a default route; on a router that
++// would be the WAN, and with netlink v1.3.1 (default routes report Dst
++// 0.0.0.0/0, not nil) it is always empty, so dae never hooks the LAN.
++const DefaultLanInterfaceEnv = "DAED_DEFAULT_LAN_INTERFACE"
++
++// applyDefaultLanInterface fills an empty lan_interface of a config that is
++// being created. Updates keep whatever the user set, including an empty list.
++func applyDefaultLanInterface(glob *global.Input) {
++	if glob.LanInterface != nil && len(*glob.LanInterface) > 0 {
++		return
++	}
++	ifs := strings.FieldsFunc(os.Getenv(DefaultLanInterfaceEnv), func(r rune) bool {
++		return r == ',' || r == ' ' || r == '\t'
++	})
++	if len(ifs) > 0 {
++		glob.LanInterface = &ifs
++	}
++}
++
+ func Create(ctx context.Context, name string, glob *global.Input) (*Resolver, error) {
+ 	if glob == nil {
+ 		glob = &global.Input{}
+ 	}
++	applyDefaultLanInterface(glob)
+ 	strGlobal, err := glob.Marshal()
+ 	if err != nil {
+ 		return nil, err

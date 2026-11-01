@@ -39,13 +39,15 @@ core instead, the same way upstream dae-wing did after the daed release:
 | Dashboard | daed v2.1.1 `web.zip`, unchanged |
 
 On top of the v2.1.1 core, `package/custom/daed/patches/` carries three
-later upstream dae fixes (code only; docs and changelog hunks dropped):
+later upstream dae fixes (code only; docs and changelog hunks dropped) and
+one local dae-wing change:
 
 | Patch | Upstream | Fix |
 | --- | --- | --- |
 | `001-dae-core-restore-Marshaller-Bytes.patch` | `6f2f2aa` | Restores `config.Marshaller.Bytes`, which dae-wing `b089b56` calls; without it the backend does not compile against v2.1.1 |
 | `002-dae-core-exact-match-for-LAN-UDP-local-services.patch` | `fb5eae6` | LAN UDP is bypassed to a local service (such as dnsmasq on port 53) only on an exact address match |
 | `003-dae-core-stop-LAN-ICMP-redirects.patch` | `e3fee8f` | Also writes `conf/all/send_redirects=0`; the kernel ORs it with the per-interface value, so the router otherwise kept sending ICMP redirects that steer LAN hosts past dae |
+| `004-dae-wing-default-lan-interface-for-new-configs.patch` | local | A config created with an empty `lan_interface` gets the UCI `default_lan_interface` (`br-lan`); see [No LAN interface](#no-lan-interface-lan-traffic-goes-direct) |
 
 The dashboard of daed v2.1.1 is compatible with the re-pinned backend: the
 GraphQL schemas differ only in the global config, where `soMarkFromDaeSet` was
@@ -126,9 +128,10 @@ while `lan` and `wireguard` (both `input ACCEPT`) can reach it.
 
 In the dashboard:
 
-1. **Global**: set *LAN interface* to `br-lan`. Add the WAN device (for
-   example `eth1` or `pppoe-wan`) only if the router's own traffic should be
-   proxied too. Keep *auto config kernel parameter* on.
+1. **Global**: check that *LAN interface* is `br-lan` (new configs get it
+   from `default_lan_interface`). *WAN interface* defaults to `auto`, which
+   also proxies the router's own traffic; clear it if only LAN clients should
+   be proxied. Keep *auto config kernel parameter* on.
 2. **Nodes / Subscriptions**: import proxy links or a subscription.
 3. **Groups**: create a group (for example `proxy`) and add nodes.
 4. **Routing** and **DNS**: see below. Then select the config, routing and
@@ -171,6 +174,7 @@ two commands: `/usr/bin/tail -n 200 /var/log/daed/daed.log` and
 | `listen_addr` | `0.0.0.0:2023` | Dashboard and GraphQL listener |
 | `log_maxbackups` | `1` | Rotated log files kept under `/var/log/daed/` |
 | `log_maxsize` | `5` | Log rotation size in MB |
+| `default_lan_interface` | `br-lan` | LAN interfaces (a list, or a space-separated option) given to configs that daed creates from now on with an empty LAN interface, such as the dashboard's first-run config. Existing configs are not changed. Unset or empty means `br-lan`; to run a config without a LAN hook, clear *LAN interface* in the dashboard instead. Changing it restarts daed |
 
 ## Routing and DNS on this router
 
@@ -229,6 +233,26 @@ used by dae; dae's `domain()` rules replace them.
   boot procd does. Both mount bpffs at `/sys/fs/bpf` and cgroup2 at
   `/sys/fs/cgroup`.
 
+### No LAN interface: LAN traffic goes direct
+
+If the selected config has no `lan_interface`, dae binds only the WAN: the
+router's own traffic is proxied while every forwarded LAN flow goes direct,
+so the proxy looks half working. The log then has `Bind to WAN` but no
+`Bind to LAN` line, and `/proc/net/nf_conntrack` shows LAN clients
+masqueraded straight out of the WAN (proxied flows are redirected before
+netfilter and leave no host conntrack entry).
+
+Cause: the dashboard's first-run setup takes the LAN interface from the
+interfaces that dae-wing flags as carrying a default route. dae-wing tests
+`route.Dst == nil`, but netlink v1.3.1 reports default routes as `0.0.0.0/0`
+and `::/0`, so nothing is flagged and the config is created with an empty
+list; on a router the default-route interface would be the WAN anyway.
+Patch 004 fills `default_lan_interface` into configs created from release
+`2.1.1-r2` on. A `wing.db` created by `2.1.1-r1` keeps its empty list after
+the upgrade: set *LAN interface* to `br-lan` under **Global** in the
+dashboard, save, and run the config again, then confirm
+`grep 'Bind to LAN' /var/log/daed/daed.log`.
+
 ## Recovery
 
 - `/etc/init.d/daed stop` detaches the BPF programs, removes `dae0` and the
@@ -256,11 +280,12 @@ used by dae; dae's `domain()` rules replace them.
   read-only users.
 - `python3 scripts/tests/test-daed-vm.py --image <exact .img.gz> --work-dir <new dir>`
   boots the image as router plus LAN client under KVM and checks the kernel
-  options, the Passwall interlock, direct and proxied routing through a fake
-  SOCKS5 node, DNS, flow offloading, the backported `send_redirects` fix and
-  cleanup on stop, and drives the LuCI ACL as a restricted `luci-base` +
-  `luci-app-daed` login (log, denied commands, enable/disable through
-  `uci apply`, restart); it then boots the same disks once into the `procd
+  options, the Passwall interlock, that a config created without a LAN
+  interface (as the dashboard does) gets `br-lan`, direct and proxied
+  routing through a fake SOCKS5 node, DNS, flow offloading, the backported
+  `send_redirects` fix and cleanup on stop, and drives the LuCI ACL as a
+  restricted `luci-base` + `luci-app-daed` login (log, denied commands,
+  enable/disable through `uci apply`, restart); it then boots the same disks once into the `procd
   recovery` entry (GRUB `next_entry`, as for a kernel trial) and repeats the
   autostart, routing and cleanup checks.
 
