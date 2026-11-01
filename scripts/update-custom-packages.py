@@ -301,6 +301,20 @@ def rewrite_recipe(text, version, digest, source_url=None, source_version=None):
     return text
 
 
+def variable_value(text, key):
+    values = re.findall(r'^' + re.escape(key) + r':=(.*)$', text, re.M)
+    if len(values) != 1:
+        raise UpdateError('Missing/ambiguous metadata field: ' + key)
+    return values[0].strip()
+
+
+def rewrite_variable(text, key, value):
+    text, count = re.subn(r'^' + re.escape(key) + r':=.*$', lambda m: key + ':=' + value, text, flags=re.M)
+    if count != 1:
+        raise UpdateError('Missing/ambiguous metadata field: ' + key)
+    return text
+
+
 def source_location(text):
     values = fields(text)
     if 'PKG_SOURCE' not in values and 'PYPI_NAME:=' in text:
@@ -364,7 +378,8 @@ def validate_payload(path, filename):
     with path.open('rb') as stream:
         prefix = stream.read(8)
     signature = next((magic for suffix, magic in (('.gz', b'\x1f\x8b'), ('.xz', b'\xfd7zXZ\x00'),
-                         ('.bz2', b'BZh'), ('.otf', b'OTTO')) if filename.endswith(suffix)), None)
+                         ('.bz2', b'BZh'), ('.otf', b'OTTO'), ('.zip', b'PK\x03\x04'))
+                      if filename.endswith(suffix)), None)
     if signature is None or not prefix.startswith(signature):
         raise UpdateError('Unexpected source format for ' + filename)
 
@@ -533,6 +548,7 @@ class Updater:
             row['source_relocation'] = True
             digest = metadata['PKG_HASH']
         row['status'] = 'available'
+        proposed = self.companion_assets(name, entry, meta, proposed, row)
         if not self.update:
             return proposed
         self.assert_clean([self.recipe(name)])
@@ -547,7 +563,44 @@ class Updater:
         row.update(sha256=digest, verification='upstream-sha256' if meta.get('hash') or sums or
                    any(a.get('digest') for a in meta.get('release', {}).get('assets', [])
                        if a['name'] == filename) else 'downloaded-https-source')
-        return rewrite_recipe(text, version, digest, entry.get('source_url'), meta.get('source_version'))
+        updated = rewrite_recipe(text, version, digest, entry.get('source_url'), meta.get('source_version'))
+        for variable in entry.get('companion_assets', {}):
+            updated = rewrite_variable(updated, variable, variable_value(proposed, variable))
+        return updated
+
+    def companion_assets(self, name, entry, meta, text, row):
+        """Refresh hashes of extra release assets (for example a prebuilt web UI).
+
+        Each entry maps a recipe variable holding a SHA256 to the asset name in the
+        same GitHub release. The asset must publish a SHA256 digest; in update mode
+        the asset is also downloaded and checked against it."""
+        assets = entry.get('companion_assets', {})
+        if not assets:
+            return text
+        release = meta.get('release')
+        if not release:
+            raise UpdateError('Companion assets need GitHub release metadata for ' + name)
+        published = {asset['name']: asset for asset in release.get('assets', [])}
+        rows = row.setdefault('companion_assets', {})
+        for variable, filename in assets.items():
+            variable_value(text, variable)
+            asset = published.get(filename)
+            if not asset or not str(asset.get('digest', '')).startswith('sha256:'):
+                raise UpdateError('Companion asset without SHA256 digest for ' + name + ': ' + filename)
+            digest = valid_hash(asset['digest'].split(':', 1)[1])
+            if self.update:
+                url = asset.get('browser_download_url', '')
+                if not url.startswith('https://'):
+                    raise UpdateError('Companion asset without HTTPS URL for ' + name + ': ' + filename)
+                with tempfile.TemporaryDirectory(prefix='openwrt-custom-asset-') as temporary:
+                    downloaded = Path(temporary) / filename
+                    self.fetcher.download(url, downloaded)
+                    validate_payload(downloaded, filename)
+                    if file_hash(downloaded) != digest:
+                        raise UpdateError('Companion asset SHA256 mismatch for ' + name + ': ' + filename)
+            rows[variable] = {'asset': filename, 'sha256': digest}
+            text = rewrite_variable(text, variable, digest)
+        return text
 
     def update_checkout(self, name, entry, row):
         """Merge an upstream branch into a separately maintained source checkout."""

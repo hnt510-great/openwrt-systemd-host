@@ -476,6 +476,68 @@ class UpdateTests(unittest.TestCase):
             self.execute(updater)
         self.assertEqual(updater.report['status'], 'failed')
 
+    def companion_fixture(self, web_digest=None, include_web=True):
+        path = self.root / 'package/custom/dash/Makefile'
+        path.parent.mkdir(parents=True)
+        path.write_text('PKG_NAME:=dash\nPKG_VERSION:=1.2.3\nPKG_RELEASE:=4\n'
+                        'PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION)-full-src.zip\n'
+                        'PKG_SOURCE_URL:=https://github.com/owner/repo/releases/download/v$(PKG_VERSION)/\n'
+                        'PKG_SOURCE_URL_FILE:=dash-full-src.zip\n'
+                        'PKG_HASH:=' + 'a' * 64 + '\n'
+                        'DASH_WEB_HASH:=' + 'c' * 64 + '\n')
+        self.entries['dash'] = {'provider': 'github', 'catalog': 'releases', 'project': 'owner/repo',
+                                'policy': 'stable', 'companion_assets': {'DASH_WEB_HASH': 'web.zip'}}
+        self.github_tags('v1.2.3', 'v1.3.0')
+        source, web = b'PK\x03\x04full source', b'PK\x03\x04web dist'
+        base = 'https://github.com/owner/repo/releases/download/v1.3.0/'
+        assets = [{'name': 'dash-full-src.zip', 'digest': 'sha256:' + hashlib.sha256(source).hexdigest(),
+                   'browser_download_url': base + 'dash-full-src.zip'}]
+        if include_web:
+            assets.append({'name': 'web.zip', 'digest': 'sha256:' + (web_digest or hashlib.sha256(web).hexdigest()),
+                           'browser_download_url': base + 'web.zip'})
+        self.fetcher.data['https://api.github.com/repos/owner/repo/releases/tags/v1.3.0'] = {
+            'tag_name': 'v1.3.0', 'draft': False, 'prerelease': False, 'assets': assets}
+        self.fetcher.data[base + 'dash-full-src.zip'] = source
+        self.fetcher.data[base + 'web.zip'] = web
+        self.commit()
+        return path, hashlib.sha256(source).hexdigest(), hashlib.sha256(web).hexdigest()
+
+    def test_companion_release_asset_hash_follows_the_release(self):
+        path, source, web = self.companion_fixture()
+        updater = self.updater()
+        self.execute(updater)
+        text = path.read_text()
+        self.assertIn('PKG_VERSION:=1.3.0\nPKG_RELEASE:=1\n', text)
+        self.assertIn('PKG_HASH:=' + source + '\n', text)
+        self.assertIn('DASH_WEB_HASH:=' + web + '\n', text)
+        self.assertEqual(U.source_location(text),
+                         ('dash-1.3.0-full-src.zip',
+                          'https://github.com/owner/repo/releases/download/v1.3.0/dash-full-src.zip'))
+        self.assertEqual(updater.report['packages']['dash']['companion_assets'],
+                         {'DASH_WEB_HASH': {'asset': 'web.zip', 'sha256': web}})
+        self.assertIn('https://github.com/owner/repo/releases/download/v1.3.0/web.zip', self.fetcher.downloads)
+
+    def test_companion_asset_check_is_read_only(self):
+        path, _, web = self.companion_fixture()
+        original = path.read_text()
+        updater = self.updater(False)
+        self.assertEqual(self.execute(updater), 1)
+        self.assertEqual(path.read_text(), original)
+        self.assertEqual(self.fetcher.downloads, [])
+        self.assertEqual(updater.report['packages']['dash']['companion_assets']['DASH_WEB_HASH']['sha256'], web)
+
+    def test_companion_asset_digest_mismatch_preserves_recipe(self):
+        path, _, _ = self.companion_fixture(web_digest='d' * 64)
+        original = path.read_text()
+        with self.assertRaisesRegex(U.UpdateError, 'Companion asset SHA256 mismatch'):
+            self.execute(self.updater())
+        self.assertEqual(path.read_text(), original)
+
+    def test_missing_companion_asset_fails_closed(self):
+        path, _, _ = self.companion_fixture(include_web=False)
+        with self.assertRaisesRegex(U.UpdateError, 'Companion asset without SHA256 digest'):
+            self.execute(self.updater(False))
+
     def test_git_tag_listing_is_non_mutating_and_cached(self):
         output = '1' * 40 + '\trefs/tags/v1.2.4\n'
         response = subprocess.CompletedProcess([], 0, stdout=output, stderr='')
