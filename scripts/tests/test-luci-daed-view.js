@@ -33,6 +33,7 @@ const context = vm.createContext({
 	E, window: { location: { hostname: '192.0.2.1' }, open: () => {} },
 	_: s => s,
 	view: { extend: obj => obj },
+	widgets: { DeviceSelect: 'DeviceSelect' },
 	form: { Map: FormMap, NamedSection: 'NamedSection', Flag: 'Flag', Value: 'Value' },
 	fs: { exec: (cmd, args) => { execs.push([ cmd, ...args ].join(' '));
 		return Promise.resolve(cmd == '/usr/bin/tail' ? { code: 0, stdout: 'log line\n' } : { code: 0 }); } },
@@ -90,6 +91,12 @@ assert.match(String(h.statusInfo(false, false, true).text), /disabled/);
 	assert.equal(map.service.options.enabled.rmempty, false);
 	assert.equal(map.service.options.listen_addr.validate('config', '0.0.0.0:2023'), true);
 	assert.notEqual(map.service.options.listen_addr.validate('config', '2023'), true);
+	// Default LAN interface for new dashboard configs: device names, several allowed.
+	const lan = map.service.options.default_lan_interface;
+	assert.equal(lan.type, 'DeviceSelect');
+	assert.equal(lan.multiple, true);
+	assert.equal(lan.noaliases, true);
+	assert.equal(lan.default, 'br-lan');
 	const links = () => view.dashboard.children.filter(c => c && c.tag == 'a');
 	const text = () => JSON.stringify(view.dashboard.children);
 	assert.deepEqual(links().map(a => a.attrs.href), [ 'http://192.0.2.1:2023/', 'http://192.0.2.1:2023/' ]);
@@ -131,11 +138,16 @@ assert.match(String(h.statusInfo(false, false, true).text), /disabled/);
 	// fs.exec goes through ubus file.exec, which needs its own grant.
 	assert.deepEqual(acl['luci-app-daed'].read.ubus.file, [ 'exec' ]);
 	assert.deepEqual(acl['luci-app-daed'].write.ubus.file, [ 'exec' ]);
+	// DeviceSelect loads network state; get_proto_handlers has no fallback.
+	assert.deepEqual(acl['luci-app-daed'].read.ubus.network, [ 'get_proto_handlers' ]);
+	assert.ok(acl['luci-app-daed'].read.ubus['luci-rpc'].includes('getNetworkDevices'));
+	assert.ok(acl['luci-app-daed'].read.uci.includes('network'));
+	assert.ok(!acl['luci-app-daed'].write.uci.includes('network'));
 
 	// Read-only users cannot restart.
 	writable = false;
 	page = await view.render([ services ]);
 	const restart = page.children[1].children[3].children[0];
 	assert.equal(restart.attrs.disabled, true);
-	console.log('LuCI daed view: listen parsing, dashboard URLs and link, status, interlock, ACL commands and permissions passed');
+	console.log('LuCI daed view: listen parsing, dashboard URLs and link, status, interlock, ACL commands and permissions, default LAN interface passed');
 })().catch(error => { console.error(error); process.exit(1); });

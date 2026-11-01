@@ -1,26 +1,30 @@
 msgid ""
 msgstr "Content-Type: text/plain; charset=UTF-8"
 
-#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:111
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:112
 msgid "(daed is not running)"
 msgstr ""
 
-#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:153
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:154
 msgid ""
 "Address and port of the dashboard and GraphQL API, for example "
 "<code>0.0.0.0:2023</code>. The WAN zone rejects it; create the admin account "
 "right after the first start, because the first visitor creates it."
 msgstr ""
 
-#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:197
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:204
 msgid "Dashboard"
 msgstr ""
 
-#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:152
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:153
 msgid "Dashboard address"
 msgstr ""
 
-#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:148
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:161
+msgid "Default LAN interface"
+msgstr ""
+
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:149
 msgid "Enable"
 msgstr ""
 
@@ -28,98 +32,107 @@ msgstr ""
 msgid "Enable, configure and inspect daed"
 msgstr ""
 
-#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:157
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:158
 msgid "Expecting host:port, [IPv6]:port or :port"
 msgstr ""
 
-#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:169
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:162
+msgid ""
+"LAN interfaces that daed gives a new config created without one, such as the "
+"default config made when the dashboard is first opened. Without a LAN "
+"interface dae proxies only the router's own traffic. Existing configs are "
+"not changed; edit them under Global in the dashboard. Empty means <code>br-"
+"lan</code>."
+msgstr ""
+
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:176
 msgid "Loading…"
 msgstr ""
 
-#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:203
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:210
 msgid "Log"
 msgstr ""
 
-#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:160
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:167
 msgid "Log size (MB)"
 msgstr ""
 
-#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:78
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:79
 msgid "No log yet."
 msgstr ""
 
-#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:106
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:107
 msgid "Open dashboard"
 msgstr ""
 
-#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:209
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:216
 msgid "Refresh log"
 msgstr ""
 
-#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:175
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:182
 msgid "Restart"
 msgstr ""
 
-#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:124
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:125
 msgid "Restart failed: %s"
 msgstr ""
 
-#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:161
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:168
 msgid "Rotate /var/log/daed/daed.log at this size. The log is kept in RAM."
 msgstr ""
 
-#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:165
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:172
 msgid "Rotated logs kept"
 msgstr ""
 
-#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:145
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:146
 msgid "Service"
 msgstr ""
 
-#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:149
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:150
 msgid ""
 "Start daed now and at boot. daed and Passwall both intercept forwarded "
 "traffic, so daed does not start while Passwall is enabled."
 msgstr ""
 
-#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:194
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:201
 msgid "Status"
 msgstr ""
 
-#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:98
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:99
 msgid ""
 "The dashboard listens on loopback only; it is not reachable from this "
 "browser."
 msgstr ""
 
-#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:80
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:81
 msgid "Unable to read the log: %s"
 msgstr ""
 
-#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:142
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:143
 #: package/custom/luci-app-daed/root/usr/share/luci/menu.d/luci-app-daed.json:3
 msgid "daed"
 msgstr ""
 
-#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:64
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:65
 msgid "daed is disabled."
 msgstr ""
 
-#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:61
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:62
 msgid ""
 "daed is enabled but not running because Passwall is enabled. daed refuses to "
 "run alongside Passwall; disable Passwall first."
 msgstr ""
 
-#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:63
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:64
 msgid "daed is enabled but not running. Check the log below."
 msgstr ""
 
-#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:59
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:60
 msgid "daed is running."
 msgstr ""
 
-#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:143
+#: package/custom/luci-app-daed/htdocs/luci-static/resources/view/daed/settings.js:144
 msgid ""
 "daed is the dae eBPF transparent proxy with its own web dashboard. Nodes, "
 "groups, routing and DNS are configured in the dashboard; this page only "

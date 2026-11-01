@@ -42,7 +42,7 @@ REQUIRED = {
     'route-direct', 'route-proxy', 'dns-through-dae', 'flow-offloading',
     'passwall-reload-stops-daed', 'stop-cleanup', 'restart', 'wan-dashboard-closed',
     'send-redirects-off', 'luci-acl-read', 'luci-log', 'luci-acl-denies-other-exec',
-    'luci-toggle', 'luci-restart', 'luci-view-served', 'procd-init', 'procd-daed-autostart', 'procd-routes',
+    'luci-toggle', 'luci-restart', 'luci-default-lan-interface', 'luci-view-served', 'procd-init', 'procd-daed-autostart', 'procd-routes',
     'procd-stop-cleanup',
 }
 
@@ -332,6 +332,19 @@ def test_daed(image, work):
             denied = ubus(client, session, 'file', 'exec', {'command': '/bin/sh', 'params': ['-c', 'id']},
                           check=False)[0]
             checks['luci-acl-denies-other-exec'] = denied != 0
+            # The default LAN interface field (DeviceSelect) loads network state;
+            # network.get_proto_handlers has no fallback in network.js.
+            ubus(client, session, 'network', 'get_proto_handlers', {})
+            devices = ubus(client, session, 'luci-rpc', 'getNetworkDevices', {})[1]
+            ubus(client, session, 'uci', 'set', {'config': 'daed', 'section': 'config',
+                                                 'values': {'default_lan_interface': ['br-lan']}})
+            ubus(client, session, 'uci', 'apply', {'rollback': False})
+            wait(router, f'[ "$({TCX_LAN})" -gt 0 ]', 90)
+            checks['luci-default-lan-interface'] = ('br-lan' in devices and router.run(
+                'uci -q get daed.config.default_lan_interface; '
+                'tr "\\0" "\\n" < /proc/$(busybox pgrep -x daed)/environ | '
+                'grep "^DAED_DEFAULT_LAN_INTERFACE="').split() == [
+                'br-lan', 'DAED_DEFAULT_LAN_INTERFACE=br-lan'])
             # Disable then enable through rpcd uci set/commit (LuCI save & apply).
             ubus(client, session, 'uci', 'set', {'config': 'daed', 'section': 'config', 'values': {'enabled': '0'}})
             ubus(client, session, 'uci', 'apply', {'rollback': False})

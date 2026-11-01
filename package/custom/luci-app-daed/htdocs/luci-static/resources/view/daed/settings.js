@@ -7,6 +7,7 @@
 'require rpc';
 'require uci';
 'require ui';
+'require tools.widgets as widgets';
 
 var LOG = '/var/log/daed/daed.log';
 
@@ -156,6 +157,12 @@ return view.extend({
 		o.validate = function(section_id, value) {
 			return parseListen(value) ? true : _('Expecting host:port, [IPv6]:port or :port');
 		};
+
+		o = s.option(widgets.DeviceSelect, 'default_lan_interface', _('Default LAN interface'),
+			_('LAN interfaces that daed gives a new config created without one, such as the default config made when the dashboard is first opened. Without a LAN interface dae proxies only the router\'s own traffic. Existing configs are not changed; edit them under Global in the dashboard. Empty means <code>br-lan</code>.'));
+		o.multiple = true;
+		o.noaliases = true;
+		o.default = 'br-lan';
 
 		o = s.option(form.Value, 'log_maxsize', _('Log size (MB)'),
 			_('Rotate /var/log/daed/daed.log at this size. The log is kept in RAM.'));

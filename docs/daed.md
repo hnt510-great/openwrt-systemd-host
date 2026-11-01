@@ -147,8 +147,9 @@ configuration.
 **Services → daed**:
 
 - **Enable** writes `daed.config.enabled`; *Save & Apply* starts or stops
-  daed through its procd reload trigger. Dashboard address and log rotation
-  map to the UCI options below.
+  daed through its procd reload trigger. Dashboard address, *Default LAN
+  interface* (a device picker; several devices allowed) and log rotation map
+  to the UCI options below.
 - **Status** shows whether procd runs daed and, when daed is enabled but
   stopped because Passwall is enabled, says so.
 - **Dashboard** always shows an *Open dashboard* link and the URL,
@@ -161,8 +162,10 @@ configuration.
 
 Nodes, groups, routing and DNS are not on this page; they live in the
 daed dashboard. The ACL `luci-app-daed` grants the `daed` config (and read
-access to `passwall` for the status), the procd service list, and exactly
-two commands: `/usr/bin/tail -n 200 /var/log/daed/daed.log` and
+access to `passwall` for the status), the procd service list, read access to
+the network devices, interface dump, protocol handlers and `network` config
+that the device picker loads, and exactly two commands:
+`/usr/bin/tail -n 200 /var/log/daed/daed.log` and
 `/etc/init.d/daed restart`. A restricted LuCI login needs `luci-base` plus
 `luci-app-daed`.
 
@@ -284,7 +287,8 @@ dashboard, save, and run the config again, then confirm
   interface (as the dashboard does) gets `br-lan`, direct and proxied
   routing through a fake SOCKS5 node, DNS, flow offloading, the backported
   `send_redirects` fix and cleanup on stop, and drives the LuCI ACL as a
-  restricted `luci-base` + `luci-app-daed` login (log, denied commands,
+  restricted `luci-base` + `luci-app-daed` login (log, denied commands, the
+  device picker's network calls and setting the default LAN interface,
   enable/disable through `uci apply`, restart); it then boots the same disks once into the `procd
   recovery` entry (GRUB `next_entry`, as for a kernel trial) and repeats the
   autostart, routing and cleanup checks.

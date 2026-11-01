@@ -7,9 +7,12 @@
 			},
 			"ubus": {
 				"file": [ "exec" ],
+				"luci-rpc": [ "getBoardJSON", "getNetworkDevices" ],
+				"network": [ "get_proto_handlers" ],
+				"network.interface": [ "dump" ],
 				"service": [ "list" ]
 			},
-			"uci": [ "daed", "passwall" ]
+			"uci": [ "daed", "network", "passwall" ]
 		},
 		"write": {
 			"file": {
