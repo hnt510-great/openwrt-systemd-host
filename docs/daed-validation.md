@@ -211,10 +211,54 @@ Published afterwards with `scripts/publish-changed-feeds.sh` (dry run first):
 | Kernel | Unchanged (generation 45) |
 | Receipt | `/srv/openwrt-feeds/upgrade-receipts/1793542073921869316.json` |
 
+## Vision UDP DNS fix (daed 2.1.1-r3)
+
+The router's daed log had 345 `DNS forward to upstream failed ...
+error=short buffer network=udp+4` warnings for the `tcp+udp://8.8.8.8:53`
+upstream reached through the VLESS `xtls-rprx-vision` node, and its
+`udp4(DNS)` health flapped (10 × `ALIVE --udp4(DNS)-> NOT ALIVE` in the 25
+minutes after a restart). Cause: `vision.PacketConn.ReadFrom` compared the
+reply length with `uint16(len(p))`, which is 0 for dae's 65536-byte DNS
+buffer. The upstream `daeuniverse/outbound` and `olicesx/outbound` main
+branches have the same comparison.
+
+| Check | Result |
+| --- | --- |
+| Reproduction against the pinned module (`go test` via the dae-core module graph, 120-byte reply) | Buffers of 512, 4096, 65535 bytes read it; 65536 and 131072 fail with `short buffer` |
+| `go test github.com/daeuniverse/outbound/protocol/vless/...` with patch 005 | Passed, including the new `TestReadFromAcceptsBuffersOf64KiBAndMore` |
+| `go test ./graphql/service/config/` (patch 004 tests) | Passed |
+| `python3 scripts/tests/test-custom-package-updates.py` | Passed |
+| Outbound source | Go proxy zip SHA-256 `c7ab45a9…204d`, the module version `go.sum` pins |
+| `make package/custom/daed/compile` from clean | Passed; patches 001–005 applied; `go version -m` shows `github.com/daeuniverse/outbound => ./third_party/outbound` |
+| `scripts/tests/test-daed-vm.py` | **Not run**; no image was built, and the VM test's SOCKS5 node does not exercise Vision |
+
+The other warnings in that log (`tls: first record does not look like a TLS
+handshake`, `unexpected EOF` on TCP DNS, and the SERVFAILs they cause) come
+from the TCP path to the node and are not addressed by this release.
+
+Router changes, at the user's request and without restarting daed:
+
+- Workaround: the selected DNS row in `/etc/daed/wing.db` was changed from
+  `googledns: 'tcp+udp://8.8.8.8:53'` to `'tcp://8.8.8.8:53'` (version 1 → 2,
+  `pragma integrity_check` ok) after an online backup to
+  `wing.db.bak-20261101222044`. It takes effect at the next daed restart.
+- Published with `scripts/publish-changed-feeds.sh` (dry run first): `daed`,
+  `daed-geoip`, `daed-geosite` 2.1.1-r3, snapshot
+  `/srv/openwrt-feeds/public/snapshots/20261101T142514.285188Z`, receipt
+  `/srv/openwrt-feeds/upgrade-receipts/1793543162396961351.json`, kernel
+  unchanged, preflight passed with no blockers. The published
+  `daed-2.1.1-r3.apk` is the built file (`23bf0a85…1140`).
+- Installed from the feed with `apk add --upgrade --scripts=no daed
+  daed-geoip daed-geosite` after a simulation listed exactly those three;
+  `/etc/apk/world` unchanged, `/usr/bin/daed` matches the build
+  (`984b2b40…b736`). daed kept running the r2 binary (pid 1684) until the
+  user's restart.
+
 ## Evidence
 
 `/srv/openwrt-validation/daed-validation-20261101/`: the exact image,
 `network/validation.json`, `daed-run{1..6}/validation.json` with per-guest
 command and serial logs; the LuCI image and its runs are under `luci/`. The
 default LAN interface build, dry-run and publication logs are under
-`default-lan-20261101/`. Build logs are in `logs/daed/` of the build tree.
+`default-lan-20261101/`. The Vision UDP build and publication logs and the
+pre-fix reproduction test are under `vision-udp-20261101/`. Build logs are in `logs/daed/` of the build tree.
