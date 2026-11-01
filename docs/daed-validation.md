@@ -3,10 +3,10 @@
 Validated on 2026-11-01 on the build host. The image was built with
 `python3 scripts/build-and-publish.py build-only -j12`, which reserved kernel
 generation 45 (`7.3.1-owrt-d4c77a6d354d9d21248f93d7f68211ce-r1-g45`); nothing
-was published. (Sequence 44 was reserved by an aborted invocation and never
+was published at build time; publication followed separately (see
+Publication). (Sequence 44 was reserved by an aborted invocation and never
 built or published.) All runtime checks ran in disposable KVM guests; **no
-physical device was flashed or upgraded**, and the publication preflight
-against the router was not run.
+physical device was flashed or upgraded**.
 
 ## Artifacts
 
@@ -103,8 +103,19 @@ boot entry wrongly (kernelctl owns `grub.cfg`; the test now uses GRUB's
   physical NICs, long-running stability and memory use, the dashboard UI in a
   browser (only the HTML index and the GraphQL API were exercised), and an APK
   upgrade from generation 43 on a router.
-- Publication (`scripts/publish-changed-feeds.sh`) and installation on the
-  physical router were not performed.
+- Installation on the physical router was not performed (see Publication).
+
+## Publication
+
+Published on 2026-11-01 with `scripts/publish-changed-feeds.sh` from the
+same build tree; no packages were installed on the router.
+
+| Check | Result |
+| --- | --- |
+| Router upgrade preflight (`desktop-user@192.0.2.1`, baseline ABI `7.3.1~2f47df105af5f7d3cac5e3b7f5fd2bee-r1`) | Passed; userspace and target-ABI simulations `full`/`passed`, no blockers |
+| Userspace snapshot | `/srv/openwrt-feeds/public/snapshots/20261101T024109.091311Z` (daed APKs in `base/` and `custom/`, byte-identical, as for other custom packages) |
+| Kernel snapshot | `/srv/openwrt-feeds/public/kernel-snapshots/1793500924785524813`, generation `7.3.1-owrt-d4c77a6d354d9d21248f93d7f68211ce-r1-g45` |
+| Receipt | `/srv/openwrt-feeds/upgrade-receipts/1793500991307529129.json` (`passed`) |
 
 ## Evidence
 
