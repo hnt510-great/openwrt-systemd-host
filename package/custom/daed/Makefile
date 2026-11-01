@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=daed
 PKG_VERSION:=2.1.1
-PKG_RELEASE:=2
+PKG_RELEASE:=3
 
 # daed v2.1.1 bundles a dae core from 2026-04-22 (85a1fc3, before dae
 # v2.0.0rc1). This build re-pins the core to the dae v2.1.1 release instead,
@@ -19,12 +19,21 @@ PKG_HASH:=406119814907ea34dfa935b6f1ba925d887992e351da746f1ff7a206a6f2a21b
 
 # dae core: the v2.1.1 release source, including the BPF headers submodule.
 # patches/ adds three later upstream fixes on top, plus a local dae-wing
-# default LAN interface for new configs (004).
+# default LAN interface for new configs (004) and a Vision UDP fix in the
+# outbound library (005).
 DAED_CORE_VERSION:=2.1.1
 DAED_CORE_HASH:=7c91494a999a24e91869e8e20e26ed8171dd4eedbcb847d1b04d15a6aeb54f44
 
 # Prebuilt dashboard of the daed v2.1.1 release.
 DAED_WEB_HASH:=7eb8f42d4860ab7311f87bda2a921bad34a6d54db7edad47466dcb8d9382fea8
+
+# The outbound proxy library that dae-wing and dae core pin through
+# "replace github.com/daeuniverse/outbound => github.com/olicesx/outbound".
+# The module zip from the Go proxy (the one go.sum verifies) is unpacked to
+# third_party/outbound so patches/ can fix it; patch 005 points both go.mod
+# replace directives there. Keep the version equal to those directives.
+DAED_OUTBOUND_VERSION:=v0.0.0-sticky-ip.0.20260918090140-cc86ced2e683
+DAED_OUTBOUND_HASH:=c7ab45a9d8d6a5ab8a1f2b8d38c9d6196ad34b2578d212af52d3661b7813204d
 
 PKG_MAINTAINER:=daeuniverse <https://github.com/daeuniverse/daed>
 PKG_LICENSE:=AGPL-3.0-only
@@ -41,6 +50,8 @@ TAR_CMD=$(HOST_TAR) -C $(PKG_BUILD_DIR) --strip-components=1 $(TAR_OPTIONS)
 
 DAED_CORE_FILE:=dae-$(DAED_CORE_VERSION)-full-src.tar.xz
 DAED_WEB_FILE:=$(PKG_NAME)-web-$(PKG_VERSION).zip
+DAED_OUTBOUND_FILE:=olicesx-outbound-$(DAED_OUTBOUND_VERSION).zip
+DAED_OUTBOUND_DIR:=$(PKG_BUILD_DIR)/third_party/outbound
 DAED_CORE_DIR:=$(PKG_BUILD_DIR)/dae-core
 DAED_MAX_MATCH_SET_LEN:=1024
 
@@ -56,6 +67,13 @@ define Download/daed-web
   URL_FILE:=web.zip
   FILE:=$(DAED_WEB_FILE)
   HASH:=$(DAED_WEB_HASH)
+endef
+
+define Download/dae-outbound
+  URL:=https://proxy.golang.org/github.com/olicesx/outbound/@v/
+  URL_FILE:=$(DAED_OUTBOUND_VERSION).zip
+  FILE:=$(DAED_OUTBOUND_FILE)
+  HASH:=$(DAED_OUTBOUND_HASH)
 endef
 
 define Package/daed/Default
@@ -151,6 +169,13 @@ define Build/Prepare
 			rm -f "$$$$file"; \
 		fi; \
 	done
+	rm -rf $(PKG_BUILD_DIR)/third_party
+	mkdir -p $(PKG_BUILD_DIR)/third_party/.unpack
+	unzip -q -d $(PKG_BUILD_DIR)/third_party/.unpack $(DL_DIR)/$(DAED_OUTBOUND_FILE)
+	mv $(PKG_BUILD_DIR)/third_party/.unpack/github.com/olicesx/outbound@$(DAED_OUTBOUND_VERSION) \
+		$(DAED_OUTBOUND_DIR)
+	rm -rf $(PKG_BUILD_DIR)/third_party/.unpack
+	chmod -R u+w $(DAED_OUTBOUND_DIR)
 	$(Build/Patch)
 endef
 
@@ -190,6 +215,7 @@ endef
 
 $(eval $(call Download,dae-core))
 $(eval $(call Download,daed-web))
+$(eval $(call Download,dae-outbound))
 $(eval $(call BuildPackage,daed))
 $(eval $(call BuildPackage,daed-geoip))
 $(eval $(call BuildPackage,daed-geosite))

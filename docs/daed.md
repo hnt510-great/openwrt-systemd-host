@@ -37,10 +37,11 @@ core instead, the same way upstream dae-wing did after the daed release:
 | Backend | dae-wing `b089b56` ("bump dae-core to v2.1.1 and follow its control plane API"), the dae-wing main branch after daed v2.1.1 |
 | dae core | dae **v2.1.1** release `dae-full-src.tar.xz` (identical to the `v2.1.1` tag plus the BPF headers submodule) |
 | Dashboard | daed v2.1.1 `web.zip`, unchanged |
+| Outbound library | The `github.com/olicesx/outbound` module version that dae-wing and the core already pin (`replace github.com/daeuniverse/outbound => …`), as the Go proxy zip that `go.sum` verifies, unpacked to `third_party/outbound` so it can be patched |
 
 On top of the v2.1.1 core, `package/custom/daed/patches/` carries three
 later upstream dae fixes (code only; docs and changelog hunks dropped) and
-one local dae-wing change:
+two local changes:
 
 | Patch | Upstream | Fix |
 | --- | --- | --- |
@@ -48,6 +49,7 @@ one local dae-wing change:
 | `002-dae-core-exact-match-for-LAN-UDP-local-services.patch` | `fb5eae6` | LAN UDP is bypassed to a local service (such as dnsmasq on port 53) only on an exact address match |
 | `003-dae-core-stop-LAN-ICMP-redirects.patch` | `e3fee8f` | Also writes `conf/all/send_redirects=0`; the kernel ORs it with the per-interface value, so the router otherwise kept sending ICMP redirects that steer LAN hosts past dae |
 | `004-dae-wing-default-lan-interface-for-new-configs.patch` | local | A config created with an empty `lan_interface` gets the UCI `default_lan_interface` (`br-lan`); see [No LAN interface](#no-lan-interface-lan-traffic-goes-direct) |
+| `005-outbound-vision-udp-read-with-64k-buffer.patch` | local | Vision UDP replies are read into dae's 64 KiB DNS buffer instead of failing with `short buffer`; points both `go.mod` replace directives at `third_party/outbound`; see [DNS warnings](#dns-warnings-through-a-vision-node) |
 
 The dashboard of daed v2.1.1 is compatible with the re-pinned backend: the
 GraphQL schemas differ only in the global config, where `soMarkFromDaeSet` was
@@ -57,7 +59,7 @@ still exists. The new options keep their defaults because the dashboard does
 not show them.
 
 `daed --version` reports `2.1.1` (the dashboard release). Because the recipe
-is composed from three sources, `configs/custom-package-updates.json`
+is composed from four sources, `configs/custom-package-updates.json`
 registers it as `local`, so `./scripts/feeds update` does not bump it. When a
 daed release bundles dae core 2.1.1 or newer, switch the recipe back to that
 release's `daed-full-src.zip` and register it as a GitHub release with
@@ -255,6 +257,32 @@ Patch 004 fills `default_lan_interface` into configs created from release
 the upgrade: set *LAN interface* to `br-lan` under **Global** in the
 dashboard, save, and run the config again, then confirm
 `grep 'Bind to LAN' /var/log/daed/daed.log`.
+
+### DNS warnings through a Vision node
+
+With a VLESS `xtls-rprx-vision` node, UDP to the node is XUDP framed by the
+outbound library's `vision.PacketConn`. Before release `2.1.1-r3` its
+`ReadFrom` compared the reply length with `uint16(len(p))`; dae's DNS
+forwarder passes a 65536-byte buffer, which wraps to 0, so every UDP DNS
+reply through the node was discarded. The log then shows
+
+```
+WARN DNS forward to upstream failed ... error=short buffer network=udp+4 outbound=proxy ...
+INFO ALIVE --udp4(DNS)-> NOT ALIVE: group=proxy
+INFO Group has no dialer alive group=proxy network=udp4(DNS)
+```
+
+A `tcp+udp://` upstream still answers through the TCP retry, one round trip
+later; a `udp://` upstream fails. Patch 005 fixes the reader. On an older
+release, use `tcp://` for upstreams reached through the proxy.
+
+Other warnings in the same place come from the node's TCP path, not from
+dae: `tls: first record does not look like a TLS handshake` (the node's port
+answered with something other than TLS) and `unexpected EOF` on TCP DNS.
+When both the UDP and TCP attempts fail, the client gets SERVFAIL
+(`DNS ingress fast path failed`). Check the node and its server logs for
+those; daed runs with `--disable-timestamp`, so its log has no times to
+correlate with.
 
 ## Recovery
 
