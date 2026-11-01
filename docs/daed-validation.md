@@ -5,8 +5,9 @@ Validated on 2026-11-01 on the build host. The image was built with
 generation 45 (`7.3.1-owrt-d4c77a6d354d9d21248f93d7f68211ce-r1-g45`); nothing
 was published at build time; publication followed separately (see
 Publication). (Sequence 44 was reserved by an aborted invocation and never
-built or published.) All runtime checks ran in disposable KVM guests; **no
-physical device was flashed or upgraded**.
+built or published.) All runtime checks ran in disposable KVM guests; no physical device was
+flashed. Packages were later installed on the router at the user's request
+(see LuCI app).
 
 ## Artifacts
 
@@ -146,6 +147,17 @@ snapshot `/srv/openwrt-feeds/public/snapshots/20261101T040201.881442Z`,
 receipt `/srv/openwrt-feeds/upgrade-receipts/1793505816101772489.json`. The
 published `luci-app-daed-1.0.0-r1.apk` is the validated file above;
 `luci-i18n-daed-zh-cn-26.305.10562~143b772.apk` was published with it.
+
+`luci-app-daed-1.0.0-r2` replaces the dashboard button with an
+always-visible link (`node scripts/tests/test-luci-daed-view.js` passes; no
+ACL or backend change, so the VM run was not repeated). It was published
+with `luci-i18n-daed-zh-cn-26.305.16552~7c0a417` (snapshot
+`20261101T043732.754745Z`, receipt `1793507914818866019.json`, preflight
+passed) and, at the user's request, installed on the router with
+`sudo apk upgrade` (1.0.0-r1 → r2). The router had `daed` 2.1.1-r1,
+`daed-geoip`, `daed-geosite`, `luci-app-daed` and `kmod-sched-bpf` installed
+earlier the same day by `sudo apk add`, also at the user's request; daed
+remains disabled (`enabled '0'`) and Passwall enabled.
 
 The first LuCI VM runs found a real ACL defect: `fs.exec` also needs
 `ubus: { file: [ exec ] }`, not only per-command `file` entries; it was fixed
