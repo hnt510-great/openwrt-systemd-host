@@ -148,9 +148,11 @@ configuration.
   map to the UCI options below.
 - **Status** shows whether procd runs daed and, when daed is enabled but
   stopped because Passwall is enabled, says so.
-- **Open dashboard** opens `http://<host>:<port>/` using the host the
-  browser used for LuCI when daed listens on all addresses. It is disabled
-  while daed is stopped or listens only on loopback.
+- **Dashboard** always shows an *Open dashboard* link and the URL,
+  `http://<host>:<port>/`, using the host the browser used for LuCI when daed
+  listens on all addresses. While daed is stopped the link stays visible and
+  is marked *(daed is not running)*; with a loopback-only listen address the
+  page says the dashboard is not reachable from the browser.
 - **Restart** runs `/etc/init.d/daed restart`; **Log** shows the last 200
   lines of `/var/log/daed/daed.log`.
 

@@ -86,9 +86,35 @@ return view.extend({
 		var info = statusInfo(isRunning(list), enabled, passwallEnabled());
 		this.status.className = 'alert-message ' + info.cls;
 		this.status.textContent = info.text;
-		var url = dashboardURL(uci.get('daed', 'config', 'listen_addr') || '0.0.0.0:2023', window.location.hostname);
-		this.dashboard.disabled = !(url && isRunning(list)) || null;
-		this.dashboard.dataset.url = url || '';
+		var listen = uci.get('daed', 'config', 'listen_addr') || '0.0.0.0:2023';
+		this.renderDashboardLink(dashboardURL(listen, window.location.hostname), isRunning(list));
+	},
+
+	// The link stays visible whenever the address is reachable from this
+	// browser; while daed is stopped it is shown with a hint instead.
+	renderDashboardLink: function(url, running) {
+		var children;
+		if (!url) {
+			children = [ _('The dashboard listens on loopback only; it is not reachable from this browser.') ];
+		} else {
+			children = [
+				E('a', {
+					'class': 'cbi-button cbi-button-action',
+					'href': url,
+					'target': '_blank',
+					'rel': 'noopener noreferrer'
+				}, [ _('Open dashboard') ]),
+				' ',
+				E('a', { 'href': url, 'target': '_blank', 'rel': 'noopener noreferrer' }, [ url ])
+			];
+			if (!running)
+				children.push(' ', E('em', {}, [ _('(daed is not running)') ]));
+		}
+		var key = JSON.stringify([ url, running ]);
+		if (key == this.dashboardKey)
+			return;
+		this.dashboardKey = key;
+		this.dashboard.replaceChildren.apply(this.dashboard, children);
 	},
 
 	handleRestart: function(ev) {
@@ -100,12 +126,6 @@ return view.extend({
 			button.disabled = null;
 			return callServiceList('daed').catch(function() { return {}; });
 		}, this)).then(L.bind(this.updateStatus, this));
-	},
-
-	handleDashboard: function(ev) {
-		var url = ev.currentTarget.dataset.url;
-		if (url)
-			window.open(url, '_blank', 'noopener');
 	},
 
 	handleLogRefresh: function() {
@@ -147,10 +167,7 @@ return view.extend({
 		o.placeholder = '1';
 
 		this.status = E('div', { 'class': 'alert-message' }, [ _('Loading…') ]);
-		this.dashboard = E('button', {
-			'class': 'cbi-button cbi-button-action',
-			'click': L.bind(this.handleDashboard, this)
-		}, [ _('Open dashboard') ]);
+		this.dashboard = E('span', {}, []);
 		var restart = E('button', {
 			'class': 'cbi-button cbi-button-reload',
 			'disabled': writable ? null : true,
@@ -176,7 +193,11 @@ return view.extend({
 				E('div', { 'class': 'cbi-section' }, [
 					E('h3', {}, [ _('Status') ]),
 					this.status,
-					E('div', { 'class': 'cbi-page-actions', 'style': 'text-align:left' }, [ this.dashboard, ' ', restart ])
+					E('div', { 'class': 'cbi-value' }, [
+						E('label', { 'class': 'cbi-value-title' }, [ _('Dashboard') ]),
+						E('div', { 'class': 'cbi-value-field' }, [ this.dashboard ])
+					]),
+					E('div', { 'class': 'cbi-page-actions', 'style': 'text-align:left' }, [ restart ])
 				]),
 				E('div', { 'class': 'cbi-section' }, [
 					E('h3', {}, [ _('Log') ]),

@@ -12,7 +12,8 @@ let services = {};
 function E(tag, attrs, children) {
 	if (Array.isArray(tag)) return { tag: 'fragment', children: attrs };
 	if (Array.isArray(attrs)) { children = attrs; attrs = {}; }
-	const node = { tag, attrs: attrs || {}, children: children || [], dataset: {}, className: '', textContent: '' };
+	const node = { tag, attrs: attrs || {}, children: children || [], dataset: {}, className: '', textContent: '',
+		replaceChildren(...items) { this.children = items; } };
 	if (node.attrs.disabled) node.disabled = node.attrs.disabled;
 	return node;
 }
@@ -89,8 +90,15 @@ assert.match(String(h.statusInfo(false, false, true).text), /disabled/);
 	assert.equal(map.service.options.enabled.rmempty, false);
 	assert.equal(map.service.options.listen_addr.validate('config', '0.0.0.0:2023'), true);
 	assert.notEqual(map.service.options.listen_addr.validate('config', '2023'), true);
-	assert.equal(view.dashboard.dataset.url, 'http://192.0.2.1:2023/');
-	assert.ok(!view.dashboard.disabled);
+	const links = () => view.dashboard.children.filter(c => c && c.tag == 'a');
+	const text = () => JSON.stringify(view.dashboard.children);
+	assert.deepEqual(links().map(a => a.attrs.href), [ 'http://192.0.2.1:2023/', 'http://192.0.2.1:2023/' ]);
+	for (const a of links()) {
+		assert.equal(a.attrs.target, '_blank');
+		assert.equal(a.attrs.rel, 'noopener noreferrer');
+	}
+	assert.deepEqual([ ...links()[1].children ], [ 'http://192.0.2.1:2023/' ]);
+	assert.doesNotMatch(text(), /not running/);
 	assert.equal(view.log.value, 'log line\n');
 	assert.deepEqual(execs, [ '/usr/bin/tail -n 200 /var/log/daed/daed.log' ]);
 	assert.equal(view.status.className, 'alert-message notice');
@@ -100,7 +108,19 @@ assert.match(String(h.statusInfo(false, false, true).text), /disabled/);
 	view.updateStatus({ daed: { instances: {} } });
 	assert.equal(view.status.className, 'alert-message warning');
 	assert.match(view.status.textContent, /Passwall/);
-	assert.equal(view.dashboard.disabled, true);
+	// Stopped: the link stays visible, with a hint.
+	assert.equal(links().length, 2);
+	assert.match(text(), /daed is not running/);
+
+	// A specific listen address is used as-is; loopback-only shows no link.
+	config.daed.config.listen_addr = '192.0.2.1:9000';
+	view.updateStatus(services);
+	assert.equal(links()[0].attrs.href, 'http://192.0.2.1:9000/');
+	config.daed.config.listen_addr = '127.0.0.1:2023';
+	view.updateStatus(services);
+	assert.equal(links().length, 0);
+	assert.match(text(), /loopback only/);
+	config.daed.config.listen_addr = '0.0.0.0:2023';
 
 	// Restart runs exactly the command the ACL grants.
 	await view.handleRestart({ currentTarget: {} });
@@ -115,7 +135,7 @@ assert.match(String(h.statusInfo(false, false, true).text), /disabled/);
 	// Read-only users cannot restart.
 	writable = false;
 	page = await view.render([ services ]);
-	const restart = page.children[1].children[2].children[2];
+	const restart = page.children[1].children[3].children[0];
 	assert.equal(restart.attrs.disabled, true);
-	console.log('LuCI daed view: listen parsing, dashboard URLs, status, interlock, ACL commands and permissions passed');
+	console.log('LuCI daed view: listen parsing, dashboard URLs and link, status, interlock, ACL commands and permissions passed');
 })().catch(error => { console.error(error); process.exit(1); });
