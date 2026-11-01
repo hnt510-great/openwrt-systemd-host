@@ -140,6 +140,13 @@ kernel generation 45; userspace only).
 | Same login: `file.exec /etc/init.d/daed restart` | Pass |
 | `view/daed/settings.js` served by uhttpd; menu entry `admin/services/daed` installed | Pass |
 
+Published on 2026-11-01 with `scripts/publish-changed-feeds.sh` (router
+preflight passed, no blockers; kernel generation unchanged): userspace
+snapshot `/srv/openwrt-feeds/public/snapshots/20261101T040201.881442Z`,
+receipt `/srv/openwrt-feeds/upgrade-receipts/1793505816101772489.json`. The
+published `luci-app-daed-1.0.0-r1.apk` is the validated file above;
+`luci-i18n-daed-zh-cn-26.305.10562~143b772.apk` was published with it.
+
 The first LuCI VM runs found a real ACL defect: `fs.exec` also needs
 `ubus: { file: [ exec ] }`, not only per-command `file` entries; it was fixed
 before run 6. Other failed runs were test-harness issues (kernel messages on
