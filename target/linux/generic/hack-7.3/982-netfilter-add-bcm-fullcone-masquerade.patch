@@ -1,0 +1,398 @@
+From: coolsnowwolf <coolsnowwolf@gmail.com>
+Subject: [PATCH] netfilter: add Broadcom-style full cone masquerading
+
+Add an endpoint-independent mapping and filtering mode (RFC 4787 "full
+cone", NAT1) to IPv4 UDP masquerading.  A masquerade range with a
+non-zero min_addr requests it; nft_masq sets that for "masquerade
+fullcone" and xt_MASQUERADE passes the address from its target info.
+
+The first flow of an internal UDP endpoint chooses an external port,
+preferring the internal port and keeping its parity, and creates a
+permanent expectation with a wildcard remote side.  Unsolicited packets
+from any remote host to that port are mapped back to the endpoint, and
+later flows of the same endpoint reuse the port.
+
+Ported to Linux 7.3 from coolsnowwolf/lede hack-6.18 patches 982 and 985:
+
+ - Linux 7.3 refcounts helpers per conntrack and frees them with
+   kfree_rcu().  Register a real "BCM-NAT" helper with
+   nf_conntrack_helper_register() on the first masquerade user, take a
+   ct_refcnt reference when it is attached, and unregister it on the
+   last user, instead of attaching a static, unregistered helper and
+   unregistering it unconditionally.
+ - Build the helper with nf_ct_helper_init(); the expectation policy is
+   now an inline array capped at NF_CT_EXPECT_MAX_CNT.
+ - Fall back to ordinary masquerading, rather than dropping the packet,
+   when no port is free, the helper is unavailable or the expectation
+   table is full (nf_conntrack_expect_max).
+ - Only reuse expectations created by this mode, and match them by
+   network namespace, zone and external address.
+ - Initialise the range addresses in xt_MASQUERADE, which the mode now
+   reads.
+
+The code is built only with CONFIG_NF_NAT_MASQUERADE_FULLCONE, which
+OpenWrt sets in the generic config so that the module ABI hash changes
+with the feature.
+
+The 6.18-only patch 984, which reserves every source NAT tuple behind a
+global lock, is not carried.
+---
+--- a/net/netfilter/Kconfig
++++ b/net/netfilter/Kconfig
+@@ -444,6 +444,19 @@ config NF_NAT_REDIRECT
+ config NF_NAT_MASQUERADE
+ 	bool
+ 
++config NF_NAT_MASQUERADE_FULLCONE
++	bool "Full cone masquerading for IPv4 UDP"
++	depends on NF_NAT_MASQUERADE
++	default y
++	help
++	  Let masquerade rules request endpoint-independent mapping and
++	  filtering (RFC 4787 "full cone", NAT1) for IPv4 UDP, as
++	  "masquerade fullcone" in nftables.  The first flow of an internal
++	  endpoint reserves an external port with a conntrack expectation that
++	  any remote host can use to reach the endpoint.
++
++	  Rules that do not request it are not affected.  If unsure, say Y.
++
+ config NF_NAT_OVS
+ 	bool
+ 
+--- a/net/netfilter/nf_nat_masquerade.c
++++ b/net/netfilter/nf_nat_masquerade.c
+@@ -8,6 +8,10 @@
+ #include <linux/netfilter_ipv6.h>
+ 
+ #include <net/netfilter/nf_nat_masquerade.h>
++#include <net/netfilter/nf_conntrack_core.h>
++#include <net/netfilter/nf_conntrack_expect.h>
++#include <net/netfilter/nf_conntrack_helper.h>
++#include <net/netfilter/nf_conntrack_zones.h>
+ 
+ struct masq_dev_work {
+ 	struct work_struct work;
+@@ -24,6 +28,279 @@ static DEFINE_MUTEX(masq_mutex);
+ static unsigned int masq_refcnt __read_mostly;
+ static atomic_t masq_worker_count __read_mostly;
+ 
++#if IS_ENABLED(CONFIG_NF_NAT_MASQUERADE_FULLCONE)
++/* Broadcom-style full cone NAT for IPv4 UDP masquerading.
++ *
++ * The first masqueraded flow of an internal UDP endpoint chooses an external
++ * port and installs a permanent expectation for that port with a wildcard
++ * remote side.  Unsolicited packets from any remote host then match the
++ * expectation and are mapped back to the internal endpoint, and later flows
++ * of the same endpoint reuse the port (endpoint-independent mapping and
++ * filtering, RFC 4787).  The expectation lives as long as its master
++ * conntrack keeps refreshing it.
++ *
++ * A masquerade range whose min_addr.ip is non-zero requests this mode.  If
++ * the mode cannot be honoured the flow falls back to ordinary masquerading.
++ */
++#define BCM_NAT_HELPER_NAME	"BCM-NAT"
++
++static DEFINE_SPINLOCK(bcm_nat_lock);
++static struct nf_conntrack_helper bcm_nat_helper_tmpl;
++static struct nf_conntrack_helper __rcu *bcm_nat_helper;
++
++static const struct nf_conntrack_expect_policy bcm_nat_exp_policy = {
++	.max_expected	= 1,
++	.timeout	= 240,
++};
++
++static void bcm_nat_expect(struct nf_conn *ct,
++			   struct nf_conntrack_expect *exp)
++{
++	struct nf_nat_range2 range = {};
++
++	/* This must be a fresh one. */
++	if (WARN_ON_ONCE(ct->status & IPS_NAT_DONE_MASK))
++		return;
++
++	/* Keep the remote source address as it is. */
++	range.flags = NF_NAT_RANGE_MAP_IPS;
++	range.min_addr = ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple.src.u3;
++	range.max_addr = range.min_addr;
++	nf_nat_setup_info(ct, &range, NF_NAT_MANIP_SRC);
++
++	/* Map the external port back to the internal endpoint. */
++	range.flags = NF_NAT_RANGE_MAP_IPS | NF_NAT_RANGE_PROTO_SPECIFIED;
++	range.min_proto = exp->saved_proto;
++	range.max_proto = exp->saved_proto;
++	range.min_addr = exp->saved_addr;
++	range.max_addr = exp->saved_addr;
++	nf_nat_setup_info(ct, &range, NF_NAT_MANIP_DST);
++}
++
++static int bcm_nat_help(struct sk_buff *skb, unsigned int protoff,
++			struct nf_conn *ct, enum ip_conntrack_info ctinfo)
++{
++	int dir = CTINFO2DIR(ctinfo);
++	struct nf_conn_help *help = nfct_help(ct);
++	struct nf_conntrack_expect *exp;
++
++	if (dir != IP_CT_DIR_ORIGINAL || !help ||
++	    help->expecting[NF_CT_EXPECT_CLASS_DEFAULT])
++		return NF_ACCEPT;
++
++	exp = nf_ct_expect_alloc(ct);
++	if (!exp)
++		return NF_ACCEPT;
++
++	nf_ct_expect_init(exp, NF_CT_EXPECT_CLASS_DEFAULT, AF_INET, NULL,
++			  &ct->tuplehash[!dir].tuple.dst.u3, IPPROTO_UDP,
++			  NULL, &ct->tuplehash[!dir].tuple.dst.u.udp.port);
++	exp->flags = NF_CT_EXPECT_PERMANENT;
++	exp->saved_addr = ct->tuplehash[dir].tuple.src.u3;
++	exp->saved_proto.udp.port = ct->tuplehash[dir].tuple.src.u.udp.port;
++	exp->dir = !dir;
++	exp->expectfn = bcm_nat_expect;
++
++	/* Without an expectation the flow still works as ordinary
++	 * masquerading; only unsolicited inbound packets are not mapped.
++	 * The next outgoing packet retries.
++	 */
++	if (nf_ct_expect_related(exp, 0))
++		pr_debug("bcm_nat: cannot add expectation\n");
++	nf_ct_expect_put(exp);
++
++	return NF_ACCEPT;
++}
++
++static bool bcm_nat_port_in_use(const struct nf_conn *ct, __be32 ext_ip,
++				u16 port)
++{
++	struct nf_conntrack_tuple tuple = {};
++
++	tuple.src.l3num = AF_INET;
++	tuple.dst.protonum = IPPROTO_UDP;
++	tuple.dst.u3.ip = ext_ip;
++	tuple.dst.u.udp.port = htons(port);
++
++	return __nf_ct_expect_find(nf_ct_net(ct), nf_ct_zone(ct), &tuple);
++}
++
++/* Find the mapping that an earlier flow of this internal endpoint created. */
++static bool bcm_nat_find_mapping(const struct nf_conn *ct, __be32 ext_ip,
++				 __be16 *port)
++{
++	const struct nf_conntrack_tuple *tp =
++		&ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple;
++	struct nf_conntrack_expect *i;
++	unsigned int h;
++
++	lockdep_assert_held(&nf_conntrack_expect_lock);
++
++	for (h = 0; h < nf_ct_expect_hsize; h++) {
++		hlist_for_each_entry(i, &nf_ct_expect_hash[h], hnode) {
++			if (i->expectfn == bcm_nat_expect &&
++			    net_eq(nf_ct_net(ct), nf_ct_exp_net(i)) &&
++			    nf_ct_zone_equal_any(i->master, nf_ct_zone(ct)) &&
++			    i->tuple.dst.u3.ip == ext_ip &&
++			    i->saved_addr.ip == tp->src.u3.ip &&
++			    i->saved_proto.udp.port == tp->src.u.udp.port) {
++				*port = i->tuple.dst.u.udp.port;
++				return true;
++			}
++		}
++	}
++
++	return false;
++}
++
++/* Choose a free external port, preferring the internal port and keeping its
++ * parity (RFC 4787, section 4.2.2).
++ */
++static bool bcm_nat_select_port(const struct nf_conn *ct, __be32 ext_ip,
++				const struct nf_nat_range2 *range,
++				__be16 *port)
++{
++	u16 orig = ntohs(ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple.src.u.udp.port);
++	u16 min, max, start;
++	u32 size, i;
++
++	lockdep_assert_held(&nf_conntrack_expect_lock);
++
++	if (range->flags & NF_NAT_RANGE_PROTO_SPECIFIED) {
++		min = ntohs(range->min_proto.udp.port);
++		max = ntohs(range->max_proto.udp.port);
++		if (min > max)
++			swap(min, max);
++	} else if (orig < 1024) {
++		min = 1;
++		max = 1023;
++	} else {
++		min = 1024;
++		max = 65535;
++	}
++
++	start = (orig >= min && orig <= max) ? orig : min;
++	size = (u32)max - min + 1;
++
++	for (i = 0; i < size; i++) {
++		u16 candidate = min + (start - min + i) % size;
++
++		if ((candidate ^ orig) & 1)
++			continue;
++		if (!bcm_nat_port_in_use(ct, ext_ip, candidate)) {
++			*port = htons(candidate);
++			return true;
++		}
++	}
++
++	return false;
++}
++
++/* Returns false if the flow should be masqueraded the ordinary way. */
++static bool bcm_nat_masquerade(struct sk_buff *skb, struct nf_conn *ct,
++			       enum ip_conntrack_info ctinfo,
++			       const struct nf_nat_range2 *range,
++			       __be32 newsrc, unsigned int *verdict)
++{
++	struct nf_nat_range2 newrange = {};
++	struct nf_conntrack_helper *helper;
++	struct nf_conn_help *help;
++	bool reuse;
++	__be16 port;
++
++	if (nf_ct_protonum(ct) != IPPROTO_UDP)
++		return false;
++
++	/* Leave flows that already have a helper (TFTP, SIP, ...) alone. */
++	help = nfct_help(ct);
++	if (help && rcu_access_pointer(help->helper))
++		return false;
++
++	/* rcu_read_lock()ed by nf_hook */
++	helper = rcu_dereference(bcm_nat_helper);
++	if (!helper)
++		return false;
++
++	/* Serialize port selection until the expectation reserves it. */
++	spin_lock_bh(&bcm_nat_lock);
++
++	spin_lock_bh(&nf_conntrack_expect_lock);
++	reuse = bcm_nat_find_mapping(ct, newsrc, &port);
++	if (!reuse && !bcm_nat_select_port(ct, newsrc, range, &port)) {
++		spin_unlock_bh(&nf_conntrack_expect_lock);
++		spin_unlock_bh(&bcm_nat_lock);
++		return false;
++	}
++	spin_unlock_bh(&nf_conntrack_expect_lock);
++
++	newrange.flags = (range->flags & ~NF_NAT_RANGE_PROTO_RANDOM_ALL) |
++			 NF_NAT_RANGE_MAP_IPS | NF_NAT_RANGE_PROTO_SPECIFIED;
++	newrange.min_addr.ip = newsrc;
++	newrange.max_addr.ip = newsrc;
++	newrange.min_proto.udp.port = port;
++	newrange.max_proto.udp.port = port;
++
++	*verdict = nf_nat_setup_info(ct, &newrange, NF_NAT_MANIP_SRC);
++	if (*verdict == NF_ACCEPT && !reuse) {
++		if (!help)
++			help = nf_ct_helper_ext_add(ct, GFP_ATOMIC);
++		/* The conntrack holds a helper reference, as in
++		 * __nf_ct_try_assign_helper().
++		 */
++		if (help && !rcu_access_pointer(help->helper) &&
++		    refcount_inc_not_zero(&helper->ct_refcnt)) {
++			rcu_assign_pointer(help->helper, helper);
++			bcm_nat_help(skb, 0, ct, ctinfo);
++		}
++	}
++
++	spin_unlock_bh(&bcm_nat_lock);
++	return true;
++}
++
++static void bcm_nat_helper_register(void)
++{
++	struct nf_conntrack_helper *helper;
++	int ret;
++
++	lockdep_assert_held(&masq_mutex);
++
++	nf_ct_helper_init(&bcm_nat_helper_tmpl, NFPROTO_IPV4, IPPROTO_UDP,
++			  BCM_NAT_HELPER_NAME, &bcm_nat_exp_policy, 0,
++			  bcm_nat_help, NULL, THIS_MODULE);
++
++	ret = nf_conntrack_helper_register(&bcm_nat_helper_tmpl, &helper);
++	if (ret) {
++		/* Full cone requests fall back to ordinary masquerading. */
++		pr_warn("bcm_nat: cannot register helper: %d\n", ret);
++		return;
++	}
++
++	rcu_assign_pointer(bcm_nat_helper, helper);
++}
++
++static void bcm_nat_helper_unregister(void)
++{
++	struct nf_conntrack_helper *helper;
++
++	helper = rcu_replace_pointer(bcm_nat_helper, NULL,
++				     lockdep_is_held(&masq_mutex));
++	if (helper)
++		nf_conntrack_helper_unregister(helper);
++}
++#else
++static bool bcm_nat_masquerade(struct sk_buff *skb, struct nf_conn *ct,
++			       enum ip_conntrack_info ctinfo,
++			       const struct nf_nat_range2 *range,
++			       __be32 newsrc, unsigned int *verdict)
++{
++	return false;
++}
++
++static void bcm_nat_helper_register(void) {}
++static void bcm_nat_helper_unregister(void) {}
++#endif /* CONFIG_NF_NAT_MASQUERADE_FULLCONE */
++
+ unsigned int
+ nf_nat_masquerade_ipv4(struct sk_buff *skb, unsigned int hooknum,
+ 		       const struct nf_nat_range2 *range,
+@@ -61,6 +338,14 @@ nf_nat_masquerade_ipv4(struct sk_buff *s
+ 	if (nat)
+ 		nat->masq_index = out->ifindex;
+ 
++	if (range->min_addr.ip) {
++		unsigned int verdict;
++
++		if (bcm_nat_masquerade(skb, ct, ctinfo, range, newsrc,
++				       &verdict))
++			return verdict;
++	}
++
+ 	/* Transfer from original range. */
+ 	memset(&newrange.min_addr, 0, sizeof(newrange.min_addr));
+ 	memset(&newrange.max_addr, 0, sizeof(newrange.max_addr));
+@@ -319,6 +604,8 @@ int nf_nat_masquerade_inet_register_noti
+ 	if (ret)
+ 		goto err_unreg_inet;
+ 
++	bcm_nat_helper_register();
++
+ 	mutex_unlock(&masq_mutex);
+ 	return ret;
+ err_unreg_inet:
+@@ -340,6 +627,7 @@ void nf_nat_masquerade_inet_unregister_n
+ 	if (--masq_refcnt > 0)
+ 		goto out_unlock;
+ 
++	bcm_nat_helper_unregister();
+ 	unregister_netdevice_notifier(&masq_dev_notifier);
+ 	unregister_inetaddr_notifier(&masq_inet_notifier);
+ #if IS_ENABLED(CONFIG_IPV6)
+--- a/net/netfilter/xt_MASQUERADE.c
++++ b/net/netfilter/xt_MASQUERADE.c
+@@ -41,6 +41,9 @@ masquerade_tg(struct sk_buff *skb, const
+ 	range.flags = mr->range[0].flags;
+ 	range.min_proto = mr->range[0].min;
+ 	range.max_proto = mr->range[0].max;
++	/* A non-zero address requests full cone masquerading. */
++	range.min_addr.ip = mr->range[0].min_ip;
++	range.max_addr.ip = mr->range[0].max_ip;
+ 
+ 	return nf_nat_masquerade_ipv4(skb, xt_hooknum(par), &range,
+ 				      xt_out(par));

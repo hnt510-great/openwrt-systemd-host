@@ -5486,6 +5486,16 @@
       "ported": "target/linux/generic/hack-7.3/252-netfilter-keep-nfnetlink-modular.patch",
       "ported_sha256": "fe67e24489d98fda9f3a8dd8fe8f2862f7a8ca458c46e2a3f5dc6209547b2118",
       "reason": "Retain standalone nfnetlink.ko after upstream folded it into the built-in netfilter aggregate"
+    },
+    {
+      "ported": "target/linux/generic/hack-7.3/982-netfilter-add-bcm-fullcone-masquerade.patch",
+      "ported_sha256": "fd7825f3493e5e7964dabbf88ac749db4d4b7f50680ec28553639f8785e4a1fc",
+      "reason": "Port coolsnowwolf/lede 6.18 Broadcom-style full cone masquerading (982, 985) to the refcounted Linux 7.3 conntrack helper API; built with CONFIG_NF_NAT_MASQUERADE_FULLCONE (set in config-7.3, changes the module ABI); 984 global NAT tuple reservation omitted"
+    },
+    {
+      "ported": "target/linux/generic/hack-7.3/983-netfilter-nft_masq-add-fullcone-attribute.patch",
+      "ported_sha256": "2a297af1948d7f4409906c9a357373911d8fbb33c837ff78386282fd05f7de4a",
+      "reason": "Carry coolsnowwolf/lede 6.18 NFTA_MASQ_REG_FULLCONE nft masquerade attribute (983) unchanged for firewall4 brcm fullcone mode"
     }
   ],
   "external_modules": [
