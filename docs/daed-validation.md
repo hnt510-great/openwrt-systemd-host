@@ -165,8 +165,56 @@ before run 6. Other failed runs were test-harness issues (kernel messages on
 the serial console, a random password without a digit, the rpcd login
 setup).
 
+## Default LAN interface (daed 2.1.1-r2, luci-app-daed 1.0.0-r3)
+
+On the router daed proxied only its own traffic: the dashboard's first-run
+config had no `lan_interface`, so the log had `Bind to WAN: pppoe-wan` and no
+`Bind to LAN`, and LAN flows appeared in `nf_conntrack` masqueraded straight
+out of the WAN. The router was hot-fixed by hand: `/etc/daed/wing.db` was
+backed up to `wing.db.bak-20261101212233`, `lan_interface: "br-lan"` was
+added to the selected config (version 1 → 2) and daed was restarted, after
+which the log shows `Bind to LAN: br-lan`. Patch 004 and the
+`default_lan_interface` option (see [daed](daed.md#no-lan-interface-lan-traffic-goes-direct))
+prevent it for new configs.
+
+| Check | Result |
+| --- | --- |
+| dae-wing unit tests (`go test -run DefaultLan ./graphql/service/config/`) | Passed |
+| Init script `default_lan_interface` handling under BusyBox ash (unset, empty, option, list) | `br-lan`, `br-lan`, value, space-joined list |
+| `node scripts/tests/test-luci-daed-view.js` | Passed |
+| `make package/custom/daed/compile`, `make package/custom/luci-app-daed/compile` | Passed; patch 004 applied |
+| `zh_Hans` translation (`msgfmt -c --statistics`) | 30 translated messages |
+| `scripts/tests/test-daed-vm.py` (new `default-lan-interface` and `luci-default-lan-interface` checks) | **Not run**; no image was built |
+
+Router install, at the user's request and before publication: to keep daed
+running, the two APKs were installed from a temporary repository whose index
+was signed with the build key (`apk add --upgrade --scripts=no
+--repositories-file /dev/null --repository /tmp/daed-r2/packages.adb daed
+luci-app-daed`; a simulation first showed exactly these two upgrades). This
+skips `default_postinst`, whose `/etc/init.d/daed start` would have restarted
+daed because the procd instance gained an environment variable, and leaves
+`/etc/apk/world` unpinned. The LuCI caches were cleared and rpcd reloaded by
+hand. The router's modified `/etc/config/daed` was kept (the package default
+went to `daed.apk-new`). The user then restarted daed: it runs the r2 binary
+(SHA-256 `d557f5f7…dfca8`, identical to the build), with
+`DAED_DEFAULT_LAN_INTERFACE=br-lan`, `Bind to LAN: br-lan` and two tcx links
+on `br-lan`. daed is now enabled on the router.
+
+Published afterwards with `scripts/publish-changed-feeds.sh` (dry run first):
+
+| Check | Result |
+| --- | --- |
+| Changed packages | `daed`, `daed-geoip`, `daed-geosite` 2.1.1-r2, `luci-app-daed` 1.0.0-r3, `luci-i18n-daed-zh-cn` 26.305.50690~59c6c77 |
+| Identity with the router install | `daed-2.1.1-r2.apk` `2ff2affe…ade5` and `luci-app-daed-1.0.0-r3.apk` `6dcdeb2a…f625` are the installed files; the preflight lists neither as a change |
+| Router upgrade preflight | Passed; userspace simulation `full`/`passed`, no blockers |
+| Userspace snapshot | `/srv/openwrt-feeds/public/snapshots/20261101T140703.769121Z` |
+| Kernel | Unchanged (generation 45) |
+| Receipt | `/srv/openwrt-feeds/upgrade-receipts/1793542073921869316.json` |
+
 ## Evidence
 
 `/srv/openwrt-validation/daed-validation-20261101/`: the exact image,
 `network/validation.json`, `daed-run{1..6}/validation.json` with per-guest
-command and serial logs; the LuCI image and its runs are under `luci/`. Build logs are in `logs/daed/` of the build tree.
+command and serial logs; the LuCI image and its runs are under `luci/`. The
+default LAN interface build, dry-run and publication logs are under
+`default-lan-20261101/`. Build logs are in `logs/daed/` of the build tree.
