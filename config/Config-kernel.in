@@ -1341,6 +1341,21 @@ config KERNEL_XDP_SOCKETS
 	  XDP sockets allows a channel between XDP programs and
 	  userspace applications.
 
+config KERNEL_BPF_STREAM_PARSER
+	bool "BPF stream parser (sockmap) support"
+	depends on KERNEL_CGROUP_BPF
+	help
+	  Enables BPF_MAP_TYPE_SOCKMAP and BPF_MAP_TYPE_SOCKHASH with the
+	  TCP stream parser. eBPF transparent proxies such as dae use them
+	  to splice relayed TCP connections inside the kernel.
+
+config KERNEL_NETKIT
+	bool "BPF-programmable netkit device support"
+	help
+	  The netkit device is a BPF-programmable virtual device pair. dae
+	  prefers it over veth for the link into its private namespace and
+	  falls back to veth when it is unavailable.
+
 config KERNEL_PAGE_POOL
 	def_bool n
 
