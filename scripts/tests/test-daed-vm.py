@@ -41,7 +41,8 @@ REQUIRED = {
     'passwall-interlock', 'dashboard-lan', 'daed-configured', 'tc-hooks',
     'route-direct', 'route-proxy', 'dns-through-dae', 'flow-offloading',
     'passwall-reload-stops-daed', 'stop-cleanup', 'restart', 'wan-dashboard-closed',
-    'send-redirects-off', 'procd-init', 'procd-daed-autostart', 'procd-routes',
+    'send-redirects-off', 'luci-acl-read', 'luci-log', 'luci-acl-denies-other-exec',
+    'luci-toggle', 'luci-restart', 'luci-view-served', 'procd-init', 'procd-daed-autostart', 'procd-routes',
     'procd-stop-cleanup',
 }
 
@@ -134,6 +135,19 @@ def configure_daed(router, token):
         gql(router, f'mutation($i:ID!){{select{kind}(id:$i)}}', {'i': ident}, auth)
     gql(router, 'mutation{run(dry:false)}', token=auth)
     return auth
+
+
+def ubus(client, session, obj, method, arguments, check=True):
+    """JSON-RPC to the router's /ubus from the LAN client; returns (code, data)."""
+    body = json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'call',
+                       'params': [session, obj, method, arguments]})
+    output = client.run('curl --noproxy "*" -fsS --max-time 30 -H "Content-Type: application/json" --data ' +
+                        shlex.quote(body) + ' http://192.0.2.1/ubus', timeout=60)
+    value = json.loads(output)
+    result = value.get('result') or [value.get('error', {}).get('code', -1)]
+    if check and result[0] != 0:
+        raise RuntimeError(f'ubus {obj}.{method} failed: {output}')
+    return result[0], (result[1] if len(result) > 1 else {})
 
 
 def wait(guest, command, timeout=90, interval=2):
@@ -288,6 +302,43 @@ def test_daed(image, work):
             proxied = client.run(f'for n in $(seq 1 30); do curl -4 --noproxy "*" -fsS --max-time 10 '
                                  f'http://{PROXIED}:8080/{token} && exit 0; sleep 2; done; exit 1', timeout=150)
             checks['restart'] = proxied == f'proxied:{PROXIED}:8080/{token}'
+
+            # LuCI: a non-root rpcd login holding only the luci-app-daed ACL,
+            # driven from the LAN client exactly as the browser view does.
+            ui_password = secrets.token_urlsafe(18)
+            router.run("uci -q delete rpcd.daedui; uci set rpcd.daedui=login; "
+                       "uci set rpcd.daedui.username=daedui; "
+                       f"uci set rpcd.daedui.password=\"$(uhttpd -m {shlex.quote(ui_password)})\"; "
+                       "uci add_list rpcd.daedui.read=luci-app-daed; "
+                       "uci add_list rpcd.daedui.write=luci-app-daed; uci commit rpcd; /etc/init.d/rpcd reload")
+            time.sleep(2)
+            session = ubus(client, '0' * 32, 'session', 'login',
+                           {'username': 'daedui', 'password': ui_password})[1]['ubus_rpc_session']
+            checks['luci-acl-read'] = ubus(client, session, 'uci', 'get',
+                                           {'config': 'daed', 'section': 'config'})[1]['values']['enabled'] == '1'
+            log = ubus(client, session, 'file', 'exec', {'command': '/usr/bin/tail',
+                       'params': ['-n', '200', '/var/log/daed/daed.log']})[1]
+            checks['luci-log'] = log.get('code') == 0 and 'Bind to LAN' in log.get('stdout', '')
+            denied = ubus(client, session, 'file', 'exec', {'command': '/bin/sh', 'params': ['-c', 'id']},
+                          check=False)[0]
+            checks['luci-acl-denies-other-exec'] = denied != 0
+            # Disable then enable through rpcd uci set/commit (LuCI save & apply).
+            ubus(client, session, 'uci', 'set', {'config': 'daed', 'section': 'config', 'values': {'enabled': '0'}})
+            ubus(client, session, 'uci', 'commit', {'config': 'daed'})
+            wait(router, '! busybox pgrep -x daed >/dev/null', 60)
+            ubus(client, session, 'uci', 'set', {'config': 'daed', 'section': 'config', 'values': {'enabled': '1'}})
+            ubus(client, session, 'uci', 'commit', {'config': 'daed'})
+            wait(router, f'[ "$({TCX_LAN})" -gt 0 ]', 90)
+            proxied = client.run(f'for n in $(seq 1 30); do curl -4 --noproxy "*" -fsS --max-time 10 '
+                                 f'http://{PROXIED}:8080/{token} && exit 0; sleep 2; done; exit 1', timeout=150)
+            checks['luci-toggle'] = proxied == f'proxied:{PROXIED}:8080/{token}'
+            restart = ubus(client, session, 'file', 'exec', {'command': '/etc/init.d/daed', 'params': ['restart']})[1]
+            wait(router, f'[ "$({TCX_LAN})" -gt 0 ]', 90)
+            checks['luci-restart'] = restart.get('code') == 0
+            view_js = client.run('curl --noproxy "*" -fsS --max-time 15 '
+                                 'http://192.0.2.1/luci-static/resources/view/daed/settings.js')
+            menu = router.run('cat /usr/share/luci/menu.d/luci-app-daed.json')
+            checks['luci-view-served'] = 'dashboardURL' in view_js and 'admin/services/daed' in menu
 
             # procd recovery boot: daed is an rc service, so the same enabled
             # configuration must come up when procd is PID 1. Make GRUB's

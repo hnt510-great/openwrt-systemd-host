@@ -704,6 +704,10 @@
       "filename_pattern": "libxshmfence\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
       "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
     },
+    "luci-app-daed": {
+      "provider": "local",
+      "reason": "Locally maintained LuCI control for daed"
+    },
     "luci-app-needrestart": {
       "provider": "local",
       "reason": "Locally maintained integration package"

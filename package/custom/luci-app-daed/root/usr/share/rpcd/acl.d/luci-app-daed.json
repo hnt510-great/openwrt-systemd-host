@@ -1,0 +1,18 @@
+{
+	"luci-app-daed": {
+		"description": "Enable, configure and inspect daed",
+		"read": {
+			"file": {
+				"/usr/bin/tail -n 200 /var/log/daed/daed.log": [ "exec" ]
+			},
+			"ubus": { "service": [ "list" ] },
+			"uci": [ "daed", "passwall" ]
+		},
+		"write": {
+			"file": {
+				"/etc/init.d/daed restart": [ "exec" ]
+			},
+			"uci": [ "daed" ]
+		}
+	}
+}
