@@ -1,0 +1,110 @@
+From 51551b1c9cf6fd26898cf85c542cec97228ec5cb Mon Sep 17 00:00:00 2001
+From: hnt510 <hnt510@gmail.com>
+Date: Sun, 1 Nov 2026 07:25:21 +0800
+Subject: [PATCH] luci-app-firewall: add a full cone NAT checkbox
+
+On firewall4 systems, show "Enable full cone NAT" under General
+Settings. Ticking it writes fullcone '2', the Broadcom-style IPv4 UDP
+full cone masquerading carried by the fork's kernel and firewall4;
+clearing it removes the option. Add zh_Hans and zh_Hant strings.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../luci-static/resources/view/firewall/zones.js     |  9 +++++++++
+ .../luci-app-firewall/po/templates/firewall.pot      | 12 ++++++++++++
+ .../luci-app-firewall/po/zh_Hans/firewall.po         | 12 ++++++++++++
+ .../luci-app-firewall/po/zh_Hant/firewall.po         | 12 ++++++++++++
+ 4 files changed, 45 insertions(+)
+
+diff --git a/applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/zones.js b/applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/zones.js
+index ae78fb1867..6246d8c71a 100644
+--- a/applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/zones.js
++++ b/applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/zones.js
+@@ -68,6 +68,15 @@ return view.extend({
+ 			popt.value('ACCEPT', _('accept'));
+ 		}
+ 
++		/* Broadcom-style full cone masquerading, firewall4 "fullcone 2" */
++		if (fw4) {
++			o = s.option(form.Flag, 'fullcone', _('Enable full cone NAT'),
++				_('Endpoint-independent mapping and filtering (NAT1) for IPv4 UDP in zones with masquerading. Once a LAN host has sent from a UDP port, any remote host can reach it through that port. Requires a kernel with full cone support; otherwise ordinary masquerading is used.'));
++			o.enabled = '2';
++			o.disabled = '0';
++			o.default = o.disabled;
++		}
++
+ 		/* Netfilter flow offload support */
+ 
+ 		if (L.hasSystemFeature('offloading')) {
+diff --git a/applications/luci-app-firewall/po/templates/firewall.pot b/applications/luci-app-firewall/po/templates/firewall.pot
+index d77ab9cd09..f45ab10929 100644
+--- a/applications/luci-app-firewall/po/templates/firewall.pot
++++ b/applications/luci-app-firewall/po/templates/firewall.pot
+@@ -274,6 +274,18 @@ msgstr ""
+ msgid "Drop invalid packets"
+ msgstr ""
+ 
++#: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/zones.js:73
++msgid "Enable full cone NAT"
++msgstr ""
++
++#: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/zones.js:74
++msgid ""
++"Endpoint-independent mapping and filtering (NAT1) for IPv4 UDP in zones with "
++"masquerading. Once a LAN host has sent from a UDP port, any remote host can "
++"reach it through that port. Requires a kernel with full cone support; "
++"otherwise ordinary masquerading is used."
++msgstr ""
++
+ #: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/forwards.js:230
+ #: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/rules.js:225
+ #: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/snats.js:209
+diff --git a/applications/luci-app-firewall/po/zh_Hans/firewall.po b/applications/luci-app-firewall/po/zh_Hans/firewall.po
+index ea323b1778..a979688558 100644
+--- a/applications/luci-app-firewall/po/zh_Hans/firewall.po
++++ b/applications/luci-app-firewall/po/zh_Hans/firewall.po
+@@ -317,6 +317,18 @@ msgstr ""
+ msgid "Drop invalid packets"
+ msgstr "丢弃无效数据包"
+ 
++#: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/zones.js:73
++msgid "Enable full cone NAT"
++msgstr "启用全锥形 NAT"
++
++#: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/zones.js:74
++msgid ""
++"Endpoint-independent mapping and filtering (NAT1) for IPv4 UDP in zones with "
++"masquerading. Once a LAN host has sent from a UDP port, any remote host can "
++"reach it through that port. Requires a kernel with full cone support; "
++"otherwise ordinary masquerading is used."
++msgstr "为启用了 IP 动态伪装的区域中的 IPv4 UDP 提供端点无关的映射和过滤（NAT1）。局域网主机从某个 UDP 端口发出数据后，任何远程主机都可以通过该端口访问它。需要支持全锥形 NAT 的内核，否则使用普通 IP 动态伪装。"
++
+ #: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/forwards.js:230
+ #: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/rules.js:225
+ #: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/snats.js:209
+diff --git a/applications/luci-app-firewall/po/zh_Hant/firewall.po b/applications/luci-app-firewall/po/zh_Hant/firewall.po
+index 0ce1e5ed25..80291d9d67 100644
+--- a/applications/luci-app-firewall/po/zh_Hant/firewall.po
++++ b/applications/luci-app-firewall/po/zh_Hant/firewall.po
+@@ -315,6 +315,18 @@ msgstr "允許轉送連線追蹤狀態無效的流量。對於複雜的不對稱
+ msgid "Drop invalid packets"
+ msgstr "丟棄無效封包"
+ 
++#: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/zones.js:73
++msgid "Enable full cone NAT"
++msgstr "啟用全錐形 NAT"
++
++#: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/zones.js:74
++msgid ""
++"Endpoint-independent mapping and filtering (NAT1) for IPv4 UDP in zones with "
++"masquerading. Once a LAN host has sent from a UDP port, any remote host can "
++"reach it through that port. Requires a kernel with full cone support; "
++"otherwise ordinary masquerading is used."
++msgstr "為啟用了 IP 動態偽裝的區域中的 IPv4 UDP 提供端點無關的映射和過濾（NAT1）。區域網路主機從某個 UDP 連接埠發出資料後，任何遠端主機都可以透過該連接埠存取它。需要支援全錐形 NAT 的核心，否則使用一般 IP 動態偽裝。"
++
+ #: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/forwards.js:230
+ #: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/rules.js:225
+ #: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/snats.js:209
+-- 
+2.53.0
+

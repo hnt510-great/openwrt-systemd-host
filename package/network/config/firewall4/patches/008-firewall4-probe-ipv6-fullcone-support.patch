@@ -1,0 +1,24 @@
+From: hnt510 <hnt510@gmail.com>
+Subject: [PATCH] firewall4: probe IPv6 fullcone support before using it
+
+defaults.fullcone6 emits the nft "fullcone" expression, which needs the
+out-of-tree nft_fullcone kernel module.  Unlike defaults.fullcone it was
+never probed, so enabling it without the module made the whole ruleset
+fail to load.  Check it with nft_try_fullcone() and disable it with a
+warning when the expression is unavailable.
+---
+--- a/root/usr/share/ucode/fw4.uc
++++ b/root/usr/share/ucode/fw4.uc
+@@ -2133,6 +2133,12 @@ return {
+ 			warn("nft_try_masq_fullcone failed, disable fullcone globally\n");
+ 		}
+ 
++		/* IPv6 full cone needs the nft_fullcone kernel module */
++		if (defs.fullcone6 && !nft_try_fullcone()) {
++			delete defs.fullcone6;
++			warn("nft_try_fullcone failed, disable IPv6 fullcone globally\n");
++		}
++
+ 		this.state.defaults = defs;
+ 	},
+ 

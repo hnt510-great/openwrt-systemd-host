@@ -1,0 +1,8 @@
+{
+  "luci": {
+    "url": "https://github.com/openwrt/luci.git",
+    "base": "fce3f1d74e7778a17539413a7128b2666915bfd6",
+    "commit": "51551b1c9cf6fd26898cf85c542cec97228ec5cb",
+    "patch": "patches/feeds/0029-luci-firewall-fullcone.patch"
+  }
+}
