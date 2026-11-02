@@ -1,0 +1,130 @@
+Subject: [PATCH] apk: upgrade same-ABI kernel generations by default
+
+A plain full upgrade now installs a newer -gN generation at the identical
+OpenWrt ABI, as it does for an ABI transition, so patch-only kernel
+changes reach routers without an explicit image constraint. The installed
+generation is still kept when /etc/openwrt-kernel/same-abi-hold exists,
+while kernelctl reports a pending trial, for targeted upgrades and module
+additions, and when the solution lacks a payload kernelctl will require for
+an installed logical module or the header tracker.
+
+--- a/src/commit.c
++++ b/src/commit.c
+@@ -82,6 +82,84 @@ static const struct apk_dependency *kern
+ 	return NULL;
+ }
+ 
++/* True when image is a later -gN generation of the installed image at the
++ * identical exact OpenWrt ABI.
++ */
++static bool kernel_newer_generation(const struct apk_dependency *before,
++				    const struct apk_name *image, apk_blob_t version)
++{
++	const char *a = before->name->name, *b = image->name, *ga, *gb;
++
++	if (apk_blob_compare(*before->version, version))
++		return false;
++	ga = strrchr(a, '-');
++	gb = strrchr(b, '-');
++	return ga && gb && !strncmp(ga, "-g", 2) && !strncmp(gb, "-g", 2) &&
++	       ga[2] && gb[2] && strspn(ga + 2, "0123456789") == strlen(ga + 2) &&
++	       strspn(gb + 2, "0123456789") == strlen(gb + 2) &&
++	       ga - a == gb - b && !memcmp(a, b, ga - a) &&
++	       strtoul(gb + 2, NULL, 10) > strtoul(ga + 2, NULL, 10);
++}
++
++/* A full upgrade installs a newer same-ABI generation by default, like an ABI
++ * transition, unless the operator holds it or a kernel trial is pending. The
++ * solution must carry the whole generation: every installed logical module
++ * and the header tracker need the payload kernelctl will require. Targeted
++ * upgrades and module additions keep the installed generation.
++ */
++static bool kernel_same_abi_upgrade(struct apk_database *db, struct apk_changeset *changeset,
++				    const struct apk_dependency *before)
++{
++	struct apk_out *out = &db->ctx->out;
++	const struct apk_dependency *after = NULL;
++	const char *candidate;
++	char payload[512];
++
++	if (!db->ctx->openwrt_full_upgrade || db->ctx->openwrt_userspace_only)
++		return false;
++	apk_array_foreach(change, changeset->changes) {
++		const struct apk_package *new = change->new_pkg;
++
++		if (new && new != change->old_pkg &&
++		    !strcmp(new->name->name, "linux-image-openwrt"))
++			after = kernel_image_dep(new);
++	}
++	if (!after || !kernel_newer_generation(before, after->name, *after->version))
++		return false;
++	candidate = after->name->name + strlen("linux-image-");
++	if (faccessat(db->root_fd, "etc/openwrt-kernel/same-abi-hold", F_OK, 0) == 0) {
++		apk_msg(out, "Same-ABI kernel upgrades are held by /etc/openwrt-kernel/same-abi-hold.");
++		return false;
++	}
++	if (faccessat(db->root_fd, "etc/openwrt-kernel/trial-pending", F_OK, 0) == 0) {
++		apk_msg(out, "A kernel trial is pending; not installing generation %s.", candidate);
++		return false;
++	}
++	apk_array_foreach_item(pkg, apk_db_sorted_installed_packages(db)) {
++		const char *name = pkg->name->name;
++		struct apk_name *wanted;
++		bool found;
++
++		if (strcmp(name, "kernel-dev-headers") &&
++		    (strncmp(name, "kmod-", 5) || strstr(name, "-owrt-")))
++			continue;
++		if (snprintf(payload, sizeof(payload), "%s-%s", name, candidate) >= (int)sizeof(payload))
++			return false;
++		wanted = apk_db_query_name(db, APK_BLOB_STR(payload));
++		found = wanted && apk_pkg_get_installed(wanted);
++		apk_array_foreach(change, changeset->changes) {
++			if (wanted && change->new_pkg && change->new_pkg->name == wanted)
++				found = true;
++		}
++		if (!found) {
++			apk_msg(out, "Kernel generation %s lacks %s.", candidate, payload);
++			return false;
++		}
++	}
++	apk_msg(out, "Upgrading to same-ABI kernel generation %s.", candidate);
++	return true;
++}
++
+ /* The publication sequence is not an ABI transition. Keep the installed
+  * trackers together when only -gN advances, using solver-only constraints.
+  * Never write these checksums into world: a later ABI change must still work.
+@@ -102,11 +180,12 @@ static bool kernel_keep_abi(struct apk_d
+ 	/* Initial migration still enrolls its first image. */
+ 	if (!before)
+ 		return false;
++	if (!initialized && kernel_same_abi_upgrade(db, changeset, before))
++		return false;
+ 	apk_array_foreach(change, changeset->changes) {
+ 		const struct apk_package *new = change->new_pkg;
+ 		struct apk_name *image;
+ 		apk_blob_t version;
+-		const char *a, *b, *ga, *gb;
+ 		struct apk_dependency conflict;
+ 
+ 		if (!new || new == change->old_pkg)
+@@ -124,17 +203,7 @@ static bool kernel_keep_abi(struct apk_d
+ 		} else {
+ 			continue;
+ 		}
+-		if (apk_blob_compare(*before->version, version))
+-			continue;
+-		a = before->name->name;
+-		b = image->name;
+-		ga = strrchr(a, '-');
+-		gb = strrchr(b, '-');
+-		if (!ga || !gb || strncmp(ga, "-g", 2) || strncmp(gb, "-g", 2) ||
+-		    !ga[2] || !gb[2] || strspn(ga + 2, "0123456789") != strlen(ga + 2) ||
+-		    strspn(gb + 2, "0123456789") != strlen(gb + 2) ||
+-		    ga - a != gb - b || memcmp(a, b, ga - a) ||
+-		    strtoul(gb + 2, NULL, 10) <= strtoul(ga + 2, NULL, 10))
++		if (!kernel_newer_generation(before, image, version))
+ 			continue;
+ 		/* Only a direct constraint on this newer image permits the trial.
+ 		 * Pins retaining older images must not enable automatic upgrades.
