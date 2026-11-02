@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this tree is
 
-A personal OpenWrt fork tracking `openwrt/openwrt` `main`, roughly **200 commits ahead** of origin
+A personal OpenWrt fork tracking `openwrt/openwrt` `main`, roughly **240 commits ahead** of origin
 and still growing. It is not vanilla OpenWrt: it is an x86_64 "router plus desktop" firmware built
 on an unusual base combination that everything else depends on:
 
@@ -16,11 +16,14 @@ on an unusual base combination that everything else depends on:
   kernel selection
 - a shared-user **GNOME desktop** session (local display, LAN RDP, Sunshine/Moonlight) replacing
   the earlier Weston profile
+- router datapath additions: full cone NAT in kernel/nftables/firewall4, a netlink fast path for
+  dnsmasq `nftset`, and opt-in `daed` (eBPF transparent proxy) beside the default Passwall
 
 The fork modifies upstream core files directly — `include/kernel.mk`, `include/package-pack.mk`,
 `include/package.mk`, `include/rootfs.mk`, `package/base-files`, `package/system/{apk,procd,systemd}`,
+`package/network/{services/dnsmasq,utils/nftables,config/firewall4}`, `package/libs/libnftnl`,
 `target/linux/x86/image` — so a change in `package/custom/` may interact with build-system surgery
-described below. Read `docs/` (95 files, 43 hand-written validation records at last count) before
+described below. Read `docs/` (104 files, 49 hand-written validation records at last count) before
 non-trivial work; nearly every subsystem has a design doc plus a validation record.
 
 ## Build commands
@@ -41,9 +44,10 @@ make target/linux/refresh          # regenerate quilt patches (or make package/<
 
 `./scripts/feeds update` is not a plain fetch here: after the other selected feeds succeed it runs
 `scripts/update-custom-packages.py --update`, which queries upstream versions for every recipe
-registered in `configs/custom-package-updates.json` and edits those recipes. Inspect local changes
-before running it, and use `./scripts/feeds update -i -a` when you only want indexes. A new custom
-package **must** be registered in that JSON or the updater fails.
+registered in `configs/custom-package-updates.json` and edits those recipes (GitHub-release
+entries may also name `companion_assets` whose SHA-256 variables it refreshes and verifies).
+Inspect local changes before running it, and use `./scripts/feeds update -i -a` when you only want
+indexes. A new custom package **must** be registered in that JSON or the updater fails.
 
 Fork-specific entrypoints:
 
@@ -198,13 +202,35 @@ unreachable router or pending kernel trial stops publication, and direct low-lev
 publication is rejected. `--dry-run` performs the full preflight and discards the snapshots.
 Publication never installs on the physical router. See `docs/apk-upgrade-preflight.md`.
 
+### Router networking additions
+
+Each is off by default or transparent, ported from coolsnowwolf/lede or upstream, and documented
+in a guide + validation pair:
+
+- **Full cone NAT** (`docs/fullcone-nat.md`) — a kernel netfilter patch
+  (`CONFIG_NF_NAT_MASQUERADE_FULLCONE`), `libnftnl`/`nftables` patches, firewall4 patches and a
+  LuCI firewall checkbox (feed patch `0029-luci-firewall-fullcone`). Enabled by
+  `firewall.@defaults[0].fullcone='2'`; the kernel part needs a new kernel generation.
+- **dnsmasq nftset fast path** (`docs/dnsmasq-nftset.md`) — dnsmasq adds plain address-set elements
+  over netlink, and an nftables patch narrows the cache for single `add element` commands; anything
+  else falls back to libnftables.
+- **daed** (`package/custom/daed`, `luci-app-daed`, fragment `configs/daed.config`, `docs/daed.md`)
+  — static Go binary shipped **disabled**; Passwall stays the default. The recipe re-pins the dae
+  core to v2.1.1 under dae-wing and carries upstream backports plus local patches (including a
+  vendored `third_party/outbound`). Its fragment turns on kernel BTF/`DEBUG_INFO`,
+  `KERNEL_BPF_STREAM_PARSER` and `KERNEL_NETKIT` (new knobs in `config/Config-kernel.in`), so it
+  changes the kernel ABI and needs a new generation.
+- **ttyd over HTTPS** (`docs/ttyd-https.md`, feed patches `0027`/`0028`) reuses the uhttpd
+  certificate so LuCI's terminal iframe is not blocked as mixed content.
+
 ### Feed modification model
 
-`feeds/packages` and `feeds/video` are **separate git repositories** that this fork commits to.
-The main repo ignores `feeds/`. To keep those changes reviewable and restorable, they are mirrored
-as patch series:
+`feeds/packages`, `feeds/video` and `feeds/luci` are **separate git repositories** that this fork
+commits to. The main repo ignores `feeds/`. To keep those changes reviewable and restorable, they
+are mirrored as patch series:
 
-- `patches/feeds/NNNN-<feed>-<topic>.patch` — e.g. `0001-packages-local-integration.patch`
+- `patches/feeds/NNNN-<feed>-<topic>.patch` — e.g. `0001-packages-local-integration.patch`,
+  `0029-luci-firewall-fullcone.patch` (one numbered series across all feeds)
 - `configs/*-feeds.json` — records each feed's upstream `base` and local `commit`
   (`configs/local-feeds.json` covers the main `packages`/`video` integration)
 
@@ -217,7 +243,7 @@ review, not overwrite. See `docs/local-build.md` (Chinese).
 ### `package/custom/` layout
 
 Wired in as a local feed by the last line of `feeds.conf.default`:
-`src-link custom ../package/custom` (~370 tracked files). Recurring patterns:
+`src-link custom ../package/custom` (~390 tracked files). Recurring patterns:
 
 - **Prebuilt binary repack** — `cmake-bin`, `node-bin`, `firefox-esr-bin` download upstream x86_64
   tarballs, set `PKGARCH:=x86_64`, leave `Build/Compile` empty, and gate on
@@ -243,6 +269,8 @@ Wired in as a local feed by the last line of `feeds.conf.default`:
   `Build/InstallDev` and install rules and add
   `PKG_FILE_DEPENDS+=$(CURDIR)/../<fragment>.mk` so editing the fragment invalidates every
   dependent package.
+- **Rust** — the host toolchain lives in `tools/` (`rust`, `bindgen`, `cbindgen`, `corrosion`,
+  `sccache`); recipes use the `include/rust-*.mk` helpers.
 - **Meta-packages** — `openwrt-desktop`, `openwrt-desktop-ime`, `openwrt-desktop-audio`,
   `openwrt-desktop-launcher`, `openwrt-full-utils`, `openwrt-podman-rootless`,
   `openwrt-flatpak`, `openwrt-appimage`, `openwrt-needrestart` are mostly `DEPENDS` with an empty
@@ -259,10 +287,13 @@ duplicate entries.
 Host side (`scripts/`, not a package): `publish-lan-apk-feeds.py` publishes ABI-matched
 repositories under `configs/lan-apk-feeds.json`'s `destination` (`/srv/openwrt-feeds`) for its
 `base_url`; nginx serves them as the host system unit `lan-apk-feeds.service`
-(`configs/lan-apk-feeds.nginx.conf`); `build-and-publish.py` orchestrates make → userspace publish
-→ kernel generation, importing the sibling scripts via `importlib`, locking on
-`tmp/.build-and-publish.lock`, and tracking generations in `tmp/.kernel-publication-inputs.json`.
-`--incremental` is compatibility-only; publication is always incremental.
+(`configs/lan-apk-feeds.nginx.conf`, which allows the LAN `192.0.2.0/24` and WireGuard clients
+`10.0.0.0/24`); `build-and-publish.py` orchestrates make → userspace publish → kernel generation,
+importing the sibling scripts via `importlib`, locking on `tmp/.build-and-publish.lock`, and tracking
+generations in `tmp/.kernel-publication-inputs.json`.
+`--incremental` is compatibility-only; publication is always incremental. Each publication creates
+an immutable `public/snapshots/` directory; `scripts/prune-lan-apk-feeds.py` (dry run by default,
+`--apply` to delete) removes snapshots no symlink references.
 
 Router side: `package/custom/lan-apk-feeds` is the consumer. `lan-apk-feeds-sync` reads the
 installed kernel from `/lib/apk/db/installed` (refined by `/etc/openwrt-kernel/state.json` when
@@ -312,11 +343,15 @@ python3 scripts/tests/test-<topic>.py        # host tests, e.g. test-elf-abi, te
                                              # test-mainline-kernel-updates, test-scheduled-maintenance,
                                              # test-systemd-service-bridge, test-merge-usr, test-needrestart,
                                              # test-network-wait-online
-node scripts/tests/test-<app>-view.js        # LuCI view logic
+node scripts/tests/test-luci-<app>.js        # LuCI view logic, e.g. test-luci-daed-view,
+                                             # test-luci-firewall-fullcone, test-luci-needrestart
 sh scripts/tests/test-alternatives.sh        # alternative/symlink handling
 sh scripts/test-<feature>.sh                 # appimage, distrobox, full-utils, native-libs,
                                              # native-build-tools, native-app-deps, podman-rootless
 ```
+
+`scripts/tests/test-daed-vm.py` runs on the host but boots an exact image as a router+client KVM pair
+(reusing `scripts/test-image-network.py`); it needs an image and never touches the physical router.
 
 Some checks must run **on the target or a guest VM** after flashing or booting an image:
 `scripts/tests/*-guest*.sh|py` (systemd, journald, libvirt, virt-manager, GNOME desktop, audio,
@@ -332,7 +367,7 @@ router (read-only libvirt API probes; see `docs/libvirt.md`). For package builds
 ## Documentation and commit conventions
 
 Every feature is documented as a pair: a guide `docs/<topic>.md` and a validation record
-`docs/<topic>-validation.md` (43 validation files). Guides give setup commands, UCI option tables
+`docs/<topic>-validation.md` (49 validation files). Guides give setup commands, UCI option tables
 and recovery steps, and link to their validation doc. Validation records are **hand-written, not
 generated**, and contain the image path and SHA256, a `| Check | Result |` table, and an explicit
 scope statement (often "no physical device was flashed") plus an **Evidence** pointer to a dated
@@ -348,6 +383,7 @@ pulling upstream, a `backup/pre-upstream-<date>` branch is cut.
 
 ### Other agent-facing files
 
+- `GEMINI.md` is the equivalent guidance for Gemini CLI.
 - `AGENTS.md` holds the shorter repository guidelines (layout, style, test naming, commit and
   workspace rules); this file expands on it. Its rules still apply: tabs in Makefile/C/shell/LuCI,
   four spaces in Python, `NNN-description.patch` names, focused commits with feed histories kept
