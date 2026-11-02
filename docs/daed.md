@@ -133,7 +133,12 @@ In the dashboard:
 1. **Global**: check that *LAN interface* is `br-lan` (new configs get it
    from `default_lan_interface`). *WAN interface* defaults to `auto`, which
    also proxies the router's own traffic; clear it if only LAN clients should
-   be proxied. Keep *auto config kernel parameter* on.
+   be proxied. Keep *auto config kernel parameter* on. Also add every other
+   interface whose clients should be proxied, such as the WireGuard server
+   interface (`WIREGUARD` on this router): traffic forwarded from an
+   interface that is not in *LAN interface* goes direct, because the WAN
+   hook only proxies the router's own traffic. dae hooks layer-3 devices
+   (WireGuard, tun, PPP) with its L3 programs.
 2. **Nodes / Subscriptions**: import proxy links or a subscription.
 3. **Groups**: create a group (for example `proxy`) and add nodes.
 4. **Routing** and **DNS**: see below. Then select the config, routing and
