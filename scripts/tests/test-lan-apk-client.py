@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise ABI selection and restored router configuration without a live router."""
+"""Exercise kernel-independent feed selection and restored router configuration."""
 from pathlib import Path
 import subprocess
 import tempfile
@@ -36,14 +36,16 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return self.list.read_text()
 
-    def test_old_router_stays_old_until_installed_kernel_changes(self):
-        self.assertIn('/abi/' + OLD + '/', self.sync())
+    def test_feeds_follow_current_userspace_and_the_kernel_channel(self):
+        listing = self.sync()
+        urls = [x for x in listing.splitlines() if x.startswith('http')]
+        self.assertEqual(urls[0], BASE + '/kernel-upgrades/packages.adb')
+        self.assertIn(BASE + '/current/target/packages.adb', urls)
+        self.assertEqual(len(urls), 10)
+        self.assertNotIn('/abi/', listing)
+        # Installing another kernel no longer changes the userspace feeds.
         self.install_kernel(NEW)
-        current = self.sync()
-        self.assertIn('/abi/' + NEW + '/', current)
-        self.assertNotIn(OLD, current)
-        self.assertEqual(len([x for x in current.splitlines() if x.startswith('http')]), 9)
-
+        self.assertEqual(self.sync(), listing)
     def test_migrate_manual_lists_preserves_unrelated_custom_feeds(self):
         self.list.write_text('# Local feeds\n' + BASE + '/abi/' + OLD + '/target/packages.adb\n')
         external = 'https://example.org/other/packages.adb\n'
@@ -71,24 +73,29 @@ class ClientTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.list.read_bytes(), before)
 
-    def test_missing_or_ambiguous_kernel_rejected(self):
-        for data in ('P:kernel-dev-headers\nV:1\n', 'P:kernel\nV:1\n\nP:kernel\nV:2\n'):
-            self.db.write_text(data)
-            result = subprocess.run(self.command, capture_output=True)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertFalse(self.list.exists())
-
+    def test_kernel_records_are_not_needed(self):
+        self.db.write_text('P:libc\nV:2.42-r1\n\n')
+        self.assertIn('/current/', self.sync())
     def test_shell_content_is_never_executed(self):
         self.config.write_text('base_url=$(touch /tmp/lan-feeds-invalid)\nrepositories=target\n')
         result = subprocess.run(self.command, capture_output=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(self.list.exists())
 
-    def test_mirror_change_retains_installed_abi(self):
+    def test_mirror_change_moves_every_feed(self):
         self.sync()
         self.config.write_text('base_url=http://192.0.2.20:8088\nrepositories=target custom\n')
-        self.assertIn('http://192.0.2.20:8088/abi/' + OLD, self.sync())
+        listing = self.sync()
+        self.assertIn('http://192.0.2.20:8088/current/custom/packages.adb', listing)
+        self.assertIn('http://192.0.2.20:8088/kernel-upgrades/packages.adb', listing)
+        self.assertNotIn(BASE, listing)
 
+    def test_previous_abi_pinned_managed_list_is_replaced(self):
+        self.list.write_text('# Managed by lan-apk-feeds-sync.\n# Installed kernel: ' + OLD + '\n' +
+                             BASE + '/abi/' + OLD + '/target/packages.adb\n')
+        listing = self.sync()
+        self.assertNotIn(OLD, listing)
+        self.assertIn(BASE + '/current/target/packages.adb', listing)
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

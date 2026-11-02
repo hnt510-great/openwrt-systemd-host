@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=lan-apk-feeds
-PKG_RELEASE:=3
+PKG_RELEASE:=6
 PKG_LICENSE:=MIT
 
 include $(INCLUDE_DIR)/package.mk
@@ -9,13 +9,14 @@ include $(INCLUDE_DIR)/package.mk
 define Package/lan-apk-feeds
   SECTION:=base
   CATEGORY:=Base system
-  TITLE:=Automatic installed-kernel LAN APK feed selection
+  TITLE:=LAN APK feed selection
   DEPENDS:=@USE_APK
 endef
 
 define Package/lan-apk-feeds/description
-  Regenerate local repository URLs from the installed kernel APK version at
-  boot and after package transactions. No network access or package upgrades.
+  Regenerate the local repository list (current userspace feeds and the
+  kernel package channel) at boot and after package transactions. No network
+  access or package upgrades.
 endef
 
 define Package/lan-apk-feeds/conffiles

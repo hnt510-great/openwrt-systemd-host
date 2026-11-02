@@ -1,5 +1,7 @@
 #!/bin/sh
-# Select this installation's ABI; never follow a server-wide "latest" feed.
+# Kernel packages carry their own modules, so userspace feeds no longer depend
+# on the kernel: follow the published current userspace snapshot and the
+# kernel channel, like a distribution's main and kernel repositories.
 set -eu
 set -f
 root=
@@ -27,29 +29,6 @@ case "$base_url" in *[!A-Za-z0-9.:/_~-]*) fail 'Invalid base_url characters' ;; 
 for repo in $repositories; do
 	case "$repo" in *[!A-Za-z0-9_-]*) fail 'Invalid repository name' ;; esac
 done
-# Read the installed database directly: safe even in APK's post-commit hook.
-# Reject ambiguous/missing records rather than reusing a stale ABI.
-kernel=$(awk '
-	BEGIN { RS=""; FS="\n" }
-	{ name=""; version=""; for(i=1;i<=NF;i++) {
-		if ($i ~ /^P:/) name=substr($i,3)
-		if ($i ~ /^V:/) version=substr($i,3)
-	} if (name=="kernel") { count++; result=version } }
-	END { if (count==1 && result!="") print result; else exit 1 }
-' "$root/lib/apk/db/installed") || fail 'Expected exactly one installed kernel'
-if [ -f "$root/etc/openwrt-kernel/state.json" ]; then
-	# The installed tracker can describe the next boot; follow the running ABI.
-	kernel=$(python3 - "$root/etc/openwrt-kernel/state.json" <<'PYSTATE'
-import json, os, sys
-state = json.load(open(sys.argv[1]))
-matches = [g['abi'] for g in state['generations'].values() if g['release'] == os.uname().release]
-if not matches or len(set(matches)) != 1:
-    sys.exit('Running kernel is not registered')
-print(matches[0])
-PYSTATE
-	) || fail 'Cannot identify the running kernel ABI'
-fi
-case "$kernel" in ''|*[!A-Za-z0-9._~+-]*) fail 'Invalid installed kernel version' ;; esac
 repo_dir=$root/etc/apk/repositories.d
 mkdir -p "$repo_dir"
 list=$repo_dir/lan-local.list
@@ -59,7 +38,8 @@ marker='# Managed by lan-apk-feeds-sync.'
 if [ -f "$list" ] && ! grep -qxF "$marker" "$list"; then
 	while IFS= read -r line || [ -n "$line" ]; do
 		case "$line" in
-			''|'#'*|"$base_url"/abi/*/packages.adb) ;;
+			''|'#'*|"$base_url"/abi/*/packages.adb|"$base_url"/current/*/packages.adb|\
+			"$base_url"/kernel-upgrades/packages.adb) ;;
 			*) fail "Refusing to overwrite unmanaged $list" ;;
 		esac
 	done < "$list"
@@ -68,19 +48,18 @@ work=$(mktemp -d "$repo_dir/.lan-apk-feeds.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 trap 'exit 1' HUP INT TERM
 {
-	printf '%s\n# Installed kernel: %s\n' "$marker" "$kernel"
-	if [ -f "$root/etc/openwrt-kernel/state.json" ]; then
-		printf '%s/kernel-upgrades/packages.adb\n' "$base_url"
-	fi
+	printf '%s\n' "$marker"
+	printf '%s/kernel-upgrades/packages.adb\n' "$base_url"
 	for repo in $repositories; do
-		printf '%s/abi/%s/%s/packages.adb\n' "$base_url" "$kernel" "$repo"
+		printf '%s/current/%s/packages.adb\n' "$base_url" "$repo"
 	done
 } > "$work/lan-local.list"
 # Migrate only the old local custom-feed URL; retain other feeds and comments.
 custom=$repo_dir/customfeeds.list
 if [ -f "$custom" ]; then
 	while IFS= read -r line || [ -n "$line" ]; do
-		case "$line" in "$base_url"/abi/*/custom/packages.adb) ;; *) printf '%s\n' "$line" ;; esac
+		case "$line" in "$base_url"/abi/*/custom/packages.adb|"$base_url"/current/custom/packages.adb) ;;
+			*) printf '%s\n' "$line" ;; esac
 	done < "$custom" > "$work/customfeeds.list"
 	if ! cmp -s "$custom" "$work/customfeeds.list"; then
 		chmod 0644 "$work/customfeeds.list"
@@ -91,4 +70,4 @@ if ! cmp -s "$list" "$work/lan-local.list"; then
 	chmod 0644 "$work/lan-local.list"
 	mv "$work/lan-local.list" "$list"
 fi
-printf 'LAN APK feeds: kernel=%s\n' "$kernel"
+printf 'LAN APK feeds: %s/current\n' "$base_url"
