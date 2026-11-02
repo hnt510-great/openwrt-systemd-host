@@ -324,6 +324,11 @@ endif
 
     ifdef Package/$(1)/preinst
       APK_SCRIPTS_$(1)+=--script "pre-upgrade:$$(ADIR_$(1))/pre-upgrade"
+    else
+      # The virtual kernel package keeps its published bytes (same ABI version).
+      ifneq ($(and $(CONFIG_OPENWRT_KERNEL_UPGRADE),$(filter kernel,$(1))),)
+        APK_SCRIPTS_$(1)+=--script "pre-upgrade:$$(ADIR_$(1))/pre-upgrade"
+      endif
     endif
     APK_SCRIPTS_$(1)+=--script "post-upgrade:$$(ADIR_$(1))/post-upgrade"
 
@@ -564,6 +569,14 @@ else
 		echo "#!/bin/sh"; \
 		echo 'export PKG_UPGRADE=1'; \
 		[ ! -f $$(ADIR_$(1))/preinst ] || sed '/^\s*#!/d' "$$(ADIR_$(1))/preinst"; \
+	) > $$(ADIR_$(1))/pre-upgrade;
+    endif
+
+    ifneq ($(and $(CONFIG_OPENWRT_KERNEL_UPGRADE),$(filter kernel,$(1))),)
+	( \
+		echo "#!/bin/sh"; \
+		echo 'export PKG_UPGRADE=1'; \
+		echo '[ -f /etc/openwrt-kernel/protected ] || { echo "Run kernelctl migrate before upgrading kernel trackers" >&2; exit 1; }'; \
 	) > $$(ADIR_$(1))/pre-upgrade;
     endif
 
