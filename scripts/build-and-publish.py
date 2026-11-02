@@ -381,7 +381,8 @@ def project(tree, work, apk, progress=None):
         if value in ('y', 'm') and key.startswith('CONFIG_PACKAGE_kmod-'):
             name = key.removeprefix('CONFIG_PACKAGE_')
             if not any(info['version'].startswith(f'1000.{sequence}.') and
-                       'linux-image-openwrt' in info.get('depends', [])
+                       any(re.match(r'linux-image-openwrt(?:[<>=~]|$)', dep)
+                           for dep in info.get('depends', []))
                        for info in kmods.get(name, [])):
                 raise ValueError('Missing kmod configuration package for this kernel build: ' + name)
     for name, (path, info) in selected.items():

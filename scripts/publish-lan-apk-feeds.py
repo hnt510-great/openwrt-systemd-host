@@ -518,7 +518,8 @@ def publish(args):
                     if any(d != 'kernel=' + args.kernel for d in dependencies):
                         raise ValueError(f'Kernel ABI mismatch: {info["name"]}: {dependencies}')
                     configuration = (kernel_upgrade_view and info['name'].startswith('kmod-') and
-                                     'linux-image-openwrt' in info.get('depends', []))
+                                     any(re.match(r'linux-image-openwrt(?:[<>=~]|$)', dep)
+                                         for dep in info.get('depends', [])))
                     if info['name'].startswith('kmod-') and not dependencies and not configuration:
                         raise ValueError(f'Unpinned kmod: {info["name"]}')
                     if info['name'] == 'kernel':

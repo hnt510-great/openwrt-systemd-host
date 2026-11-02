@@ -127,7 +127,7 @@ class BuildPublicationTests(unittest.TestCase):
         self.make_package('linux-image-openwrt', version, [image + '=' + version])
         self.make_package('kernel-dev-headers', f'1000.{sequence}.6.18.55-r1',
                           ['linux-headers-' + name + '=' + version])
-        self.make_package('kmod-nic', f'1000.{sequence}.6.18.55-r1', ['linux-image-openwrt'])
+        self.make_package('kmod-nic', f'1000.{sequence}.6.18.55-r1', ['linux-image-openwrt>=1'])
         return name
 
     def aliases(self):
