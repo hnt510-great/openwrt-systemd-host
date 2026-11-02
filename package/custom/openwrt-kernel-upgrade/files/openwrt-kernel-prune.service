@@ -1,5 +1,5 @@
 [Unit]
-Description=Remove withdrawn OpenWrt kernel APK payloads
+Description=Remove OpenWrt kernels outside the retention set
 After=local-fs.target
 
 [Service]

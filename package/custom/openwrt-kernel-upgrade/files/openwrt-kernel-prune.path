@@ -1,5 +1,5 @@
 [Unit]
-Description=Watch for withdrawn OpenWrt kernel payloads
+Description=Watch for OpenWrt kernels to prune
 
 [Path]
 PathExists=/run/openwrt-kernel-prune

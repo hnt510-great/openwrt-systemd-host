@@ -2,7 +2,13 @@
 # Minimal bootstrap, NOT OpenWrt's standalone INITRAMFS root filesystem.
 # The immutable root and existing fstools extroot/preinit remain authoritative.
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
-fail() { echo "kernel bootstrap: $*" >/dev/console; exec sh; }
+# A failed bootstrap reboots so GRUB's boot counter can fall back.
+fail() {
+	echo "kernel bootstrap: $*; rebooting in 10 seconds" >/dev/console
+	sleep 10
+	echo 1 >/proc/sys/kernel/sysrq 2>/dev/null && echo b >/proc/sysrq-trigger
+	exec sh
+}
 mount -t devtmpfs devtmpfs /dev || fail devtmpfs
 mount -t proc proc /proc || fail proc
 mount -t sysfs sysfs /sys || fail sysfs

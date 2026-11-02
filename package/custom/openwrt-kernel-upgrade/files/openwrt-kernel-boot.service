@@ -1,12 +1,16 @@
 [Unit]
-Description=Check and confirm an OpenWrt kernel trial
-After=openwrt-services.service network.target libvirtd.service
-Requires=openwrt-services.service
-ConditionPathExists=/usr/share/openwrt-kernel/selected.json
+Description=Adopt OpenWrt kernels and assess a new default kernel
+# Wants, not Requires: a counted boot must still be assessed (and fail, which
+# reboots for the next GRUB attempt) when router services do not come up.
+Wants=openwrt-services.service openwrt-network-wait-online.service
+After=openwrt-services.service openwrt-network-wait-online.service network.target sshd.service
+Before=boot-complete.target
+ConditionPathExists=|/etc/openwrt-kernel/state.json
+ConditionPathExists=|/usr/lib/openwrt-kernel
 
 [Service]
 Type=oneshot
-ExecStartPre=/sbin/modprobe configs
+ExecStartPre=-/sbin/modprobe configs
 ExecStart=/usr/sbin/kernelctl boot
 TimeoutStartSec=300
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise fail-closed activation and real signed APK payload splitting."""
+"""Distribution-style kernel packages: adoption, boot counting, retention and channel."""
 import argparse
 from contextlib import contextmanager
 import fcntl
@@ -30,11 +30,16 @@ def load(name, path):
 
 KERNELCTL = TREE / 'package/custom/openwrt-kernel-upgrade/files/kernelctl'
 K = load('kernelctl', KERNELCTL)
-P = load('kernel_package', TREE / 'scripts/kernel-package.py')
+B = load('kernel_bundle', TREE / 'scripts/kernel-bundle.py')
 F = load('kernel_feed', TREE / 'scripts/publish-kernel-upgrade-feed.py')
 APK = TREE / 'staging_dir/host/bin/apk'
 ABI = '6.18.55~' + 'a' * 32 + '-r1'
-GEN = '6.18.55-owrt-' + 'a' * 32 + '-r1-g1'
+GEN = '6.18.55-owrt-' + 'a' * 32 + '-r1-g45'
+FAKEROOT = TREE / 'staging_dir/host/bin/fakeroot'
+
+
+def release(number):
+    return f'6.18.55-{number}-openwrt'
 
 
 class RecipeTests(unittest.TestCase):
@@ -65,34 +70,36 @@ class RuntimeTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        for directory in ('boot/grub', 'etc/openwrt-kernel', 'usr/lib/modules/6.18.55',
-                          'usr/lib/apk/db', 'lib/apk/db', 'proc/self', 'proc/1', 'run', 'tmp'):
-            (self.root / directory).mkdir(parents=True)
+        for directory in ('boot/grub', 'etc/openwrt-kernel', 'etc/apk', 'usr/lib/modules',
+                          'usr/lib/apk/db', 'lib/apk/db', 'proc/self', 'proc/1', 'run', 'tmp',
+                          'usr/libexec'):
+            (self.root / directory).mkdir(parents=True, exist_ok=True)
+        (self.root / 'lib/apk/db/lock').touch()
+        (self.root / 'usr/libexec/openwrt-kernel-init').write_text('#!/bin/sh\n')
         (self.root / 'boot/vmlinuz').write_bytes(b'ONLY KNOWN BOOTABLE KERNEL')
-        (self.root / 'usr/lib/modules/6.18.55/nic.ko').write_bytes(b'original network driver')
         (self.root / 'proc/self/mountinfo').write_text('34 29 8:1 /boot /boot rw,noatime - vfat /dev/sda1 rw\n')
         (self.root / 'proc/1/comm').write_text('systemd\n')
         (self.root / 'proc/cmdline').write_text('root=PARTUUID=abcd-02 openwrt.init=systemd noinitrd')
         (self.root / 'proc/mounts').write_text('/dev/nvme0n1p1 /overlay ext4 rw 0 0\n')
+        (self.root / 'proc/config.gz').write_bytes(gzip.compress(b'CONFIG_BLK_DEV_INITRD=y\n'))
         carrier = self.root / 'sys/class/net/br-lan/carrier'
         carrier.parent.mkdir(parents=True); carrier.write_text('1\n')
-        self.environment = {'saved_entry': 'owrt-rescue'}
+        support = self.root / 'usr/share/openwrt-kernel'
+        (support / 'grub/x86_64-efi').mkdir(parents=True)
+        (support / 'grub/x86_64-efi/loadenv.mod').write_bytes(b'grub module')
+        for capability in ('apk-policy', 'kmodloader-policy'):
+            (support / capability).write_text('1\n')
+        (self.root / 'boot/grub/grub.cfg').write_text(
+            "serial --unit=0\nmenuentry 'OpenWrt' {\n linux /boot/vmlinuz root=PARTUUID=abcd-02\n}\n")
+        (self.root / 'etc/apk/world').write_text('kernel=' + ABI + '\nkmod-nic\nlinux-image-openwrt=1-r45\n')
+        self.environment = {}
         self.calls = []
-        self.running = '6.18.55'
+        self.packages = {'kernel': ABI, 'kmod-nic': '1000.1.6.18.55-r1'}
+        self.lan_up = True
+        self.running = release(1)
         self.manager = K.KernelManager(self.root, self.run_command)
-        self.modules = K.inventory(self.root / 'usr/lib/modules/6.18.55')
         self.original = K.sha256(self.root / 'boot/vmlinuz')
-        self.baseline = {'interfaces': ['lan', 'wan'], 'overlay': ['/dev/nvme0n1p1'],
-                         'default_route': True, 'kvm': False}
-        self.state = {'schema': 1, 'rescue': 'legacy-6.18.55', 'known_good': 'legacy-6.18.55',
-                      'previous_good': None, 'pending': None,
-                      'bootargs': 'root=PARTUUID=abcd-02 rootwait console=ttyS0,115200n8',
-                      'health': self.baseline, 'generations': {'legacy-6.18.55': {
-                          'legacy': True, 'ready': True, 'release': '6.18.55', 'abi': ABI,
-                          'kernel_sha256': self.original, 'modules': self.modules}}}
-        self.manager.save(self.state)
-        (self.manager.policy / 'protected').write_text('')
-        self.database({'kernel': ABI, 'kmod-nic': '6.18.55-r1'})
+        self.package(1, image=b'ONLY KNOWN BOOTABLE KERNEL')
 
     def run_command(self, args):
         self.calls.append(args)
@@ -101,84 +108,411 @@ class RuntimeTests(unittest.TestCase):
         if args[0] == 'blkid':
             return '1234-ABCD'
         if args[0] == 'grub-editenv':
-            for item in args[3:]:
-                key, value = item.split('=', 1)
-                self.environment[key] = value
+            if args[2] == 'set':
+                for item in args[3:]:
+                    key, value = item.split('=', 1)
+                    self.environment[key] = value
+            elif args[2] == 'unset':
+                for key in args[3:]:
+                    self.environment.pop(key, None)
+            elif args[2] == 'list':
+                return '\n'.join(f'{k}={v}' for k, v in self.environment.items())
+            return ''
         if args[0] == 'ubus':
-            return json.dumps({'interface': [{'interface': 'lan', 'up': True,
-                                              'l3_device': 'br-lan', 'ipv4-address': [{'address': '192.0.2.1'}]},
-                                              {'interface': 'wan', 'up': True}]})
-        if args[0] == 'ip':
-            return 'default via 192.0.2.1'
+            return json.dumps({'interface': [
+                {'interface': 'lan', 'up': self.lan_up, 'proto': 'static', 'l3_device': 'br-lan',
+                 'ipv4-address': [{'address': '192.0.2.1'}]},
+                {'interface': 'wan', 'up': False, 'proto': 'dhcp'}]})
+        if args[0] == 'apk' and 'del' in args:
+            for name in args[args.index('del') + 1:]:
+                self.packages.pop(name, None)
+            self.database()
         return ''
 
-    def database(self, packages):
+    def database(self):
         (self.root / 'usr/lib/apk/db/installed').write_text('\n\n'.join(
-            f'P:{name}\nV:{version}\nC:Q1testchecksum' for name, version in packages.items()) + '\n\n')
+            f'P:{name}\nV:{version}\nC:Q1{name}' for name, version in self.packages.items()) + '\n\n')
 
-    def candidate(self, generation=GEN, abi=ABI):
-        metadata = self.root / 'usr/lib/openwrt-kernel' / generation
-        (metadata / 'kmods').mkdir(parents=True)
-        modules = self.root / 'usr/lib/modules' / generation
-        modules.mkdir(parents=True)
-        (modules / 'nic.ko').write_bytes(('network driver ' + generation).encode())
-        (metadata / 'vmlinuz').write_bytes(('candidate ' + generation).encode())
-        (metadata / 'config').write_text('CONFIG_BLK_DEV_INITRD=y\n')
-        K.json_write(metadata / 'image.json', {
-            'schema': 1, 'generation': generation, 'release': generation,
-            'abi': abi, 'sequence': 1, 'package': 'linux-image-' + generation,
-            'version': abi, 'files': {}, 'kernel_sha256': K.sha256(metadata / 'vmlinuz')})
-        K.json_write(metadata / 'kmods/kmod-nic.json', {'name': 'kmod-nic',
-            'release': generation, 'abi': abi,
-            'files': {str((modules / 'nic.ko').relative_to(self.root)):
-                      {'sha256': K.sha256(modules / 'nic.ko')}}})
-        K.json_write(self.root / 'usr/share/openwrt-kernel/selected.json',
-                     {'generation': generation, 'abi': abi, 'sequence': 1})
-        self.database({'kernel': abi, 'kmod-nic': '6.18.55.1-r1',
-                       'linux-image-' + generation: abi,
-                       'kmod-nic-' + generation: '6.18.55.1-r1'})
-
-    def activate(self):
-        def bootstrap(name, path):
-            K.atomic(path, gzip.compress(b'bootstrap for ' + name.encode(), mtime=0), 0o644)
-        with patch.object(self.manager, 'bootstrap', side_effect=bootstrap):
-            return self.manager.activate()
-
-    def generation(self, name, known=False, previous=False):
+    def package(self, number, image=None, installed=True):
+        """An installed linux-image-<release> as kernel-bundle.py lays it out."""
+        name = release(number)
         metadata = self.root / 'usr/lib/openwrt-kernel' / name
-        (metadata / 'kmods').mkdir(parents=True, exist_ok=True)
-        (metadata / 'config').write_text('CONFIG_BLK_DEV_INITRD=y\n')
-        (metadata / 'vmlinuz').write_bytes(('kernel ' + name).encode())
         modules = self.root / 'usr/lib/modules' / name
+        metadata.mkdir(parents=True, exist_ok=True)
         modules.mkdir(parents=True, exist_ok=True)
+        (metadata / 'vmlinuz').write_bytes(image or ('kernel ' + name).encode())
+        (metadata / 'config').write_text('CONFIG_BLK_DEV_INITRD=y\n')
         (modules / 'nic.ko').write_bytes(('module ' + name).encode())
-        boot = self.root / 'boot/kernels' / name
-        boot.mkdir(parents=True, exist_ok=True)
-        (boot / 'vmlinuz').write_bytes(('kernel ' + name).encode())
-        (boot / 'initramfs.gz').write_bytes(('initramfs ' + name).encode())
-        files = {str(path.relative_to(self.root)): {'sha256': K.sha256(path)}
-                 for path in sorted(metadata.rglob('*')) if path.is_file()}
-        files[str((modules / 'nic.ko').relative_to(self.root))] = {
-            'sha256': K.sha256(modules / 'nic.ko')}
-        state = self.manager.state()
-        state['generations'][name] = {
-            'legacy': False, 'ready': True, 'release': name, 'abi': ABI,
-            'package': 'linux-image-' + name, 'version': ABI,
-            'kernel_sha256': K.sha256(metadata / 'vmlinuz'),
-            'files': files, 'boot_files': K.inventory(boot)}
-        if known:
-            state['known_good'] = name
-            state['previous_good'] = name
-        if previous:
-            state['previous_good'] = name
-        self.manager.save(state)
-        return state
+        (modules / 'modules.builtin').write_text('')
+        files = {str(p.relative_to(self.root)): {'sha256': K.sha256(p)}
+                 for p in [metadata / 'vmlinuz', metadata / 'config', modules / 'nic.ko', modules / 'modules.builtin']}
+        K.json_write(metadata / 'image.json', {
+            'schema': 2, 'release': name, 'version': f'6.18.55-r{number}', 'sequence': number,
+            'package': 'linux-image-' + name, 'kernel_sha256': K.sha256(metadata / 'vmlinuz'),
+            'files': files})
+        if installed:
+            self.packages['linux-image-' + name] = f'6.18.55-r{number}'
+            self.database()
+        return name
+
+    def bootstrap(self, name, path):
+        K.atomic(path, gzip.compress(b'bootstrap for ' + name.encode(), mtime=0), 0o644)
+
+    def adopt(self):
+        with patch.object(self.manager, 'bootstrap', side_effect=self.bootstrap):
+            return self.manager.migrate()
+
+    def install(self, number, errors='0', simulation='live'):
+        name = self.package(number)
+        txn = self.root / 'run/txn'
+        txn.write_text(f'-\t-\tlinux-image-{name}\t6.18.55-r{number}\t0\n'
+                       f'linux-image-openwrt\t6.18.55-r{number - 1}\tlinux-image-openwrt\t6.18.55-r{number}\t0\n')
+        with patch.object(self.manager, 'bootstrap', side_effect=self.bootstrap):
+            self.manager.transaction('apk-pre', txn, '0', simulation, '0')
+            self.manager.transaction('apk-post', txn, errors, simulation, '0')
+        return name
+
+    def boot(self, name, healthy=True):
+        """Boot a kernel and run the boot assessment."""
+        self.running = name
+        self.lan_up = healthy
+        self.manager.prepare()
+        return self.manager.assess(timeout=0)
+
+    # -- adoption --------------------------------------------------------------
+
+    def test_adoption_makes_the_image_kernel_rescue_and_follows_the_newest_kernel(self):
+        state = self.adopt()
+        self.assertEqual(state['schema'], 2)
+        self.assertEqual((state['rescue'], state['default'], state['known_good']), (release(1),) * 3)
+        self.assertEqual(self.environment['saved_entry'], 'owrt-rescue')
+        self.assertEqual((self.root / 'etc/apk/world').read_text(), 'kernel\nkmod-nic\nlinux-image-openwrt\n')
+        self.assertIn('linux-image-' + release(1) + '><Q1linux-image-' + release(1),
+                      (self.manager.policy / 'protected').read_text())
+        grub = (self.root / 'boot/grub/grub.cfg').read_text()
+        self.assertTrue(grub.startswith('serial --unit=0\n'))
+        self.assertLess(grub.index("--id=owrt-rescue {"), grub.index('source $prefix/openwrt.cfg'))
+        self.assertIn('if [ "$boot_left" = 0 ]; then set default=$fallback_entry', grub)
+        self.assertEqual(K.sha256(self.root / 'boot/vmlinuz'), self.original)
+
+    def test_adoption_requires_the_running_kernel_package(self):
+        self.running = '6.18.55-9-openwrt'
+        with self.assertRaisesRegex(K.KernelError, 'not an installed kernel package'):
+            self.adopt()
+        self.assertFalse((self.manager.policy / 'state.json').exists())
 
     def test_bad_boot_mount_refuses_without_writes(self):
+        self.adopt()
         (self.root / 'proc/self/mountinfo').write_text('')
         with self.assertRaisesRegex(K.KernelError, 'not mounted'):
             self.manager.check()
-        self.assertEqual(K.sha256(self.root / 'boot/vmlinuz'), self.original)
+
+    # -- installing kernels ------------------------------------------------------
+
+    def test_new_kernel_package_becomes_the_counted_default(self):
+        self.adopt()
+        name = self.install(2)
+        state = self.manager.state()
+        self.assertEqual((state['default'], state['counting'], state['fallback']), (name, name, release(1)))
+        self.assertEqual(self.environment['saved_entry'], 'owrt-' + name)
+        self.assertEqual(self.environment['boot_left'], '3')
+        self.assertEqual(self.environment['fallback_entry'], 'owrt-rescue')
+        boot = self.root / 'boot/kernels' / name
+        self.assertEqual((boot / 'vmlinuz').read_bytes(), b'kernel ' + name.encode())
+        self.assertTrue((boot / 'initramfs.gz').is_file())
+        self.assertIn(['depmod', '-a', name], self.calls)
+        menu = (self.root / 'boot/grub/openwrt.cfg').read_text()
+        self.assertIn(f"--id=owrt-{name} {{\n linux /boot/kernels/{name}/vmlinuz root=PARTUUID=abcd-02 openwrt.init=systemd", menu)
+        self.assertIn(f"--id=owrt-{name}-procd", menu)
+        self.assertNotIn('firmware_class.path', menu)
+        protected = (self.manager.policy / 'protected').read_text()
+        self.assertIn('linux-image-' + name + '>', protected)
+        self.assertIn('linux-image-' + release(1) + '>', protected)
+        self.manager.check()
+
+    def test_simulation_and_failed_transactions_change_no_boot_entries(self):
+        self.adopt()
+        self.install(2, simulation='simulate')
+        self.assertFalse((self.root / 'boot/kernels').exists())
+        self.assertNotIn('boot_left', self.environment)
+        with self.assertRaisesRegex(K.KernelError, 'transaction failed'):
+            self.install(3, errors='1')
+        self.assertFalse((self.root / 'boot/kernels').exists())
+        self.assertEqual(self.manager.state()['default'], release(1))
+
+    def test_changed_kernel_package_files_are_refused(self):
+        self.adopt()
+        self.package(2)
+        (self.root / 'usr/lib/modules' / release(2) / 'nic.ko').write_bytes(b'changed')
+        txn = self.root / 'run/txn'
+        txn.write_text(f'-\t-\tlinux-image-{release(2)}\t6.18.55-r2\t0\n')
+        with patch.object(self.manager, 'bootstrap', side_effect=self.bootstrap):
+            with self.assertRaisesRegex(K.KernelError, 'changed kernel file'):
+                self.manager.transaction('apk-post', txn, '0', 'live', '0')
+        self.assertNotIn('boot_left', self.environment)
+
+    def test_scripts_are_required_for_kernel_transactions(self):
+        self.adopt()
+        self.package(2)
+        txn = self.root / 'run/txn'
+        txn.write_text(f'-\t-\tlinux-image-{release(2)}\t6.18.55-r2\t0\n')
+        with self.assertRaisesRegex(K.KernelError, 'requires scripts'):
+            self.manager.transaction('apk-pre', txn, '0', 'live', '1')
+
+    def test_userspace_and_kmod_configuration_changes_are_not_kernel_transactions(self):
+        self.adopt()
+        before = (self.manager.policy / 'state.json').read_bytes()
+        txn = self.root / 'run/txn'
+        txn.write_text('kmod-nic\t1000.1.6.18.55-r1\tkmod-nic\t1000.2.6.18.55-r1\t0\n'
+                       'busybox\t1-r1\tbusybox\t1-r2\t0\n')
+        self.manager.transaction('apk-pre', txn, '0', 'live', '1')
+        self.manager.transaction('apk-post', txn, '0', 'live', '1')
+        self.assertEqual(before, (self.manager.policy / 'state.json').read_bytes())
+
+    # -- boot counting -----------------------------------------------------------
+
+    def test_prepare_arms_the_counting_reboot_only_for_the_counted_kernel(self):
+        self.adopt()
+        name = self.install(2)
+        dropin = self.root / K.COUNTING_DROPIN.lstrip('/')
+        self.running = release(1)
+        self.manager.prepare()
+        self.assertFalse(dropin.exists())
+        self.running = name
+        self.manager.prepare()
+        self.assertIn('FailureAction=reboot', dropin.read_text())
+        self.assertIn('JobTimeoutAction=reboot', dropin.read_text())
+
+    def test_healthy_counted_boot_is_blessed(self):
+        self.adopt()
+        name = self.install(2)
+        state = self.boot(name)
+        self.assertEqual((state['known_good'], state['default'], state['counting']), (name, name, None))
+        self.assertNotIn('boot_left', self.environment)
+        self.assertNotIn('fallback_entry', self.environment)
+        self.assertEqual(self.environment['saved_entry'], 'owrt-' + name)
+        self.assertFalse((self.root / K.COUNTING_DROPIN.lstrip('/')).exists())
+
+    def test_unhealthy_counted_boot_fails_so_the_unit_reboots(self):
+        self.adopt()
+        name = self.install(2)
+        with self.assertRaisesRegex(K.KernelError, 'LAN'):
+            self.boot(name, healthy=False)
+        state = self.manager.state()
+        self.assertEqual((state['counting'], state['known_good']), (name, release(1)))
+        self.assertEqual(self.environment['boot_left'], '3')
+
+    def test_wan_outage_does_not_fail_a_counted_boot(self):
+        self.adopt()
+        name = self.install(2)
+        # The baseline holds only static local interfaces; WAN (dhcp) is down.
+        self.assertEqual(self.manager.state()['health']['interfaces'], ['lan'])
+        self.assertEqual(self.boot(name)['known_good'], name)
+
+    def test_exhausted_attempts_restore_the_fallback_as_default(self):
+        self.adopt()
+        name = self.install(2)
+        self.environment['boot_left'] = '0'
+        state = self.boot(release(1))
+        self.assertTrue(state['kernels'][name]['bad'])
+        self.assertEqual((state['default'], state['counting']), (release(1), None))
+        self.assertEqual(self.environment['saved_entry'], 'owrt-rescue')
+        self.assertNotIn('boot_left', self.environment)
+        self.assertIn(f"'OpenWrt {name} (failed boot)'", (self.root / 'boot/grub/openwrt.cfg').read_text())
+
+    def test_menu_choice_during_counting_is_not_a_failure(self):
+        self.adopt()
+        name = self.install(2)
+        self.environment['boot_left'] = '2'
+        state = self.boot(release(1))
+        self.assertEqual((state['counting'], state['default']), (name, name))
+        self.assertFalse(state['kernels'][name].get('bad'))
+
+    def test_set_default_and_rollback(self):
+        self.adopt()
+        two = self.install(2)
+        self.boot(two)
+        three = self.install(3)
+        state = self.manager.rollback()
+        self.assertTrue(state['kernels'][three]['bad'])
+        self.assertEqual((state['default'], self.environment['saved_entry']), (two, 'owrt-' + two))
+        state = self.manager.set_default(three)
+        self.assertFalse(state['kernels'][three]['bad'])
+        self.assertEqual((state['default'], state['counting']), (three, None))
+        self.assertEqual(self.environment['saved_entry'], 'owrt-' + three)
+        with self.assertRaisesRegex(K.KernelError, 'Unknown kernel'):
+            self.manager.set_default('6.18.55-99-openwrt')
+
+    def test_booted_set_default_kernel_becomes_known_good(self):
+        self.adopt()
+        two = self.install(2)
+        self.environment['boot_left'] = '0'
+        self.boot(release(1))
+        self.manager.set_default(two)
+        state = self.boot(two)
+        self.assertEqual((state['known_good'], state['default'], state['counting']), (two, two, None))
+
+    # -- retention and removal ---------------------------------------------------
+
+    def test_retention_keeps_three_kernels_besides_rescue_and_prunes_older(self):
+        self.adopt()
+        for number in (2, 3, 4, 5):
+            self.boot(self.install(number))
+        state = self.manager.state()
+        self.assertEqual(self.manager.retention(state), [release(5), release(4), release(3)])
+        self.assertEqual(self.manager.prunable(state), [release(2)])
+        self.assertFalse((self.root / 'boot/kernels' / release(2)).exists())
+        self.assertTrue((self.root / 'run/openwrt-kernel-prune').exists())
+        self.manager.prune()
+        self.assertIn(['apk', '--wait', '10', '--no-network', 'del', 'linux-image-' + release(2)], self.calls)
+        state = self.manager.state()
+        self.assertNotIn(release(2), state['kernels'])
+        self.assertNotIn('linux-image-' + release(2), (self.manager.policy / 'protected').read_text())
+        self.assertIn(release(1), state['kernels'])
+        self.assertFalse((self.manager.policy / 'pruning.json').exists())
+        self.assertNotIn(release(2), (self.root / 'boot/grub/openwrt.cfg').read_text())
+
+    def test_apk_cannot_remove_held_or_unplanned_kernels(self):
+        self.adopt()
+        two = self.install(2)
+        self.boot(two)
+        self.install(3)
+        self.boot(release(3))
+        self.install(4)
+        txn = self.root / 'run/txn'
+        for name in (release(1), release(4), release(3)):
+            txn.write_text(f'linux-image-{name}\t6.18.55-r1\t-\t-\t0\n')
+            with self.assertRaisesRegex(K.KernelError, 'Refusing to remove'):
+                self.manager.transaction('apk-pre', txn, '0', 'live', '0')
+        txn.write_text(f'linux-image-{two}\t6.18.55-r2\t-\t-\t0\n')
+        with self.assertRaisesRegex(K.KernelError, 'kernelctl remove'):
+            self.manager.transaction('apk-pre', txn, '0', 'live', '0')
+        packages = self.manager.remove(two)
+        self.assertEqual(packages, ['linux-image-' + two])
+        self.manager.transaction('apk-pre', txn, '0', 'live', '0')
+
+    def test_remove_refuses_the_kernel_the_metapackage_requires(self):
+        self.adopt()
+        two = self.install(2)
+        self.boot(two)
+        three = self.install(3)
+        self.boot(three)
+        self.packages['linux-image-openwrt'] = '6.18.55-r3'
+        self.database()
+        records = self.manager.installed()
+        db = (self.root / 'usr/lib/apk/db/installed')
+        db.write_text(db.read_text().replace('P:linux-image-openwrt\nV:6.18.55-r3\n',
+                      'P:linux-image-openwrt\nV:6.18.55-r3\nD:linux-image-' + three + '=6.18.55-r3\n'))
+        self.manager.set_default(two)
+        self.boot(two)
+        with self.assertRaisesRegex(K.KernelError, 'newest kernel'):
+            self.manager.remove(three)
+        self.assertIn(three, self.manager.state()['kernels'])
+
+    def test_remove_keeps_state_when_apk_keeps_the_package(self):
+        self.adopt()
+        two = self.install(2)
+        self.boot(two)
+        self.boot(self.install(3))
+        self.boot(self.install(4))
+        packages = self.manager.remove(two)
+        self.assertEqual(packages, ['linux-image-' + two])
+        self.manager.finish_remove(two, True)  # apk "succeeded" but kept it
+        self.assertIn(two, self.manager.state()['kernels'])
+        self.assertTrue((self.root / 'usr/lib/openwrt-kernel' / two / 'image.json').is_file())
+        self.manager.forget(self.manager.state(), two)  # even a forced forget keeps package files
+        self.assertTrue((self.root / 'usr/lib/openwrt-kernel' / two / 'image.json').is_file())
+        self.assertIn('linux-image-' + two, (self.manager.policy / 'protected').read_text())
+
+    def test_remove_refuses_the_running_default_and_rescue_kernels(self):
+        self.adopt()
+        two = self.install(2)
+        for name in (release(1), two):
+            with self.assertRaisesRegex(K.KernelError, 'Refusing to remove'):
+                self.manager.remove(name)
+
+    # -- schema-1 generations ----------------------------------------------------
+
+    def legacy_state(self):
+        """A router adopted with the previous per-generation model, running g45."""
+        modules = self.root / 'usr/lib/modules/6.18.55'
+        modules.mkdir(parents=True, exist_ok=True)
+        (modules / 'nic.ko').write_bytes(b'original network driver')
+        rescue_copy = self.root / 'usr/lib/openwrt-kernel/legacy-6.18.55'
+        (rescue_copy / 'modules.d').mkdir(parents=True)
+        (rescue_copy / 'modules.d/30-nic').write_text('nic\n')
+        boot = self.root / 'boot/kernels' / GEN
+        boot.mkdir(parents=True)
+        (boot / 'vmlinuz').write_bytes(b'kernel g45')
+        (boot / 'initramfs.gz').write_bytes(b'initramfs g45')
+        autoload = self.root / 'usr/lib/modules' / GEN / 'openwrt/modules.d'
+        autoload.mkdir(parents=True)
+        (autoload / '30-nic').write_text('nic\n')
+        firmware = self.root / 'usr/lib/openwrt-kernel' / GEN / 'firmware'
+        firmware.mkdir(parents=True)
+        state = {'schema': 1, 'phase': 'ready', 'rescue': 'legacy-6.18.55', 'known_good': GEN,
+                 'previous_good': 'legacy-6.18.55', 'pending': None,
+                 'bootargs': 'root=PARTUUID=abcd-02', 'required_config': [],
+                 'health': {'interfaces': ['lan', 'wan', 'wan6'], 'overlay': ['/dev/nvme0n1p1'],
+                            'lan_addresses': ['192.0.2.1'], 'default_route': True, 'kvm': False},
+                 'generations': {
+                     'legacy-6.18.55': {'legacy': True, 'ready': True, 'release': '6.18.55', 'abi': ABI,
+                                        'kernel_sha256': self.original,
+                                        'modules': K.inventory(modules)},
+                     GEN: {'legacy': False, 'ready': True, 'release': GEN, 'abi': ABI,
+                           'kernel_sha256': K.sha256(boot / 'vmlinuz'), 'files': {},
+                           'boot_files': K.inventory(boot)}}}
+        K.json_write(self.manager.policy / 'state.json', state)
+        self.packages = {'kernel': ABI, 'kmod-nic': '1000.45.6.18.55-r1',
+                         'linux-image-' + GEN: ABI, 'kmod-nic-' + GEN: '1000.45.6.18.55-r1',
+                         'linux-image-openwrt': '1-r45'}
+        self.database()
+        (self.root / 'boot/grub/grub.cfg.rescue').write_text('serial --unit=0\n')
+        self.running = GEN
+
+    def test_schema1_state_converts_to_legacy_kernels(self):
+        self.legacy_state()
+        state = self.manager.state()
+        self.assertEqual(json.loads((self.manager.policy / 'state.json').read_text())['schema'], 2)
+        self.assertEqual(state['kernels'][GEN]['kind'], 'legacy-generation')
+        self.assertEqual(state['kernels']['legacy-6.18.55']['kind'], 'legacy-rescue')
+        self.assertEqual((state['default'], state['known_good'], state['fallback']),
+                         (GEN, GEN, 'legacy-6.18.55'))
+        # Only the static local interface survives; the DHCP WANs never count.
+        self.assertEqual(state['health'], {'interfaces': ['lan'], 'overlay': ['/dev/nvme0n1p1'],
+                                           'lan_addresses': ['192.0.2.1']})
+        self.manager.check()
+        menu = self.manager.grub_config(state)
+        self.assertIn(f'linux /boot/kernels/{GEN}/vmlinuz root=PARTUUID=abcd-02 '
+                      f'firmware_class.path=/usr/lib/openwrt-kernel/{GEN}/firmware openwrt.init=systemd', menu)
+        self.manager.prepare()
+        link = self.root / 'run/openwrt-kernel/modules.d/30-nic'
+        self.assertEqual(link.resolve(), (self.root / 'usr/lib/modules' / GEN / 'openwrt/modules.d/30-nic').resolve())
+
+    def test_legacy_router_installs_its_first_kernel_package_with_g45_fallback(self):
+        self.legacy_state()
+        name = self.install(46)
+        state = self.manager.state()
+        self.assertEqual((state['default'], state['fallback'], state['counting']), (name, GEN, name))
+        self.assertEqual(self.environment['fallback_entry'], 'owrt-' + GEN)
+        protected = (self.manager.policy / 'protected').read_text()
+        self.assertIn('kmod-nic-' + GEN + '>', protected)
+        self.assertIn('linux-image-' + GEN + '>', protected)
+        # The package kernel uses the standard /etc autoload rules.
+        self.running = GEN
+        self.manager.prepare()
+        self.assertTrue((self.root / 'run/openwrt-kernel/modules.d').is_dir())
+        self.running = name
+        self.manager.prepare()
+        self.assertFalse((self.root / 'run/openwrt-kernel/modules.d').exists())
+        state = self.manager.assess(timeout=0)
+        self.assertEqual(state['known_good'], name)
+        # g45 stays as the fallback until two newer kernels exist.
+        self.assertIn(GEN, self.manager.retention(state))
+        self.assertEqual(self.manager.kernel_packages(state, GEN),
+                         sorted(['kmod-nic-' + GEN, 'linux-image-' + GEN]))
+
+    # -- health and helpers ------------------------------------------------------
 
     def test_health_requires_every_systemd_service(self):
         original = self.manager.command
@@ -206,22 +540,6 @@ class RuntimeTests(unittest.TestCase):
         self.assertIn(['systemctl', 'is-active', 'sshd.service'], self.calls)
         self.assertNotIn(['/etc/init.d/sshd', 'status'], self.calls)
 
-    def test_inactive_native_ssh_cannot_qualify_for_kernel_adoption(self):
-        unit = self.root / 'usr/lib/systemd/system/sshd.service'
-        unit.parent.mkdir(parents=True)
-        unit.touch()
-        original = self.manager.command
-
-        def failed_ssh(*args):
-            if args == ('systemctl', 'is-active', 'sshd.service'):
-                raise K.KernelError('native SSH inactive')
-            return original(*args)
-
-        with patch.object(self.manager, 'command', side_effect=failed_ssh):
-            with self.assertRaisesRegex(K.KernelError, 'native SSH inactive'):
-                self.manager.health()
-        self.assertNotIn(['/etc/init.d/sshd', 'status'], self.calls)
-
     def test_initramfs_archive_roundtrips_with_standard_cpio(self):
         archive_root = self.root / 'archive'; archive_root.mkdir()
         (archive_root / 'init').write_bytes(b'#!/bin/sh\n')
@@ -234,656 +552,18 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(os.readlink(output / 'init-link'), '/init')
         self.assertEqual((output / 'init').stat().st_mode & 0o777, 0o755)
 
-    def test_wrong_abi_cannot_activate(self):
-        self.candidate()
-        manifest = self.root / 'usr/lib/openwrt-kernel' / GEN / 'kmods/kmod-nic.json'
-        data = json.loads(manifest.read_text()); data['abi'] = ABI.replace('a', 'b')
-        K.json_write(manifest, data)
-        with self.assertRaisesRegex(K.KernelError, 'ABI'):
-            self.activate()
-        self.assertNotIn('next_entry', self.environment)
+    def test_bootstrap_failure_reboots_for_the_boot_counter(self):
+        init = (TREE / 'package/custom/openwrt-kernel-upgrade/files/init').read_text()
+        self.assertIn('echo b >/proc/sysrq-trigger', init)
 
-    def test_corrupt_module_cannot_activate(self):
-        self.candidate()
-        (self.root / 'usr/lib/modules' / GEN / 'nic.ko').write_bytes(b'wrong module')
-        with self.assertRaisesRegex(K.KernelError, 'changed generation'):
-            self.activate()
-        self.assertNotIn('next_entry', self.environment)
-
-    def test_missing_module_rejected_before_transaction(self):
-        txn = self.root / 'run/txn'
-        txn.write_text(f'-\t-\tlinux-image-{GEN}\t{ABI}\t0\n')
-        before = (self.manager.policy / 'state.json').read_bytes()
-        with self.assertRaisesRegex(K.KernelError, 'lacks matching payload'):
-            self.manager.transaction('apk-pre', txn, '0', 'live', '0')
-        self.assertEqual(before, (self.manager.policy / 'state.json').read_bytes())
-
-    def test_failed_apk_transaction_never_arms_trial(self):
-        txn = self.root / 'run/txn'
-        txn.write_text(f'-\t-\tlinux-image-{GEN}\t{ABI}\t0\n')
-        with self.assertRaisesRegex(K.KernelError, 'transaction failed'):
-            self.manager.transaction('apk-post', txn, '1', 'live', '0')
-        self.assertNotIn('next_entry', self.environment)
-
-    def test_disabled_hooks_refused_even_for_simulation(self):
-        txn = self.root / 'run/txn'
-        txn.write_text(f'-\t-\tlinux-image-{GEN}\t{ABI}\t0\n')
-        with self.assertRaisesRegex(K.KernelError, 'requires scripts'):
-            self.manager.transaction('apk-pre', txn, '0', 'simulate', '1')
-
-    def test_trial_keeps_original_and_only_promotes_after_health(self):
-        self.candidate()
-        state = self.activate()
-        self.assertEqual(self.environment['saved_entry'], 'owrt-rescue')
-        self.assertEqual(self.environment['next_entry'], 'owrt-' + GEN)
-        self.assertEqual(K.sha256(self.root / 'boot/vmlinuz'), self.original)
-        self.assertEqual(K.inventory(self.root / 'usr/lib/modules/6.18.55'), self.modules)
-        self.running = GEN
-        with patch.object(self.manager, 'health', side_effect=K.KernelError('LAN unhealthy')):
-            with self.assertRaisesRegex(K.KernelError, 'LAN unhealthy'):
-                self.manager.confirm(duration=0)
-        self.assertEqual(self.environment['saved_entry'], 'owrt-rescue')
-        self.manager.confirm(duration=0)
-        self.assertEqual(self.environment['saved_entry'], 'owrt-' + GEN)
-        self.assertIsNone(self.manager.state()['pending'])
-        self.assertTrue((self.root / 'boot/kernels' / GEN / 'vmlinuz').exists())
-
-    def test_protected_removal_refused(self):
-        with self.assertRaisesRegex(K.KernelError, 'Refusing to remove'):
-            self.manager.remove('legacy-6.18.55')
-
-    def test_required_builtin_feature_cannot_disappear(self):
-        self.candidate()
-        state = self.manager.state()
-        state['required_config'] = ['CONFIG_KVM']
-        self.manager.save(state)
-        with self.assertRaisesRegex(K.KernelError, 'CONFIG_KVM'):
-            self.activate()
-        self.assertNotIn('next_entry', self.environment)
-
-    def test_interruption_before_grub_publish_is_retryable(self):
-        self.candidate()
-        original_atomic = K.atomic
-        def interrupted(path, *args, **kwargs):
-            if Path(path).name == 'openwrt.cfg':
-                raise OSError('simulated power loss')
-            return original_atomic(path, *args, **kwargs)
-        with patch.object(K, 'atomic', side_effect=interrupted):
-            with self.assertRaisesRegex(OSError, 'simulated power loss'):
-                self.activate()
-        self.assertEqual(self.environment['saved_entry'], 'owrt-rescue')
-        self.assertNotIn('next_entry', self.environment)
-        self.activate()
-        self.assertEqual(self.environment['next_entry'], 'owrt-' + GEN)
-
-    def test_trial_pending_marker_follows_state(self):
-        marker = self.root / 'etc/openwrt-kernel/trial-pending'
-        self.assertFalse(marker.exists())
-        self.candidate()
-        self.activate()
-        self.assertEqual(marker.read_text(), self.manager.state()['pending'] + '\n')
-        self.assertTrue(self.manager.same_abi_upgrades()['trial_pending'])
-        self.manager.rollback()
-        self.assertFalse(marker.exists())
-        self.assertFalse(self.manager.same_abi_upgrades()['trial_pending'])
-
-    def test_promotion_clears_trial_pending_marker(self):
-        marker = self.root / 'etc/openwrt-kernel/trial-pending'
-        self.candidate()
-        self.activate()
-        self.running = GEN
-        self.manager.confirm(duration=0)
-        self.assertFalse(marker.exists())
-
-    def test_interrupted_trial_record_keeps_marker(self):
-        marker = self.root / 'etc/openwrt-kernel/trial-pending'
-        state = self.manager.state()
-        state['pending'] = 'legacy-6.18.55'
-        with patch.object(K, 'json_write', side_effect=OSError('simulated power loss')):
-            with self.assertRaisesRegex(OSError, 'simulated power loss'):
-                self.manager.save(state)
-        self.assertTrue(marker.exists())
-        state['pending'] = None
-        with patch.object(K, 'json_write', side_effect=OSError('simulated power loss')):
-            with self.assertRaisesRegex(OSError, 'simulated power loss'):
-                self.manager.save(state)
-        self.assertTrue(marker.exists())
-
-    def test_same_abi_upgrade_switch(self):
-        hold = self.root / 'etc/openwrt-kernel/same-abi-hold'
-        self.assertEqual(self.manager.same_abi_upgrades(),
-                         {'same_abi_upgrades': True, 'trial_pending': False})
-        self.assertEqual(self.manager.same_abi_upgrades('disable')['same_abi_upgrades'], False)
-        self.assertTrue(hold.exists())
-        self.assertEqual(self.manager.same_abi_upgrades('disable')['same_abi_upgrades'], False)
-        self.assertEqual(self.manager.same_abi_upgrades('status')['same_abi_upgrades'], False)
-        self.assertEqual(self.manager.same_abi_upgrades('enable')['same_abi_upgrades'], True)
-        self.assertFalse(hold.exists())
-        self.assertEqual(self.manager.same_abi_upgrades('enable')['same_abi_upgrades'], True)
-        with self.assertRaisesRegex(K.KernelError, 'enable\|disable\|status'):
-            self.manager.same_abi_upgrades('toggle')
-
-    def test_cancel_trial_keeps_last_confirmed_kernel_as_default(self):
-        self.candidate()
-        self.activate()
-        self.manager.rollback()
-        self.assertEqual(self.environment['saved_entry'], 'owrt-rescue')
-        self.assertIsNone(self.manager.state()['pending'])
-        with self.assertRaisesRegex(K.KernelError, 'rejected'):
-            self.activate()
-
-    def test_firmware_snapshot_survives_shared_firmware_update(self):
-        firmware = self.root / 'usr/lib/firmware'; firmware.mkdir()
-        (firmware / 'nic.bin').write_bytes(b'known good firmware')
-        destination = self.root / 'usr/lib/openwrt-kernel' / GEN
-        destination.mkdir(parents=True)
-        snapshot = self.manager.freeze_firmware(GEN)
-        (firmware / 'nic.bin').write_bytes(b'replacement firmware')
-        K.verify_files(self.root, snapshot)
-        self.assertEqual((destination / 'firmware/nic.bin').read_bytes(), b'known good firmware')
-
-    def test_space_failure_never_prunes_fallback(self):
-        self.candidate()
-        with patch('shutil.disk_usage', return_value=shutil._ntuple_diskusage(100, 99, 1)):
-            with self.assertRaisesRegex(K.KernelError, 'Insufficient boot space'):
-                self.activate()
-        self.assertEqual(K.sha256(self.root / 'boot/vmlinuz'), self.original)
-
-    def test_retention_keeps_trial_and_fallback(self):
-        first = '6.18.55-owrt-' + 'b' * 32 + '-r1-g2'
-        fallback = '6.18.55-owrt-' + 'c' * 32 + '-r1-g3'
-        extra = '6.18.55-owrt-' + 'd' * 32 + '-r1-g4'
-        self.generation(first, known=True)
-        self.generation(fallback, previous=True)
-        self.generation(extra)
-        self.running = first
-        keep = self.manager.retain(self.manager.state(), candidate=GEN)
-        self.assertEqual(keep[:2], [GEN, first])
-        self.assertTrue((self.root / 'boot/kernels' / first).is_dir())
-        self.assertFalse((self.root / 'boot/kernels' / fallback).exists())
-        self.assertFalse((self.root / 'boot/kernels' / extra).exists())
-        state = self.manager.state()
-        self.assertFalse(state['generations'][fallback]['ready'])
-        self.assertFalse(state['generations'][extra]['ready'])
-        self.assertEqual(state['previous_good'], first)
-        self.assertEqual(K.sha256(self.root / 'boot/vmlinuz'), self.original)
-        cfg = (self.root / 'boot/grub/openwrt.cfg').read_text()
-        self.assertIn(first, cfg)
-        self.assertNotIn(fallback, cfg)
-        self.assertNotIn(extra, cfg)
-
-    def test_retention_sweeps_orphan_boot_directory(self):
-        first = '6.18.55-owrt-' + 'b' * 32 + '-r1-g2'
-        self.generation(first, known=True)
-        self.running = first
-        orphan = self.root / 'boot/kernels' / ('6.18.55-owrt-' + 'e' * 32 + '-r1-g5')
-        orphan.mkdir(parents=True)
-        (orphan / 'vmlinuz').write_bytes(b'orphan')
-        self.manager.retain(self.manager.state())
-        self.assertFalse(orphan.exists())
-        self.assertTrue((self.root / 'boot/kernels' / first).is_dir())
-        self.assertEqual(K.sha256(self.root / 'boot/vmlinuz'), self.original)
-
-    def test_activate_prunes_previous_good_before_space_check(self):
-        first = '6.18.55-owrt-' + 'b' * 32 + '-r1-g2'
-        fallback = '6.18.55-owrt-' + 'c' * 32 + '-r1-g3'
-        self.generation(first, known=True)
-        self.generation(fallback, previous=True)
-        self.running = first
-        self.candidate()
-        with patch('shutil.disk_usage', return_value=shutil._ntuple_diskusage(100, 99, 1)):
-            with self.assertRaisesRegex(K.KernelError, 'Insufficient boot space'):
-                self.activate()
-        self.assertTrue((self.root / 'boot/kernels' / first).is_dir())
-        self.assertFalse((self.root / 'boot/kernels' / fallback).exists())
-        self.assertFalse((self.root / 'boot/kernels' / GEN).exists())
-        state = self.manager.state()
-        self.assertFalse(state['generations'][fallback]['ready'])
-        self.assertEqual(state['previous_good'], first)
-        self.assertEqual(K.sha256(self.root / 'boot/vmlinuz'), self.original)
-
-    def test_rollback_prunes_rejected_trial(self):
-        self.candidate()
-        self.activate()
-        self.assertTrue((self.root / 'boot/kernels' / GEN).is_dir())
-        self.running = GEN
-        self.manager.rollback()
-        self.assertFalse((self.root / 'boot/kernels' / GEN).exists())
-        state = self.manager.state()
-        self.assertFalse(state['generations'][GEN]['ready'])
-        self.assertTrue(state['generations'][GEN]['failed'])
-        self.assertEqual(K.sha256(self.root / 'boot/vmlinuz'), self.original)
-
-    def test_running_generation_is_never_pruned(self):
-        first = '6.18.55-owrt-' + 'b' * 32 + '-r1-g2'
-        running = '6.18.55-owrt-' + 'c' * 32 + '-r1-g3'
-        extra = '6.18.55-owrt-' + 'd' * 32 + '-r1-g4'
-        self.generation(first, known=True)
-        self.generation(running)
-        self.generation(extra)
-        self.running = running
-        keep = self.manager.retain(self.manager.state())
-        self.assertIn(running, keep)
-        self.assertTrue((self.root / 'boot/kernels' / running).is_dir())
-        self.assertTrue((self.root / 'boot/kernels' / first).is_dir())
-        self.assertFalse((self.root / 'boot/kernels' / extra).exists())
-
-    def test_confirmation_retains_new_and_old(self):
-        first = '6.18.55-owrt-' + 'b' * 32 + '-r1-g2'
-        self.generation(first, known=True)
-        self.running = first
-        self.candidate()
-        self.activate()
-        self.running = GEN
-        self.manager.confirm(duration=0)
-        state = self.manager.state()
-        self.assertEqual(state['known_good'], GEN)
-        self.assertEqual(state['previous_good'], first)
-        remaining = {path.name for path in (self.root / 'boot/kernels').iterdir()
-                     if path.is_dir()}
-        self.assertEqual(remaining, {first, GEN})
-        self.assertEqual(K.sha256(self.root / 'boot/vmlinuz'), self.original)
-
-    def test_retention_preserves_legacy_previous_good(self):
-        first = '6.18.55-owrt-' + 'b' * 32 + '-r1-g2'
-        extra = '6.18.55-owrt-' + 'd' * 32 + '-r1-g4'
-        self.generation(first, known=True)
-        self.generation(extra)
-        state = self.manager.state()
-        state['previous_good'] = state['rescue']
-        self.manager.save(state)
-        self.running = first
-        self.manager.retain(self.manager.state())
-        state = self.manager.state()
-        self.assertEqual(state['previous_good'], state['rescue'])
-        self.assertFalse(state['generations'][extra]['ready'])
-        self.assertEqual(K.sha256(self.root / 'boot/vmlinuz'), self.original)
-
-    def test_simulation_never_prunes(self):
-        first = '6.18.55-owrt-' + 'b' * 32 + '-r1-g2'
-        fallback = '6.18.55-owrt-' + 'c' * 32 + '-r1-g3'
-        extra = '6.18.55-owrt-' + 'd' * 32 + '-r1-g4'
-        self.generation(first, known=True)
-        self.generation(fallback, previous=True)
-        self.generation(extra)
-        self.running = first
-        txn = self.root / 'run/txn'
-        txn.write_text(f'kernel\t{ABI}\tkernel\t{ABI}\t1\n')
-        self.manager.transaction('apk-pre', txn, '0', 'simulate', '0')
-        self.assertFalse((self.root / 'run/openwrt-kernel-prune').exists())
-        self.assertTrue((self.root / 'boot/kernels' / extra).is_dir())
-        self.assertEqual(self.manager.state()['previous_good'], fallback)
-        self.manager.transaction('apk-pre', txn, '0', 'live', '0')
-        self.assertFalse((self.root / 'boot/kernels' / extra).exists())
-        self.assertEqual(self.manager.state()['previous_good'], fallback)
-
-    def prune_fixture(self):
-        old = GEN.rsplit('-g', 1)[0] + '-g2'
-        current = GEN.rsplit('-g', 1)[0] + '-g3'
-        self.generation(old)
-        self.generation(current, known=True)
-        self.running = current
-        packages = {'kernel': ABI, 'kmod-nic': '1-r1', 'userspace': '1-r1'}
-        for name in (old, current):
-            packages.update({prefix + name: '1-r1' for prefix in
-                             ('linux-image-', 'kmod-nic-', 'kernel-dev-headers-')})
-        self.database(packages)
-        self.manager.protect()
-        self.manager.retain(self.manager.state())
-        return old, current
-
-    def prune_runner(self, args):
-        if args[0] != 'apk':
-            return self.run_command(args)
-        self.calls.append(args)
-        # The worker must release the policy lock before APK's hook takes it.
-        with (self.manager.policy / '.lock').open('a') as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        with (self.root / 'lib/apk/db/lock').open('a') as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        plan = json.loads((self.manager.policy / 'pruning.json').read_text())
-        self.assertEqual(args, ['apk', '--wait', '10', '--no-network', 'del', *plan['packages']])
-        records = self.manager.installed()
-        txn = self.root / 'run/prune.txn'
-        txn.write_text(''.join(f'{name}\t{records[name]["V"]}\t-\t-\t0\n'
-                               for name in plan['packages']))
-        pins = (self.manager.policy / 'protected').read_text()
-        for name in plan['packages']:
-            self.assertNotIn(name + '><', pins)
-        self.manager.transaction('apk-pre', txn, '0', 'live', '0')
-        self.database({name: record['V'] for name, record in records.items()
-                       if name not in plan['packages']})
-        self.manager.transaction('apk-post', txn, '0', 'live', '0')
-        return ''
-
-    def test_prune_removes_obsolete_apks_and_owned_trees(self):
-        old, current = self.prune_fixture()
-        self.assertTrue((self.root / 'run/openwrt-kernel-prune').exists())
-        self.manager.runner = self.prune_runner
-        self.manager.prune()
-        self.assertNotIn(old, self.manager.state()['generations'])
-        for base in ('boot/kernels', 'usr/lib/modules', 'usr/lib/openwrt-kernel'):
-            self.assertFalse((self.root / base / old).exists())
-            self.assertTrue((self.root / base / current).exists())
-        records = self.manager.installed()
-        self.assertIn('kmod-nic', records)
-        self.assertIn('userspace', records)
-        self.assertIn('kmod-nic-' + current, records)
-        self.assertFalse(any(name.endswith('-' + old) for name in records))
-        self.assertFalse((self.manager.policy / 'pruning.json').exists())
-        self.manager.check()
-
-    def test_queued_prune_waits_for_original_apk_before_releasing_pins(self):
-        old, current = self.prune_fixture()
-        before = (self.manager.policy / 'protected').read_bytes()
-        entered = threading.Event()
-        original_lock = self.manager.apk_locked
-        failures = []
-
-        @contextmanager
-        def waiting_lock():
-            entered.set()
-            with original_lock():
-                yield
-
-        def worker():
-            try:
-                self.manager.prune()
-            except Exception as exc:
-                failures.append(exc)
-
-        self.manager.runner = self.prune_runner
-        with (self.root / 'lib/apk/db/lock').open('a') as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            with patch.object(self.manager, 'apk_locked', side_effect=waiting_lock):
-                thread = threading.Thread(target=worker)
-                thread.start()
-                try:
-                    self.assertTrue(entered.wait(5))
-                    self.assertFalse((self.manager.policy / 'pruning.json').exists())
-                    self.assertEqual((self.manager.policy / 'protected').read_bytes(), before)
-                finally:
-                    fcntl.flock(lock, fcntl.LOCK_UN)
-                    thread.join(5)
-        self.assertFalse(thread.is_alive())
-        self.assertEqual(failures, [])
-        self.assertNotIn(old, self.manager.state()['generations'])
-
-    def test_prune_preserves_running_failed_pending_and_selected_payloads(self):
-        old, current = self.prune_fixture()
-        state = self.manager.state()
-        state['generations'][old]['failed'] = True
-        self.manager.save(state)
-        self.running = old
-        self.assertNotIn(old, self.manager.prunable(state))
-        self.running = current
-        state['pending'] = old
-        self.assertNotIn(old, self.manager.prunable(state))
-        state['pending'] = None
-        K.json_write(self.root / 'usr/share/openwrt-kernel/selected.json',
-                     {'generation': old})
-        self.assertNotIn(old, self.manager.prunable(state))
-        self.manager.prune()
-        self.assertIn('kmod-nic-' + old, self.manager.installed())
-
-    def test_prune_permitted_during_protected_trial(self):
-        old, current = self.prune_fixture()
-        trial = GEN.rsplit('-g', 1)[0] + '-g4'
-        state = self.generation(trial)
-        state['pending'] = trial
-        self.manager.save(state)
-        self.manager.runner = self.prune_runner
-        self.manager.prune()
-        self.assertEqual(self.manager.state()['pending'], trial)
-        self.assertNotIn(old, self.manager.state()['generations'])
-
-    def test_prune_failure_restores_checksum_pins(self):
-        old, current = self.prune_fixture()
-        # A crash may have left a withdrawn boot directory on disk. A failed
-        # automatic cleanup must not republish its GRUB entry.
-        (self.root / 'boot/kernels' / old).mkdir()
-        original = self.manager.runner
-        def fail(args):
-            if args[0] == 'apk':
-                raise subprocess.CalledProcessError(1, args)
-            return original(args)
-        self.manager.runner = fail
-        with self.assertRaises(subprocess.CalledProcessError):
-            self.manager.prune()
-        self.assertIn('kmod-nic-' + old + '><',
-                      (self.manager.policy / 'protected').read_text())
-        self.assertFalse((self.manager.policy / 'pruning.json').exists())
-        self.assertFalse(self.manager.state()['generations'][old]['ready'])
-        self.assertNotIn(old, (self.root / 'boot/grub/openwrt.cfg').read_text())
-        self.manager.runner = self.prune_runner
-        self.manager.prune()
-        self.assertNotIn(old, self.manager.state()['generations'])
-
-    def test_prune_recovers_interrupted_plan(self):
-        old, current = self.prune_fixture()
-        K.json_write(self.manager.policy / 'pruning.json',
-                     {'generation': old, 'packages': self.manager.generation_packages(old)})
-        self.manager.remove(old)
-        self.manager.runner = self.prune_runner
-        self.manager.prune()
-        self.assertNotIn(old, self.manager.state()['generations'])
-
-    def test_prune_rejects_solver_removing_userspace_or_fallback(self):
-        old, current = self.prune_fixture()
-        K.json_write(self.manager.policy / 'pruning.json',
-                     {'generation': old, 'packages': self.manager.generation_packages(old)})
-        self.manager.remove(old)
-        txn = self.root / 'run/prune.txn'
-        for extra in ('userspace', 'kmod-nic', 'linux-image-' + current):
-            txn.write_text(f'kmod-nic-{old}\t1-r1\t-\t-\t0\n{extra}\t1-r1\t-\t-\t0\n')
-            before = K.inventory(self.root)
-            with self.assertRaisesRegex(K.KernelError, 'conflicts'):
-                self.manager.transaction('apk-pre', txn, '0', 'live', '0')
-            self.assertEqual(K.inventory(self.root), before)
-
-    def test_prune_refuses_to_finalize_when_apk_keeps_payloads(self):
-        old, current = self.prune_fixture()
-        with self.assertRaisesRegex(K.KernelError, 'APK retained'):
-            self.manager.prune()
-        self.assertIn(old, self.manager.state()['generations'])
-        self.assertTrue((self.root / 'usr/lib/modules' / old).exists())
-        self.assertIn('kmod-nic-' + old + '><',
-                      (self.manager.policy / 'protected').read_text())
-
-    def test_prune_leaves_unrecorded_payloads_alone(self):
-        old, current = self.prune_fixture()
-        unknown = GEN.rsplit('-g', 1)[0] + '-g99'
-        records = {name: item['V'] for name, item in self.manager.installed().items()}
-        records['kmod-nic-' + unknown] = '1-r1'
-        self.database(records)
-        self.manager.runner = self.prune_runner
-        self.manager.prune()
-        self.assertIn('kmod-nic-' + unknown, self.manager.installed())
-
-    def test_finish_remove_failure_keeps_withdrawn_without_payload(self):
-        extra = '6.18.55-owrt-' + 'd' * 32 + '-r1-g4'
-        self.generation(extra)
-        self.manager.remove(extra)
-        shutil.rmtree(self.root / 'boot/kernels' / extra)
-        self.manager.finish_remove(extra, False)
-        state = self.manager.state()
-        self.assertFalse(state['generations'][extra]['ready'])
-        cfg = (self.root / 'boot/grub/openwrt.cfg').read_text()
-        self.assertNotIn(extra, cfg)
-
-    def test_unrelated_userspace_transaction_does_not_need_boot_mount(self):
-        (self.root / 'proc/self/mountinfo').write_text('')
-        txn = self.root / 'run/txn'; txn.write_text('app\t1-r1\tapp\t1-r2\t0\n')
-        self.manager.transaction('apk-pre', txn, '0', 'live', '0')
-
-    def test_adoption_replaces_only_kernel_pin_and_enrolls_tracker(self):
-        world = self.root / 'etc/apk/world'
-        world.parent.mkdir(parents=True)
-        world.write_text('base-files=1-r1\nkernel=' + ABI + '\nlibc=2.42-r1\nkmod-nic\n')
-        state = self.manager.state()
-        state['phase'] = 'adopting'
-        with patch.object(self.manager, 'install_grub_modules'), \
-                patch.object(self.manager, 'dispatcher'), patch.object(self.manager, 'prepare'):
-            self.manager.finish_migrate(state)
-        self.assertEqual(world.read_text(),
-            'base-files=1-r1\nkernel\nlibc=2.42-r1\nkmod-nic\nlinux-image-openwrt\n')
-
-    def fresh_image(self):
-        """A first boot before adoption: no state, pins or rescue snapshot."""
-        (self.manager.policy / 'state.json').unlink()
-        (self.manager.policy / 'protected').unlink()
-        support = self.root / 'usr/share/openwrt-kernel'
-        (support / 'grub/x86_64-efi').mkdir(parents=True)
-        (support / 'grub/x86_64-efi/loadenv.mod').write_bytes(b'grub module')
-        for capability in ('apk-policy', 'kmodloader-policy'):
-            (support / capability).write_text('1\n')
-        (self.root / 'boot/grub/grub.cfg').write_text(
-            "menuentry 'OpenWrt' {\n linux /boot/vmlinuz root=PARTUUID=abcd-02\n}\n")
-        (self.root / 'proc/config.gz').write_bytes(gzip.compress(b'CONFIG_BLK_DEV_INITRD=y\n'))
-        firmware = self.root / 'usr/lib/firmware/nic.bin'
-        firmware.parent.mkdir(parents=True)
-        firmware.write_bytes(b'nic firmware')
-        world = self.root / 'etc/apk/world'
-        world.parent.mkdir(parents=True)
-        world.write_text('kernel=' + ABI + '\nkmod-nic\n')
-        return self.root / 'usr/lib/openwrt-kernel/legacy-6.18.55'
-
-    def interrupted_copies(self, legacy):
-        (legacy / 'modules').mkdir(parents=True)
-        (legacy / 'modules/nic.ko').write_bytes(b'half copied')
-        (legacy / '.firmware-interrupted').mkdir()
-        grub = self.root / 'boot/grub'
-        (grub / 'grub.cfg.rescue').write_bytes((grub / 'grub.cfg').read_bytes())
-
-    def test_adoption_restarts_after_a_reboot_interrupted_its_copies(self):
-        legacy = self.fresh_image()
-        original_grub = (self.root / 'boot/grub/grub.cfg').read_bytes()
-        self.interrupted_copies(legacy)
-        state = self.manager.migrate()
-        self.assertEqual(state['phase'], 'ready')
-        entry = self.manager.check()['generations']['legacy-6.18.55']
-        self.assertEqual(entry['modules'], self.modules)
-        self.assertEqual(list(entry['firmware_files']),
-                         ['usr/lib/openwrt-kernel/legacy-6.18.55/firmware/nic.bin'])
-        self.assertFalse((legacy / '.firmware-interrupted').exists())
-        self.assertEqual((self.root / 'boot/grub/grub.cfg.rescue').read_bytes(), original_grub)
-        self.assertIn('--id=owrt-rescue', (self.root / 'boot/grub/grub.cfg').read_text())
-        self.assertEqual((self.manager.policy / 'legacy-release').read_text(), '6.18.55\n')
-        self.assertTrue((self.manager.policy / 'protected').exists())
-        self.assertEqual(K.sha256(self.root / 'boot/vmlinuz'), self.original)
-
-    def test_adoption_leftovers_need_inspection_after_grub_or_pins_changed(self):
-        changes = {
-            'dispatcher': ('boot/grub/grub.cfg',
-                           "menuentry 'OpenWrt original kernel (rescue)' --id=owrt-rescue {\n}\n"),
-            'snapshot': ('boot/grub/grub.cfg.rescue', 'another configuration\n'),
-            'pins': ('etc/openwrt-kernel/protected', ''),
-        }
-        for name, (path, content) in changes.items():
-            with self.subTest(name):
-                self.setUp()
-                grub = self.root / 'boot/grub'
-                legacy = self.fresh_image()
-                self.interrupted_copies(legacy)
-                (self.root / path).write_text(content)
-                with self.assertRaisesRegex(K.KernelError, 'Incomplete adoption'):
-                    self.manager.migrate()
-                self.assertEqual((legacy / 'modules/nic.ko').read_bytes(), b'half copied')
-                self.assertTrue((grub / 'grub.cfg.rescue').exists())
-                self.assertFalse((self.manager.policy / 'state.json').exists())
-
-    def test_adoption_interrupted_after_saving_state_resumes_with_pins(self):
-        self.fresh_image()
-        with patch.object(self.manager, 'finish_migrate', side_effect=SystemExit(143)):
-            with self.assertRaises(SystemExit):
-                self.manager.migrate()
-        self.assertEqual(self.manager.state()['phase'], 'adopting')
-        self.assertFalse((self.manager.policy / 'protected').exists())
-        self.assertFalse((self.manager.policy / 'legacy-release').exists())
-        self.assertEqual(self.manager.migrate()['phase'], 'ready')
-        self.assertTrue((self.manager.policy / 'protected').exists())
-        self.assertEqual((self.manager.policy / 'legacy-release').read_text(), '6.18.55\n')
-
-    def test_sigterm_unwinds_so_cleanup_runs(self):
-        marker = self.root / 'cleaned'
-        script = (
-            'import importlib.machinery, importlib.util, os, signal, time\n'
-            f'loader = importlib.machinery.SourceFileLoader("kernelctl", {str(KERNELCTL)!r})\n'
-            'spec = importlib.util.spec_from_loader("kernelctl", loader)\n'
-            'module = importlib.util.module_from_spec(spec)\n'
-            'loader.exec_module(module)\n'
-            'module.exit_on_sigterm()\n'
-            'try:\n'
-            '    os.kill(os.getpid(), signal.SIGTERM)\n'
-            '    time.sleep(10)\n'
-            'finally:\n'
-            f'    open({str(marker)!r}, "w").close()\n')
-        result = subprocess.run([sys.executable, '-c', script], timeout=20)
-        self.assertEqual(result.returncode, 143)
-        self.assertTrue(marker.exists())
-
-    def test_additional_payload_to_confirmed_generation_is_protected(self):
-        self.candidate()
-        self.activate()
-        self.running = GEN
-        self.manager.confirm(duration=0)
-        records = {name: entry['V'] for name, entry in self.manager.installed().items()}
-        records['kmod-extra-' + GEN] = '1000.1.6.18.55-r1'
-        self.database(records)
-        with patch.object(self.manager, 'prepare') as prepare:
-            self.manager.activate()
-        self.assertIn('kmod-extra-' + GEN + '><Q1testchecksum',
-                      (self.manager.policy / 'protected').read_text())
-        prepare.assert_called_once()
-        self.assertIsNone(self.manager.state()['pending'])
-
-    def test_fresh_image_prepares_matching_autoload_before_adoption(self):
-        self.candidate()
-        (self.manager.policy / 'state.json').unlink()
-        self.running = GEN
-        rules = self.root / 'usr/lib/modules' / GEN / 'openwrt/modules.d'
-        rules.mkdir(parents=True)
-        (rules / '10-nic').write_text('nic\n')
-        self.manager.prepare()
-        self.assertEqual((self.root / 'run/openwrt-kernel/modules.d/10-nic').read_text(), 'nic\n')
-
-    def test_withdrawn_generation_removal_preserves_rescue(self):
-        self.candidate()
-        self.activate()
-        self.manager.rollback()
-        packages = self.manager.remove(GEN)
-        self.assertIn('linux-image-' + GEN, packages)
-        self.assertFalse(self.manager.state()['generations'][GEN]['ready'])
-        self.database({'kernel': ABI, 'kmod-nic': '1000.1.6.18.55-r1'})
-        self.manager.finish_remove(GEN, True)
-        self.assertFalse((self.root / 'boot/kernels' / GEN).exists())
-        self.assertFalse((self.root / 'usr/lib/modules' / GEN).exists())
-        self.assertFalse((self.root / 'usr/lib/openwrt-kernel' / GEN).exists())
-        self.assertEqual(K.sha256(self.root / 'boot/vmlinuz'), self.original)
-
-    def test_fresh_image_existing_generation_does_not_become_a_redundant_trial(self):
-        self.candidate()
-        metadata = self.root / 'usr/lib/openwrt-kernel' / GEN
-        (metadata / 'vmlinuz').write_bytes((self.root / 'boot/vmlinuz').read_bytes())
-        image = json.loads((metadata / 'image.json').read_text())
-        image['kernel_sha256'] = self.original; K.json_write(metadata / 'image.json', image)
-        state = self.manager.state(); rescue = state['generations'][state['rescue']]
-        rescue['release'] = GEN
-        modules = self.root / 'usr/lib/modules' / GEN
-        (modules / 'modules.dep').write_text('original generated index')
-        rescue['modules'] = K.inventory(modules); self.manager.save(state)
-        (modules / 'modules.dep').write_text('updated generated index')
-        rules = modules / 'openwrt/modules.d'; rules.mkdir(parents=True)
-        (rules / '10-nic').write_text('nic\n')
-        self.running = GEN
-        state = self.manager.activate()
-        self.assertIsNone(state['pending'])
-        self.assertEqual(state['known_good'], state['rescue'])
-        self.assertNotIn('modules.dep', state['generations'][state['rescue']]['modules'])
-        self.assertEqual((self.root / 'run/openwrt-kernel/modules.d/10-nic').read_text(), 'nic\n')
+    def test_release_sequence_orders_both_naming_schemes(self):
+        self.assertEqual(K.sequence(release(46)), 46)
+        self.assertEqual(K.sequence(GEN), 45)
+        self.assertEqual(K.sequence('legacy-6.18.55'), 0)
 
 
-class PackageTests(unittest.TestCase):
+@unittest.skipUnless(APK.exists() and FAKEROOT.exists(), 'Build apk/host first')
+class ChannelTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -895,185 +575,61 @@ class PackageTests(unittest.TestCase):
         subprocess.run(['openssl', 'ec', '-in', str(self.key), '-pubout',
                         '-out', str(self.work / 'public.pem')], check=True, capture_output=True)
 
-    def split(self, name, version, generation=GEN, sequence=1, module_release=None):
-        root = self.work / (name + '-g' + str(sequence))
-        (root / 'usr/lib/modules' / generation).mkdir(parents=True)
-        (root / 'usr/lib/apk/packages').mkdir(parents=True, exist_ok=True)
-        config = self.work / 'linux/.config'; config.parent.mkdir(exist_ok=True)
-        (config.parent / 'include/config').mkdir(parents=True, exist_ok=True)
-        (config.parent / 'include/config/kernel.release').write_text(generation)
-        config.write_text('CONFIG_BLK_DEV_INITRD=y\n')
-        kernel = self.work / 'bzImage'; kernel.write_bytes(b'kernel image fixture')
-        if name == 'kernel':
-            (root / 'usr/lib/modules' / generation / 'modules.builtin').write_text('kernel/kvm.ko\n')
-        else:
-            (root / 'usr/lib/modules' / generation / 'nic.ko').write_bytes(
-                b'module fixture\x00vermagic=' + (module_release or generation).encode() + b' SMP\x00')
-            (root / 'etc/modules.d').mkdir(parents=True)
-            (root / 'etc/modules.d/10-nic').write_text('nic\n')
-        P.split(argparse.Namespace(root=root, name=name, version=version, abi=ABI,
-            generation=generation, sequence=sequence, depends='kernel (=' + ABI + ')',
-            kernel=kernel, config=config, apk=str(APK), output=self.output, key=str(self.key)))
-        return root
+    def make(self, name, version, depends=()):
+        root = self.work / 'files' / (name + version)
+        root.mkdir(parents=True)
+        (root / 'probe').write_text(name + version)
+        B.package(APK, FAKEROOT, self.key, root, self.output, name, version, list(depends), 'fixture', '')
 
-    def test_signed_image_and_module_payloads_coinstall_without_global_provides(self):
-        root = self.split('kernel', ABI)
-        wrapper = self.split('kmod-nic', '6.18.55.1-r1')
-        self.assertFalse((root / 'usr/lib/modules' / GEN).exists())
-        self.assertFalse((wrapper / 'etc/modules.d').exists())
-        files = sorted(self.output.glob('*.apk'))
-        self.assertEqual(len(files), 3)
-        subprocess.run([str(APK), 'verify', '--keys-dir', str(self.work), *map(str, files)], check=True)
-        metadata = [json.loads(subprocess.check_output([str(APK), 'adbdump', '--format', 'json', str(p)]))['info']
-                    for p in files]
-        module = next(m for m in metadata if m['name'].startswith('kmod-'))
-        self.assertEqual(module['depends'], ['linux-image-' + GEN + '=' + ABI])
-        self.assertNotIn('kernel', module.get('provides', []))
-        for package in files:
-            data = json.loads(subprocess.check_output([str(APK), 'adbdump', '--format', 'json', str(package)]))
-            for directory in data['paths']:
-                for entry in [directory, *directory.get('files', [])]:
-                    acl = entry.get('acl', {})
-                    self.assertEqual(acl.get('user', 'root'), 'root')
-                    self.assertEqual(acl.get('group', 'root'), 'root')
-                    self.assertFalse(acl.get('mode', 0) & 0o022)
+    def legacy(self, sequence):
+        generation = GEN.rsplit('-g', 1)[0] + f'-g{sequence}'
+        image = 'linux-image-' + generation
+        self.make(image, ABI)
+        self.make('linux-image-openwrt', f'1-r{sequence}', [image + '=' + ABI, 'kernel=' + ABI])
+        self.make('kmod-nic-' + generation, f'1000.{sequence}.6.18.55-r1', [image + '=' + ABI])
 
-    def test_same_linux_version_payloads_install_together(self):
-        second = GEN[:-1] + '2'
-        self.split('kernel', ABI)
-        self.split('kmod-nic', '1000.1.6.18.55-r1')
-        self.split('kernel', ABI, second, 2)
-        self.split('kmod-nic', '1000.2.6.18.55-r1', second, 2)
-        index = self.output / 'packages.adb'
-        subprocess.run([str(APK), 'mkndx', '--keys-dir', str(self.work), '--sign-key', str(self.key),
-                        '--output', str(index), *map(str, self.output.glob('*.apk'))], check=True)
-        root = self.work / 'installed'
-        root.mkdir()
-        result = subprocess.run([str(APK), '--root', str(root), '--keys-dir', str(self.work),
-                        '--repositories-file', '/dev/null', '--repository', str(index),
-                        '--no-logfile', 'add', '--initdb', '--usermode', '--no-scripts',
-                        'linux-image-' + GEN, 'linux-image-' + second,
-                        'kmod-nic-' + GEN, 'kmod-nic-' + second], capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        for release in (GEN, second):
-            self.assertEqual((root / 'usr/lib/modules' / release / 'nic.ko').read_bytes(),
-                             b'module fixture\x00vermagic=' + release.encode() + b' SMP\x00')
+    def build(self, number):
+        name = release(number)
+        version = f'6.18.55-r{number}'
+        self.make('linux-image-' + name, version, ['openwrt-kernel-upgrade'])
+        self.make('linux-headers-' + name, version)
+        self.make('linux-image-openwrt', version, ['linux-image-' + name + '=' + version])
 
-    def test_tracking_epoch_is_newer_than_legacy_external_module_version(self):
-        comparison = subprocess.check_output([str(APK), 'version', '--test',
-            '6.18.55.7.2-r5', '1000.1.6.18.55.7.2-r5'], text=True).strip()
-        self.assertEqual(comparison, '<')
-
-    def test_wrong_compiled_module_release_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, 'Compiled module release'):
-            self.split('kmod-nic', '1000.1.6.18.55-r1', module_release='6.18.55')
-        self.assertFalse(list(self.output.glob('kmod-*.apk')))
-
-    def test_release_bump_cannot_replace_payload_within_same_generation(self):
-        self.split('kmod-nic', '1000.1.6.18.55-r1')
-        with self.assertRaisesRegex(ValueError, 'Immutable generation version'):
-            self.split('kmod-nic', '1000.1.6.18.55-r2')
-
-    def test_publisher_rejects_writable_payload_before_publishing(self):
-        self.split('kernel', ABI)
-        root = self.work / 'unsafe'; root.mkdir(); root.chmod(0o777)
-        (root / 'unsafe').write_bytes(b'fixture')
-        output = self.output / ('kmod-unsafe-' + GEN + '-1-r1.apk')
-        subprocess.run([str(APK), 'mkpkg', '--info', 'name:kmod-unsafe-' + GEN,
-            '--info', 'version:1-r1', '--info', 'arch:x86_64',
-            '--info', 'origin:kernel-generations', '--info', 'depends:linux-image-' + GEN + '=' + ABI,
-            '--files', str(root), '--sign', str(self.key), '--output', str(output)], check=True)
-        destination = self.work / 'publications'
-        with self.assertRaisesRegex(ValueError, 'Unsafe kernel payload'):
-            F.publish(self.output, destination, APK, self.key, self.work)
-        self.assertFalse((destination / 'public/kernel-upgrades').exists())
-
-    def test_ordinary_upgrade_accepts_new_generation_with_lower_sorting_abi(self):
-        second = GEN.replace('a' * 32, '0' * 32)[:-1] + '2'
-        second_abi = ABI.replace('a' * 32, '0' * 32)
-        def packages(generation, abi, sequence):
-            root = self.work / ('payload-' + str(sequence)); root.mkdir()
-            image = 'linux-image-' + generation
-            module = 'kmod-nic-' + generation
-            version = f'1000.{sequence}.6.18.55-r1'
-            for name, ver, deps in [('kernel', abi, []), (image, abi, []),
-                    (module, version, [image + '=' + abi]),
-                    ('kmod-nic', version, ['kernel=' + abi, module + '=' + version]),
-                    ('linux-image-openwrt', f'1-r{sequence}', ['kernel=' + abi, image + '=' + abi])]:
-                P.package(str(APK), str(self.key), root, self.output, name, ver, deps, 'fixture', '')
-            return image, module
-        index = self.output / 'packages.adb'
-        def index_packages():
-            subprocess.run([str(APK), 'mkndx', '--keys-dir', str(self.work), '--sign-key', str(self.key),
-                            '--output', str(index), *map(str, self.output.glob('*.apk'))], check=True)
-        old = packages(GEN, ABI, 1)
-        index_packages()
-        root = self.work / 'installed'; root.mkdir()
-        command = [str(APK), '--root', str(root), '--keys-dir', str(self.work),
-                   '--repositories-file', '/dev/null', '--repository', str(index),
-                   '--no-logfile', '--no-cache', '--no-scripts']
-        subprocess.run(command + ['add', '--initdb', '--usermode', 'kernel',
-                       'kmod-nic', 'linux-image-openwrt', *old], check=True)
-        packages(second, second_abi, 2)
-        index_packages()
-        result = subprocess.run(command + ['upgrade'], capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        database = (root / 'lib/apk/db/installed').read_text()
-        self.assertIn('P:kernel\nV:' + second_abi, database)
-        self.assertIn('P:linux-image-openwrt\nV:1-r2', database)
-        self.assertIn('P:' + old[0] + '\n', database)
-
-    def test_channel_publication_retains_old_snapshot_and_rejects_bad_abi(self):
-        self.split('kernel', ABI)
-        self.split('kmod-nic', '1000.1.6.18.55-r1')
-        destination = self.work / 'publications'
-        result = F.publish(self.output, destination, APK, self.key, self.work)
-        self.assertEqual(result['images'], 1)
-        active = destination / 'public/kernel-upgrades'
-        previous = active.resolve()
-        before = (active / 'packages.adb').read_bytes()
-        badroot = self.work / 'bad'; badroot.mkdir()
-        P.package(str(APK), str(self.key), badroot, self.output, 'kmod-bad-' + GEN, '1-r1',
-                  ['linux-image-' + GEN + '=' + ABI.replace('a', 'b')], 'bad fixture', 'openwrt:test')
-        with self.assertRaisesRegex(ValueError, 'ABI mismatch'):
-            F.publish(self.output, destination, APK, self.key, self.work)
-        self.assertEqual(active.resolve(), previous)
-        self.assertEqual(before, (active / 'packages.adb').read_bytes())
-
-    def test_channel_keeps_two_newest_sequences_and_their_dependency_closure(self):
+    def test_channel_keeps_three_newest_builds_across_both_schemes(self):
         destination = self.work / 'publications'
         active = destination / 'public/kernel-upgrades'
-        for sequence in (8, 9, 10):
-            generation = GEN.rsplit('-g', 1)[0] + f'-g{sequence}'
-            self.split('kernel', ABI, generation, sequence)
-            self.split('kmod-nic', f'1000.{sequence}.6.18.55-r1', generation, sequence)
-            result = F.publish(self.output, destination, APK, self.key, self.work)
-            self.assertEqual(result['images'], min(sequence - 7, 2))
+        self.legacy(8)
+        self.assertEqual(F.publish(self.output, destination, APK, self.key, self.work)['images'], 1)
+        for number, images in ((9, 2), (10, 3), (11, 3)):
+            self.build(number)
+            self.assertEqual(F.publish(self.output, destination, APK, self.key, self.work)['images'], images)
         manifest = json.loads((active / 'manifest.json').read_text())
-        self.assertEqual(sorted(int(name.rsplit('-g', 1)[1]) for name in manifest['images']), [9, 10])
-        infos = [entry['info'] for entry in manifest['packages'].values()]
-        self.assertEqual(sorted(info['version'] for info in infos
-                                if info['name'] == 'linux-image-openwrt'), ['1-r10', '1-r9'])
-        self.assertFalse(any('-g8' in info['name'] or any('-g8=' in dep
-            for dep in info.get('depends', [])) for info in infos))
-        self.assertEqual(len(list((active.parent / 'kernel-snapshots').iterdir())), 1)
-        subprocess.run([str(APK), 'verify', '--keys-dir', str(self.work),
-                        str(active / 'packages.adb')], check=True, capture_output=True)
+        self.assertEqual(sorted(manifest['images']), ['linux-image-' + release(n) for n in (10, 11, 9)])
+        names = {entry['info']['name'] + '=' + entry['info']['version'] for entry in manifest['packages'].values()}
+        self.assertFalse(any('-g8' in name or '1-r8' in name for name in names))
+        self.assertIn('linux-headers-' + release(9) + '=6.18.55-r9', names)
+        self.assertEqual(manifest['sequence'], 11)
+        subprocess.run([str(APK), 'verify', '--keys-dir', str(self.work), str(active / 'packages.adb')],
+                       check=True, capture_output=True)
         self.assertEqual(F.publish(self.output, destination, APK, self.key, self.work)['status'], 'unchanged')
-        before = active.resolve()
-        index_before = (active / 'packages.adb').read_bytes()
-        generation = GEN.rsplit('-g', 1)[0] + '-g11'
-        self.split('kernel', ABI, generation, 11)
-        self.split('kmod-nic', '1000.11.6.18.55-r1', generation, 11)
-        self.assertEqual(F.publish(self.output, destination, APK, self.key, self.work, True)['images'], 2)
-        self.assertEqual(active.resolve(), before)
-        self.assertEqual((active / 'packages.adb').read_bytes(), index_before)
+
+    def test_headers_need_their_image(self):
+        self.build(9)
+        self.make('linux-headers-' + release(12), '6.18.55-r12')
+        with self.assertRaisesRegex(ValueError, 'headers without their image'):
+            F.publish(self.output, self.work / 'publications', APK, self.key, self.work)
+
+    def test_image_version_must_match_its_release(self):
+        self.make('linux-image-' + release(9), '6.18.55-r8', ['openwrt-kernel-upgrade'])
+        self.make('linux-image-openwrt', '6.18.55-r8', ['linux-image-' + release(9) + '=6.18.55-r8'])
+        with self.assertRaisesRegex(ValueError, 'Image version and release disagree'):
+            F.publish(self.output, self.work / 'publications', APK, self.key, self.work)
 
     def test_retention_uses_apk_order_for_support_package_versions(self):
         packages = {f'grub2-{version}.apk': {'info': {'name': 'grub2', 'version': version}}
-                    for version in ('1-r8', '1-r9', '1-r10')}
+                    for version in ('1-r7', '1-r8', '1-r9', '1-r10')}
         retained, _ = F.retained_packages(packages, {}, {}, APK)
-        self.assertEqual(set(retained), {'grub2-1-r9.apk', 'grub2-1-r10.apk'})
+        self.assertEqual(set(retained), {'grub2-1-r8.apk', 'grub2-1-r9.apk', 'grub2-1-r10.apk'})
 
 
 if __name__ == '__main__':
