@@ -104,9 +104,11 @@ hook runs `kernelctl apk-post`, which does the following for each new kernel pac
 2. builds `/boot/kernels/<release>/initramfs.gz`, a small bootstrap with the
    kernel's early-boot modules (from the kmod packages' standard
    `/etc/modules-boot.d` rules) and their firmware;
-3. writes GRUB entries for every installed kernel, newest first, each with
+3. writes `/boot/kernels/<release>/microcode.cpio` with the running CPU's
+   microcode for early loading (see [early CPU microcode](early-microcode.md));
+4. writes GRUB entries for every installed kernel, newest first, each with
    systemd, procd and failsafe variants;
-4. makes the newest kernel the default and arms the boot counter.
+5. makes the newest kernel the default and arms the boot counter.
 
 Nothing changes for the running system until you reboot. `needrestart` and
 LuCI's Restart Needed page report `reboot-pending` while a newer default kernel
@@ -148,6 +150,7 @@ kernelctl set-default <release>    # like grubby --set-default; not counted
 kernelctl rollback                 # make the previous kernel the default again
 kernelctl remove <release>         # uninstall a kernel (not running/default/fallback/rescue)
 kernelctl check                    # verify boot files and the rescue kernel
+kernelctl microcode                # refresh early microcode in every generation
 ```
 
 `apk del linux-image-<release>` is refused; use `kernelctl remove`, which

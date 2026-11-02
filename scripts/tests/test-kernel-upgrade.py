@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Distribution-style kernel packages: adoption, boot counting, retention and channel."""
 import argparse
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stderr
 import fcntl
 import gzip
 import importlib.machinery
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -268,6 +269,114 @@ class RuntimeTests(unittest.TestCase):
         self.manager.transaction('apk-pre', txn, '0', 'live', '1')
         self.manager.transaction('apk-post', txn, '0', 'live', '1')
         self.assertEqual(before, (self.manager.policy / 'state.json').read_bytes())
+
+    # -- early microcode ---------------------------------------------------------
+
+    def cpu(self, vendor='GenuineIntel', family=6, model=156, stepping=0):
+        block = (f'processor\t: 0\nvendor_id\t: {vendor}\ncpu family\t: {family}\n'
+                 f'model\t\t: {model}\nstepping\t: {stepping}\n')
+        (self.root / 'proc/cpuinfo').write_text(block + '\n' + block.replace(': 0', ': 1', 1))
+
+    def microcode(self, content, name='intel-ucode/06-9c-00'):
+        path = self.root / 'usr/lib/firmware' / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+
+    def extract(self, archive):
+        output = Path(tempfile.mkdtemp(dir=self.root))
+        subprocess.run(['cpio', '-idm', '--quiet', '--no-absolute-filenames'],
+                       input=archive, cwd=output, check=True)
+        return output
+
+    def userspace(self, simulation='live', disabled='0'):
+        txn = self.root / 'run/txn'
+        txn.write_text('intel-microcode\t20260925-r1\tintel-microcode\t20261111-r1\t0\n')
+        self.manager.transaction('apk-pre', txn, '0', simulation, disabled)
+        self.manager.transaction('apk-post', txn, '0', simulation, disabled)
+
+    def test_new_kernel_loads_the_running_cpus_microcode_early(self):
+        self.cpu()
+        self.microcode(b'intel 06-9c-00 update')
+        self.microcode(b'other cpu', 'intel-ucode/06-9c-01')
+        self.adopt()
+        name = self.install(2)
+        archive = (self.root / 'boot/kernels' / name / K.MICROCODE).read_bytes()
+        # The kernel's early loader only scans a leading uncompressed newc archive.
+        self.assertTrue(archive.startswith(b'070701'))
+        extracted = self.extract(archive)
+        self.assertEqual((extracted / 'kernel/x86/microcode/GenuineIntel.bin').read_bytes(),
+                         b'intel 06-9c-00 update')
+        self.assertEqual([p.name for p in (extracted / 'kernel/x86/microcode').iterdir()], ['GenuineIntel.bin'])
+        menu = (self.root / 'boot/grub/openwrt.cfg').read_text()
+        self.assertIn(f' initrd /boot/kernels/{name}/microcode.cpio /boot/kernels/{name}/initramfs.gz\n', menu)
+        self.assertEqual(menu.count('microcode.cpio'), 3)
+        self.assertNotIn('microcode', (self.root / 'boot/grub/grub.cfg').read_text())
+        self.assertIn(K.MICROCODE, json.loads((self.root / 'boot/kernels' / name / 'boot.json').read_text())['boot_files'])
+        self.manager.check()
+
+    def test_without_matching_microcode_the_initrd_is_unchanged(self):
+        self.cpu(stepping=1)
+        self.microcode(b'intel 06-9c-00 update')
+        self.adopt()
+        name = self.install(2)
+        self.assertFalse((self.root / 'boot/kernels' / name / K.MICROCODE).exists())
+        self.assertIn(f' initrd /boot/kernels/{name}/initramfs.gz\n', (self.root / 'boot/grub/openwrt.cfg').read_text())
+
+    def test_amd_microcode_uses_the_family_container(self):
+        self.cpu('AuthenticAMD', 25, 80, 0)
+        self.microcode(b'amd family 19h', 'amd-ucode/microcode_amd_fam19h.bin')
+        vendor, source = self.manager.microcode_source()
+        self.assertEqual((vendor, source.name), ('AuthenticAMD', 'microcode_amd_fam19h.bin'))
+        extracted = self.extract(self.manager.microcode_archive())
+        self.assertEqual((extracted / 'kernel/x86/microcode/AuthenticAMD.bin').read_bytes(), b'amd family 19h')
+
+    def test_microcode_package_changes_follow_existing_kernels(self):
+        self.cpu()
+        self.adopt()
+        name = self.install(2)
+        boot = self.root / 'boot/kernels' / name
+        initramfs = (boot / 'initramfs.gz').read_bytes()
+        self.assertFalse((boot / K.MICROCODE).exists())
+        self.microcode(b'first update')
+        self.userspace(simulation='simulate')
+        self.userspace(disabled='1')
+        self.assertFalse((boot / K.MICROCODE).exists())
+        self.userspace()
+        self.assertEqual((self.extract((boot / K.MICROCODE).read_bytes()) /
+                          'kernel/x86/microcode/GenuineIntel.bin').read_bytes(), b'first update')
+        self.assertEqual((boot / 'initramfs.gz').read_bytes(), initramfs)
+        self.assertIn(f'{name}/microcode.cpio', (self.root / 'boot/grub/openwrt.cfg').read_text())
+        self.manager.check()
+        before = (self.manager.policy / 'state.json').read_bytes()
+        self.userspace()
+        self.assertEqual((self.manager.policy / 'state.json').read_bytes(), before)
+        self.microcode(b'second update')
+        self.userspace()
+        self.assertIn(b'second update', (boot / K.MICROCODE).read_bytes())
+        self.manager.check()
+        (self.root / 'usr/lib/firmware/intel-ucode/06-9c-00').unlink()
+        self.userspace()
+        self.assertFalse((boot / K.MICROCODE).exists())
+        self.assertNotIn('microcode', (self.root / 'boot/grub/openwrt.cfg').read_text())
+        self.manager.check()
+
+    def test_interrupted_microcode_refresh_is_repaired_but_other_changes_are_not(self):
+        self.cpu()
+        self.microcode(b'first update')
+        self.adopt()
+        name = self.install(2)
+        boot = self.root / 'boot/kernels' / name
+        (boot / K.MICROCODE).write_bytes(b'partially replaced')
+        with self.assertRaisesRegex(K.KernelError, 'changed kernel file'):
+            self.manager.check()
+        self.assertTrue(self.manager.refresh_microcode(self.manager.state()))
+        self.manager.check()
+        (boot / K.MICROCODE).write_bytes(b'partially replaced')
+        (boot / 'initramfs.gz').write_bytes(b'tampered')
+        with redirect_stderr(io.StringIO()) as errors:
+            self.userspace()
+        self.assertIn('early microcode not refreshed', errors.getvalue())
+        self.assertEqual((boot / K.MICROCODE).read_bytes(), b'partially replaced')
 
     # -- boot counting -----------------------------------------------------------
 

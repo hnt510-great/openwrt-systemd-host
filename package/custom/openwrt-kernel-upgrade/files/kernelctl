@@ -36,6 +36,7 @@ DEPMOD_INDEXES = {'modules.dep', 'modules.dep.bin', 'modules.alias', 'modules.al
 PACKAGE_RELEASE = re.compile(r'(.+)-([0-9]+)-openwrt')
 LEGACY_GENERATION = re.compile(r'.+-owrt-[0-9a-f]{32}-r[0-9]+-g([0-9]+)')
 BOOT_ATTEMPTS = 3
+MICROCODE = 'microcode.cpio'
 COUNTING_DROPIN = '/run/systemd/system/openwrt-kernel-boot.service.d/50-boot-counting.conf'
 
 
@@ -346,11 +347,15 @@ if [ -f $prefix/openwrt.cfg ]; then source $prefix/openwrt.cfg; fi
                 continue
             firmware = self.firmware_argument(state, name)
             label = name + (' (failed boot)' if entry.get('bad') else '')
+            # GRUB concatenates initrds; the early loader reads the leading
+            # uncompressed cpio before the kernel unpacks the bootstrap.
+            initrd = (f'/boot/kernels/{name}/{MICROCODE} ' if MICROCODE in entry.get('boot_files', {}) else '') + \
+                f'/boot/kernels/{name}/initramfs.gz'
             for suffix, flag in (('', 'openwrt.init=systemd'),
                                  ('-procd', 'openwrt.init=procd'), ('-failsafe', 'failsafe=true')):
                 content += f'''menuentry 'OpenWrt {label}{suffix}' --id=owrt-{name}{suffix} {{
  linux /boot/kernels/{name}/vmlinuz {state['bootargs']}{firmware} {flag}
- initrd /boot/kernels/{name}/initramfs.gz
+ initrd {initrd}
 }}
 '''
         return content
@@ -429,7 +434,7 @@ if [ -f $prefix/openwrt.cfg ]; then source $prefix/openwrt.cfg; fi
 
     # ---- verification -------------------------------------------------------
 
-    def check(self):
+    def check(self, microcode=True):
         state = self.state()
         self.boot_mount()
         rescue = state['kernels'][state['rescue']]
@@ -442,7 +447,8 @@ if [ -f $prefix/openwrt.cfg ]; then source $prefix/openwrt.cfg; fi
                 verify_files(self.root, entry.get('firmware_files', {}))
             elif entry.get('boot') and name != state['rescue']:
                 directory = self.boot / 'kernels' / name
-                verify_files(directory, entry['boot_files'])
+                verify_files(directory, {p: v for p, v in entry['boot_files'].items()
+                                         if microcode or p != MICROCODE})
         return state
 
     def image(self, name):
@@ -663,6 +669,95 @@ if [ -f $prefix/openwrt.cfg ]; then source $prefix/openwrt.cfg; fi
         self.save(state)
         return state
 
+    # ---- early CPU microcode ------------------------------------------------
+
+    def microcode_source(self):
+        """The installed microcode file for the running CPU, as the kernel names it.
+
+        Late loading is refused for updates without a minimum revision
+        (CONFIG_MICROCODE_LATE_FORCE_MINREV), and comes after mitigations are
+        selected, so generations load the update early from their initrd.
+        """
+        fields = {}
+        cpuinfo = self.path('/proc/cpuinfo')
+        for line in (cpuinfo.read_text() if cpuinfo.is_file() else '').splitlines():
+            if not line.strip():
+                break
+            key, _, value = line.partition(':')
+            fields[key.strip()] = value.strip()
+        try:
+            vendor, family = fields['vendor_id'], int(fields['cpu family'])
+            model, stepping = int(fields['model']), int(fields.get('stepping', '0'))
+        except (KeyError, ValueError):
+            return None
+        firmware = self.path('/usr/lib/firmware')
+        if vendor == 'GenuineIntel':
+            source = firmware / 'intel-ucode' / f'{family:02x}-{model:02x}-{stepping:02x}'
+        elif vendor == 'AuthenticAMD':
+            source = firmware / 'amd-ucode' / (
+                f'microcode_amd_fam{family:02x}h.bin' if family >= 0x15 else 'microcode_amd.bin')
+        else:
+            return None
+        return (vendor, source) if source.is_file() else None
+
+    def microcode_archive(self):
+        """Uncompressed early cpio for the running CPU, or None without an update."""
+        found = self.microcode_source()
+        if not found:
+            return None
+        vendor, source = found
+        with tempfile.TemporaryDirectory(prefix='kernel-microcode-', dir=self.path('/tmp')) as temp:
+            target = Path(temp) / 'kernel/x86/microcode' / (vendor + '.bin')
+            target.parent.mkdir(parents=True)
+            shutil.copyfile(source, target)
+            for path in [Path(temp), *Path(temp).rglob('*')]:
+                path.chmod(0o644 if path.is_file() else 0o755)
+            return cpio_archive(Path(temp))
+
+    def refresh_microcode(self, state):
+        """Follow microcode package changes in the boot entries of kernel packages.
+
+        Only the microcode file changes; each bootstrap initramfs stays as built.
+        Rescue entries never use an initrd and keep the firmware-provided revision.
+        """
+        archive = self.microcode_archive()
+        changed = []
+        for name, entry in state['kernels'].items():
+            if entry.get('kind') != 'package' or not entry.get('boot') or name == state['rescue']:
+                continue
+            current = self.boot / 'kernels' / name / MICROCODE
+            recorded = MICROCODE in entry.get('boot_files', {})
+            if (current.read_bytes() if current.is_file() else None) != archive or \
+                    recorded != (archive is not None):
+                changed.append(name)
+        if not changed:
+            return False
+        # Everything else must be intact; an interrupted refresh is repaired here.
+        self.check(microcode=False)
+        for name in changed:
+            directory = self.boot / 'kernels' / name
+            if archive is None:
+                (directory / MICROCODE).unlink(missing_ok=True)
+            else:
+                self.space(len(archive))
+                atomic(directory / MICROCODE, archive, 0o644)
+            files = {p: v for p, v in inventory(directory).items() if p != 'boot.json'}
+            boot = json.loads((directory / 'boot.json').read_text())
+            boot['boot_files'] = files
+            json_write(directory / 'boot.json', boot)
+            state['kernels'][name]['boot_files'] = files
+            self.save(state)
+        os.sync()
+        self.write_grub(state)
+        return True
+
+    def follow_microcode(self, state):
+        # A stale early microcode file is not worth failing an APK transaction.
+        try:
+            self.refresh_microcode(state)
+        except (KernelError, OSError, subprocess.SubprocessError) as error:
+            print('kernelctl: early microcode not refreshed: ' + str(error), file=sys.stderr)
+
     # ---- kernel installation (kernel-install / update-grub) -----------------
 
     def bootstrap(self, release, destination):
@@ -778,6 +873,9 @@ if [ -f $prefix/openwrt.cfg ]; then source $prefix/openwrt.cfg; fi
             try:
                 atomic(staging / 'vmlinuz', (metadata / 'vmlinuz').read_bytes(), 0o644)
                 self.bootstrap(name, staging / 'initramfs.gz')
+                microcode = self.microcode_archive()
+                if microcode is not None:
+                    atomic(staging / MICROCODE, microcode, 0o644)
                 boot = {'release': name, 'kernel_sha256': image['kernel_sha256'],
                         'boot_files': inventory(staging)}
                 json_write(staging / 'boot.json', boot)
@@ -923,6 +1021,9 @@ if [ -f $prefix/openwrt.cfg ]; then source $prefix/openwrt.cfg; fi
 
         kernel_changes = [c for c in effective if kernel(c[0]) or kernel(c[2])]
         if not kernel_changes:
+            if phase == 'apk-post' and errors == '0' and simulation != 'simulate' and \
+                    disabled != '1' and state.get('phase', 'ready') == 'ready':
+                self.follow_microcode(state)
             return
         if state.get('phase', 'ready') != 'ready':
             raise KernelError('Finish kernelctl migrate before changing kernels')
@@ -968,6 +1069,7 @@ if [ -f $prefix/openwrt.cfg ]; then source $prefix/openwrt.cfg; fi
                 if name in state['kernels'] and state['kernels'][name].get('kind') == 'package':
                     self.forget(state, name)
         self.save(state)
+        self.follow_microcode(state)
         self.write_grub(state)
         self.protect()
 
@@ -1052,7 +1154,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=['status', 'list', 'check', 'migrate', 'prepare', 'boot',
                                          'install', 'set-default', 'rollback', 'remove', 'retain',
-                                         'prune', 'apk-pre', 'apk-post'])
+                                         'prune', 'microcode', 'apk-pre', 'apk-post'])
     parser.add_argument('arguments', nargs='*')
     args = parser.parse_args()
     manager = KernelManager()
@@ -1083,6 +1185,11 @@ def main():
                 manager.migrate()
             manager.prepare()
             manager.assess()
+        elif args.command == 'microcode':
+            state = manager.state()
+            if state.get('phase', 'ready') != 'ready':
+                raise KernelError('Finish kernelctl migrate first')
+            print('updated' if manager.refresh_microcode(state) else 'current')
         elif args.command == 'retain':
             if (manager.policy / 'state.json').exists():
                 manager.retain(manager.state())
