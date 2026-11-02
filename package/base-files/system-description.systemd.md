@@ -5,6 +5,8 @@ host. It uses glibc, APK packages and native systemd as the default PID 1.
 Image-selected capabilities can include an ordinary-user Wayland desktop,
 virtual machines, desktop applications, containers and native development tools.
 OpenWrt's UCI, ubus, netifd and procd continue to manage the router stack.
+Router additions include optional full cone NAT, a faster dnsmasq nftset path
+and the opt-in daed transparent proxy beside the default Passwall.
 
 ## Discover this image
 
@@ -47,6 +49,12 @@ their `/etc/init.d/<service>` interfaces and `/etc/config/<name>` UCI files.
 Use `uci` and `ubus` to inspect router configuration and state; netifd owns
 network interfaces. This build disables systemd-networkd and systemd-resolved.
 
+`openwrt-network-wait-online.service` holds `network-online.target` until
+netifd reports its autostart, statically configured local interfaces (such as
+`lan`) up; WAN, PPPoE or VPN outages do not hold it. After 120 seconds it logs
+the interfaces still down and releases the target. Rootless Quadlets depend on
+it; select other interfaces with a drop-in rather than editing the unit.
+
 The optional `systemd-openwrt-services` bridge also accepts controls such as
 `systemctl status openwrt@dnsmasq.service`. This is a CLI compatibility
 interface: procd still supervises those services, and UCI/init scripts remain
@@ -61,6 +69,43 @@ systemctl --no-pager status openwrt-procd.service openwrt-services.service
 journalctl -b -n 50 --no-pager
 uci show network
 ubus call network.interface dump
+```
+
+## Router additions
+
+These are off by default or transparent; inspect UCI and the running kernel
+before assuming one is active.
+
+- **Full cone NAT**: `firewall.@defaults[0].fullcone='2'` (LuCI *Network →
+  Firewall*, "Enable full cone NAT") followed by `fw4 reload` makes IPv4 UDP
+  masquerading endpoint-independent. It needs a kernel generation built with
+  `CONFIG_NF_NAT_MASQUERADE_FULLCONE`; an older kernel masquerades normally.
+  When active, `srcnat_wan` contains `masquerade fullcone`. Mode `1` and
+  `fullcone6` rely on an out-of-tree expression that is absent here; fw4 logs
+  the failed probe and falls back.
+- **dnsmasq nftset**: `dnsmasq-full` adds plain address-set elements over
+  netlink and falls back to libnftables for everything else. It needs no
+  configuration; libnftables errors are still logged as `nftset ...`.
+- **daed**: an eBPF (tc) transparent proxy with a web dashboard, shipped
+  disabled. Passwall stays the default, and the two must not run together:
+  the daed init script refuses to start while `passwall.@global[0].enabled`
+  is `1`, and stops daed if Passwall is enabled later. LuCI *Services → daed*
+  controls `daed.config.enabled`; the dashboard listens on port 2023 and is
+  reachable from LAN and WireGuard zones only. The first visitor creates the
+  admin account. Dashboard state lives in `/etc/daed/wing.db`. daed needs a
+  kernel with BTF; check `/sys/kernel/btf/vmlinux`.
+- **ttyd**: with `ssl=1` and no explicit certificate, ttyd on port 7681 reuses
+  uhttpd's `main.cert`/`main.key`, so LuCI's HTTPS terminal page is not blocked
+  as mixed content. An explicit `option ssl '0'` is preserved.
+- **PPP**: pppd runs in ujail as user `ppp` (uid 454) with only
+  `CAP_NET_ADMIN`/`CAP_NET_RAW`. Hooks in `/etc/ppp/ip-up.d` and `ip-down.d`
+  run with the same rights; a hook that needs root no longer gets it.
+
+```sh
+uci -q get firewall.@defaults[0].fullcone
+nft list chain inet fw4 srcnat_wan
+uci show daed; uci -q get passwall.@global[0].enabled
+/etc/init.d/daed status
 ```
 
 ## Optional capabilities
@@ -104,10 +149,13 @@ do not prove successful client authentication or screen sharing.
 The desktop profile includes GNOME Files (`nautilus`), Terminal
 (`gnome-terminal`), Settings (`gnome-control-center`) and Tweaks
 (`gnome-tweaks`). Nautilus supports basic file browsing and filename search
-without the optional LocalSearch indexer. Settings omits network, WWAN,
-Bluetooth, Wacom, online-account, printer and color panels; router networking
-remains under LuCI/UCI/netifd. Firefox ESR runs as the desktop user; profiles,
-extensions and open tabs belong to that user.
+without the optional LocalSearch indexer. A minimal `gvfs` provides Trash,
+Recent, Network, Computer, FTP and SFTP; removable-media mounting (no
+`udisksd`), SMB/DNS-SD, MTP, WebDAV and FUSE backends are absent.
+Settings omits network, WWAN, Bluetooth, Wacom, online-account, printer and
+color panels; router networking remains under LuCI/UCI/netifd. Firefox ESR
+runs as the desktop user; profiles, extensions and open tabs belong to that
+user.
 
 Shell extension downloads use libsoup and GIO TLS. `libgio-gnutls`, built by
 the `glib-networking` recipe, provides the TLS backend; `ca-bundle` provides
@@ -143,7 +191,10 @@ activate a newly installed session integration.
 Libvirt/QEMU supports KVM guests and virt-manager/SPICE consoles when selected.
 Inspect the system connection (`qemu:///system`) separately from user sessions.
 SPICE is the default guest audio path; QEMU PipeWire audio is optional and
-requires access to the intended user's audio session. Installed virtualization
+requires access to the intended user's audio session. Libvirt drivers outside
+QEMU and storage (network, interface, nwfilter and device passthrough)
+report `VIR_ERR_NO_SUPPORT` instead of failing on absent daemon sockets.
+Restarting `virtqemud` does not shut guests down. Installed virtualization
 tools or an active daemon do not establish that any guest is running.
 
 Podman supports rootful and explicitly enrolled rootless users, with native
@@ -175,7 +226,8 @@ APK validates managed kernel transitions and exact module coverage; missing
 module migrations block the full upgrade. Where supported, an explicit
 `apk upgrade --userspace-only --simulate` checks a userspace-only alternative
 that preserves installed ABI-bound packages. Keep world constraints, signature
-checks and kernel protection hooks intact.
+checks and kernel protection hooks intact. An APK upgrade or reinstall starts
+an init script only where it is enabled; it does not start disabled services.
 
 OpenWrt rootfs/overlay and sysupgrade conventions still apply. Inspect `mount`
 and `/etc/config/fstab` to determine the actual persistent storage and extroot
@@ -192,8 +244,10 @@ known-good, previous-good and rescue states. A package installation does not
 prove the new kernel has booted. A trial requires a deliberate reboot and
 continuous health checks before promotion; the previous confirmed kernel and
 original rescue provide fallback. Same-ABI package upgrades retain the installed
-generation under the managed upgrade policy. Kernel upgrades and firmware
-flashing are separate operations.
+generation under the managed upgrade policy. A deliberate same-ABI trial needs
+an exact constraint on the versioned image package plus its matching module and
+header trackers; pinning `linux-image-openwrt` alone does not opt in. Kernel
+upgrades and firmware flashing are separate operations.
 
 `needrestart --cached --json` and LuCI's Restart Needed page report cached
 restart advice when installed. A fresh `needrestart` scan inspects replaced or
@@ -217,6 +271,7 @@ systemctl --no-pager status openwrt-desktop.service
 loginctl list-sessions
 findmnt /overlay
 findmnt /boot
+systemctl --no-pager status openwrt-network-wait-online.service
 virsh -c qemu:///system list --all
 ubus call network.interface dump
 ```
