@@ -100,9 +100,15 @@ before assuming one is active.
 - **PPP**: pppd runs in ujail as user `ppp` (uid 454) with only
   `CAP_NET_ADMIN`/`CAP_NET_RAW`. Hooks in `/etc/ppp/ip-up.d` and `ip-down.d`
   run with the same rights; a hook that needs root no longer gets it.
+- **LAN discovery notrack**: firewall4 adds `upnp_ssdp_notrack`,
+  `wsd_ipv4_notrack` and `wsd_ipv6_notrack` once, so LAN SSDP (UDP 1900) and
+  WS-Discovery (UDP 3702) multicast is not conntracked. An existing section of
+  the same name, including a disabled one, is kept; the LAN input policy still
+  applies. Rules live in the `notrack_lan` chain.
 
 ```sh
 uci -q get firewall.@defaults[0].fullcone
+nft list chain inet fw4 notrack_lan
 nft list chain inet fw4 srcnat_wan
 uci show daed; uci -q get passwall.@global[0].enabled
 /etc/init.d/daed status
@@ -174,6 +180,10 @@ and audio after enrollment and client pairing. `sunshine-setup USER
 preferences are preserved. Portal capture may require the user's screen
 selection permission. GPU and codec support, playback, microphone and client
 input require end-to-end checks; a render node or active service is insufficient.
+On Gen9–Gen11 Intel GPUs the kernel loads HuC by default (GuC only
+authenticates it; submission stays on execlists), which low-power VA-API
+encoding needs for bitrate control. Check `dmesg | grep -i huc` and
+`vainfo | grep EncSliceLP`; `i915.enable_guc=0` restores the upstream default.
 
 When `openwrt-desktop-ime` is installed, the GNOME session supervises Fcitx5.
 Its IBus compatibility frontend serves GNOME's native input path; the Kimpanel
