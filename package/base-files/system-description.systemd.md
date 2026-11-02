@@ -246,8 +246,9 @@ boot attempts. A boot counts as good once the static local interfaces, LAN
 addresses, persistent overlay, OpenWrt services and SSH are up; otherwise the
 system reboots and, after three attempts, falls back to the previous kernel.
 `kernelctl list` shows the running, default, fallback, known-good and rescue
-kernels; `kernelctl set-default`, `rollback` and `remove` manage them, and
-three kernels besides the image's original rescue kernel are kept. A package
+kernels; `kernelctl set-default`, `rollback` and `remove` manage them. Only the
+default (active or pending) kernel, its fallback and the image's original rescue
+kernel are kept; older kernels are pruned automatically. A package
 installation does not prove the new kernel has booted. Kernel upgrades and
 firmware flashing are separate operations.
 

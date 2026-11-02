@@ -79,8 +79,9 @@ Publication splits the build into two repositories:
   snapshot is also reachable through the `public/abi/<config ABI>/` alias.
 - The **kernel channel** `public/kernel-upgrades/` holds `linux-image-*`,
   `linux-headers-*`, the metapackages, the virtual `kernel` package and the
-  support packages. It keeps the three newest kernel builds (like Fedora's
-  `installonly_limit=3`). Legacy per-generation payloads age out by build number.
+  support packages. It keeps the three newest kernel builds. Legacy
+  per-generation payloads age out by build number. Routers keep only their
+  default and fallback kernels.
 
 Production publication still requires the router preflight described in
 [APK upgrade preflight](apk-upgrade-preflight.md). The preflight simulates the
@@ -160,15 +161,14 @@ policy of the APK patches), so an upgrade never removes the running or previous
 kernel. This is the counterpart of Debian's `NeverAutoRemove` or DNF's
 installonly protection.
 
-After a kernel is blessed, `kernelctl` keeps the following, besides the rescue
-kernel:
-
-- the default, running, known-good and fallback kernels;
-- the newest further kernels, up to three versioned kernels in total.
-
-`openwrt-kernel-prune.service` removes the rest with APK and deletes their
-`/boot/kernels/<release>` directories. A kernel that failed its boots is pruned
-once it is no longer needed.
+`kernelctl` keeps exactly one active or pending kernel (the default), one
+fallback and the legacy rescue kernel. The running kernel is also kept while it
+differs from the default, because it cannot be removed. When a new kernel is
+installed, it becomes the pending default and the current kernel becomes the
+fallback. The previous fallback is withdrawn immediately.
+`openwrt-kernel-prune.service` removes withdrawn kernels with APK and deletes
+their `/boot/kernels/<release>` directories. A kernel that failed its boots is
+pruned once it is no longer the fallback.
 
 ## Migration from per-generation kernels
 
@@ -203,8 +203,8 @@ package, so it must be replaced first.
    `linux-image-<release>` is installed as the counted default, with the
    previous generation as fallback. Legacy generations keep their frozen
    firmware and per-generation autoload rules while they boot. Their payload
-   packages (`linux-image-…-gN`, `kmod-*-…-gN`, `kernel-dev-headers-…-gN`) stay
-   pinned until pruning removes them, once newer kernels have been blessed. The
+   packages (`linux-image-…-gN`, `kmod-*-…-gN`, `kernel-dev-headers-…-gN`) are
+   pruned as soon as they are neither the default nor the fallback. The
    publication preflight validates step 1 for routers still on schema 1
    (`migration_step: userspace-only` in the receipt).
 

@@ -160,7 +160,8 @@ module/kernel/header trees under `build_dir/.../kernel-bundle/<release>/`; `pack
 On the router, `package/custom/openwrt-kernel-upgrade/files/kernelctl` (state schema 2 in
 `/etc/openwrt-kernel/`, converting legacy schema-1 generations) acts as kernel-install/update-grub
 from the APK hook, makes the newest kernel the GRUB default with a 3-attempt boot counter, blesses
-it from `openwrt-kernel-boot.service` and prunes beyond three kernels plus the rescue kernel.
+it from `openwrt-kernel-boot.service` and prunes everything except the default, its fallback and
+the rescue kernel.
 Build numbers are reserved by `build-and-publish.py`; plain `make` targets do not reserve one. See
 `docs/kernel-upgrade.md`.
 
