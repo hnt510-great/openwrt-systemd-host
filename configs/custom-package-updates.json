@@ -62,6 +62,12 @@
       "project": "hughsie/colord",
       "catalog": "tags"
     },
+    "cpio": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://ftp.gnu.org/gnu/cpio/",
+      "filename_pattern": "cpio\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.bz2"
+    },
     "daed": {
       "provider": "local",
       "reason": "Composed from the daed v2.1.1 dashboard, dae-wing b089b56 and dae v2.1.1 with backported fixes; return to the daed release recipe once a daed release bundles dae core 2.1.1 or newer"
