@@ -5504,6 +5504,11 @@
       "ported": "target/linux/generic/hack-7.3/983-netfilter-nft_masq-add-fullcone-attribute.patch",
       "ported_sha256": "2a297af1948d7f4409906c9a357373911d8fbb33c837ff78386282fd05f7de4a",
       "reason": "Carry coolsnowwolf/lede 6.18 NFTA_MASQ_REG_FULLCONE nft masquerade attribute (983) unchanged for firewall4 brcm fullcone mode"
+    },
+    {
+      "ported": "target/linux/x86/patches-7.3/992-drm-i915-load-huc-on-gen9-11.patch",
+      "ported_sha256": "604cb2e635284a81a3c7ce5c64fead0efb960d75d15e926eb053104c0307c921",
+      "reason": "Default Gen9-11 i915 GPUs to HuC loading (enable_guc=2) without GuC submission so VDENC encoders get bitrate control; adapted from coolsnowwolf/lede x86 992-enable-intel-guc without its Gen11 GuC submission; Gen12+ keep upstream defaults"
     }
   ],
   "external_modules": [

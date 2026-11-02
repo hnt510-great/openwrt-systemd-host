@@ -1,0 +1,41 @@
+From: hnt510 <hnt510@gmail.com>
+Subject: [PATCH] drm/i915: load HuC by default on Gen9-11
+
+Mainline leaves GuC and HuC disabled on every platform before Gen12, so
+Skylake through Jasper Lake GPUs boot without HuC.  Their low-power
+VDENC encoders need HuC for bitrate control, which VA-API encoders such
+as Sunshine and GNOME Remote Desktop use.
+
+Default those platforms to ENABLE_GUC_LOAD_HUC: GuC is loaded only to
+authenticate HuC and command submission stays on execlists.  An explicit
+i915.enable_guc value still overrides this, Gen12 and newer keep the
+upstream defaults, and missing firmware leaves the GPU running without
+GuC as before.
+
+Based on the intent of coolsnowwolf/lede x86 992-enable-intel-guc.patch,
+which also enabled GuC submission on Gen11; that is not done here.
+
+---
+--- a/drivers/gpu/drm/i915/gt/uc/intel_uc.c
++++ b/drivers/gpu/drm/i915/gt/uc/intel_uc.c
+@@ -30,12 +30,18 @@
+ 	if (i915->params.enable_guc != -1)
+ 		return;
+ 
+-	/* Don't enable GuC/HuC on pre-Gen12 */
+-	if (GRAPHICS_VER(i915) < 12) {
++	/* Don't enable GuC/HuC on pre-Gen9 */
++	if (GRAPHICS_VER(i915) < 9) {
+ 		i915->params.enable_guc = 0;
+ 		return;
+ 	}
+ 
++	/* Load HuC on Gen9-11 for media encoding, keep execlist submission */
++	if (GRAPHICS_VER(i915) < 12) {
++		i915->params.enable_guc = ENABLE_GUC_LOAD_HUC;
++		return;
++	}
++
+ 	/* Don't enable GuC/HuC on older Gen12 platforms */
+ 	if (IS_TIGERLAKE(i915) || IS_ROCKETLAKE(i915)) {
+ 		i915->params.enable_guc = 0;
