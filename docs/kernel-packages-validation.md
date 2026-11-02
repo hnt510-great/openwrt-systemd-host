@@ -86,6 +86,23 @@ Boots through a kernel package's bootstrap initramfs log `mount_root: failed to
 launch kmodloader from internal overlay`. Modules still load and no unit fails.
 This was not investigated further.
 
+## Publication and router migration, 2026-11-02
+
+Published with `./scripts/publish-changed-feeds.sh` after a passing dry run. The
+router preflight validated the userspace-only migration step
+(`migration_step: userspace-only`). `public/current` and the kernel channel
+(sequence 47: build 47 plus legacy g45 and g43) were promoted.
+
+The router (`desktop-user@192.0.2.1`: legacy 6.18.55 rescue, g45 running, g43
+previous) was migrated without a reboot. Each step was simulated first and run
+as a transient systemd unit. The user then rebooted the router.
+
+| Check | Result |
+| --- | --- |
+| Step 1 `apk upgrade --userspace-only` | 82 userspace changes, no kernel package; kernelctl 1-r19, `lan-apk-feeds` 6, needrestart 1.0.0-r11; state converted (g45 default/known-good, g43 fallback, 6.18.55 rescue; health baseline reduced to `lan`, LAN address and overlay) |
+| Step 2 `apk upgrade` | 258 changes: `linux-image-7.3.1-47-openwrt`, its headers, both metapackages and 254 kmod configuration packages; 47 counted default (`boot_left=3`, fallback g45); `kernelctl check` passed; needrestart `reboot-pending` |
+| After the user's reboot | `7.3.1-47-openwrt` running, blessed on the first attempt (default and known-good, counter cleared); boot service succeeded; system `running` with no failed units; 363 modules; LAN 192.0.2.1, PPPoE default route, WireGuard up; `/dev/kvm` and libvirt available; needrestart `current` |
+
 ## Host tests
 
 | Suite | Result |
@@ -103,14 +120,11 @@ This was not investigated further.
 
 These are build, host-test and VM results.
 
-- **Not exercised:** the real router's exact layout (a legacy 6.18.55 rescue
-  plus generation 45); conversion of that layout is covered only by host tests.
-- **Not run:** the publication preflight against a router, retention beyond two
-  kernels in a VM, and needrestart r11, which was not built because it is not
-  selected in this configuration.
-- **Not rebuilt into an image:** the `openwrt-kernel-upgrade` 1-r19 in the
-  build-47 image predates the VM fixes; the rebuilt package in `bin/` has them.
-  A final build is needed before publication.
-- Nothing was published, and no physical device was changed.
+- The real router's layout (legacy 6.18.55 rescue plus generations 45 and 43)
+  was migrated physically; its fallback path was not exercised there.
+- **Not run:** retention beyond two kernels in a VM.
+- The build-47 *image* contains an earlier `openwrt-kernel-upgrade` 1-r19 than
+  the published package; the router received the published package. Images
+  were not published.
 
 Evidence: `/srv/openwrt-validation/kernel-packages-validation-20261102/`.
