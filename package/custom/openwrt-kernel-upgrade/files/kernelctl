@@ -137,8 +137,6 @@ def sequence(release):
 
 
 class KernelManager:
-    # Like Fedora's installonly_limit: versioned kernels kept besides rescue.
-    RETAIN_KERNELS = 3
 
     def __init__(self, root='/', runner=None):
         self.root = Path(root).resolve()
@@ -835,20 +833,14 @@ if [ -f $prefix/openwrt.cfg ]; then source $prefix/openwrt.cfg; fi
     # ---- retention and pruning ----------------------------------------------
 
     def retention(self, state, candidate=None):
-        """Kernels kept installed: running, default, fallback, known-good and the
-        newest builds up to RETAIN_KERNELS, besides the rescue kernel."""
+        """Kernels kept besides the rescue kernel: the active or pending default
+        and its fallback. The running kernel is also kept while it differs (it
+        cannot be removed); every other kernel is pruned."""
         keep = []
-        for name in (candidate, state['default'], self.release(), state['known_good'],
-                     state.get('fallback'), state.get('counting')):
+        for name in (candidate, state['default'], state.get('counting'),
+                     state.get('fallback'), self.release()):
             if name and name != state['rescue'] and name not in keep and (
                     name in state['kernels'] or name == candidate):
-                keep.append(name)
-        for name in sorted(state['kernels'], key=sequence, reverse=True):
-            entry = state['kernels'][name]
-            if len(keep) >= self.RETAIN_KERNELS:
-                break
-            if name not in keep and name != state['rescue'] and not entry.get('bad') and \
-                    entry.get('kind') != 'legacy-rescue':
                 keep.append(name)
         return keep
 
@@ -967,6 +959,9 @@ if [ -f $prefix/openwrt.cfg ]; then source $prefix/openwrt.cfg; fi
         newest = max([state['default'], *added], key=sequence)
         if added and newest != state['default'] and newest in added:
             self.make_default(state, newest)
+            self.save(state)
+            # The previous kernel is now the fallback; withdraw the older one.
+            self.retain(state)
         for package in removed:
             if package.startswith('linux-image-'):
                 name = package[len('linux-image-'):]

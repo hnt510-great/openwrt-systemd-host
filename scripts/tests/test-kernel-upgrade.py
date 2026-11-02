@@ -354,23 +354,29 @@ class RuntimeTests(unittest.TestCase):
 
     # -- retention and removal ---------------------------------------------------
 
-    def test_retention_keeps_three_kernels_besides_rescue_and_prunes_older(self):
+    def test_retention_keeps_default_and_fallback_besides_rescue(self):
         self.adopt()
-        for number in (2, 3, 4, 5):
+        for number in (2, 3, 4):
             self.boot(self.install(number))
+        five = self.install(5)
+        # Pending 5 with the running 4 as fallback: 3 is withdrawn immediately.
         state = self.manager.state()
-        self.assertEqual(self.manager.retention(state), [release(5), release(4), release(3)])
-        self.assertEqual(self.manager.prunable(state), [release(2)])
-        self.assertFalse((self.root / 'boot/kernels' / release(2)).exists())
+        self.assertEqual(self.manager.retention(state), [five, release(4)])
+        self.assertEqual(sorted(self.manager.prunable(state)), [release(2), release(3)])
+        self.assertFalse((self.root / 'boot/kernels' / release(3)).exists())
+        self.assertTrue((self.root / 'boot/kernels' / release(4)).exists())
         self.assertTrue((self.root / 'run/openwrt-kernel-prune').exists())
+        self.boot(five)
         self.manager.prune()
         self.assertIn(['apk', '--wait', '10', '--no-network', 'del', 'linux-image-' + release(2)], self.calls)
         state = self.manager.state()
-        self.assertNotIn(release(2), state['kernels'])
-        self.assertNotIn('linux-image-' + release(2), (self.manager.policy / 'protected').read_text())
-        self.assertIn(release(1), state['kernels'])
+        self.assertEqual(sorted(state['kernels']), sorted([release(1), release(4), five]))
+        protected = (self.manager.policy / 'protected').read_text()
+        self.assertNotIn('linux-image-' + release(3), protected)
         self.assertFalse((self.manager.policy / 'pruning.json').exists())
-        self.assertNotIn(release(2), (self.root / 'boot/grub/openwrt.cfg').read_text())
+        menu = (self.root / 'boot/grub/openwrt.cfg').read_text()
+        self.assertNotIn(release(3), menu)
+        self.assertIn(release(4), menu)
 
     def test_apk_cannot_remove_held_or_unplanned_kernels(self):
         self.adopt()
@@ -511,6 +517,29 @@ class RuntimeTests(unittest.TestCase):
         self.assertIn(GEN, self.manager.retention(state))
         self.assertEqual(self.manager.kernel_packages(state, GEN),
                          sorted(['kmod-nic-' + GEN, 'linux-image-' + GEN]))
+
+    def test_router_prunes_the_extra_legacy_generation_only(self):
+        self.legacy_state()
+        g43 = GEN.replace('-g45', '-g43')
+        state = json.loads((self.manager.policy / 'state.json').read_text())
+        boot = self.root / 'boot/kernels' / g43
+        boot.mkdir(parents=True)
+        (boot / 'vmlinuz').write_bytes(b'kernel g43')
+        state['generations'][g43] = {'legacy': False, 'ready': True, 'release': g43, 'abi': ABI,
+                                     'kernel_sha256': K.sha256(boot / 'vmlinuz'), 'files': {},
+                                     'boot_files': K.inventory(boot)}
+        state['previous_good'] = g43
+        K.json_write(self.manager.policy / 'state.json', state)
+        self.packages.update({'linux-image-' + g43: ABI, 'kmod-nic-' + g43: '1000.43.6.18.55-r1'})
+        self.database()
+        self.assertEqual(self.manager.state()['fallback'], g43)
+        name = self.install(47)
+        state = self.manager.assess(timeout=0) if self.running == name else self.boot(name)
+        self.assertEqual((state['default'], state['fallback']), (name, GEN))
+        self.assertEqual(self.manager.prunable(state), [g43])
+        self.assertFalse((self.root / 'boot/kernels' / g43).exists())
+        self.assertEqual(self.manager.kernel_packages(state, g43),
+                         sorted(['kmod-nic-' + g43, 'linux-image-' + g43]))
 
     # -- health and helpers ------------------------------------------------------
 
