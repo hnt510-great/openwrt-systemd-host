@@ -316,6 +316,53 @@ class RuntimeTests(unittest.TestCase):
         self.activate()
         self.assertEqual(self.environment['next_entry'], 'owrt-' + GEN)
 
+    def test_trial_pending_marker_follows_state(self):
+        marker = self.root / 'etc/openwrt-kernel/trial-pending'
+        self.assertFalse(marker.exists())
+        self.candidate()
+        self.activate()
+        self.assertEqual(marker.read_text(), self.manager.state()['pending'] + '\n')
+        self.assertTrue(self.manager.same_abi_upgrades()['trial_pending'])
+        self.manager.rollback()
+        self.assertFalse(marker.exists())
+        self.assertFalse(self.manager.same_abi_upgrades()['trial_pending'])
+
+    def test_promotion_clears_trial_pending_marker(self):
+        marker = self.root / 'etc/openwrt-kernel/trial-pending'
+        self.candidate()
+        self.activate()
+        self.running = GEN
+        self.manager.confirm(duration=0)
+        self.assertFalse(marker.exists())
+
+    def test_interrupted_trial_record_keeps_marker(self):
+        marker = self.root / 'etc/openwrt-kernel/trial-pending'
+        state = self.manager.state()
+        state['pending'] = 'legacy-6.18.55'
+        with patch.object(K, 'json_write', side_effect=OSError('simulated power loss')):
+            with self.assertRaisesRegex(OSError, 'simulated power loss'):
+                self.manager.save(state)
+        self.assertTrue(marker.exists())
+        state['pending'] = None
+        with patch.object(K, 'json_write', side_effect=OSError('simulated power loss')):
+            with self.assertRaisesRegex(OSError, 'simulated power loss'):
+                self.manager.save(state)
+        self.assertTrue(marker.exists())
+
+    def test_same_abi_upgrade_switch(self):
+        hold = self.root / 'etc/openwrt-kernel/same-abi-hold'
+        self.assertEqual(self.manager.same_abi_upgrades(),
+                         {'same_abi_upgrades': True, 'trial_pending': False})
+        self.assertEqual(self.manager.same_abi_upgrades('disable')['same_abi_upgrades'], False)
+        self.assertTrue(hold.exists())
+        self.assertEqual(self.manager.same_abi_upgrades('disable')['same_abi_upgrades'], False)
+        self.assertEqual(self.manager.same_abi_upgrades('status')['same_abi_upgrades'], False)
+        self.assertEqual(self.manager.same_abi_upgrades('enable')['same_abi_upgrades'], True)
+        self.assertFalse(hold.exists())
+        self.assertEqual(self.manager.same_abi_upgrades('enable')['same_abi_upgrades'], True)
+        with self.assertRaisesRegex(K.KernelError, 'enable\|disable\|status'):
+            self.manager.same_abi_upgrades('toggle')
+
     def test_cancel_trial_keeps_last_confirmed_kernel_as_default(self):
         self.candidate()
         self.activate()

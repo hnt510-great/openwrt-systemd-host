@@ -18,6 +18,40 @@ GEN = '6.18.55-owrt-' + 'b' * 32 + '-r1-g2'
 
 
 class PreflightTests(unittest.TestCase):
+    def baseline_in(self, root):
+        """Run the remote BASELINE script with absolute paths mapped into root."""
+        import builtins, contextlib, io, pathlib, sys, types
+        mapped = lambda name: pathlib.Path(root, str(name).lstrip('/'))
+        fake = types.ModuleType('pathlib')
+        fake.Path = lambda *parts: mapped(pathlib.PurePosixPath(*parts))
+        output = io.StringIO()
+        with patch.dict(sys.modules, {'pathlib': fake}), \
+                patch.object(os, 'uname', return_value=types.SimpleNamespace(release=GEN)), \
+                contextlib.redirect_stdout(output):
+            exec(G.BASELINE, {'__builtins__': builtins,
+                              'open': lambda name, *args: builtins.open(mapped(name), *args)})
+        return json.loads(output.getvalue())
+
+    def test_baseline_records_same_abi_hold(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            state = {'schema': 1, 'phase': 'ready', 'pending': None,
+                     'generations': {GEN: {'release': GEN, 'abi': NEW}}}
+            for name, data in (('lib/apk/db/lock', ''), ('lib/apk/db/installed', 'P:x\n'),
+                               ('etc/apk/world', 'x\n'), ('etc/openwrt-kernel/protected', ''),
+                               ('etc/openwrt-kernel/state.json', json.dumps(state)),
+                               ('usr/bin/apk', 'apk'), ('proc/sys/kernel/random/boot_id', 'boot\n')):
+                (root / name).parent.mkdir(parents=True, exist_ok=True)
+                (root / name).write_text(data)
+            before = self.baseline_in(root)
+            self.assertEqual(before['hashes']['same-abi-hold'], 'absent')
+            self.assertEqual(before['abi'], NEW)
+            (root / 'etc/openwrt-kernel/same-abi-hold').write_text('')
+            after = self.baseline_in(root)
+            self.assertNotEqual(after['hashes']['same-abi-hold'], 'absent')
+            self.assertFalse(G.same_baseline(before, after))
+            self.assertTrue(G.same_baseline(after, self.baseline_in(root)))
+
     def test_metadata_migration_preserves_pin_types_tags_and_kernel_pins(self):
         baseline = {'installed': 'P:libc\nV:1-r1\nC:Q1old\n\nP:app\nV:1-r1\nC:Q1app\n\n',
                     'world': 'libc=1-r1\napp@lan><Q1app\nother>=2\nkmod-test><Q1kernel\n'}

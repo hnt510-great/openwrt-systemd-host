@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openwrt-kernel-upgrade
 PKG_VERSION:=1
-PKG_RELEASE:=18
+PKG_RELEASE:=19
 PKG_LICENSE:=GPL-2.0-only
 
 include $(INCLUDE_DIR)/package.mk
@@ -12,7 +12,7 @@ define Package/openwrt-kernel-upgrade
   CATEGORY:=Base system
   TITLE:=Parallel ABI-pinned kernels and protected GRUB recovery
   DEPENDS:=@OPENWRT_SYSTEMD +python3 +openwrt-kernel-policy +grub2-editenv +grub2 +grub2-efi +kmod +ubox +blkid +ldd
-  EXTRA_DEPENDS:=openwrt-kernel-policy (>=3.0.5-r7), ubox (>=2025.10.30~6f78fa49-r3), systemd-openwrt (>=6), grub2 (>=2.12-r4), grub2-efi (>=2.12-r4)
+  EXTRA_DEPENDS:=openwrt-kernel-policy (>=3.0.5-r18), ubox (>=2025.10.30~6f78fa49-r3), systemd-openwrt (>=6), grub2 (>=2.12-r4), grub2-efi (>=2.12-r4)
 endef
 
 define Package/openwrt-kernel-upgrade/conffiles

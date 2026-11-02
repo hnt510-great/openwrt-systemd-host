@@ -151,6 +151,9 @@ with open('/lib/apk/db/lock','rb') as lock:
  if len(abis)!=1 or state.get('pending') or state.get('phase')!='ready':
   raise SystemExit('Router kernel baseline is ambiguous or has an unfinished trial')
  hashes={k:h(v) for k,v in data.items()}
+ # A full upgrade installs newer same-ABI kernels unless this hold exists.
+ hold=pathlib.Path('/etc/openwrt-kernel/same-abi-hold')
+ hashes['same-abi-hold']=h(hold.read_bytes()) if hold.is_file() else 'absent'
  for p in [pathlib.Path('/etc/apk/repositories'),*pathlib.Path('/etc/apk/repositories.d').glob('*'),
            *pathlib.Path('/lib/apk/repositories.d').glob('*'),
            *pathlib.Path('/etc/apk/keys').glob('*')]:

@@ -153,7 +153,27 @@ class KernelManager:
         return result
 
     def save(self, state):
+        # APK keeps installed same-ABI generations while this marker exists.
+        # Create it before recording a trial and remove it after clearing one,
+        # so an interruption can only keep the installed generation.
+        marker = self.policy / 'trial-pending'
+        if state.get('pending'):
+            atomic(marker, state['pending'] + '\n', 0o644)
         json_write(self.policy / 'state.json', state)
+        if not state.get('pending'):
+            marker.unlink(missing_ok=True)
+
+    def same_abi_upgrades(self, action='status'):
+        """A full APK upgrade installs newer same-ABI generations unless held."""
+        hold = self.policy / 'same-abi-hold'
+        if action == 'disable':
+            atomic(hold, '', 0o644)
+        elif action == 'enable':
+            hold.unlink(missing_ok=True)
+        elif action != 'status':
+            raise KernelError('Use kernelctl same-abi-upgrades enable|disable|status')
+        return {'same_abi_upgrades': not hold.exists(),
+                'trial_pending': (self.policy / 'trial-pending').exists()}
 
     @contextmanager
     def locked(self, name='.lock'):
@@ -1014,12 +1034,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=['status', 'check', 'migrate', 'prepare', 'boot',
                                          'confirm', 'rollback', 'retry', 'remove', 'retain',
-                                         'prune', 'apk-pre', 'apk-post'])
+                                         'prune', 'apk-pre', 'apk-post', 'same-abi-upgrades'])
     parser.add_argument('arguments', nargs='*')
     args = parser.parse_args()
     manager = KernelManager()
     if args.command == 'status':
         print(json.dumps(manager.state(), indent=2))
+        return
+    if args.command == 'same-abi-upgrades' and args.arguments in ([], ['status']):
+        print(json.dumps(manager.same_abi_upgrades(), indent=2))
         return
     if os.geteuid() != 0:
         raise KernelError('Run as root')
@@ -1058,6 +1081,10 @@ def main():
             state = manager.state()
             if state.get('pending') and manager.release() == state['generations'][state['pending']]['release']:
                 manager.confirm()
+        elif args.command == 'same-abi-upgrades':
+            if len(args.arguments) != 1:
+                raise KernelError('Use kernelctl same-abi-upgrades enable|disable|status')
+            print(json.dumps(manager.same_abi_upgrades(args.arguments[0]), indent=2))
         elif args.command == 'retain':
             if (manager.policy / 'state.json').exists():
                 manager.retain(manager.state())
