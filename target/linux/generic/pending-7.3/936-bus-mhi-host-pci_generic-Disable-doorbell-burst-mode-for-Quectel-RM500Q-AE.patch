@@ -43,16 +43,10 @@ Link: https://patch.msgid.link/20261013-rm500q-db-burst-v1-1-bb850d54e2c4@gmail.
 
 --- a/drivers/bus/mhi/host/pci_generic.c
 +++ b/drivers/bus/mhi/host/pci_generic.c
-@@ -482,6 +482,63 @@
- 	.name = "quectel-rm5xx",
- 	.edl = "qcom/prog_firehose_sdx6x.elf",
- 	.config = &modem_quectel_em1xx_config,
-+	.bar_num = MHI_PCI_DEFAULT_BAR_NUM,
-+	.dma_data_width = 32,
-+	.mru_default = 32768,
-+	.sideband_wake = true,
-+};
-+
+@@ -488,10 +488,57 @@ static const struct mhi_pci_dev_info mhi
+ 	.sideband_wake = true,
+ };
+ 
 +/*
 + * The RM500Q-AE stalls its downlink when the host refills the hardware
 + * channel in burst mode: the last doorbell covers one buffer, the host
@@ -100,9 +94,10 @@ Link: https://patch.msgid.link/20261013-rm500q-db-burst-v1-1-bb850d54e2c4@gmail.
 +	.event_cfg = mhi_quectel_em1xx_events,
 +};
 +
-+static const struct mhi_pci_dev_info mhi_quectel_rm500q_info = {
-+	.name = "quectel-rm500q",
-+	.edl = "qcom/sdx55m/edl.mbn",
+ static const struct mhi_pci_dev_info mhi_quectel_rm500q_info = {
+ 	.name = "quectel-rm500q",
+ 	.edl = "qcom/sdx55m/edl.mbn",
+-	.config = &modem_quectel_em1xx_config,
 +	.config = &modem_quectel_rm500q_config,
  	.bar_num = MHI_PCI_DEFAULT_BAR_NUM,
  	.dma_data_width = 32,

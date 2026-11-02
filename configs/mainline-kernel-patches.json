@@ -1,6 +1,6 @@
 {
   "kernel": "7.3",
-  "baseline": "6.18.55",
+  "baseline": "6.18.60",
   "patches": [
     {
       "source": "target/linux/generic/backport-6.18/010-v6.19-nvmem-layouts-u-boot-env-add-optional-env-size-property.patch",
@@ -39,7 +39,7 @@
       ],
       "status": "upstream",
       "reason": "Backport targets upstream v6.19, included by v7.3",
-      "source_sha256": "5cb6e9caf8068891051471f41d5a99a3708f0068b7d275b2eaad722f4941cea9"
+      "source_sha256": "3facf73bf971b0109cbc1e31192bb7ba02cbccd6783890aaeaaef34f8c93beef"
     },
     {
       "source": "target/linux/generic/backport-6.18/435-v6.19-mtd-spinand-add-support-for-FudanMicro-FM25S01BI3.patch",
@@ -60,7 +60,7 @@
       ],
       "status": "upstream",
       "reason": "Backport targets upstream v7.3, included by v7.3",
-      "source_sha256": "cd33b48b5fa3510f31d5718b5c8b9ca82c05a7ac9e556aba4b017cf529950dd8"
+      "source_sha256": "30787ea1e6f61ad1e3f9579d3963f91e9e502fa68dfb21860153c97389d456f8"
     },
     {
       "source": "target/linux/generic/backport-6.18/436-v7.3-mtd-spinand-fmsh-add-support-for-FM25G01B-FM25G02B.patch",
@@ -86,8 +86,9 @@
         "drivers/mtd/nand/spi/core.c"
       ],
       "status": "upstream",
-      "reason": "Backport targets upstream v7.3, included by v7.3",
-      "source_sha256": "cd65445cfb0e93e2405a391ba7acfd30209178ce21fec125cb881a705900c4d7"
+      "reason": "Backport targets upstream v7.3, included by v7.3; dropped from 6.18 after landing in 6.18.56-6.18.60 stable, and every added line is present in Linux 7.3.1",
+      "source_sha256": "cd65445cfb0e93e2405a391ba7acfd30209178ce21fec125cb881a705900c4d7",
+      "removed_in": "6.18.56-6.18.60"
     },
     {
       "source": "target/linux/generic/backport-6.18/439-v7.4-mtd-spi-nor-macronix-Restore-fallback-parameters-for.patch",
@@ -134,7 +135,7 @@
       ],
       "status": "upstream",
       "reason": "Backport targets upstream v7.3, included by v7.3",
-      "source_sha256": "1a489a1d3402c4d6b369957d354c145416ea8c710065d4986d9db51ed52f63d5"
+      "source_sha256": "24c6d38849593254ebc56115d6d38486d4f9977b83c00a0bb71cb6762cac5da6"
     },
     {
       "source": "target/linux/generic/backport-6.18/503-01-v7.3-ksmbd-enable-tcp-keepalive-for-accepted-connections.patch",
@@ -226,7 +227,7 @@
       ],
       "status": "upstream",
       "reason": "Backport targets upstream v7.2, included by v7.3",
-      "source_sha256": "94c25b481c1fe857a4482beaad84ae6544f2909d04b5000608850c97e35f1dff"
+      "source_sha256": "97b2872de1b6812a5840a17617f535193e9808c1f72f9caf94120644e79438ea"
     },
     {
       "source": "target/linux/generic/backport-6.18/700-01-v7.0-net-sched-Export-mq-functions-for-reuse.patch",
@@ -391,7 +392,7 @@
       ],
       "status": "upstream",
       "reason": "Backport targets upstream v7.3, included by v7.3",
-      "source_sha256": "9dde36e5fba8a5f592d1b6e56c86af1503c282980b80f72389b304e0c15c8737"
+      "source_sha256": "755fd0a673801ee44ebcef617867321ab023c2c6656a775207b2ca72318a0594"
     },
     {
       "source": "target/linux/generic/backport-6.18/706-02-v7.3-netfilter-flowtable-restore-ieee80211-forward-path.patch",
@@ -449,7 +450,7 @@
       ],
       "status": "upstream",
       "reason": "Backport targets upstream v7.1, included by v7.3",
-      "source_sha256": "17c3f7fe83d4e0fdf39295df70a6a5a8da1b37b174c0d92995ad78f39b747820"
+      "source_sha256": "e0e44446d828c5dee4a27392c900fbc78c1978f404e4cebd3285677d8726c9c0"
     },
     {
       "source": "target/linux/generic/backport-6.18/721-02-v7.1-net-dsa-mt7530-untag-VLAN-aware-bridge-PVID.patch",
@@ -458,7 +459,7 @@
       ],
       "status": "upstream",
       "reason": "Backport targets upstream v7.1, included by v7.3",
-      "source_sha256": "72abe6d9b32ae0bfe4ea32fede207f5b87a74e9f91b77677138cd0d8e8a0a437"
+      "source_sha256": "6254cd3edc4fb1bb4b6db14e522c56074625884c32320ca16b9b0bda65ecfee9"
     },
     {
       "source": "target/linux/generic/backport-6.18/730-10-v6.19-net-phy-mxl-gpy-add-support-for-MxL86211C.patch",
@@ -896,8 +897,9 @@
         "drivers/usb/serial/option.c"
       ],
       "status": "upstream",
-      "reason": "Backport targets upstream v7.3, included by v7.3",
-      "source_sha256": "4958a0a2e296338cbc28176fdc2b9f1bf22e1afa86de0ec78717e0c9673862c8"
+      "reason": "Backport targets upstream v7.3, included by v7.3; dropped from 6.18 after landing in 6.18.56-6.18.60 stable, and every added line is present in Linux 7.3.1",
+      "source_sha256": "4958a0a2e296338cbc28176fdc2b9f1bf22e1afa86de0ec78717e0c9673862c8",
+      "removed_in": "6.18.56-6.18.60"
     },
     {
       "source": "target/linux/generic/backport-6.18/783-v7.2-net-dsa-pass-extack-to-dsa_switch_ops-port_policer_.patch",
@@ -1076,8 +1078,9 @@
         "drivers/net/usb/qmi_wwan.c"
       ],
       "status": "upstream",
-      "reason": "Backport targets upstream v7.3, included by v7.3",
-      "source_sha256": "729db8f82fcd9f6370c3648826b54da06e542ebb23780218c256e624424eed12"
+      "reason": "Backport targets upstream v7.3, included by v7.3; dropped from 6.18 after landing in 6.18.56-6.18.60 stable, and every added line is present in Linux 7.3.1",
+      "source_sha256": "729db8f82fcd9f6370c3648826b54da06e542ebb23780218c256e624424eed12",
+      "removed_in": "6.18.56-6.18.60"
     },
     {
       "source": "target/linux/generic/backport-6.18/788-v7.0-net-phy-realtek-fix-whitespace-in-struct-phy_driver-.patch",
@@ -1697,12 +1700,14 @@
       "files": [
         "drivers/bus/mhi/host/pci_generic.c"
       ],
-      "status": "needs-port",
-      "reason": "Review found the 17cb:0306 subsystem 17cb:5002 PCI binding absent from v7.3; the filename release prefix was insufficient evidence of upstream inclusion",
+      "status": "rebased",
+      "reason": "Upstream f6985f512f82 is in torvalds master after v7.3 (not in 7.3.1); the 17cb:0306 subsystem 17cb:5002 binding was absent from the 7.3 port. Restored as a v7.4 backport with zero-fuzz refresh against Linux 7.3.1",
       "source_sha256": "0fa910ea3185b72a55fe57e7f0f5588493e8fcaeec14bcefd08abd6bd01156a6",
       "review_findings": [
         "rm500q-pci-binding"
-      ]
+      ],
+      "ported": "target/linux/generic/backport-7.3/935-v7.4-bus-mhi-host-pci_generic-Add-Quectel-RM500Q-AE-support.patch",
+      "ported_sha256": "2d29f24635eed7757d0e62e20f1de66bf12d6f399ebc3c9cb434a9a94988d0c9"
     },
     {
       "source": "target/linux/generic/backport-6.18/940-01-v7.1-net-dsa-tag_rtl8_4-update-format-description.patch",
@@ -1905,8 +1910,9 @@
         "drivers/net/dsa/mt7530.h"
       ],
       "status": "upstream",
-      "reason": "Backport targets upstream v7.1, included by v7.3",
-      "source_sha256": "6b6d7464a8697b9f8f062b760f4ab065a331d1a53ce3405dad7d71d8c4a8dba1"
+      "reason": "Backport targets upstream v7.1, included by v7.3; dropped from 6.18 after landing in 6.18.56-6.18.60 stable, and every added line is present in Linux 7.3.1",
+      "source_sha256": "6b6d7464a8697b9f8f062b760f4ab065a331d1a53ce3405dad7d71d8c4a8dba1",
+      "removed_in": "6.18.56-6.18.60"
     },
     {
       "source": "target/linux/generic/backport-6.18/950-v7.3-cgroup-fix-spurious-SIGKILL-of-CLONE_INTO_CGROUP-children.patch",
@@ -1915,8 +1921,9 @@
         "kernel/cgroup/cgroup.c"
       ],
       "status": "upstream",
-      "reason": "Backport targets upstream v7.3, included by v7.3",
-      "source_sha256": "70b7fd4ede1204aea25cfaf23c725ba92f6d7a53277313184964e2ba491c7be0"
+      "reason": "Backport targets upstream v7.3, included by v7.3; dropped from 6.18 after landing in 6.18.56-6.18.60 stable, and every added line is present in Linux 7.3.1",
+      "source_sha256": "70b7fd4ede1204aea25cfaf23c725ba92f6d7a53277313184964e2ba491c7be0",
+      "removed_in": "6.18.56-6.18.60"
     },
     {
       "source": "target/linux/generic/backport-6.18/706-03-v7.2-netfilter-flowtable-bail-out-if-forward-path-cannot-b.patch",
@@ -1925,7 +1932,7 @@
       ],
       "status": "upstream",
       "reason": "Upstream 871df5007eda is already present in Linux 7.3; failed forward-path discovery refuses offload",
-      "source_sha256": "3fe6e3f26f1d76c2ffd41eed5c920f5a9d8cae2b158ebab0727c959b0f403ce3"
+      "source_sha256": "d13e7cbca5797c3845afc4f33a8697f59b0b82b7a4f4506cc6017cff21058ff3"
     },
     {
       "source": "target/linux/generic/pending-6.18/100-compiler.h-only-include-asm-rwonce.h-for-kernel-code.patch",
@@ -2013,7 +2020,7 @@
         "net/bridge/br_arp_nd_proxy.c"
       ],
       "status": "rebased",
-      "source_sha256": "e3ab730ac03b5b52db45d18c731e858c76327ba997168c9eb8570ddc62f5b626",
+      "source_sha256": "3aaf4ae4c7cc7d58eab51abd3cfa7912bd48432eaaa1debec2a39854d2b197e9",
       "ported": "target/linux/generic/pending-7.3/151-net-bridge-do-not-send-arp-replies-if-src-and-target.patch",
       "ported_sha256": "3c54785d3886345ff036b70dc627ecd595f5335bc33b1ce4ba723f05ee099434"
     },
@@ -2058,7 +2065,7 @@
         "scripts/link-vmlinux.sh"
       ],
       "status": "merged",
-      "source_sha256": "340a9599cf611a9a3a8050b04ae4341234648d340043837eea0d93f850a07d43",
+      "source_sha256": "0567a8e5a8effa59a02726ede94a54c1457f781a0419a30dbe3e16e6b543c6c1",
       "ported": "target/linux/generic/pending-7.3/203-kallsyms_uncompressed.patch",
       "ported_sha256": "6304eab670706d2ee5f282e51ade68f9bf15e26a08f0dc612945112898495b01"
     },
@@ -2159,7 +2166,7 @@
         "arch/loongarch/vdso/Makefile"
       ],
       "status": "merged",
-      "source_sha256": "aaa837465e21a8c529daeeb4909c70a70d8213c0ba62665fed918e6381769f23",
+      "source_sha256": "2079350fb8727e7dfd14ec75d2b8d35bef3fbffcb6926e463b97adcce13da647",
       "ported": "target/linux/generic/pending-7.3/304-LoongArch-vdso-keep-the-prefix-map-flags.patch",
       "ported_sha256": "8fdee8c5e72fff44780160218ef7174456d5262616655e326bdc0d1dbc837196"
     },
@@ -2526,7 +2533,7 @@
         "include/linux/mtd/spinand.h"
       ],
       "status": "merged",
-      "source_sha256": "864d6cf3deeac367bd0bc0ecc87567df32108604ae1a36b840d4dd824779f19a",
+      "source_sha256": "57a75f927e797c5070a0f8639be4fefb5de877f3e9de8c90bd9be43e5c78a48f",
       "ported": "target/linux/generic/pending-7.3/487-mtd-spinand-Add-support-for-Etron-EM73D044VCx.patch",
       "ported_sha256": "3351800843e463fe92214573331cde0ae466ebfb834710ff5e5422ae1e72816d"
     },
@@ -2710,7 +2717,7 @@
         "net/packet/internal.h"
       ],
       "status": "rebased",
-      "source_sha256": "b26b459f145ddcb08009e3a161083958a05b4bf3ba5564e069e034a0a5a6af46",
+      "source_sha256": "3b2733ace77bfa70659e107110e215fc1cfb954f20041a9ec47d7be13ac0ecdf",
       "ported": "target/linux/generic/pending-7.3/630-packet_socket_type.patch",
       "ported_sha256": "7dbc7e9359be61ae77c39ae8625054914be2be860e880f3ea1b0449a047a66a4"
     },
@@ -2766,7 +2773,7 @@
         "include/linux/skbuff.h"
       ],
       "status": "rebased",
-      "source_sha256": "f4b0b00cad52657b95a725f9b6fe5b95ca72ba67f83b2e7b74c0602b219fb798",
+      "source_sha256": "ad117c19feaff22478c746c37280f62367052010268bdfcefe6c309b12b45999",
       "ported": "target/linux/generic/pending-7.3/655-increase_skb_pad.patch",
       "ported_sha256": "68df31a6f97ac9cad879bd65c85c63fac68428a6288128e34e4033d5b9cc310f"
     },
@@ -2799,7 +2806,7 @@
         "net/ipv6/route.c"
       ],
       "status": "rebased",
-      "source_sha256": "1204ef55303c76976cc6c9ec721f80b74dc3b625f75b6941f791bda1bef3bf03",
+      "source_sha256": "ffbcc4ccf159920ca4a05b175061c06158abece381fb35010d566d677e6a5a0b",
       "ported": "target/linux/generic/pending-7.3/670-ipv6-allow-rejecting-with-source-address-failed-policy.patch",
       "ported_sha256": "cb233706d1f38f958696b4891cbfb108527210d32b09be4356822ebe0933df10"
     },
@@ -2829,7 +2836,7 @@
         "net/openvswitch/vport-internal_dev.c"
       ],
       "status": "rebased",
-      "source_sha256": "e7c043608eaebd78f12f1cd1caeff894451b966e7061aebd40769f7d9d127dd7",
+      "source_sha256": "a53b1fb420c9e2991e75679293297e2671d101cadc1fefc6b91d2f7275e5d7af",
       "ported": "target/linux/generic/pending-7.3/681-net-remove-NETIF_F_GSO_FRAGLIST-from-NETIF_F_GSO_SOF.patch",
       "ported_sha256": "ab50143a6c0128070f096784a6d66202a32c6c01db190050f3fa1f00ff03c865"
     },
@@ -2850,7 +2857,7 @@
         "net/netfilter/nft_flow_offload.c"
       ],
       "status": "rebased",
-      "source_sha256": "1990bb351e9cc715b34938588f95b7e0a4f77a6ea7035d30697bb4a6e7b80032",
+      "source_sha256": "f11c3601e2f44a6e05ef31f0d4de1a0b1b9fed7ad29e209513d56c4c9b85acde",
       "ported": "target/linux/generic/pending-7.3/700-netfilter-nft_flow_offload-handle-netdevice-events-f.patch",
       "ported_sha256": "883a7aeb86454ffe9778be0f2e44251c13230420709b1c7885b58d922a5ee3cc"
     },
@@ -2860,7 +2867,7 @@
         "net/netfilter/nf_tables_api.c"
       ],
       "status": "rebased",
-      "source_sha256": "deacadf89015849f118b42bd7bf7f75d7f9bffa9c6c449f28eb7fba8b74e5c44",
+      "source_sha256": "8103fe051d8870cab969e0e1be8365ca1692a02f99c7251ca914fdb6d30aba1d",
       "ported": "target/linux/generic/pending-7.3/701-netfilter-nf_tables-ignore-EOPNOTSUPP-on-flowtable-d.patch",
       "ported_sha256": "838dae29189ce261f97ff803a7b44f3f1d26d46de36e6900f28ab9de9093bc89"
     },
@@ -2870,7 +2877,7 @@
         "drivers/net/ethernet/mediatek/mtk_eth_soc.c"
       ],
       "status": "rebased",
-      "source_sha256": "b138644f713227011cf6f91e57524b26fab5448f443cf09c2e41cf0446a16d1d",
+      "source_sha256": "33e306c57b43227522b79fd0ca29a2d7e8e8ffc7a99cad384887b2ee2f7fde80",
       "ported": "target/linux/generic/pending-7.3/702-net-ethernet-mtk_eth_soc-enable-threaded-NAPI.patch",
       "ported_sha256": "91253110c5b51395ef98a563170f67b88c046aafa476d680b81c1526407ed1e1"
     },
@@ -2969,7 +2976,7 @@
         "net/netfilter/nf_flow_table_path.c"
       ],
       "status": "merged",
-      "source_sha256": "caa04daa5d8a552dbe60280626231502bf8872d2bc0dbbe765f1855dcb6c50f5",
+      "source_sha256": "041aadf5612694a73362be595a40bb8da182e1e2272e1dff480d6291458923bb",
       "ported": "target/linux/generic/pending-7.3/708-netfilter-flowtable-tear-down-direct-xmit-flows-when.patch",
       "ported_sha256": "fb944c3a2b3ea98a89a53e8be110a9d055a62855f98e6f5b26e7bcd2f91c20ef"
     },
@@ -3108,7 +3115,7 @@
         "drivers/net/phy/aquantia/aquantia_main.c"
       ],
       "status": "rebased",
-      "source_sha256": "96b44dc0e884be0187201d83e18bd920dd7441e9b9ad4fdcb18b447509241220",
+      "source_sha256": "f79006bdc2288ab17451437761dc2f044493851c4438756a72619c14e9b8ab3a",
       "ported": "target/linux/generic/pending-7.3/715-net-phy-aquantia-add-support-for-CUX3410.patch",
       "ported_sha256": "3f54fbe482271a4d7a7eb0a496251396666648cbfa1b994c359b859391253321"
     },
@@ -3243,7 +3250,7 @@
         "drivers/net/ethernet/mediatek/mtk_eth_soc.h"
       ],
       "status": "rebased",
-      "source_sha256": "7cb06b039668e31d8863c44f64c08d30b4dcaa61de990f79084a0e3f99ad0ed8",
+      "source_sha256": "8c7b51dc97927214dd456bc2e54b86f1409bdc63b50ed73e5eb17e531a807ba1",
       "ported": "target/linux/generic/pending-7.3/732-03-net-ethernet-mtk_eth_soc-optimize-dma-ring-address-i.patch",
       "ported_sha256": "4f6c652f3a325ac8d4e6af20a00d5966e37c46c4af3dee33ac92b34e14b5ed00"
     },
@@ -3442,7 +3449,7 @@
         "drivers/net/ethernet/mediatek/mtk_eth_soc.c"
       ],
       "status": "rebased",
-      "source_sha256": "4ad4e719812763b347375916c2aaa13658ca05fefabeda953f8047f640048922",
+      "source_sha256": "c10a8cd2e260b7153a712c51a3124780e49dbb74aedf1cd0d028eda2db1290de",
       "ported": "target/linux/generic/pending-7.3/738-01-net-ethernet-mtk_eth_soc-reduce-rx-ring-size-for-older.patch",
       "ported_sha256": "46ae9e101071db1882072115b5dbf177e524122ec227e39c9e182cc8c31551eb"
     },
@@ -3864,7 +3871,7 @@
         "drivers/net/ethernet/mediatek/mtk_eth_soc.h"
       ],
       "status": "rebased",
-      "source_sha256": "f49ab5acef0069b3e0f22629ff8e0a024ca9aa6d5904612d26cbdad9231c3d6e",
+      "source_sha256": "18dc82b49810fb1e77463b838dd8f56b3af93096f04c1586bb6625c105be88ed",
       "ported": "target/linux/generic/pending-7.3/795-04-net-ethernet-mtk_eth_soc-per-SoC-QDMA-TX-queue-count.patch",
       "ported_sha256": "b6ad0fd98923115b7b261192a891f85756ad2ea5179fbf7460db3153f7a29e4a"
     },
@@ -4091,7 +4098,7 @@
       ],
       "status": "superseded",
       "reason": "Mainline PCI sysfs attribute-group lifecycle removed pci_sysfs_init and pci_create_sysfs_dev_files race",
-      "source_sha256": "fc822e0aca956299494cf6b22462a890029564f660fd14570d92828dd2e24de5"
+      "source_sha256": "6c8c4c2e0ac32cce7cce9a707db8479f0dd089c4e46aaf8950d37c70c834ccbd"
     },
     {
       "source": "target/linux/generic/pending-6.18/830-01-mailbox-qcom-share-TME-L-QMP-client-header.patch",
@@ -4154,7 +4161,7 @@
         "include/linux/libata.h"
       ],
       "status": "rebased",
-      "source_sha256": "dcd99914499027b2cb7054c64308508568a7a84beba4348a3fe4b971b06d8046",
+      "source_sha256": "516635e4db461bfade8942af940d4e0a53c5d81ffdf4cb7ad0966e4de94d259d",
       "ported": "target/linux/generic/pending-7.3/834-ledtrig-libata.patch",
       "ported_sha256": "4d4c274ba9bf3c27a1aed44ac5954f04fd9a343abbea9686c40c7e60ce60043c"
     },
@@ -4394,7 +4401,7 @@
         "init/main.c"
       ],
       "status": "rebased",
-      "source_sha256": "65cc557f2e38c5263e163a5f1514d0d1f9f793527acdb38583d20cf6d25d7911",
+      "source_sha256": "761aa236621d35a14bda9414e68f58aedb41e595994fbe3ec7e199f0ed605a69",
       "ported": "target/linux/generic/pending-7.3/920-mangle_bootargs.patch",
       "ported_sha256": "0bfd6a10f5096c9eebea2d5f183dde751defc06d36af8632a1cbabad91c37a1a"
     },
@@ -4403,10 +4410,11 @@
       "files": [
         "drivers/bus/mhi/host/pci_generic.c"
       ],
-      "status": "merged",
+      "status": "rebased",
       "source_sha256": "9df6464b372d9c87beab6b7b25de7dd72a47cab5bfa3aa64fb2d4f1270e333ea",
       "ported": "target/linux/generic/pending-7.3/936-bus-mhi-host-pci_generic-Disable-doorbell-burst-mode-for-Quectel-RM500Q-AE.patch",
-      "ported_sha256": "a7913b6394a1d40bb14f00eeac0fce0460b0aa14af2c7e260936b25c49d110cb"
+      "ported_sha256": "e1252c98d809ed092340cbae5b62f4afce45e80722bf1c7a28e1a45681ac9b26",
+      "reason": "Restored to the original series on top of the 935 backport instead of carrying the 935 device info without its PCI table entry; zero-fuzz refresh against Linux 7.3.1"
     },
     {
       "source": "target/linux/generic/hack-6.18/200-tools_portability.patch",
@@ -4558,7 +4566,7 @@
         "lib/Kconfig"
       ],
       "status": "rebased",
-      "source_sha256": "051d92277e190f2d7b719f0b06c5d48bdbf8e18bf70e52bd9c8143c1494ca1c7",
+      "source_sha256": "173d8815c5b8a843a8f0e8076f5534f71f2c299570afb612ed0fbe4ffa176aed",
       "ported": "target/linux/generic/hack-7.3/253-ksmbd-config.patch",
       "ported_sha256": "d3c10a0cbdee9a68d00a0be4499138a235403608964a413763fc1d0ab4fbf2ad"
     },
@@ -4626,7 +4634,7 @@
         "mm/execmem.c"
       ],
       "status": "rebased",
-      "source_sha256": "83a7836e0fdb39a15e6d179150388418f06ddcb608942d060b7c075c8f6261c5",
+      "source_sha256": "c5d86932732e37f19401d746f64eebfbcf5c27100339991e68478ec7c2cdfb03",
       "ported": "target/linux/generic/hack-7.3/301-01-mm-permit-to-declare-custom-execmem-alloc-free-funct.patch",
       "ported_sha256": "c33ddc0016442a298978c2e525f8f573233d3c782a7ec569c8d2ea26234f3cd3"
     },
@@ -4713,7 +4721,7 @@
         "net/core/page_pool.c"
       ],
       "status": "rebased",
-      "source_sha256": "ff67de5d555b92e7f3fc547e4419f4ab74028a4432de8842593600068b9f7ddb",
+      "source_sha256": "44fa01855cd56b1602ef95f6cb0857fd2fe7500efbf917333c33bbb0c1b7d65a",
       "ported": "target/linux/generic/hack-7.3/610-net-page_pool-try-to-free-deferred-skbs-while-waitin.patch",
       "ported_sha256": "810b4986f938d21e603df80742b32bf53fa13bb8cf0bc6f73cf8ac324b55ad0a"
     },
@@ -4739,7 +4747,7 @@
         "net/netfilter/xt_FLOWOFFLOAD.c"
       ],
       "status": "rebased",
-      "source_sha256": "202a3ec7e5a3092a29e9539dfa34153ca3f5e04151f4f7669f299b608e1fa4d8",
+      "source_sha256": "49199b876b8035bec637c2c98d2b31c0fce0722c4798aff3a0f64bd8bbed2a8f",
       "ported": "target/linux/generic/hack-7.3/650-netfilter-add-xt_FLOWOFFLOAD-target.patch",
       "ported_sha256": "f7689ca4065facd851f9dbbb3a76d89171584b06bd058c92837f2f41ae0e7705"
     },
@@ -4759,7 +4767,7 @@
         "net/sched/sch_fq_codel.c"
       ],
       "status": "rebased",
-      "source_sha256": "7164a43d7e51ea5d5c261eed657fcccaf704a143b04c55ecd2f4d6b43401e00c",
+      "source_sha256": "0853e5df84fd0982dab3165aebe7baf5a5fd8f0aa45a55cfbb466ca78cfd2d61",
       "ported": "target/linux/generic/hack-7.3/660-fq_codel_defaults.patch",
       "ported_sha256": "1081d0e44967e236bc0133afaaa8912bd647425a624f3cabdf2bf13511ad1acd"
     },
@@ -4816,7 +4824,7 @@
         "net/ethernet/eth.c"
       ],
       "status": "rebased",
-      "source_sha256": "d6280cacdedb6c2003aa41391df58fdcff55f83a7f239ccd051fcba6be30a9e0",
+      "source_sha256": "123490f477d8ad9368e3395e8273d49241ec69a3a190d682eb1dda90b6320256",
       "ported": "target/linux/generic/hack-7.3/721-net-add-packet-mangeling.patch",
       "ported_sha256": "ddd1454fc2a1227bd93f1c061e0a3f737e64117c10e8db7980b9f22dc54f8de7"
     },
@@ -4826,7 +4834,7 @@
         "drivers/net/phy/aquantia/aquantia_main.c"
       ],
       "status": "rebased",
-      "source_sha256": "2accd6b8f5d79c577a5e7cebff832ec5e434575044e1a2a98b470eee06fffa4b",
+      "source_sha256": "702e0a5547c0ce927c96c533e64bd526897f4a29202fde6f3a1dad86e130c962",
       "ported": "target/linux/generic/hack-7.3/722-net-phy-aquantia-enable-AQR112-and-AQR412.patch",
       "ported_sha256": "cdbbb9e2e5b5bcd77baab12b49bfb69f8e66768dba1e65083b3aff8ca0c347c3"
     },
@@ -4846,7 +4854,7 @@
         "drivers/net/phy/aquantia/aquantia_main.c"
       ],
       "status": "rebased",
-      "source_sha256": "61b48d038577fd1b209e4ccd4f9fb2240f5287dc9f766663915298aef7db2fa2",
+      "source_sha256": "b627e1194adbd9e5361ea3be3ebb176973f68cbe2ef77a94664387d371947d86",
       "ported": "target/linux/generic/hack-7.3/725-net-phy-aquantia-add-PHY_IDs-for-AQR112-variants.patch",
       "ported_sha256": "19d0c04e166a7c135a55a477b4176316986ad6a21ee50580c7bb33f0fe80ee2f"
     },
@@ -4856,7 +4864,7 @@
         "drivers/net/phy/aquantia/aquantia_main.c"
       ],
       "status": "rebased",
-      "source_sha256": "d0c3b3bd9101b0272099e3f689e530eb6d47b493136089a48b62d4568643423d",
+      "source_sha256": "8a862db1c45e9ad685dfd9010fef626b10691b5e678dcbc40b1d5b75ae97450f",
       "ported": "target/linux/generic/hack-7.3/726-net-phy-aquantia-provision-USXGMII-system-interface.patch",
       "ported_sha256": "309b16c0fcaa2058b0c92f508af8b087b17fa114bfd3774df4156eab5e1db746"
     },
@@ -4940,7 +4948,7 @@
         "drivers/usb/serial/option.c"
       ],
       "status": "rebased",
-      "source_sha256": "fcfc4da02d56b3548e1fd3f4ffbed59a7dc7c2175ee1d6bf8a3b6c74c1594bbb",
+      "source_sha256": "b06639b7705f58862f3780c76d8185a08274367bea2d59ac0387c17827a00771",
       "ported": "target/linux/generic/hack-7.3/780-usb-net-MeigLink_modem_support.patch",
       "ported_sha256": "c97cfaca9e82af643458aaa003825bdc0f4acff36f57ac6ed1f536b3c61607df"
     },
@@ -5050,7 +5058,7 @@
         "net/ipv4/inet_timewait_sock.c"
       ],
       "status": "merged",
-      "source_sha256": "08b00a4c94812739516ec98be961774c4caf9ef58ae78935781ba76fa7531636",
+      "source_sha256": "b16887963704bdb71d8c2b5cc332b1b004657947cb8393f0bdd3b85c660b2568",
       "ported": "target/linux/generic/hack-7.3/902-debloat_proc.patch",
       "ported_sha256": "e9e7c599b59d4e2729117f069422687fdb7e19e6ca1f1e2e291d98e91d9111b5"
     },
@@ -5154,7 +5162,7 @@
         "net/ipv4/tcp_input.c"
       ],
       "status": "rebased",
-      "source_sha256": "8b01ea54f5a4f0ad7ad860a93eee36a9603aa241bedfcd3a81560e2cc24499be",
+      "source_sha256": "f355b235c775309397130a073bd7d8a378f406114ab0f1d1068b36b61886b2c4",
       "ported": "target/linux/generic/hack-7.3/950-silence-unused-variable-warnings.patch",
       "ported_sha256": "765e49531d9685fbd8c8bfe67f33dd166358f287455c8e82a194048d4748c602"
     },
@@ -5275,7 +5283,7 @@
       ],
       "status": "carried",
       "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
-      "source_sha256": "652595247573954cea49275a78a7e078df7b2a6f58b9fcf94107a35187d78799",
+      "source_sha256": "8aec162e1c1f294d4a2946d02da77a9ac93e0e9d9529f7b09ee29f7cfbf21476",
       "ported": "target/linux/generic/pending-7.3/797-00-wifi-cfg80211-add-the-flow-key-and-flow-description-.patch",
       "ported_sha256": "652595247573954cea49275a78a7e078df7b2a6f58b9fcf94107a35187d78799"
     },
@@ -5522,7 +5530,8 @@
         "id": "rm500q-pci-binding",
         "severity": "P2",
         "disabled_in_generation_30": "CONFIG_MHI_BUS_PCI_GENERIC",
-        "result": "The RM500Q-AE specific configuration has no PCI driver_data reference; the subsystem device ID entry was omitted"
+        "result": "The RM500Q-AE specific configuration has no PCI driver_data reference; the subsystem device ID entry was omitted",
+        "resolved": "2026-11-02: 935 restored as backport-7.3/935-v7.4 and 936 rebased on it; pci_generic.c compiles against the prepared 7.3.1 tree and keeps mhi_quectel_rm500q_info referenced from the PCI table"
       },
       {
         "id": "dmabuf-heaps-kbuild",

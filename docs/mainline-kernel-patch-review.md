@@ -48,6 +48,10 @@ The audit now marks patch 935 `needs-port`. Restore the specific PCI binding
 while reconciling the 935/936 series to avoid duplicate configuration structures.
 `CONFIG_MHI_BUS_PCI_GENERIC` is unset in generation 30.
 
+**Resolved 2026-11-02.** Upstream commit `f6985f512f82` is in Linus's tree
+after v7.3, so it is now `backport-7.3/935-v7.4-*`, and `pending-7.3/936-*`
+is rebased on it in its original form. See the 2026-11-02 section below.
+
 ### P2: DMA-BUF heap drivers are omitted by an inherited Makefile change
 
 `hack-7.3/904-debloat_dma_buf.patch` rewrites the heap directory's rules from
@@ -647,3 +651,86 @@ firmware image and the updated packages were not built. No packages were
 published, nothing was deployed to a device, and nothing was pushed.
 Backup branches are `backup/pre-sync-20261031T041546Z` in the main tree and
 in each feed.
+
+### Main/feed synchronization and new-patch review, 2026-11-02
+
+Merged 56 main-tree commits through `554f401d6b` into local merge
+`97695f70d9`, keeping the Linux 7.3 selection and local integration. The only
+conflict was the PPP release again: upstream advanced it to 6 for the jailed
+pppd secrets, options-file and PPTP socket changes, while the local tree had
+already published `2.5.4-r7`. The merged recipe therefore uses
+`PKG_RELEASE:=8`.
+
+The incoming 6.18 changes are the 6.18.56 to 6.18.60 stable bumps, the
+removal of the `pending-6.12` leftovers, `CONFIG_CC_HAVE_*` filtering in the
+shared `config-filter`, and the Rust-exposed generic symbols. Compared with
+the registry, which now records the 6.18.60 baseline:
+
+- **No new 6.18 patches.**
+- **40 patches were refreshed only.** Their added and removed lines are
+  unchanged; only hunk offsets and context moved. Their source hashes were
+  re-recorded.
+- **One patch has changed content.** In
+  `706-03-v7.2-netfilter-flowtable-bail-out-if-forward-path-cannot-b`, the
+  rebase onto 6.18.57 replaces `WARN_ON_ONCE(info->num_encaps-- == 0)` with
+  an explicit `num_encaps == 0` check. Linux 7.3.1 `nf_flow_table_path.c`
+  already uses that check, so nothing is needed.
+- **Five upstream-status backports were dropped from 6.18** after they
+  landed in 6.18 stable: `438` (SPI-NAND QE bit), `782` (Quectel EG060W),
+  `787` (Quectel EG120K-EA), `948` (MT7530 `get_stats64`) and `950` (cgroup
+  `CLONE_INTO_CGROUP` SIGKILL). Every added C line of each patch is present in
+  Linux 7.3.1, so nothing is needed. The registry entries record
+  `removed_in`.
+
+Two items did need porting to 7.3:
+
+- **Rust-exposed config symbols.** Upstream added `DRM_NOVA`,
+  `DRM_PANIC_SCREEN_QR_CODE`, `DRM_TYR`, `RUST_KERNEL_DOCTESTS` and
+  `SAMPLES_RUST` to `config-6.18` because a `CONFIG_RUST=y` build otherwise
+  stops at a syncconfig prompt. Generic `config-7.3` had none of them. Linux
+  7.3 also adds `RUST_FWCTL_ABSTRACTIONS`, `RUST_KUNIT_TESTS` and
+  `RUST_SERIAL_DEV_BUS_ABSTRACTIONS`. All eight are now unset in
+  `config-7.3`. Running Linux 7.3.1's `conf --listnewconfig` on the merged
+  generic, x86 and x86/64 configs, with `RUST_IS_AVAILABLE` forced on, found
+  `DRM_NOVA` and `RUST_SERIAL_DEV_BUS_ABSTRACTIONS` for `CONFIG_RUST=y` alone.
+  With `DRM_PANIC`, `KUNIT`, `SAMPLES` and `FWCTL=y` also enabled, it found
+  all eight. Afterwards it reports none, leaving only the three
+  target-supplied values that it also reports without Rust. The set of
+  enabled options is identical, so the kernel ABI does not change.
+  `RUST_INLINE_HELPERS` was omitted: it requires a clang-built kernel.
+- **Quectel RM500Q-AE binding (finding resolved).** Upstream
+  `f6985f512f82` is in Linus's tree after v7.3 and is absent from 7.3.1. It
+  is restored as
+  `backport-7.3/935-v7.4-bus-mhi-host-pci_generic-Add-Quectel-RM500Q-AE-support.patch`,
+  and `pending-7.3/936-*` is rebased on it in its original 6.18 form. Both
+  were refreshed with quilt, with zero fuzz, from the 6.18 sources. The patched
+  source differs from the previous 7.3 port only by the `17cb:0306`/`17cb:5002`
+  table entry. Using the kernel's own command line for a 7.3.1 module, the
+  previous source compiled with no `rm500q` symbols, because the unreferenced
+  configuration was discarded. The new source keeps
+  `mhi_quectel_rm500q_info`, its controller configuration and its channel
+  table.
+
+The full 7.3 stack of 322 patches applies to Linux 7.3.1 with `--fuzz=0`.
+The mainline updater reports 7.3.1 as current. The MAP-E tunnel and DMA-BUF
+heap findings remain open.
+
+The packages feed merged 45 incoming commits. GStreamer core, base and good
+conflicted on releases; they use `PKG_RELEASE:=6`, above every published or
+ledger-mapped 1.28.7 identity. nmap takes upstream 7.993-r1, and its local
+`110-ncat-recv-only-single-listener.patch` was refreshed from a 73-line
+offset. LuCI, both Passwall feeds and video merged 3, 3, 2 and 1 commits
+without conflict. Routing fast-forwarded 2 commits; telephony and taskplan
+had no incoming commits. The custom updater advances libneatvnc to 1.0.4.
+`ncat-7.993-r1` and `libneatvnc-1.0.4-r1` compile. Upstream removed
+dnscrypt-proxy, libdbi, libdbi-drivers, libsoc and perl-test-harness, and
+their stale `package/feeds` links were deleted. None was selected.
+`make defconfig` leaves every selection in `.config` unchanged.
+
+This is source integration, patch application, Kconfig and targeted-compile
+validation. `CONFIG_MHI_BUS_PCI_GENERIC` remains unset, and the RM500Q-AE
+change was not tested on hardware. No kernel, image or generation was built,
+nothing was published or deployed, and no router was contacted. Backup
+branches are `backup/pre-upstream-20261102T023631Z` in the main tree and in
+each feed. Evidence is in
+`/srv/openwrt-validation/upstream-update-20261102T023631Z/`.
