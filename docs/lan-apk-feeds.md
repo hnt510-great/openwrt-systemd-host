@@ -2,21 +2,32 @@
 
 The Debian build host uses nginx to serve signed native-systemd/glibc packages at
 `http://apk.example.invalid:8088`. Its system service is `lan-apk-feeds.service` and
-starts automatically at boot. The `lan-apk-feeds` package selects all nine
-repositories, including `custom`,
-in `/etc/apk/repositories.d/lan-local.list` from the installed kernel APK version.
-It regenerates this file at boot and after APK transactions, including after
-sysupgrade restores an older list. It preserves unrelated custom repositories.
-
-The feed URL contains the exact installed kernel package version:
+starts automatically at boot. The `lan-apk-feeds` package (release 6 and later)
+writes `/etc/apk/repositories.d/lan-local.list` with the kernel package channel
+and the current userspace snapshot of all nine repositories, including `custom`:
 
 ```text
-http://apk.example.invalid:8088/abi/6.18.55~ef561c78a2b577ae422f9289311ff293-r1/target/packages.adb
+http://apk.example.invalid:8088/kernel-upgrades/packages.adb
+http://apk.example.invalid:8088/current/target/packages.adb
+http://apk.example.invalid:8088/current/base/packages.adb
+...
 ```
+
+Userspace no longer depends on the kernel. Kernel packages carry their own
+modules, and the `kmod-*` packages in `target` only hold autoload configuration
+(see [kernel packages](kernel-upgrade.md)). The list is regenerated at boot and
+after APK transactions, including after sysupgrade restores an older list. It
+replaces an older ABI-pinned list and preserves unrelated custom repositories.
 
 The other feeds are `base`, `luci`, `packages`, `passwall_luci`,
 `passwall_packages`, `taskplan`, `video`, and `custom`. Only locally built packages are
 available; this is not a mirror of every upstream package.
+
+Before release 6, the URLs contained the router's exact kernel ABI,
+`<base>/abi/<kernel-abi>/<repo>/packages.adb`. The publisher still maintains
+that alias for the current build's configuration ABI, so a router that has not
+yet migrated keeps resolving its feeds. The ABI-namespace sections below
+describe that legacy behavior and dated publication records.
 
 On the router, use:
 
@@ -37,10 +48,10 @@ stack. `cockpit-runtime-deps` keeps the runtime dependencies of a source-install
 Cockpit in APK world. Build and publish these packages before adding them on the
 device; see [native development and migration](native-development.md#原生应用依赖与-cockpit).
 
-The router already pins
-`kernel=6.18.55~ef561c78a2b577ae422f9289311ff293-r1` in `/etc/apk/world`.
-Keep that constraint. Existing upstream snapshot URLs remain commented out
-because this firmware needs its matching native-systemd/glibc builds.
+Kernel adoption replaces the image's exact `kernel=<abi>` pin in
+`/etc/apk/world` with `kernel` and adds `linux-image-openwrt`. Existing upstream
+snapshot URLs remain commented out because this firmware needs its matching
+native-systemd/glibc builds.
 
 ## Publish newly built packages
 

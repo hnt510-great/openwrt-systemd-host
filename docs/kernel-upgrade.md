@@ -1,370 +1,255 @@
-# Protected kernel upgrades on x86 native-systemd OpenWrt
+# Kernel packages and upgrades on x86 native-systemd OpenWrt
 
-This APK/GRUB mechanism installs parallel kernel generations while retaining
-OpenWrt's exact kernel ABI dependencies. It supports the existing x86_64 glibc,
-squashfs, native-systemd image and its separate persistent extroot. It does not
-flash disks, replace the original `/boot/vmlinuz`, reinstall GRUB's core, or
-reboot. It keeps at most two versioned kernels in `/boot` and never removes the
-legacy rescue kernel.
+Kernels are installed and upgraded the way Debian, Fedora and similar
+distributions do it:
+
+- every kernel build is its own package, `linux-image-<release>`, carrying the
+  kernel and **all of its modules**;
+- several kernels are installed side by side, and `apk upgrade` installs the
+  newest one next to the running kernel;
+- installing a kernel builds its initramfs and GRUB entry (the equivalent of
+  `kernel-install`/`update-grub`), and the newest kernel becomes the GRUB default;
+- the new kernel runs after you reboot. GRUB gives it three attempts and then
+  falls back to the previous kernel;
+- userspace no longer depends on the kernel version.
+
+The image's original kernel (`/boot/vmlinuz`) is never written. It stays as the
+rescue entry, together with procd recovery and failsafe entries. GRUB's core is
+not reinstalled, and no disk is flashed.
+
+Validation of this model is recorded in
+[the kernel package validation report](kernel-packages-validation.md).
+
+## Packages
+
+For kernel build number N of Linux version V the build produces:
+
+| Package | Version | Contents |
+| --- | --- | --- |
+| `linux-image-V-N-openwrt` | `V-rN` | vmlinuz, config, System.map and every selected module under `/usr/lib/modules/V-N-openwrt/` |
+| `linux-headers-V-N-openwrt` | `V-rN` | prepared headers for on-device module builds (when `kernel-dev-headers` is selected) |
+| `linux-image-openwrt` | `V-rN` | metapackage: always depends on the newest `linux-image-*` |
+| `kernel-dev-headers` | `1000.N.V…` | metapackage for the newest headers |
+| `kmod-*` | `1000.N.V-r…` | autoload (`/etc/modules.d`), `modprobe.d` rules and dependencies only |
+
+`uname -r` is `V-N-openwrt`, for example `7.3.1-46-openwrt`. N is the build
+number, which the build wrapper reserves. The OpenWrt configuration hash no
+longer appears in the release, and patch-only rebuilds are ordinary new kernels.
+
+Module binaries ship in the kernel package, so a `kmod-*` package only enables
+autoloading. A module that was not selected when the running kernel was built
+becomes available after the next kernel build that includes it and a reboot into
+that kernel. The bundled modules are the ones selected in `.config` (about 376
+`.ko` files from 254 kmods in the current profile).
 
 ## Build and publish
 
-The normal combined command now builds and publishes both feed types:
+```sh
+./scripts/build-and-publish.sh -j16      # build and publish
+python3 scripts/build-and-publish.py build-only -j12 V=s   # build, do not publish
+./scripts/publish-changed-feeds.sh [--dry-run]             # publish a completed build
+```
+
+The wrapper fingerprints the kernel's inputs (kernel and target configuration,
+patches, selected module sources, shared build rules, tool identities and
+relevant make flags). Changed inputs reserve the next unused build number
+`CONFIG_OPENWRT_KERNEL_SEQUENCE`; unchanged inputs reuse the recorded number and
+kernel build timestamp. Plain `make` targets never reserve a build number. Do not
+run a plain full `make` with a number that is already published: the kmod
+configuration packages would collide with published identities.
+
+How the kernel packages are assembled:
+
+1. The pack hook (`scripts/kernel-package.py`) moves each kmod's module tree, the
+   kernel image and the header tree into
+   `build_dir/…/linux-x86_64/kernel-bundle/<release>/`. The `kmod-*` packages
+   keep only their configuration files.
+2. After all packages are compiled, `package/kernel-bundle`
+   (`scripts/kernel-bundle.py`) builds and signs the packages above into the
+   target package directory. It refuses a selected kmod that was not packed for
+   this release and conflicting module files. It also refuses changed bytes
+   under an existing name and version, which require a new build number.
+3. The rootfs installs `linux-image-openwrt`, so the image contains
+   `linux-image-<release>` from the same build as its `/boot/vmlinuz`.
+
+Publication splits the build into two repositories:
+
+- **Userspace** is published as an immutable snapshot behind `public/current/`.
+  It includes the `kmod-*` configuration packages. For legacy routers, the
+  snapshot is also reachable through the `public/abi/<config ABI>/` alias.
+- The **kernel channel** `public/kernel-upgrades/` holds `linux-image-*`,
+  `linux-headers-*`, the metapackages, the virtual `kernel` package and the
+  support packages. It keeps the three newest kernel builds (like Fedora's
+  `installonly_limit=3`). Legacy per-generation payloads age out by build number.
+
+Production publication still requires the router preflight described in
+[APK upgrade preflight](apk-upgrade-preflight.md). The preflight simulates the
+router's real `apk upgrade` against the prepared snapshots before either alias
+moves.
+
+## Using it on the router
 
 ```sh
-./scripts/build-and-publish.sh -j16
-```
-
-With the feature enabled, a full/default (`world`) build refreshes package
-metadata and fingerprints the kernel's relevant inputs: target/kernel config
-and patches, package-to-kernel configuration requests, selected module/header
-sources (including feed symlinks and build dependencies), shared build/package
-rules, compiler/tool identities and relevant build flags. Unrelated userspace
-package source, version and selection changes do not advance the sequence.
-Kernel/module source changes still advance it even when the OpenWrt ABI hash
-does not change.
-
-The local record is `tmp/.kernel-publication-inputs.json`. Identical inputs reuse
-the recorded sequence and kernel build timestamp, including after a failed build
-or publication. Pinning the timestamp prevents a userspace-only commit's new
-`SOURCE_DATE_EPOCH` from changing the kernel bytes. A new generation initially
-uses the explicit build timestamp, `SOURCE_DATE_EPOCH`, or current UTC time.
-This timestamp applies only to kernel builds; firmware/userspace timestamps keep
-their normal behavior.
-
-The combined wrapper runs make with umask `022` so package directory/file ACLs
-do not vary with the invoking shell's umask. A support package rebuilt with
-different metadata still needs a new `PKG_RELEASE`: the publisher never replaces
-the signed bytes of an already published filename. After bumping and rebuilding
-only those support packages, use the publish-only commands below to retry a
-completed kernel build without reserving another generation.
-
-Missing input history, changed relevant inputs, an explicitly increased sequence
-or a newer channel published elsewhere reserve an unused sequence above the
-published channel. Unknown existing immutable image outputs are skipped.
-Removing the local record therefore causes one conservative new generation.
-Only `CONFIG_OPENWRT_KERNEL_SEQUENCE` in `.config` is updated when necessary;
-other options and the saved profile are preserved. Failed builds never publish.
-Source/config changes during a build are refused before publication. Existing
-signed-byte immutability checks remain the final guard against unrecorded changes
-or direct edits to generated build files.
-
-Before reusing a recorded generation with an existing image APK, the wrapper
-also compares the APK's kernel/config file hashes with the current compiled
-`bzImage` and kernel `.config`, and checks the image's embedded build timestamp
-against the local record. A changed timestamp or an out-of-band rebuild
-can change the binary even when source fingerprints still match. Missing or
-different compiled files reserve an unused generation while preserving the
-existing APK. Use the wrapper for full builds so the reserved timestamp is
-passed to make; plain package make targets do not reserve generations.
-
-After make succeeds, the wrapper selects only the compiled generation and its
-matching logical trackers, payloads and configured modules/headers. Stale kernel
-artifacts in `bin/` are ignored without deleting them. Missing modules, wrong
-signatures, dependency mismatches, stale sequences and changed published bytes
-block publication. Both views are preflighted before either is exposed. The
-ABI-specific userspace view is published first, then the kernel channel is
-atomically switched. Existing ABI-local kernel packages and all published kernel
-generations remain unchanged. New kernel trackers/payloads are supplied only by
-the independent channel, avoiding a new tracker becoming visible too early.
-
-For an already completed matching build, publish or preview without rebuilding:
-
-```sh
-./scripts/publish-changed-feeds.sh --dry-run
-./scripts/publish-changed-feeds.sh
-```
-
-These commands do not advance the sequence. Package-only make targets keep the
-current sequence and require a complete matching generation to exist already.
-With an input record present, changed kernel inputs refuse a package-only build;
-use a full build to reserve the matching new generation. A changed support package must
-also bump its release rather than replace previously published bytes. With the
-feature disabled, the wrappers retain the original ABI-specific-only behavior.
-Neither wrapper contacts, installs packages on, or reboots a router.
-
-The feature defaults to enabled when its native-systemd/squashfs dependencies
-are satisfied. Both the working configuration and the maintained desktop profile
-enable it explicitly. The saved profile's sequence 4 is a seed following the
-initial validation generation 3; the combined wrapper chooses an unused sequence
-for the actual channel automatically. A new independent publication history
-starts at 1. The following illustrates configuration, not a sequence to reset an
-existing build to. Normalize manual configuration changes with `make defconfig`:
-
-```
-CONFIG_OPENWRT_KERNEL_UPGRADE=y
-CONFIG_OPENWRT_KERNEL_SEQUENCE=4
-```
-
-Increment the sequence for **every published change** to a kernel, its config,
-module payload, or prepared headers. Reusing a sequence for changed bytes is
-rejected. The combined full-build wrapper does this automatically when relevant inputs change; direct
-`make`/low-level publisher use still requires managing the sequence explicitly.
-The actual `uname -r` contains the Linux version, full OpenWrt config
-hash, kernel release and sequence. External modules rebuild on sequence changes.
-Build the kernel, packages and final image through the normal build pipeline.
-Keep the original signing key and publish a complete matching set of all selected
-modules, including out-of-tree modules and native headers.
-
-The publication sequence orders candidates. On an adopted installation with an
-installed image tracker, APK r11 keeps the installed kernel generation when the
-exact OpenWrt ABI is unchanged and only `-gN` increases. It retains the image,
-logical kmods and native headers together while allowing userspace upgrades.
-The additional solver constraints are temporary and are not saved in world.
-A real ABI change still upgrades the complete generation, even when the new ABI
-hash sorts below the old hash. APK may describe that ABI tracker transition as a
-downgrade; the immutable image and kmod generation still advance together.
-Build and runtime validation is recorded in
-[the validation report](kernel-upgrade-validation.md).
-
-Publication and APK transaction preflights, explicit userspace-only upgrades,
-and centrally registered empty-package migrations are described in
-[APK upgrade preflight](apk-upgrade-preflight.md).
-
-Kernel generation builds also select the hidden `kmod-nf-log6` compatibility
-package by default. Upstream removed this empty package because `kmod-nf-log`
-already supplies IPv4 and IPv6 logging through `nf_log_syslog`. Existing images
-can still select `kmod-nf-log6` in APK world. Without a matching tracker and
-generation payload, that old package pins the previous ABI and blocks upgrades;
-the kernel policy also rejects dropping a selected module. The compatibility
-package depends on `kmod-nf-log` and supplies the generation metadata without
-adding a module or requesting obsolete kernel configuration symbols. Include
-both its tracker and generation payload in the signed kernel channel. Removing
-the world entry, pruning repositories, or forcing APK does not replace this
-migration path.
-
-```
-python3 scripts/publish-kernel-upgrade-feed.py \
-  --source bin/systemd --destination /path/to/test-feed --dry-run
-python3 scripts/publish-kernel-upgrade-feed.py \
-  --source bin/systemd --destination /path/to/test-feed
-```
-
-The publisher verifies signatures and image/module identity, keeps only the two
-newest publication sequences with their matching images, modules, headers and
-trackers, and atomically replaces `public/kernel-upgrades` with a signed snapshot.
-Support packages keep at most two versions using APK version ordering. After a
-successful switch, obsolete kernel-channel snapshots are deleted; dry runs and
-failed validation leave the active channel intact. ABI-specific userspace feeds
-and installed router rescue generations are unaffected. Serve
-that directory through the existing feed server. It is a separate channel from
-ABI-specific userspace feeds. `lan-apk-feeds` follows the **running** kernel's ABI
-for userspace repositories and includes the kernel-upgrades channel after adoption.
-Publishing here is a filesystem operation, not deployment to a router.
-The combined publisher constructs an ABI-specific userspace view and a separate
-kernel input. It retains existing ABI-local kernel files rather than replacing
-their legacy same-ABI package bytes. For low-level manual publication, use a
-source containing only the intended generation and matching trackers, and make
-the corresponding ABI-specific userspace view available before the kernel
-channel. This ensures feed selection after reboot has a valid destination.
-
-## Adopt an existing installation
-
-First install the signed support packages: patched `apk-mbedtls` (or the selected
-APK backend), `ubox`, `systemd-openwrt`, `grub2`, `grub2-efi`, `grub2-editenv`,
-`lan-apk-feeds` and `openwrt-kernel-upgrade`. Simulate that transaction first.
-These support packages do not install a new kernel. Never force incompatible
-modules or change ABI metadata to satisfy dependencies.
-
-The system must have a healthy native systemd boot, working LAN/firewall/SSH,
-a writable verified `/boot` bind mount, enough free boot space, and a persistent
-overlay. Load the running kernel config, then adopt:
-
-```
-modprobe configs
-kernelctl migrate
-kernelctl check
-```
-
-Migration snapshots legacy modules, autoload rules and firmware, preserves the
-original kernel and GRUB configuration, and adds direct rescue/systemd, procd and
-failsafe menu entries. It unpins only the image builder's exact `kernel=` entry in
-`/etc/apk/world`, retains the other constraints, and enrolls `linux-image-openwrt`.
-Ensure the signed channel is configured before the next APK transaction.
-
-On a freshly built opt-in image, the boot service performs adoption automatically
-after the router services are healthy. Adoption must complete before a live APK
-transaction can install a versioned image. Offline image assembly is permitted.
-
-A reboot during the first boot can interrupt adoption. Until `state.json` is
-saved, adoption has only copied modules, rules, firmware and `grub.cfg`, so the
-next attempt discards those copies and starts again; the journal records
-`discarding copies from an interrupted adoption`. After `state.json` is saved,
-the `adopting` phase resumes, and its remaining steps (pins, `legacy-release`,
-GRUB entries and APK enrollment) are idempotent. Leftovers are kept and
-adoption still stops with `Incomplete adoption exists; inspect before retrying`
-if `grub.cfg` already holds the rescue dispatcher, the saved rescue
-configuration differs from `grub.cfg`, or APK pins exist. kernelctl turns
-systemd's SIGTERM into an orderly exit, so temporary staging is removed when a
-unit is stopped. Version 1-r17 and earlier lacked the restart: an interrupted
-copy left adoption failing on every boot. Installing 1-r18 and running
-`systemctl start openwrt-kernel-boot.service` recovers such a system.
-
-## Upgrade and trial boot
-
-```
 apk update
-apk upgrade --simulate
-apk upgrade
-kernelctl check
-grub-editenv /boot/grub/grubenv list
+apk upgrade          # installs linux-image-<new> next to the running kernel
+kernelctl list       # running / default / fallback / known-good / rescue / counting
+reboot               # when convenient
 ```
 
-The ordinary upgrade resolves the rolling image tracker and all selected logical
-kmods into immutable generation payloads when the ABI changes. Since APK r18,
-a full `apk upgrade` (no package arguments) does the same for a newer
-generation at the identical ABI, such as a rebuild that only adds kernel
-patches. It prints `Upgrading to same-ABI kernel generation <generation>.`,
-installs the image, module and header payloads together, and arms the usual
-trial. The new kernel runs only after a deliberate reboot, and promotion
-requires the same health checks.
+`apk upgrade` prints the usual package changes. During the transaction, the APK
+hook runs `kernelctl apk-post`, which does the following for each new kernel package:
 
-A full upgrade keeps the installed generation instead, printing
-`Keeping installed kernel generation: ABI unchanged.` after the reason, when:
+1. runs `depmod -a <release>`;
+2. builds `/boot/kernels/<release>/initramfs.gz`, a small bootstrap with the
+   kernel's early-boot modules (from the kmod packages' standard
+   `/etc/modules-boot.d` rules) and their firmware;
+3. writes GRUB entries for every installed kernel, newest first, each with
+   systemd, procd and failsafe variants;
+4. makes the newest kernel the default and arms the boot counter.
 
-- the operator has run `kernelctl same-abi-upgrades disable`, which creates
-  `/etc/openwrt-kernel/same-abi-hold`;
-- a trial is pending: kernelctl maintains `/etc/openwrt-kernel/trial-pending`
-  while `state.json` records one, so finish it with a reboot (or
-  `kernelctl rollback`) before the next generation is installed;
-- the solution lacks a payload kernelctl would require: every installed logical
-  `kmod-*` and `kernel-dev-headers` needs `<name>-<generation>` from the new
-  generation.
+Nothing changes for the running system until you reboot. `needrestart` and
+LuCI's Restart Needed page report `reboot-pending` while a newer default kernel
+is installed but not running.
 
-Userspace packages still upgrade in all three cases.
+### Boot counting and automatic fallback
 
-```
-kernelctl same-abi-upgrades status    # {"same_abi_upgrades": ..., "trial_pending": ...}
-kernelctl same-abi-upgrades disable   # keep the installed generation (pre-r18 behavior)
-kernelctl same-abi-upgrades enable    # default
-```
+A newly installed default kernel gets three boot attempts:
 
-The hold is kept across sysupgrade with the rest of `/etc/openwrt-kernel/`.
-Generations advance whenever relevant kernel build inputs change, including
-shared build rules and toolchain identity, so with the default a trial follows
-most rebuilds.
+- GRUB decrements `boot_left` in `grubenv` each time it starts the new default.
+  When the count is exhausted, it boots `fallback_entry`, which is the previous
+  known-good kernel.
+- Early in boot, `kernelctl prepare` arms a runtime drop-in for the counted
+  kernel only: `FailureAction=reboot` and a 15-minute job timeout on
+  `openwrt-kernel-boot.service`.
+- `openwrt-kernel-boot.service` (before `boot-complete.target`) runs
+  `kernelctl boot`. On the counted kernel, it waits up to 180 s for the
+  known-good static local interfaces and LAN addresses, the persistent overlay,
+  the OpenWrt service units and SSH. If they come up, the kernel is *blessed*:
+  the counter is cleared and the kernel becomes `known_good`. If not, the unit
+  fails and the drop-in reboots, so GRUB uses the next attempt.
+- WAN, PPPoE or VPN outages never count against a kernel. Only statically
+  configured local interfaces are checked, as with
+  `openwrt-network-wait-online`.
+- A bootstrap (initramfs) failure reboots after 10 seconds through sysrq. A
+  kernel panic reboots after 1 s (`CONFIG_PANIC_TIMEOUT=1`, `CONFIG_PANIC_ON_OOPS=y`).
+- After the fallback boots, `kernelctl boot` marks the new kernel
+  `failed boot`, makes the fallback the default again and clears the counter.
 
-Targeted tracker or kmod upgrades and module additions never switch
-generations. Adding a driver must use a payload for the installed generation;
-if APK's solver cannot select it automatically, request its matching tracker
-version explicitly. An incompatible request fails before package writes rather
-than installing another same-ABI image. Initial migration without an installed
-image tracker can still enroll its first versioned kernel.
+A hard hang without a reboot still needs a reset or a hardware watchdog. A
+kernel chosen by hand from the GRUB menu is never counted as a failure.
 
-A direct exact constraint on a versioned image (for example
-`linux-image-...-g38=ABI`) or that signed image's local APK path, together with
-all matching module/header trackers, installs that generation even while the
-hold is set. Pinning only `linux-image-openwrt` does not, and old retained image
-pins do not select newer images. Protected payload constraints, signature
-verification and the complete kernelctl transaction checks still apply.
+### Commands
 
-The APK solver still enforces the exact OpenWrt kernel ABI. Old payloads are
-anchored by installed-package checksums;
-APK cannot silently replace or remove them. The manager checks the original
-kernel, retained payloads, module completeness, built-in features and free space
-before activating anything. Disabling scripts/commit hooks is rejected for kernel
-transactions. A failed package transaction cannot arm a trial.
-
-Patched APK r9 also checks its minimal self-upgrade phase. If that phase would
-change a managed kernel package, it is deferred to the full upgrade transaction,
-so a newly enrolled image cannot be installed ahead of its selected modules.
-Support-only self-upgrades keep the normal policy checks and behavior.
-
-The manager builds a small matching-module bootstrap initramfs. It mounts the
-existing squashfs and hands off to its normal init/fstools extroot path. It does
-not replace the root filesystem or systemd with a standalone OpenWrt initramfs.
-New boot files go under `/boot/kernels/<generation>/`; GRUB receives separate
-systemd, procd and failsafe entries. The original kernel remains untouched.
-
-Reboot deliberately when ready. GRUB clears the one-shot `next_entry` before
-trying the candidate; the saved default remains the last confirmed kernel.
-Promotion requires 120 seconds of continuous systemd/router health, the same
-persistent overlay and LAN addresses, required routes/interfaces, and KVM VM
-creation plus libvirt access when KVM was available before the upgrade.
-
-A hard hang requires a reset or watchdog. On the following boot GRUB selects the
-old saved default. The user can also select the original or previous kernel from
-the menu. A failed health check leaves the old default in place; it does not
-force a reboot.
-
-```
-kernelctl rollback  # cancel a pending trial, or select previous confirmed kernel
-kernelctl retry     # explicitly re-arm a rejected selected candidate
-kernelctl retain    # enforce the /boot limit and queue obsolete APK cleanup
-kernelctl prune     # synchronously remove withdrawn generations' APK payloads
-kernelctl status
+```sh
+kernelctl list                     # installed kernels and their roles
+kernelctl status                   # full state (JSON)
+kernelctl set-default <release>    # like grubby --set-default; not counted
+kernelctl rollback                 # make the previous kernel the default again
+kernelctl remove <release>         # uninstall a kernel (not running/default/fallback/rescue)
+kernelctl check                    # verify boot files and the rescue kernel
 ```
 
-`kernelctl remove <generation>` explicitly withdraws a nonessential generation
-before removing its packages. It refuses the original rescue, running, pending,
-known-good and previous-good generations. Retention removes only generations
-beyond the trial/fallback pair. If the two protected generations still do not
-fit, the space check fails safely rather than deleting either of them.
+`apk del linux-image-<release>` is refused; use `kernelctl remove`, which
+releases the retention pin and removes the package with APK.
 
-## Boot and module payload retention
+## Retention
 
-`/boot` keeps at most two versioned generations:
+Installed kernels are listed in `/etc/openwrt-kernel/protected`. APK adds these
+entries to every solve as transaction-only constraints (the `kernel_retain`
+policy of the APK patches), so an upgrade never removes the running or previous
+kernel. This is the counterpart of Debian's `NeverAutoRemove` or DNF's
+installonly protection.
 
-- while a trial is pending: the candidate and the confirmed known-good fallback;
-- after promotion: the new known-good and the old previous-good fallback.
+After a kernel is blessed, `kernelctl` keeps the following, besides the rescue
+kernel:
 
-The legacy rescue kernel (`/boot/vmlinuz` and the `owrt-rescue*` entries) is not
-counted toward the limit and is never removed.
+- the default, running, known-good and fallback kernels;
+- the newest further kernels, up to three versioned kernels in total.
 
-Before a new candidate's boot payload is staged, the manager withdraws every
-other generation. It sets `ready: false` in `state.json`, deletes
-`/boot/kernels/<generation>/`, and rewrites `/boot/grub/openwrt.cfg` so GRUB no
-longer lists that generation. Orphan `/boot/kernels/*` directories (for example
-after a manual deletion or an interrupted activation) are removed as well. The
-pruning happens before the boot-space calculation, so repeatedly upgrading
-kernels cannot exhaust `/boot` by retaining every generation. `kernelctl retain`
-runs at boot from `kernel-generation.init` after `prepare`, enforcing the same
-invariant after a manual change.
+`openwrt-kernel-prune.service` removes the rest with APK and deletes their
+`/boot/kernels/<release>` directories. A kernel that failed its boots is pruned
+once it is no longer needed.
 
-Retention also queues `openwrt-kernel-prune.service` through a path unit. The
-worker removes withdrawn generations' immutable kmod, image and header APKs
-using `apk del`, then removes manager-created module indexes and frozen firmware
-from that generation's trees. Successful cleanup removes the generation record.
-Logical kmod selection packages and unrelated userspace packages are preserved.
-The rescue, running, pending, known-good, previous-good and selected tracker
-generations are excluded, even if their boot payload has been withdrawn. Unknown
-module directories and packages without a recorded generation are left alone.
+## Migration from per-generation kernels
 
-APK hooks only queue this work: they never recursively invoke APK while holding
-its database lock. The worker releases the kernel policy lock before invoking
-APK. Before preparing that deletion it waits for APK's database lock, so the
-original upgrade's post-hook finishes first. It uses a durable deletion plan so
-the APK pre-hook rejects solver changes outside the planned obsolete payloads.
-Failed or interrupted cleanup restores
-checksum protection on retry; no incomplete cleanup makes a generation bootable.
-The service retries failures after 30 seconds. `kernelctl prune` performs the
-same cleanup synchronously, and `kernelctl remove <generation>` remains available
-for explicit removal. APK simulations do not queue or perform cleanup.
+Routers adopted with the previous model (`state.json` schema 1, kernels such as
+`…-owrt-<hash>-r1-g45`, per-module payloads `kmod-x-<generation>`) migrate in
+two steps. The installed kernelctl of that model cannot validate a kernel
+package, so it must be replaced first.
+
+1. **Support packages, no kernel change**:
+
+   ```sh
+   apk update
+   apk upgrade --userspace-only
+   ```
+
+   This installs the new `openwrt-kernel-upgrade` (kernelctl), `lan-apk-feeds`
+   and `openwrt-needrestart` while the kernel and kmods stay pinned. The feed
+   list then follows `current/` and the kernel channel. kernelctl converts its
+   state to schema 2 on first use: the running generation becomes the default
+   and known-good kernel, the previous one the fallback, and the original
+   kernel stays rescue. A full `apk upgrade` attempted before this step is
+   refused by the old kernelctl before any package is written.
+
+2. **First kernel package**:
+
+   ```sh
+   apk upgrade
+   reboot
+   ```
+
+   The `kmod-*` packages become configuration packages and the first
+   `linux-image-<release>` is installed as the counted default, with the
+   previous generation as fallback. Legacy generations keep their frozen
+   firmware and per-generation autoload rules while they boot. Their payload
+   packages (`linux-image-…-gN`, `kmod-*-…-gN`, `kernel-dev-headers-…-gN`) stay
+   pinned until pruning removes them, once newer kernels have been blessed. The
+   publication preflight validates step 1 for routers still on schema 1
+   (`migration_step: userspace-only` in the receipt).
+
+## Adoption of a fresh image
+
+On the first boot of an image built with kernel packages, `kernelctl boot`
+adopts the system after router services are healthy:
+
+- it records the running kernel package as the rescue, default and known-good kernel;
+- it snapshots `grub.cfg` to `grub.cfg.rescue` and installs the GRUB dispatcher
+  and loadenv modules;
+- it writes the retention list;
+- it replaces the image's exact `kernel=` world pin with `kernel` and adds
+  `linux-image-openwrt`.
+
+Adoption is resumable after its state is saved. APK refuses live installs of
+kernel packages until adoption is complete; offline image assembly is allowed.
+
+## Recovery
+
+- In the GRUB menu, choose another installed kernel, or the original kernel
+  (rescue, procd recovery or failsafe).
+- From a running system, use `kernelctl set-default <release>` or `kernelctl rollback`.
+- The rescue entries are parsed before any mutable file. If
+  `/boot/grub/openwrt.cfg` is missing or broken, the rescue entries still boot.
+
+Rollback covers the kernel and its modules. Userspace, UCI configuration,
+services, VM definitions and data are shared. Keep independent backups and
+validate userspace changes separately.
 
 ## Scope and verification
 
-Rollback covers the kernel, matching modules, frozen firmware and autoload rules.
-Userspace, UCI configuration, services, VM definitions and data remain shared.
-It does not undo an unrelated userspace upgrade or restore a whole-system
-snapshot. Keep independent backups and validate userspace changes separately.
-
-Source tests:
-
-```
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/tests/test-kernel-bundle.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/tests/test-kernel-upgrade.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/tests/test-build-and-publish.py
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/tests/test-apk-upgrade-preflight.py
 KERNEL_POLICY_APK=/path/to/native/patched/apk \
   python3 scripts/tests/test-kernel-apk-policy.py
 ```
 
-The C-policy tests use signed disposable root directories and require passwordless
-sudo for chroot execution. The serial QEMU controller is
-`scripts/tests/kernel-upgrade/vm-console.py`; it always uses qcow2 overlays, an
-independent NVMe extroot and isolated user networking. Acceptance must exercise
-ordinary signed APK upgrades, candidate promotion, failed-boot fallback, manual
-old-kernel selection, module/config retention, native systemd/network/KVM and the
-exact freshly built EFI and BIOS artifacts. QEMU proof is not physical-router
-proof. The subsequent support-only physical installation is recorded in
-[the physical deployment report](kernel-upgrade-physical-20261015.md). It keeps
-the original running kernel and does not require a reboot. A later actual kernel
-upgrade requires a deliberate user reboot to run the candidate.
+The serial QEMU controller `scripts/tests/kernel-upgrade/vm-console.py` uses
+qcow2 overlays, an independent NVMe extroot and isolated user networking. VM
+proof is not physical-router proof.
+
+The previous per-generation design and its validation history are kept in
+[the validation report](kernel-upgrade-validation.md) and
+[the physical deployment report](kernel-upgrade-physical-20261015.md).

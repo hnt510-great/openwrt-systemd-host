@@ -151,18 +151,18 @@ Patch disposition for the 6.18→7.3 migration is recorded in
 `configs/mainline-kernel-patches.json`; findings for optional configurations are in
 `docs/mainline-kernel-patch-review.md`. This is independent of feeds and scheduled maintenance.
 
-**Generations.** `package/custom/openwrt-kernel-upgrade` implements parallel ABI-pinned kernels with
-protected GRUB recovery. The engine is `files/kernelctl` (Python 3), driven by `kernelctl prepare`
-at startup (`kernel-generation.init`, `START=09`) and `kernelctl boot` via
-`openwrt-kernel-boot.service`. State lives in `/etc/openwrt-kernel/`. `files/init` is a minimal
-bootstrap that mounts dev/proc/sys, resolves `root=` (PARTUUID) and `switch_root`s — it is *not*
-OpenWrt's standalone initramfs. Host-side, `scripts/kernel-build-inputs.py` fingerprints the build
-inputs, `scripts/publish-kernel-upgrade-feed.py` publishes a generation, and the
-`CONFIG_OPENWRT_KERNEL_UPGRADE` / `CONFIG_OPENWRT_KERNEL_SEQUENCE` gates are in
-`config/Config-build.in`. The `openwrt-kernel-policy` dependency is a `PROVIDES` from
-`package/system/apk`, not a package directory. Generations are reserved and timestamped by
-`build-and-publish.py`; plain `make` targets do not reserve one, and a new image must never be mixed
-with modules or headers from the previous ABI. See `docs/kernel-upgrade.md`.
+**Kernel packages.** Kernels are distribution-style packages: each build N produces
+`linux-image-<kver>-N-openwrt` (kernel plus *all* selected modules), `linux-headers-<release>`, and
+the metapackages `linux-image-openwrt` / `kernel-dev-headers`; `kmod-*` keep only autoload and
+modprobe configuration and are kernel-independent. The pack hook `scripts/kernel-package.py` stages
+module/kernel/header trees under `build_dir/.../kernel-bundle/<release>/`; `package/kernel-bundle`
+(`scripts/kernel-bundle.py`, invoked from `package/Makefile` before merge) builds and signs them.
+On the router, `package/custom/openwrt-kernel-upgrade/files/kernelctl` (state schema 2 in
+`/etc/openwrt-kernel/`, converting legacy schema-1 generations) acts as kernel-install/update-grub
+from the APK hook, makes the newest kernel the GRUB default with a 3-attempt boot counter, blesses
+it from `openwrt-kernel-boot.service` and prunes beyond three kernels plus the rescue kernel.
+Build numbers are reserved by `build-and-publish.py`; plain `make` targets do not reserve one. See
+`docs/kernel-upgrade.md`.
 
 ### ELF ABI and signed APK packaging
 
@@ -295,11 +295,10 @@ generations in `tmp/.kernel-publication-inputs.json`.
 an immutable `public/snapshots/` directory; `scripts/prune-lan-apk-feeds.py` (dry run by default,
 `--apply` to delete) removes snapshots no symlink references.
 
-Router side: `package/custom/lan-apk-feeds` is the consumer. `lan-apk-feeds-sync` reads the
-installed kernel from `/lib/apk/db/installed` (refined by `/etc/openwrt-kernel/state.json` when
-present), then writes an ABI-pinned `/etc/apk/repositories.d/lan-local.list` from the
-`repositories=` list in `/etc/lan-apk-feeds.conf`, as `<base>/abi/<kernel-abi>/<repo>/packages.adb`
-plus the `kernel-upgrades` channel when generation state exists.
+Router side: `package/custom/lan-apk-feeds` is the consumer. `lan-apk-feeds-sync` writes
+`/etc/apk/repositories.d/lan-local.list` with `<base>/kernel-upgrades/packages.adb` plus
+`<base>/current/<repo>/packages.adb` for the `repositories=` list in `/etc/lan-apk-feeds.conf`
+(userspace is kernel-independent; the publisher still keeps the legacy `abi/<config ABI>` alias).
 It preserves unrelated repositories and refuses to overwrite unmanaged files, stamping
 `# Managed by lan-apk-feeds-sync.`; an rc init (`START=11`) syncs at boot and an APK commit hook
 re-syncs after transactions. See `docs/lan-apk-feeds.md`.
@@ -407,8 +406,9 @@ pulling upstream, a `backup/pre-upstream-<date>` branch is cut.
 - **Retained, unselected APKs are part of publication.** Incremental feeds keep APKs for packages
   no longer in `.config`; they still need current ELF metadata and resolvable dependencies. See
   `docs/publication-readiness.md` before debugging a publish failure that a clean build didn't show.
-- **Plain make does not reserve a kernel generation.** Use `build-and-publish.py build-only` or the
-  wrappers for full builds; never pair a new image with old-ABI modules or headers.
+- **Plain make does not reserve a kernel build number.** Use `build-and-publish.py build-only` or the
+  wrappers for full builds; a plain full `make` with a published number would collide with published
+  kmod identities.
 - **Published APK identities are immutable.** Changed bytes require a new `PKG_RELEASE`; the ELF
   rebuild ledger is not permission to overwrite a released version.
 - `package/custom/luci-theme-argon` and `package/luci-app-argon-config` are **embedded git repositories**

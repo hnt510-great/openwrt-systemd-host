@@ -203,29 +203,29 @@ container storage still need configuration. Distrobox uses the selected engine;
 inspect each environment as its owning user. Flatpak applications use per-user
 portals and permissions; AppImages depend on compatible runtimes/libraries.
 Native development packages provide compilers, headers and pkg-config metadata;
-kernel builds/modules require headers matching their intended kernel generation.
+out-of-tree kernel modules build against `kernel-dev-headers`, which follows the
+newest installed kernel (`/usr/lib/modules/<release>/build`).
 
 ## Packages, storage and firmware
 
 APK is the host package manager. Inspect `/etc/apk/repositories.d/` and
 `/etc/apk/keys/` for this installation's repositories and signing keys. Use
 signed packages from repositories matching this native-systemd/glibc build.
-Kernel modules must match the running kernel's exact package ABI. Distribution
+Kernel modules ship inside each `linux-image-<release>` package; `kmod-*`
+packages only enable autoloading and are independent of the kernel. Distribution
 environments managed by Distrobox have their own userspace and package manager.
 
 `lan-apk-feeds` generates the local repository list at boot and after APK
-transactions from the installed kernel package ABI. The LAN origin is
-`http://apk.example.invalid:8088`, with nine ABI-specific repositories plus the
-protected kernel channel. It is served by nginx on the build host. Inspect the
+transactions. The LAN origin is `http://apk.example.invalid:8088`, with the
+kernel package channel `kernel-upgrades` plus nine userspace repositories under
+`current/`. It is served by nginx on the build host. Inspect the
 generated list and router DNS before diagnosing unavailable packages. Upstream
 snapshot feeds are not interchangeable with this native-systemd/glibc feed.
 `apk update` refreshes indexes; it does not install or upgrade packages.
 
-Inspect an upgrade with `apk upgrade --simulate` before committing it. Patched
-APK validates managed kernel transitions and exact module coverage; missing
-module migrations block the full upgrade. Where supported, an explicit
-`apk upgrade --userspace-only --simulate` checks a userspace-only alternative
-that preserves installed ABI-bound packages. Keep world constraints, signature
+Inspect an upgrade with `apk upgrade --simulate` before committing it. An
+explicit `apk upgrade --userspace-only --simulate` checks a userspace-only
+alternative that keeps the installed kernel packages. Keep world constraints, signature
 checks and kernel protection hooks intact. An APK upgrade or reinstall starts
 an init script only where it is enabled; it does not start disabled services.
 
@@ -237,18 +237,19 @@ The supported firmware flashing path is the GRUB **procd recovery** entry.
 `sysupgrade` permits image checks and configuration backups under native
 systemd but blocks flashing there. Boot recovery before firmware flashing.
 
-With `openwrt-kernel-upgrade`, signed APK kernel upgrades instead install
-parallel versioned kernels, matching modules and headers under GRUB control.
-Use `kernelctl status` and `kernelctl check` to inspect the running, pending,
-known-good, previous-good and rescue states. A package installation does not
-prove the new kernel has booted. A trial requires a deliberate reboot and
-continuous health checks before promotion; the previous confirmed kernel and
-original rescue provide fallback. A full `apk upgrade` also installs a newer
-generation with an unchanged ABI and arms its trial, unless
-`kernelctl same-abi-upgrades status` reports it disabled, a trial is already
-pending, or the generation lacks a payload for an installed module or the header
-tracker. Targeted upgrades and module additions keep the installed generation.
-Kernel upgrades and firmware flashing are separate operations.
+With `openwrt-kernel-upgrade`, kernels are installed like a distribution's:
+every kernel build is a separate `linux-image-<release>` package carrying its
+modules, and `apk upgrade` installs the newest one next to the running kernel.
+Its initramfs and GRUB entry are generated on installation, and it becomes the
+GRUB default; it runs after a deliberate reboot. GRUB gives a new default three
+boot attempts. A boot counts as good once the static local interfaces, LAN
+addresses, persistent overlay, OpenWrt services and SSH are up; otherwise the
+system reboots and, after three attempts, falls back to the previous kernel.
+`kernelctl list` shows the running, default, fallback, known-good and rescue
+kernels; `kernelctl set-default`, `rollback` and `remove` manage them, and
+three kernels besides the image's original rescue kernel are kept. A package
+installation does not prove the new kernel has booted. Kernel upgrades and
+firmware flashing are separate operations.
 
 `needrestart --cached --json` and LuCI's Restart Needed page report cached
 restart advice when installed. A fresh `needrestart` scan inspects replaced or
@@ -260,12 +261,13 @@ check report freshness and coverage before acting.
 This document describes the build's integration and available packages. Fixed
 build revisions, kernel generations, guest inventories and running-service
 snapshots become stale; query the machine before changing it. In particular,
-the kernel ABI in a repository URL does not identify its booted generation.
+an installed kernel package is not necessarily the booted kernel.
 
 ```sh
 uname -r
 kernelctl check
-# kernelctl status includes the full installed-generation inventory.
+kernelctl list
+# kernelctl status includes the full installed-kernel inventory.
 kernelctl status
 apk info -e gnome-shell nautilus gnome-tweaks openwrt-desktop-ime
 systemctl --no-pager status openwrt-desktop.service

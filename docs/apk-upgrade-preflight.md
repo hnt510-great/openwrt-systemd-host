@@ -14,12 +14,18 @@ The new APK options require `apk-mbedtls`/`apk-openssl` 3.0.5-r13 or newer.
 An ordinary full managed upgrade selects the newer rolling kernel when its ABI
 changes, while honoring explicit world version and repository-tag constraints.
 An unported installed module therefore blocks the full transaction instead of
-quietly leaving the old kernel and upgrading other packages. Since APK r18 a
-full upgrade also installs a complete newer same-ABI generation unless the
-router holds it (`kernelctl same-abi-upgrades disable`) or a trial is pending;
-an incomplete same-ABI generation is skipped while userspace still upgrades.
-The router baseline records the hold, so changing it during a publication
-invalidates the snapshot.
+quietly leaving the old kernel and upgrading other packages.
+
+With [kernel packages](kernel-upgrade.md), a full upgrade installs the newest
+`linux-image-<release>` next to the running kernel, and kmods are
+kernel-independent configuration packages, so there is no per-module ABI
+transition to validate. The router baseline records the state model.
+`generations` routers (schema 1) are checked on the `--userspace-only`
+migration step: their kernelctl cannot yet validate kernel packages, and the
+receipt records `migration_step: userspace-only`. `packages` routers
+(schema 2) get one full simulation against the kernel channel and the
+`current` userspace snapshot. An unblessed or counted kernel never blocks
+publication.
 
 If a full upgrade is blocked, userspace can be selected explicitly:
 

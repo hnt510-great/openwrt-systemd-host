@@ -621,6 +621,12 @@ Evidence: `bin/validation/sync-20261031/kernel-adoption/`.
 
 ## Same-ABI generations installed by default, 2026-11-02
 
+**Superseded before publication.** Kernel packages
+([kernel-upgrade.md](kernel-upgrade.md)) replaced per-generation payloads on the
+same day. APK patch 0107, the `same-abi-hold` switch and the `trial-pending`
+marker were removed; apk `3.0.5-r18` and `openwrt-kernel-upgrade 1-r19` as
+described below were never published. The record is kept for history.
+
 APK `3.0.5-r18` adds `0107-openwrt-upgrade-same-abi-kernels.patch`. A full
 `apk upgrade` now installs a newer `-gN` generation at the identical ABI when
 the solution carries every payload kernelctl requires (`<name>-<generation>` for
