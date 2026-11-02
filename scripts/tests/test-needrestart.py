@@ -668,6 +668,30 @@ class NeedrestartTests(unittest.TestCase):
         self.kernel(pending='candidate', abi='abi-two', failed=True)
         self.assertEqual(self.scan(2)['kernel']['status'], 'activation-incomplete')
 
+    def packaged_kernel(self, default, running, counting=None):
+        kernels = {name: {'kind': 'package', 'release': name} for name in ('7.3.1-46-openwrt', '7.3.1-47-openwrt')}
+        self.json('etc/openwrt-kernel/state.json', {'schema': 2, 'phase': 'ready', 'default': default,
+                  'counting': counting, 'known_good': '7.3.1-46-openwrt', 'kernels': kernels})
+        self.write('release', running + '\n')
+
+    def test_packaged_kernel_current(self):
+        self.packaged_kernel('7.3.1-46-openwrt', '7.3.1-46-openwrt')
+        self.assertEqual(self.scan()['kernel']['status'], 'current')
+
+    def test_packaged_newer_default_needs_a_reboot(self):
+        self.packaged_kernel('7.3.1-47-openwrt', '7.3.1-46-openwrt', counting='7.3.1-47-openwrt')
+        k = self.scan()['kernel']
+        self.assertEqual((k['status'], k['pending_release']), ('reboot-pending', '7.3.1-47-openwrt'))
+        self.assertIn('reboot to run it', k['recommended_action'])
+
+    def test_packaged_counted_boot_is_being_assessed(self):
+        self.packaged_kernel('7.3.1-47-openwrt', '7.3.1-47-openwrt', counting='7.3.1-47-openwrt')
+        self.assertEqual(self.scan()['kernel']['status'], 'trial-running')
+
+    def test_packaged_unknown_default_is_incomplete(self):
+        self.packaged_kernel('7.3.1-99-openwrt', '7.3.1-46-openwrt')
+        self.assertEqual(self.scan(2)['kernel']['status'], 'activation-incomplete')
+
     def test_missing_kernel_state_unknown(self):
         (self.root / 'etc/openwrt-kernel/state.json').unlink()
         self.assertEqual(self.scan(2)['kernel']['status'], 'unknown')

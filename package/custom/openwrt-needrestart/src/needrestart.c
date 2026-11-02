@@ -1947,7 +1947,9 @@ static void kernel_status(void)
 	string(o, "running_release", running);
 	string(o, "status", "unknown");
 	json_object_object_add(report, "kernel", o);
-	if (!state || json_object_get_int(get(state, "schema")) != 1) {
+	int schema = state ? json_object_get_int(get(state, "schema")) : 0;
+
+	if (schema != 1 && schema != 2) {
 		string(o, "detail", "Kernel manager metadata unavailable or unsupported");
 		warn("Kernel activation status is unassessed");
 		goto out;
@@ -1955,6 +1957,30 @@ static void kernel_status(void)
 	if (*str(state, "phase") && strcmp(str(state, "phase"), "ready")) {
 		string(o, "status", "activation-incomplete");
 		warn("Kernel manager adoption is not complete; review kernelctl status/check");
+		goto out;
+	}
+	if (schema == 2) {
+		/* Kernel packages: like a distribution, a newer installed default
+		 * kernel only needs a reboot; GRUB falls back after failed boots. */
+		const char *def = str(state, "default"), *counting = str(state, "counting");
+		json_object *kernels = get(state, "kernels"), *entry = NULL;
+
+		if (kernels && json_object_is_type(kernels, json_type_object) && *def)
+			entry = get(kernels, def);
+		string(o, "default_release", def);
+		if (!entry) {
+			string(o, "status", "activation-incomplete");
+			warn("Default kernel is not registered; review kernelctl list/check");
+		} else if (strcmp(def, running) && strcmp(str(entry, "release"), running)) {
+			string(o, "status", "reboot-pending");
+			string(o, "pending_release", def);
+			string(o, "recommended_action",
+			       "A newer kernel is the boot default; reboot to run it (GRUB falls back after 3 failed boots)");
+		} else if (*counting && !strcmp(counting, running)) {
+			string(o, "status", "trial-running");
+		} else {
+			string(o, "status", "current");
+		}
 		goto out;
 	}
 	json_object *generations = get(state, "generations"), *current = NULL;
