@@ -130,7 +130,8 @@ def fingerprint(tree, config, make_args=()):
     roots += [tree / path for path in ('include/download.mk', 'include/depends.mk',
         'include/quilt.mk', 'include/target.mk', 'include/toolchain-build.mk',
         'include/netfilter.mk', 'scripts/kconfig.pl', 'scripts/package-metadata.pl',
-        'scripts/metadata.pm', 'scripts/kernel-package.py', 'scripts/merge-usr.py',
+        'scripts/metadata.pm', 'scripts/kernel-package.py', 'scripts/kernel-bundle.py',
+        'scripts/merge-usr.py',
         'scripts/strip-kmod.sh', 'scripts/strip.sh', 'scripts/gen-dependencies.sh',
         'scripts/apk-migrations.py', 'configs/apk-migrations.json')]
     roots += sorted((tree / 'include').glob('kernel*'))

@@ -48,7 +48,9 @@ define Package/kernel-dev-headers
   CATEGORY:=Development
   TITLE:=Prepared Linux kernel headers for native module builds
   VERSION:=$(if $(CONFIG_OPENWRT_KERNEL_UPGRADE),1000.$(CONFIG_OPENWRT_KERNEL_SEQUENCE).)$(KERNEL_DEV_VERSION)
-  EXTRA_DEPENDS:=kernel (=$(KERNEL_DEV_VERSION))
+  # With kernel packages this is the Debian-style linux-headers metapackage:
+  # the tree itself ships in linux-headers-<release>.
+  EXTRA_DEPENDS:=$(if $(CONFIG_OPENWRT_KERNEL_UPGRADE),linux-headers-$(KERNEL_GENERATION) (=$(KERNEL_PACKAGE_VERSION)),kernel (=$(KERNEL_DEV_VERSION)))
   DEPENDS:=@TARGET_x86_64 @USE_GLIBC @!EXTERNAL_TOOLCHAIN \
 	+gcc +make +binutils
   PKGARCH:=x86_64

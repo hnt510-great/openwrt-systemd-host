@@ -62,7 +62,14 @@ define package_merge_links
 			ln -s $(pdir)/*.$(PACKAGE_EXT) $(PACKAGE_DIR_ALL) || true;))
 endef
 
-$(curdir)/merge:
+# Kernel packages are assembled from every packed kmod, so they must be built
+# after all package compiles and before the package lists are merged.
+$(curdir)/kernel-bundle: FORCE
+ifeq ($(CONFIG_OPENWRT_KERNEL_UPGRADE),y)
+	+$(SUBMAKE) -r -C $(TOPDIR)/package/kernel/linux kernel-bundle
+endif
+
+$(curdir)/merge: $(curdir)/kernel-bundle
 	mkdir -p $(dir $(PACKAGE_MERGE_LIST))
 	find $(PACKAGE_SUBDIRS) -maxdepth 1 -name '*.$(PACKAGE_EXT)' \
 		-printf '%p %s %T@\n' 2>/dev/null | LC_ALL=C sort > $(PACKAGE_MERGE_LIST).new

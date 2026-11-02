@@ -79,3 +79,21 @@ $(eval $(if $(DUMP),,$(call BuildPackage,kernel)))
 include $(sort $(wildcard ./modules/*.mk))
 include $(INCLUDE_DIR)/kernel-compat.mk
 -include $(SUBTARGET_MODULES)
+
+ifeq ($(CONFIG_OPENWRT_KERNEL_UPGRADE),y)
+# Distribution-style kernel packages: linux-image/headers-<release> and the
+# linux-image-openwrt metapackage, built from the files the kmod, kernel and
+# kernel-dev-headers pack hooks staged. package/Makefile runs this after all
+# package compiles and before the rootfs install.
+kernel-bundle: FORCE
+	python3 $(SCRIPT_DIR)/kernel-bundle.py \
+		--stage "$(KERNEL_BUILD_DIR)/kernel-bundle/$(KERNEL_GENERATION)" \
+		--config "$(TOPDIR)/.config" \
+		--release "$(KERNEL_GENERATION)" \
+		--version "$(KERNEL_PACKAGE_VERSION)" \
+		--sequence "$(CONFIG_OPENWRT_KERNEL_SEQUENCE)" \
+		--output "$(call FeedPackageDir,kernel)" \
+		--apk "$(STAGING_DIR_HOST)/bin/apk" \
+		--fakeroot "$(STAGING_DIR_HOST)/bin/fakeroot" \
+		$(if $(CONFIG_SIGN_EACH_PACKAGE),--key "$(BUILD_KEY_APK_SEC)")
+endif

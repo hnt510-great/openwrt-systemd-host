@@ -71,7 +71,10 @@ else
   endif
 
   KERNEL_ABI_VERSION = $(subst -rc,_rc,$(LINUX_VERSION))~$(strip $(shell cat $(LINUX_DIR)/.vermagic 2>/dev/null))-r$(LINUX_RELEASE)
-  KERNEL_GENERATION = $(LINUX_VERSION)-owrt-$(strip $(shell cat $(LINUX_DIR)/.vermagic 2>/dev/null))-r$(LINUX_RELEASE)-g$(CONFIG_OPENWRT_KERNEL_SEQUENCE)
+  # Distribution-style release: each kernel build N is a separately
+  # installable package carrying its own module tree, like Debian/Fedora.
+  KERNEL_GENERATION = $(LINUX_VERSION)-$(CONFIG_OPENWRT_KERNEL_SEQUENCE)-openwrt
+  KERNEL_PACKAGE_VERSION = $(subst -rc,_rc,$(LINUX_VERSION))-r$(CONFIG_OPENWRT_KERNEL_SEQUENCE)
   ifeq ($(CONFIG_OPENWRT_KERNEL_UPGRADE),y)
     LINUX_UNAME_VERSION = $(KERNEL_GENERATION)
   endif
@@ -225,7 +228,9 @@ define KernelPackage
     TITLE:=$(TITLE)
     SECTION:=kernel
     CATEGORY:=Kernel modules
-    EXTRA_DEPENDS:=kernel (=$(subst -rc,_rc,$(LINUX_VERSION))~$(LINUX_VERMAGIC)-r$(LINUX_RELEASE))
+    # With kernel packages, the module binaries ship in linux-image-<release>;
+    # kmod-* only carry autoload/modprobe configuration and dependencies.
+    EXTRA_DEPENDS:=$(if $(CONFIG_OPENWRT_KERNEL_UPGRADE),linux-image-openwrt (>=1),kernel (=$(subst -rc,_rc,$(LINUX_VERSION))~$(LINUX_VERMAGIC)-r$(LINUX_RELEASE)))
     VERSION:=$(if $(CONFIG_OPENWRT_KERNEL_UPGRADE),1000.$(CONFIG_OPENWRT_KERNEL_SEQUENCE).)$(subst -rc,_rc,$(LINUX_VERSION))$(if $(PKG_VERSION),.$(PKG_VERSION))-r$(if $(PKG_RELEASE),$(PKG_RELEASE),$(LINUX_RELEASE))
     PKGFLAGS:=$(PKGFLAGS)
     $(call KernelPackage/$(1))
