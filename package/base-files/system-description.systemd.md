@@ -243,11 +243,12 @@ Use `kernelctl status` and `kernelctl check` to inspect the running, pending,
 known-good, previous-good and rescue states. A package installation does not
 prove the new kernel has booted. A trial requires a deliberate reboot and
 continuous health checks before promotion; the previous confirmed kernel and
-original rescue provide fallback. Same-ABI package upgrades retain the installed
-generation under the managed upgrade policy. A deliberate same-ABI trial needs
-an exact constraint on the versioned image package plus its matching module and
-header trackers; pinning `linux-image-openwrt` alone does not opt in. Kernel
-upgrades and firmware flashing are separate operations.
+original rescue provide fallback. A full `apk upgrade` also installs a newer
+generation with an unchanged ABI and arms its trial, unless
+`kernelctl same-abi-upgrades status` reports it disabled, a trial is already
+pending, or the generation lacks a payload for an installed module or the header
+tracker. Targeted upgrades and module additions keep the installed generation.
+Kernel upgrades and firmware flashing are separate operations.
 
 `needrestart --cached --json` and LuCI's Restart Needed page report cached
 restart advice when installed. A fresh `needrestart` scan inspects replaced or

@@ -618,3 +618,43 @@ The serial controller becomes available after the boot unit starts, so a
 first-boot interruption of 1-r18 itself was not reproduced in a VM; the unit
 tests cover it. This is VM validation; no physical device was flashed.
 Evidence: `bin/validation/sync-20261031/kernel-adoption/`.
+
+## Same-ABI generations installed by default, 2026-11-02
+
+APK `3.0.5-r18` adds `0107-openwrt-upgrade-same-abi-kernels.patch`. A full
+`apk upgrade` now installs a newer `-gN` generation at the identical ABI when
+the solution carries every payload kernelctl requires (`<name>-<generation>` for
+each installed logical `kmod-*` and for `kernel-dev-headers`). It keeps the
+installed generation, as before, when `/etc/openwrt-kernel/same-abi-hold`
+exists, when `/etc/openwrt-kernel/trial-pending` exists, for targeted upgrades
+and module additions, and when a payload is missing. `openwrt-kernel-upgrade`
+`1-r19` maintains `trial-pending` from `state.json` and adds
+`kernelctl same-abi-upgrades enable|disable|status`. It requires
+`openwrt-kernel-policy >= 3.0.5-r18`. The publication baseline hashes the hold.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `bin/systemd/packages/x86_64/base/apk-mbedtls-3.0.5-r18.apk` | `6b57efc8046740ce2de0ab5e86d9c58b329c0452fa2d587d9b59fd14fe2950ca` |
+| `bin/systemd/packages/x86_64/base/openwrt-kernel-upgrade-1-r19.apk` | `38faa5932bc380733e7099fe8285cf761a87e0d9f968c3569451a49be990988d` |
+
+| Check | Result |
+| --- | --- |
+| `make package/system/apk/compile`, `make package/custom/openwrt-kernel-upgrade/compile` | Passed; no `commit.c` warnings |
+| Existing 25 APK policy tests against r18, before test changes | 22 passed; the 3 full-upgrade keep tests now upgraded, as intended |
+| Native patched APK policy tests in disposable chroots | 29 passed |
+| Default full upgrade, g10 to g11 | Tracker, kmod and header trackers and all three g11 payloads installed; g10 payloads retained; world unchanged; kernelctl transaction lists the new image |
+| Hold set | `Same-ABI kernel upgrades are held`; g10 kept; userspace upgraded; world unchanged; a later ABI transition still upgrades |
+| `trial-pending` present | g10 kept; userspace upgraded |
+| g11 published without its header tracker and payload | `lacks kernel-dev-headers-...-g11`; g10 kept; userspace upgraded |
+| g11 header tracker published without its payload | Solve fails with the hold set as well; this predates r18 and the publication preflight catches it |
+| Targeted `apk upgrade linux-image-openwrt` or `kmod-*`, `apk add` of a new module | Installed generation kept (existing tests, no hold) |
+| Explicit exact image request while held | Installed |
+| `test-kernel-upgrade.py` | 62 passed: marker on arm, removal on rollback and promotion, marker kept when the state write is interrupted, switch enable/disable/status |
+| `test-apk-upgrade-preflight.py` | 29 passed: the real `BASELINE` script records the hold, and toggling it changes the baseline |
+| Build/publication, LAN publisher, source-version, ELF ABI and needrestart suites | 59, 26, 2, 23 and 91 passed |
+
+Scope: host and chroot tests with a native build of the patched APK. No kernel
+generation, image or VM upgrade was exercised with r18. Nothing was published,
+and no router was contacted or changed. needrestart still reports an armed
+same-ABI trial as `optional-same-abi-trial`.
+Evidence: `/srv/openwrt-validation/upstream-update-20261102T023631Z/same-abi/`.

@@ -211,21 +211,51 @@ grub-editenv /boot/grub/grubenv list
 ```
 
 The ordinary upgrade resolves the rolling image tracker and all selected logical
-kmods into immutable generation payloads when the ABI changes. A same-ABI `gN`
-increase prints `Keeping installed kernel generation: ABI unchanged.` and keeps
-the installed kernel/module/header trackers, including for targeted tracker or
-kmod upgrades. This does not arm a new kernel trial or require a kernel reboot.
-Adding a driver must also use a payload for the retained generation; if APK's
-solver cannot select it automatically, request its matching tracker version
-explicitly. An incompatible request fails before package writes rather than
-installing another same-ABI image. Initial migration without an installed image
-tracker can still enroll its first versioned kernel.
+kmods into immutable generation payloads when the ABI changes. Since APK r18,
+a full `apk upgrade` (no package arguments) does the same for a newer
+generation at the identical ABI, such as a rebuild that only adds kernel
+patches. It prints `Upgrading to same-ABI kernel generation <generation>.`,
+installs the image, module and header payloads together, and arms the usual
+trial. The new kernel runs only after a deliberate reboot, and promotion
+requires the same health checks.
 
-For a deliberate same-ABI trial, APK r16 accepts a direct exact constraint on
-its versioned image (for example `linux-image-...-g38=ABI`) or that signed
-image's local APK path, together with all matching module/header trackers.
-Pinning only `linux-image-openwrt` does not opt in. Old retained image pins do
-not opt in to newer images either. Protected payload constraints, signature
+A full upgrade keeps the installed generation instead, printing
+`Keeping installed kernel generation: ABI unchanged.` after the reason, when:
+
+- the operator has run `kernelctl same-abi-upgrades disable`, which creates
+  `/etc/openwrt-kernel/same-abi-hold`;
+- a trial is pending: kernelctl maintains `/etc/openwrt-kernel/trial-pending`
+  while `state.json` records one, so finish it with a reboot (or
+  `kernelctl rollback`) before the next generation is installed;
+- the solution lacks a payload kernelctl would require: every installed logical
+  `kmod-*` and `kernel-dev-headers` needs `<name>-<generation>` from the new
+  generation.
+
+Userspace packages still upgrade in all three cases.
+
+```
+kernelctl same-abi-upgrades status    # {"same_abi_upgrades": ..., "trial_pending": ...}
+kernelctl same-abi-upgrades disable   # keep the installed generation (pre-r18 behavior)
+kernelctl same-abi-upgrades enable    # default
+```
+
+The hold is kept across sysupgrade with the rest of `/etc/openwrt-kernel/`.
+Generations advance whenever relevant kernel build inputs change, including
+shared build rules and toolchain identity, so with the default a trial follows
+most rebuilds.
+
+Targeted tracker or kmod upgrades and module additions never switch
+generations. Adding a driver must use a payload for the installed generation;
+if APK's solver cannot select it automatically, request its matching tracker
+version explicitly. An incompatible request fails before package writes rather
+than installing another same-ABI image. Initial migration without an installed
+image tracker can still enroll its first versioned kernel.
+
+A direct exact constraint on a versioned image (for example
+`linux-image-...-g38=ABI`) or that signed image's local APK path, together with
+all matching module/header trackers, installs that generation even while the
+hold is set. Pinning only `linux-image-openwrt` does not, and old retained image
+pins do not select newer images. Protected payload constraints, signature
 verification and the complete kernelctl transaction checks still apply.
 
 The APK solver still enforces the exact OpenWrt kernel ABI. Old payloads are

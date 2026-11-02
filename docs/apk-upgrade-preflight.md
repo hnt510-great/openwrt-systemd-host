@@ -14,8 +14,12 @@ The new APK options require `apk-mbedtls`/`apk-openssl` 3.0.5-r13 or newer.
 An ordinary full managed upgrade selects the newer rolling kernel when its ABI
 changes, while honoring explicit world version and repository-tag constraints.
 An unported installed module therefore blocks the full transaction instead of
-quietly leaving the old kernel and upgrading other packages. Same-ABI generation
-bumps retain the existing behavior: keep the installed generation.
+quietly leaving the old kernel and upgrading other packages. Since APK r18 a
+full upgrade also installs a complete newer same-ABI generation unless the
+router holds it (`kernelctl same-abi-upgrades disable`) or a trial is pending;
+an incomplete same-ABI generation is skipped while userspace still upgrades.
+The router baseline records the hold, so changing it during a publication
+invalidates the snapshot.
 
 If a full upgrade is blocked, userspace can be selected explicitly:
 
