@@ -95,15 +95,6 @@ int main(int argc, char **argv) {
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         return result
 
-    def hold(self):
-        (self.root / 'etc/openwrt-kernel/same-abi-hold').write_text('')
-
-    def protect(self, names):
-        protected = self.root / 'etc/openwrt-kernel/protected'
-        records = self.installed()
-        protected.write_text(protected.read_text() + ''.join(
-            name + '><' + records[name]['C'] + '\n' for name in names))
-
     def installed(self):
         result = {}
         for record in (self.root / 'lib/apk/db/installed').read_text().split('\n\n'):
@@ -177,15 +168,13 @@ int main(int argc, char **argv) {
         self.pkg('userspace-probe', '1-r2', 'usr/share/userspace-probe', b'new userspace')
         return abi, payloads
 
-    def test_same_abi_hold_keeps_kernel_modules_headers_and_updates_userspace(self):
+    def test_same_abi_sequence_upgrade_keeps_kernel_modules_headers_and_updates_userspace(self):
         abi, old = self.installed_abi_generation()
         new = self.abi_generation(11, abi)
-        self.hold()
         before = self.installed()
         world = (self.root / 'etc/apk/world').read_bytes()
         database = (self.root / 'lib/apk/db/installed').read_bytes()
         result = self.apk('upgrade', '--simulate')
-        self.assertIn('Same-ABI kernel upgrades are held', result.stdout + result.stderr)
         self.assertIn('Keeping installed kernel generation: ABI unchanged.', result.stdout + result.stderr)
         self.assertEqual(database, (self.root / 'lib/apk/db/installed').read_bytes())
         result = self.apk('upgrade')
@@ -252,7 +241,6 @@ int main(int argc, char **argv) {
         retained = self.abi_generation(9, abi)
         self.apk('add', retained[0] + '=' + abi)
         new = self.abi_generation(11, abi)
-        self.hold()
         self.apk('upgrade')
         after = self.installed()
         self.assertEqual(after['linux-image-openwrt']['V'], '1-r10')
@@ -302,7 +290,6 @@ int main(int argc, char **argv) {
     def test_same_abi_policy_preserves_explicit_world_constraints(self):
         abi, _ = self.installed_abi_generation()
         self.abi_generation(11, abi)
-        self.hold()
         world_path = self.root / 'etc/apk/world'
         world = world_path.read_text().replace('linux-image-openwrt\n', 'linux-image-openwrt=1-r11\n')
         subprocess.run(['sudo', '-n', 'tee', str(world_path)], input=world,
@@ -311,81 +298,6 @@ int main(int argc, char **argv) {
         self.apk('upgrade', success=False)
         self.assertEqual(database, (self.root / 'lib/apk/db/installed').read_bytes())
         self.assertEqual(world_path.read_text(), world)
-
-    def test_full_upgrade_installs_complete_same_abi_generation_by_default(self):
-        abi, old = self.installed_abi_generation()
-        self.protect(old)
-        new = self.abi_generation(11, abi)
-        world = (self.root / 'etc/apk/world').read_bytes()
-        database = (self.root / 'lib/apk/db/installed').read_bytes()
-        generation = new[0].removeprefix('linux-image-')
-        result = self.apk('upgrade', '--simulate')
-        self.assertIn('Upgrading to same-ABI kernel generation ' + generation + '.',
-                      result.stdout + result.stderr)
-        self.assertNotIn('Keeping installed kernel generation', result.stdout + result.stderr)
-        self.assertEqual(database, (self.root / 'lib/apk/db/installed').read_bytes())
-        self.apk('upgrade')
-        after = self.installed()
-        version = '1000.11.6.18.55-r1'
-        self.assertEqual(after['linux-image-openwrt']['V'], '1-r11')
-        self.assertEqual(after['kmod-abi-probe']['V'], version)
-        self.assertEqual(after['kernel-dev-headers']['V'], version)
-        self.assertEqual(after['kernel']['V'], abi)
-        self.assertEqual(after['userspace-probe']['V'], '1-r2')
-        for name in (*old, *new):
-            self.assertIn(name, after)
-        self.assertEqual(world, (self.root / 'etc/apk/world').read_bytes())
-        transaction = subprocess.check_output(
-            ['sudo', '-n', 'cat', str(self.root / 'run/openwrt-kernel-apk.txn')], text=True)
-        self.assertIn('linux-image-openwrt\t1-r10\tlinux-image-openwrt\t1-r11\t0', transaction)
-        self.assertIn('-\t-\t' + new[0] + '\t' + abi + '\t0', transaction)
-
-    def test_pending_trial_keeps_same_abi_generation_and_updates_userspace(self):
-        abi, old = self.installed_abi_generation()
-        new = self.abi_generation(11, abi)
-        (self.root / 'etc/openwrt-kernel/trial-pending').write_text('')
-        result = self.apk('upgrade')
-        self.assertIn('A kernel trial is pending', result.stdout + result.stderr)
-        self.assertIn('Keeping installed kernel generation: ABI unchanged.', result.stdout + result.stderr)
-        after = self.installed()
-        self.assertEqual(after['linux-image-openwrt']['V'], '1-r10')
-        self.assertEqual(after['userspace-probe']['V'], '1-r2')
-        for name in old:
-            self.assertIn(name, after)
-        for name in new:
-            self.assertNotIn(name, after)
-
-    def test_incomplete_same_abi_generation_keeps_installed_generation(self):
-        abi, old = self.installed_abi_generation()
-        image, module, headers = self.abi_generation(11, abi)
-        # A publication without this generation's header tracker and payload
-        # still solves, leaving the installed tracker on the old generation.
-        for name in (headers, 'kernel-dev-headers'):
-            (self.repo / (name + '-1000.11.6.18.55-r1.apk')).unlink()
-        self.index()
-        result = self.apk('upgrade')
-        self.assertIn('Kernel generation ' + image.removeprefix('linux-image-') + ' lacks ' + headers + '.',
-                      result.stdout + result.stderr)
-        self.assertIn('Keeping installed kernel generation: ABI unchanged.', result.stdout + result.stderr)
-        after = self.installed()
-        self.assertEqual(after['linux-image-openwrt']['V'], '1-r10')
-        self.assertEqual(after['kmod-abi-probe']['V'], '1000.10.6.18.55-r1')
-        self.assertEqual(after['userspace-probe']['V'], '1-r2')
-        for name in (image, module):
-            self.assertNotIn(name, after)
-
-    def test_explicit_same_abi_image_is_allowed_while_held(self):
-        abi, old = self.installed_abi_generation()
-        self.protect(old)
-        self.hold()
-        new = self.abi_generation(11, abi)
-        version = '1000.11.6.18.55-r1'
-        self.apk('add', new[0] + '=' + abi, 'linux-image-openwrt=1-r11',
-                 'kmod-abi-probe=' + version, 'kernel-dev-headers=' + version)
-        after = self.installed()
-        for name in (*old, *new):
-            self.assertIn(name, after)
-        self.assertEqual(after['linux-image-openwrt']['V'], '1-r11')
 
     def obsolete_module_transition(self):
         abi, _ = self.installed_abi_generation()
