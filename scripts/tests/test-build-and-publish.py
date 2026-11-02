@@ -22,8 +22,9 @@ def load(name, filename):
 
 
 B = load('build_publish_test', 'build-and-publish.py')
-P = load('package_fixture', 'kernel-package.py')
+P = load('package_fixture', 'kernel-bundle.py')
 APK = TREE / 'staging_dir/host/bin/apk'
+FAKEROOT = TREE / 'staging_dir/host/bin/fakeroot'
 ABI = '6.18.55~' + 'a' * 32 + '-r1'
 
 
@@ -70,13 +71,16 @@ class BuildPublicationTests(unittest.TestCase):
         self.make_package('kernel', ABI, content='NEW parallel kernel stub')
         self.generation(1)
         # Simulate previous/future experimental output left in bin/. It must
-        # never be selected merely because its version sorts higher.
+        # never be selected merely because its version sorts higher: an old
+        # per-generation payload set and a newer kernel package build.
         other = '6.18.55-owrt-' + 'b' * 32 + '-r1-g99'
         other_abi = ABI.replace('a' * 32, 'b' * 32)
         self.make_package('linux-image-' + other, other_abi)
-        self.make_package('linux-image-openwrt', '1-r99',
+        self.make_package('linux-image-openwrt', '1-r98',
                           ['linux-image-' + other + '=' + other_abi, 'kernel=' + other_abi])
-        self.make_package('kmod-nic', '1000.99.6.18.55-r1', ['kernel=' + other_abi])
+        self.make_package('kmod-nic-' + other, '1000.98.6.18.55-r1', ['linux-image-' + other + '=' + other_abi])
+        self.make_package('linux-image-6.18.55-99-openwrt', '6.18.55-r99')
+        self.make_package('linux-image-openwrt', '6.18.55-r99', ['linux-image-6.18.55-99-openwrt=6.18.55-r99'])
 
     def make_package(self, name, version, depends=(), content=None, signed=True, files=None):
         root = self.root / 'package-files'
@@ -90,15 +94,16 @@ class BuildPublicationTests(unittest.TestCase):
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
         folder = self.target if name == 'kernel' or name.startswith(
-            ('kmod-', 'linux-image-', 'kernel-dev-headers')) else self.base
+            ('kmod-', 'linux-image-', 'linux-headers-', 'kernel-dev-headers')) else self.base
         package = folder / (name + '-' + version + '.apk')
         package.unlink(missing_ok=True)
-        P.package(str(APK), str(TREE / 'private-key.pem') if signed else None,
+        P.package(APK, FAKEROOT, TREE / 'private-key.pem' if signed else None,
                   root, folder, name, version, list(depends), 'signed fixture', '')
         return package
 
     def generation(self, sequence, abi=ABI):
-        name = '6.18.55-owrt-' + abi.split('~')[1].split('-r')[0] + '-r1-g' + str(sequence)
+        name = '6.18.55-' + str(sequence) + '-openwrt'
+        version = '6.18.55-r' + str(sequence)
         image = 'linux-image-' + name
         self.release.write_text(name + '\n')
         (self.tree / '.config').write_text(
@@ -114,16 +119,15 @@ class BuildPublicationTests(unittest.TestCase):
         boot_header[0x20e:0x210] = (0x100).to_bytes(2, 'little')
         binary.write_bytes(boot_header + (name + ' (fixture) #0 SMP ' + timestamp).encode() + b'\0')
         (linux / '.config').write_text('CONFIG_FIXTURE=y\n')
-        self.make_package(image, abi, files={
+        self.make_package(image, version, ['openwrt-kernel-upgrade'], files={
             'usr/lib/openwrt-kernel/' + name + '/vmlinuz': binary.read_bytes(),
-            'usr/lib/openwrt-kernel/' + name + '/config': (linux / '.config').read_bytes()})
-        self.make_package('linux-image-openwrt', f'1-r{sequence}',
-                          [image + '=' + abi, 'kernel=' + abi])
-        for logical in ('kmod-nic', 'kernel-dev-headers'):
-            version = f'1000.{sequence}.6.18.55-r1'
-            payload = logical + '-' + name
-            self.make_package(payload, version, [image + '=' + abi])
-            self.make_package(logical, version, ['kernel=' + abi, payload + '=' + version])
+            'usr/lib/openwrt-kernel/' + name + '/config': (linux / '.config').read_bytes(),
+            'usr/lib/modules/' + name + '/nic.ko': b'module'})
+        self.make_package('linux-headers-' + name, version)
+        self.make_package('linux-image-openwrt', version, [image + '=' + version])
+        self.make_package('kernel-dev-headers', f'1000.{sequence}.6.18.55-r1',
+                          ['linux-headers-' + name + '=' + version])
+        self.make_package('kmod-nic', f'1000.{sequence}.6.18.55-r1', ['linux-image-openwrt'])
         return name
 
     def aliases(self):
@@ -161,7 +165,7 @@ class BuildPublicationTests(unittest.TestCase):
             self.assertEqual((active / filename).read_bytes(), content)
         current = json.loads((self.server / 'public/kernel-upgrades/manifest.json').read_text())
         self.assertEqual(current['sequence'], 2)
-        self.assertTrue(any('-g1-' in p for p in current['packages']))
+        self.assertTrue(any(p.startswith('linux-image-6.18.55-1-openwrt-') for p in current['packages']))
 
     def test_unchanged_publication_does_not_create_snapshots(self):
         B.publish(self.tree, self.data)
@@ -171,20 +175,18 @@ class BuildPublicationTests(unittest.TestCase):
         self.assertEqual(result['kernel']['status'], 'unchanged')
         self.assertEqual(self.aliases(), before)
 
-    def test_duplicate_kernel_trackers_still_require_identical_bytes(self):
-        name = 'kmod-nic'
-        version = '1000.1.6.18.55-r1'
+    def test_duplicate_kernel_packages_still_require_identical_bytes(self):
+        name = 'linux-image-openwrt'
+        version = '6.18.55-r1'
         package = self.target / (name + '-' + version + '.apk')
         shutil.copyfile(package, self.base / package.name)
         B.publish(self.tree, self.data)
         before = self.aliases()
-        payload = name + '-6.18.55-owrt-' + 'a' * 32 + '-r1-g1'
-        self.make_package(name, version, ['kernel=' + ABI, payload + '=' + version],
-                          content='different signed tracker with the same identity')
-        with self.assertRaisesRegex(ValueError, 'Conflicting kernel tracker copies'):
+        self.make_package(name, version, ['linux-image-6.18.55-1-openwrt=' + version],
+                          content='different signed meta with the same identity')
+        with self.assertRaisesRegex(ValueError, 'Conflicting kernel package copies'):
             B.publish(self.tree, self.data)
         self.assertEqual(self.aliases(), before)
-
     def test_new_lower_sorting_abi_preserves_old_router_view(self):
         B.publish(self.tree, self.data)
         original_alias = (self.server / 'public/abi' / ABI).resolve()
@@ -199,14 +201,34 @@ class BuildPublicationTests(unittest.TestCase):
         self.assertEqual((self.server / 'public/abi' / ABI).resolve(), original_alias)
         self.assertTrue((self.server / 'public/abi' / new_abi / 'target/packages.adb').exists())
 
-    def test_missing_module_payload_does_not_publish_either_view(self):
-        for p in self.target.glob('kmod-nic-*-owrt-*-g1-*.apk'):
+    def test_missing_kernel_image_does_not_publish_either_view(self):
+        for p in self.target.glob('linux-image-6.18.55-1-openwrt-*.apk'):
             p.unlink()
         before = self.aliases()
-        with self.assertRaisesRegex(ValueError, 'Missing matching'):
+        with self.assertRaisesRegex(ValueError, 'Missing matching kernel package: linux-image-6.18.55-1-openwrt'):
             B.publish(self.tree, self.data)
         self.assertEqual(self.aliases(), before)
 
+    def test_missing_kmod_configuration_does_not_publish_either_view(self):
+        (self.target / 'kmod-nic-1000.1.6.18.55-r1.apk').unlink()
+        before = self.aliases()
+        with self.assertRaisesRegex(ValueError, 'Missing kmod configuration package for this kernel build: kmod-nic'):
+            B.publish(self.tree, self.data)
+        self.assertEqual(self.aliases(), before)
+
+    def test_kmods_are_userspace_and_kernel_packages_are_channel_only(self):
+        B.publish(self.tree, self.data)
+        userspace = self.server / 'public/current/target'
+        names = {p.name for p in userspace.glob('*.apk')}
+        self.assertIn('kmod-nic-1000.1.6.18.55-r1.apk', names)
+        self.assertFalse(any(n.startswith(('linux-image-', 'linux-headers-')) or '-owrt-' in n for n in names))
+        channel = {p.name for p in (self.server / 'public/kernel-upgrades').glob('*.apk')}
+        for name in ('linux-image-6.18.55-1-openwrt-6.18.55-r1.apk', 'linux-headers-6.18.55-1-openwrt-6.18.55-r1.apk',
+                     'linux-image-openwrt-6.18.55-r1.apk', 'kernel-dev-headers-1000.1.6.18.55-r1.apk'):
+            self.assertIn(name, channel)
+        self.assertFalse(any('-r99' in n or '-g99' in n or '1-r98' in n for n in channel))
+        self.assertEqual((self.server / 'public/current').resolve(),
+                         (self.server / 'public/abi' / ABI).resolve())
     def test_unsigned_userspace_does_not_publish_either_view(self):
         self.make_package('user-probe', '1-r2', signed=False)
         before = self.aliases()
@@ -286,17 +308,15 @@ class BuildPublicationTests(unittest.TestCase):
                 B.publish(self.tree, self.data)
         self.assertEqual(before, self.aliases())
 
-    def test_changed_published_payload_does_not_publish_userspace(self):
+    def test_changed_published_image_does_not_publish_userspace(self):
         B.publish(self.tree, self.data)
-        name = 'kmod-nic-6.18.55-owrt-' + 'a' * 32 + '-r1-g1'
-        image = 'linux-image-6.18.55-owrt-' + 'a' * 32 + '-r1-g1'
-        self.make_package(name, '1000.1.6.18.55-r1', [image + '=' + ABI], content='CHANGED')
+        self.make_package('linux-image-6.18.55-1-openwrt', '6.18.55-r1', ['openwrt-kernel-upgrade'],
+                          content='CHANGED')
         self.make_package('user-probe', '1-r2')
         before = self.aliases()
         with self.assertRaisesRegex(ValueError, 'Published kernel channel package changed'):
             B.publish(self.tree, self.data)
         self.assertEqual(self.aliases(), before)
-
     def test_changed_support_requires_release_bump_and_preserves_old_blob(self):
         name = 'apk-mbedtls'
         self.make_package(name, '3.0.5-r7', content='published policy tool')
@@ -327,15 +347,12 @@ class BuildPublicationTests(unittest.TestCase):
         self.assertEqual((self.tree / 'umask-probe').stat().st_mode & 0o777, 0o755)
         self.assertEqual((self.tree / 'umask-probe/file').stat().st_mode & 0o777, 0o644)
 
-    def test_wrong_payload_abi_does_not_publish_either_view(self):
-        name = 'kmod-nic-6.18.55-owrt-' + 'a' * 32 + '-r1-g1'
-        image = 'linux-image-6.18.55-owrt-' + 'a' * 32 + '-r1-g1'
-        self.make_package(name, '1000.1.6.18.55-r1', [image + '=' + ABI.replace('a', 'b')])
+    def test_meta_for_another_image_does_not_publish_either_view(self):
+        self.make_package('linux-image-openwrt', '6.18.55-r1', ['linux-image-6.18.55-1-openwrt=6.18.55-r7'])
         before = self.aliases()
-        with self.assertRaisesRegex(ValueError, 'version mismatch'):
+        with self.assertRaisesRegex(ValueError, 'Missing matching kernel package: linux-image-openwrt'):
             B.publish(self.tree, self.data)
         self.assertEqual(self.aliases(), before)
-
     def test_dry_run_changes_neither_alias(self):
         self.make_package('user-probe', '1-r2')
         before = self.aliases()
@@ -548,7 +565,7 @@ class BuildPublicationTests(unittest.TestCase):
     def test_changed_compiled_image_with_same_inputs_advances_sequence(self):
         first = B.prepare_sequence(self.tree, self.server)
         self.generation(first)
-        image = next(self.target.glob(f'linux-image-*-g{first}-*.apk'))
+        image = next(self.target.glob(f'linux-image-*-{first}-openwrt-*.apk'))
         original = image.read_bytes()
         (self.release.parents[2] / 'arch/x86/boot/bzImage').write_text('different build timestamp')
         self.assertGreater(B.prepare_sequence(self.tree, self.server), first)
@@ -703,8 +720,8 @@ class BuildPublicationTests(unittest.TestCase):
         self.assertEqual((self.tree / '.config').read_bytes(), before)
 
     def test_unsigned_kernel_does_not_publish_userspace(self):
-        image = 'linux-image-6.18.55-owrt-' + 'a' * 32 + '-r1-g1'
-        self.make_package(image, ABI, signed=False)
+        self.make_package('linux-image-6.18.55-1-openwrt', '6.18.55-r1', ['openwrt-kernel-upgrade'],
+                          signed=False)
         self.make_package('user-probe', '1-r2')
         before = self.aliases()
         with self.assertRaises(subprocess.CalledProcessError):
@@ -715,8 +732,7 @@ class BuildPublicationTests(unittest.TestCase):
         B.publish(self.tree, self.data)
         self.generation(2)
         B.publish(self.tree, self.data)
-        first = '6.18.55-owrt-' + 'a' * 32 + '-r1-g1'
-        self.release.write_text(first + '\n')
+        self.release.write_text('6.18.55-1-openwrt\n')
         path = self.tree / '.config'
         path.write_text(path.read_text().replace('SEQUENCE=2', 'SEQUENCE=1'))
         before = self.aliases()
@@ -740,7 +756,8 @@ class BuildPublicationTests(unittest.TestCase):
         result = B.LAN.publish(args)
         target = Path(result['snapshot']) / 'target/packages.adb'
         data = json.loads(subprocess.check_output([str(APK), 'adbdump', '--format', 'json', str(target)]))
-        self.assertEqual(data.get('packages', []), [])
+        # Only the kernel-independent kmod configuration packages remain.
+        self.assertEqual({p['name'] for p in data.get('packages', [])}, {'kmod-nic'})
         self.assertTrue((self.server / 'public/abi' / ABI).exists())
 
 

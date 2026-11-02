@@ -15,30 +15,53 @@ import subprocess
 import tempfile
 import time
 
-KEEP_GENERATIONS = 2
+# Like Fedora's installonly_limit: the newest kernels stay installable.
+KEEP_GENERATIONS = 3
+CURRENT_IMAGE = re.compile(r'linux-image-(.+)-([0-9]+)-openwrt')
+LEGACY_IMAGE = re.compile(r'linux-image-(.+)-owrt-([0-9a-f]{32})-r([0-9]+)-g([0-9]+)')
 _guard_spec = importlib.util.spec_from_file_location(
     'kernel_upgrade_preflight', Path(__file__).with_name('apk-upgrade-preflight.py'))
 GUARD = importlib.util.module_from_spec(_guard_spec)
 _guard_spec.loader.exec_module(GUARD)
 
 
+def image_sequence(name, version):
+    """The build number of a versioned kernel image, in either naming scheme."""
+    current = CURRENT_IMAGE.fullmatch(name)
+    if current:
+        if version != current[1].replace('-rc', '_rc') + '-r' + current[2]:
+            raise ValueError('Image version and release disagree: ' + name)
+        return int(current[2])
+    legacy = LEGACY_IMAGE.fullmatch(name)
+    identity = re.fullmatch(r'(.+)~([0-9a-f]{32})-r([0-9]+)', version)
+    if not legacy or not identity or (legacy[1], legacy[2], legacy[3]) != (
+            identity[1].replace('_rc', '-rc'), identity[2], identity[3]):
+        raise ValueError('Image generation and ABI disagree: ' + name)
+    return int(legacy[4])
+
+
 def retained_packages(packages, images, image_sequences, apk):
-    """Keep the newest publication generations and their exact dependency pins."""
+    """Keep the newest kernel builds and the packages bound to them."""
     keep_images = set(sorted(images, key=image_sequences.get, reverse=True)[:KEEP_GENERATIONS])
-    retired_payloads = {entry['info']['name'] for entry in packages.values()
+    retired_images = set(images) - keep_images
+    kept_releases = [image[len('linux-image-'):] for image in keep_images]
+    retired = set(retired_images)
+    retired |= {'linux-headers-' + image[len('linux-image-'):] for image in retired_images}
+    retired |= {entry['info']['name'] for entry in packages.values()
         if '-owrt-' in entry['info']['name'] and
         entry['info']['name'].startswith(('linux-image-', 'kmod-', 'kernel-dev-headers-')) and
-        not any(entry['info']['name'].endswith(image[len('linux-image-'):]) for image in keep_images)}
-    keep_abis = {images[name] for name in keep_images}
+        not any(entry['info']['name'].endswith(release) for release in kept_releases)}
+    retired_abis = ({images[name] for name in retired_images if LEGACY_IMAGE.fullmatch(name)} -
+                    {images[name] for name in keep_images if LEGACY_IMAGE.fullmatch(name)})
     candidates = {}
     for filename, entry in packages.items():
         info = entry['info']
-        if info['name'] in retired_payloads:
+        if info['name'] in retired:
             continue
-        if info['name'] == 'kernel' and info['version'] not in keep_abis:
+        if info['name'] == 'kernel' and info['version'] in retired_abis:
             continue
-        if any(dep.split('=', 1)[0] in retired_payloads or
-               (dep.startswith('kernel=') and dep.split('=', 1)[1] not in keep_abis)
+        if any(dep.split('=', 1)[0] in retired or
+               (dep.startswith('kernel=') and dep.split('=', 1)[1] in retired_abis)
                for dep in info.get('depends', [])):
             continue
         candidates[filename] = entry
@@ -91,11 +114,12 @@ def publish(source, destination, apk, key, keys, dry_run=False, stage_only=False
                     [str(apk), 'adbdump', '--format', 'json', str(path)], text=True))
                 info = metadata['info']
                 name = info['name']
-                if name not in allowed and not name.startswith(('kmod-', 'linux-image-', 'kernel-dev-headers-')):
+                if name not in allowed and not name.startswith(
+                        ('kmod-', 'linux-image-', 'linux-headers-', 'kernel-dev-headers-')):
                     continue
                 if info['arch'] != 'x86_64':
                     raise ValueError('Wrong architecture: ' + name)
-                if info.get('origin') == 'kernel-generations':
+                if info.get('origin') in ('kernel-generations', 'kernel-packages'):
                     for directory in metadata.get('paths', []):
                         for entry in [directory, *directory.get('files', [])]:
                             acl = entry.get('acl', {})
@@ -115,7 +139,8 @@ def publish(source, destination, apk, key, keys, dry_run=False, stage_only=False
                 checksum = digest(path)
                 if name in retained_payloads and retained_payloads[name] != info['version']:
                     raise ValueError('Generation payload version changed: ' + name)
-                if '-owrt-' in name:
+                if '-owrt-' in name or name.startswith(('linux-headers-', 'linux-image-')) and \
+                        name != 'linux-image-openwrt':
                     retained_payloads[name] = info['version']
                 if filename in incoming and incoming[filename] != checksum:
                     raise ValueError('Conflicting package copies: ' + filename)
@@ -135,24 +160,15 @@ def publish(source, destination, apk, key, keys, dry_run=False, stage_only=False
                         if entry['info']['name'] == 'linux-image-openwrt']
             if not images or not trackers:
                 raise ValueError('No versioned image and rolling tracker found')
-            image_sequences = {}
-            for name, abi in images.items():
-                identity = re.fullmatch(r'(.+)~([0-9a-f]{32})-r([0-9]+)', abi)
-                if not identity:
-                    raise ValueError('Invalid image ABI: ' + name)
-                prefix = ('linux-image-' + identity[1].replace('_rc', '-rc') +
-                          '-owrt-' + identity[2] + '-r' + identity[3] + '-g')
-                suffix = name.removeprefix(prefix)
-                if not name.startswith(prefix) or not suffix.isdigit() or not 1 <= int(suffix) <= 999999:
-                    raise ValueError('Image generation and ABI disagree: ' + name)
-                image_sequences[name] = int(suffix)
+            image_sequences = {name: image_sequence(name, version) for name, version in images.items()}
             for tracker in trackers:
-                version = re.fullmatch(r'1-r([0-9]+)', tracker['version'])
+                version = re.fullmatch(r'(?:1|[0-9][0-9a-z._]*)-r([0-9]+)', tracker['version'])
                 pins = [d.split('=', 1) for d in tracker.get('depends', [])
                         if d.startswith('linux-image-') and '=' in d]
                 if (not version or len(pins) != 1 or images.get(pins[0][0]) != pins[0][1]
-                        or image_sequences[pins[0][0]] != int(version[1])
-                        or 'kernel=' + pins[0][1] not in tracker.get('depends', [])):
+                        or image_sequences[pins[0][0]] != int(version[1])):
+                    raise ValueError('Rolling tracker and image generation disagree')
+                if LEGACY_IMAGE.fullmatch(pins[0][0]) and 'kernel=' + pins[0][1] not in tracker.get('depends', []):
                     raise ValueError('Rolling tracker and image generation disagree')
             for entry in packages.values():
                 info = entry['info']
@@ -163,6 +179,10 @@ def publish(source, destination, apk, key, keys, dry_run=False, stage_only=False
                     image, version = dependencies[0].split('=', 1)
                     if images.get(image) != version or not info['name'].endswith(image[len('linux-image-'):]):
                         raise ValueError('Module/image ABI mismatch: ' + info['name'])
+                if info['name'].startswith('linux-headers-'):
+                    image = 'linux-image-' + info['name'][len('linux-headers-'):]
+                    if images.get(image) != info['version']:
+                        raise ValueError('Kernel headers without their image: ' + info['name'])
             sequence = max(int(info['version'].split('-r')[1]) for info in trackers)
             incoming_sequences = [int(entry['info']['version'].split('-r')[1])
                 for filename, entry in packages.items() if filename in incoming and

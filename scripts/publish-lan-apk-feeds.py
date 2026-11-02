@@ -165,13 +165,31 @@ def validate_ucode_abi(apk, keys, payload, indexes, work):
     return {'abi': abi, 'packages': checked}
 
 
+def kernel_channel_package(info):
+    """Packages that belong to the kernel channel rather than userspace feeds.
+
+    Kernel images, headers and their metapackages are installed side by side
+    from the kernel channel. Since kernel packages carry their own modules,
+    kmod-* are kernel-independent configuration packages and stay in the
+    userspace feeds; only legacy per-generation payloads and the trackers that
+    pinned them (to a payload or an exact kernel ABI) are excluded.
+    """
+    name = info['name']
+    if name in ('kernel', 'kernel-dev-headers') or name.startswith(
+            ('linux-image-', 'linux-headers-', 'kernel-dev-headers-')):
+        return True
+    return name.startswith('kmod-') and ('-owrt-' in name or any(
+        '-owrt-' in dep or re.match(r'^kernel(?:[<>=~]|$)', dep) for dep in info.get('depends', [])))
+
+
 def validate_elf_abi(apk, keys, payload, indexes, work):
     """Inspect actual newest payloads, including retained legacy consumers."""
     selected = {}
     for repo, index in indexes.items():
         for info in index['packages']:
             name = info['name']
-            if name in ('kernel', 'kernel-dev-headers') or name.startswith(('kmod-', 'linux-image-', 'kernel-dev-headers-')):
+            if name in ('kernel', 'kernel-dev-headers') or name.startswith(
+                    ('kmod-', 'linux-image-', 'linux-headers-', 'kernel-dev-headers-')):
                 continue
             previous = selected.get(name)
             if previous:
@@ -321,6 +339,17 @@ def detect_kernel(source_root, apk):
     return version
 
 
+def point_current(public, snapshot):
+    """Kernel-independent routers follow public/current (Debian/Fedora style)."""
+    current = public / 'current'
+    previous = os.readlink(current) if current.is_symlink() else None
+    temporary = public / '.current.new'
+    temporary.unlink(missing_ok=True)
+    temporary.symlink_to(Path('snapshots') / Path(snapshot).name)
+    os.replace(temporary, current)
+    return previous
+
+
 def publish(args):
     tree = Path(__file__).resolve().parent.parent
     source_root = (args.source_root or tree).resolve()
@@ -361,14 +390,11 @@ def publish(args):
                 raise ValueError(f'No APKs in {source}')
             for package in packages:
                 if kernel_upgrade_view and package.name.startswith(
-                        ('kernel-', 'kmod-', 'linux-image-')):
+                        ('kernel-', 'kmod-', 'linux-image-', 'linux-headers-')):
                     # A userspace package literally named "kmod" also has
                     # a kmod-<version>.apk filename. Classify package names,
                     # not the ambiguous filename prefix.
-                    info = dump_index(apk, package)['info']
-                    package_name = info['name']
-                    if package_name in ('kernel', 'kernel-dev-headers') or package_name.startswith(
-                            ('kmod-', 'linux-image-', 'kernel-dev-headers-')):
+                    if kernel_channel_package(dump_index(apk, package)['info']):
                         continue
                 # Immutable payloads belong to the multi-generation channel.
                 # ABI-specific views retain only their logical trackers, whose
@@ -491,11 +517,14 @@ def publish(args):
                                     if re.match(r'^kernel(?:[<>=~]|$)', d)]
                     if any(d != 'kernel=' + args.kernel for d in dependencies):
                         raise ValueError(f'Kernel ABI mismatch: {info["name"]}: {dependencies}')
-                    if info['name'].startswith('kmod-') and not dependencies:
+                    configuration = (kernel_upgrade_view and info['name'].startswith('kmod-') and
+                                     'linux-image-openwrt' in info.get('depends', []))
+                    if info['name'].startswith('kmod-') and not dependencies and not configuration:
                         raise ValueError(f'Unpinned kmod: {info["name"]}')
                     if info['name'] == 'kernel':
                         kernel_versions.append(info['version'])
-                    if info['name'] == 'kernel' or dependencies or info['name'].startswith('kmod-'):
+                    if info['name'] == 'kernel' or dependencies or (
+                            info['name'].startswith('kmod-') and not configuration):
                         manifest['kernel_packages'][path] = digest
                 manifest['repositories'][name] = {'packages': len(index['packages']),
                                                   'index_sha256': sha256(repo / 'packages.adb')}
@@ -512,7 +541,8 @@ def publish(args):
                                  ', '.join(same_version_rebuilds))
             urls = [f'{origin}/abi/{args.kernel}/{name}/packages.adb' for name in indexes]
             (payload / 'repositories.list').write_text(
-                '# Local native-systemd/glibc feeds, pinned to kernel ABI.\n' + '\n'.join(urls) + '\n')
+                '# Local native-systemd/glibc feeds; kernel packages are in kernel-upgrades.\n' +
+                ''.join(f'{origin}/current/{name}/packages.adb\n' for name in indexes))
             (payload / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
             for directory in [payload, *payload.iterdir()]:
                 if directory.is_dir():
@@ -529,7 +559,10 @@ def publish(args):
                 final = snapshots / snapshot_name
                 payload.rename(final)
                 result.update(status='prepared', snapshot=str(final), alias=str(previous),
-                              previous=str(previous.resolve()) if previous.exists() else None)
+                              previous=str(previous.resolve()) if previous.exists() else None,
+                              current=str(public / 'current'),
+                              current_previous=(os.readlink(public / 'current')
+                                                if (public / 'current').is_symlink() else None))
             elif not args.dry_run:
                 final = snapshots / snapshot_name
                 payload.rename(final)
@@ -537,6 +570,7 @@ def publish(args):
                 temporary_link.unlink(missing_ok=True)
                 temporary_link.symlink_to(Path('../snapshots') / snapshot_name)
                 os.replace(temporary_link, previous)
+                point_current(public, final)
                 result['snapshot'] = str(final)
             return result
         finally:
@@ -553,6 +587,8 @@ def promote(result, destination, receipt):
     temporary.unlink(missing_ok=True)
     temporary.symlink_to(Path('../snapshots') / Path(result['snapshot']).name)
     os.replace(temporary, alias)
+    if result.get('current'):
+        point_current(Path(result['current']).parent, result['snapshot'])
     return {**result, 'status': 'published'}
 
 
@@ -561,6 +597,16 @@ def restore_alias(result):
     if result['status'] != 'prepared':
         return
     alias = Path(result['alias'])
+    current = Path(result['current']) if result.get('current') else None
+    if (current and current.is_symlink() and
+            current.resolve() == Path(result['snapshot']).resolve()):
+        if result.get('current_previous'):
+            temporary = current.with_name('.current.rollback')
+            temporary.unlink(missing_ok=True)
+            temporary.symlink_to(result['current_previous'])
+            os.replace(temporary, current)
+        else:
+            current.unlink()
     if not alias.exists() or alias.resolve() != Path(result['snapshot']).resolve():
         return
     if result['previous'] is None:

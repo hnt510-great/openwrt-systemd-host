@@ -156,27 +156,36 @@ def save_state(tree, data):
             temporary.unlink(missing_ok=True)
 
 
+def compiled_release(tree, sequence):
+    """The compiled distribution-style kernel release and package version."""
+    releases = []
+    for path in (tree / 'build_dir/target-x86_64_glibc/linux-x86_64').glob(
+            'linux-*/include/config/kernel.release'):
+        release = path.read_text().strip()
+        match = re.fullmatch(r'(.+)-' + str(sequence) + r'-openwrt', release)
+        if match:
+            releases.append((release, match[1].replace('-rc', '_rc') + '-r' + str(sequence), path))
+    return releases[0] if len(releases) == 1 else None
+
+
+def image_outputs(output, sequence):
+    """Existing image APKs for a build number, in either naming scheme."""
+    return (list(output.glob(f'linux-image-*-g{sequence}-*.apk')) +
+            list(output.glob(f'linux-image-*-{sequence}-openwrt-*.apk')))
+
+
 def generation_matches_compiled_image(tree, sequence, timestamp):
     """An input record alone cannot prove that existing immutable bytes match."""
     output = tree / 'bin/systemd/targets/x86/64-glibc/packages'
-    images = list(output.glob(f'linux-image-*-g{sequence}-*.apk'))
+    images = image_outputs(output, sequence)
     if not images:
         return True
-    abi_file = tree / 'staging_dir/target-x86_64_glibc/kernel.version'
-    if not abi_file.is_file():
+    compiled = compiled_release(tree, sequence)
+    if not compiled:
         return False
-    abi = abi_file.read_text().strip()
-    match = re.fullmatch(r'(.+)~([0-9a-f]{32})-r([0-9]+)', abi)
-    if not match:
-        return False
-    release = (match[1].replace('_rc', '-rc') + '-owrt-' + match[2] +
-               '-r' + match[3] + '-g' + str(sequence))
-    releases = list((tree / 'build_dir/target-x86_64_glibc/linux-x86_64').glob(
-        'linux-*/include/config/kernel.release'))
-    releases = [path for path in releases if path.read_text().strip() == release]
-    if len(releases) != 1:
-        return False
-    image = output / ('linux-image-' + release + '-' + abi + '.apk')
+    release, version, kernel_release = compiled
+    releases = [kernel_release]
+    image = output / ('linux-image-' + release + '-' + version + '.apk')
     if image not in images:
         return False
     metadata = LAN.dump_index(TREE / 'staging_dir/host/bin/apk', image)
@@ -222,7 +231,7 @@ def prepare_sequence(tree, destination, make_args=(), inputs=None):
     output = tree / 'bin/systemd/targets/x86/64-glibc/packages'
     # Reuse partial immutable outputs only with the same proven inputs/time.
     # Unknown or changed inputs must never overwrite an existing generation.
-    while not reuse and selected <= 999999 and any(output.glob(f'linux-image-*-g{selected}-*.apk')):
+    while not reuse and selected <= 999999 and image_outputs(output, selected):
         selected += 1
     if selected > 999999:
         raise ValueError('Kernel publication sequence exhausted')
@@ -281,21 +290,30 @@ def newest(entries, apk):
     return selected
 
 
+def legacy_kernel_package(info):
+    """Old per-generation payloads and the trackers that pinned them.
+
+    They are already in the kernel channel and are never republished from bin/.
+    """
+    name = info['name']
+    return '-owrt-' in name or (
+        (name.startswith('kmod-') or name in ('kernel-dev-headers', 'linux-image-openwrt')) and
+        any('-owrt-' in dep for dep in info.get('depends', [])))
+
+
 def project(tree, work, apk, progress=None):
     config = configuration(tree)
     sequence = int(config.get('CONFIG_OPENWRT_KERNEL_SEQUENCE', '0'))
     abi = (tree / 'staging_dir/target-x86_64_glibc/kernel.version').read_text().strip()
-    match = re.fullmatch(r'(.+)~([0-9a-f]{32})-r([0-9]+)', abi)
-    if not match or not 1 <= sequence <= 999999:
+    if not re.fullmatch(r'(.+)~([0-9a-f]{32})-r([0-9]+)', abi) or not 1 <= sequence <= 999999:
         raise ValueError('Missing/invalid completed kernel build metadata')
-    generation = (match[1].replace('_rc', '-rc') + '-owrt-' + match[2] +
-                  '-r' + match[3] + '-g' + str(sequence))
-    releases = list((tree / 'build_dir/target-x86_64_glibc/linux-x86_64').glob(
-        'linux-*/include/config/kernel.release'))
-    if not any(path.read_text().strip() == generation for path in releases):
-        raise ValueError('Compiled kernel release does not match configured generation; '
+    compiled = compiled_release(tree, sequence)
+    if not compiled:
+        raise ValueError('Compiled kernel release does not match the configured build number; '
                          'run a complete build before publishing')
-    image = 'linux-image-' + generation
+    release, version, _ = compiled
+    image = 'linux-image-' + release
+    headers = 'linux-headers-' + release
     root = tree / 'bin/systemd'
     repos = [('target', root / 'targets/x86/64-glibc/packages')] + [
         (p.name, p) for p in sorted((root / 'packages/x86_64').iterdir())
@@ -307,7 +325,7 @@ def project(tree, work, apk, progress=None):
     channel = work / 'kernel'
     channel.mkdir()
     candidates = {}
-    payloads = {}
+    kmods = {}
     support = {}
     for repo, paths in inputs:
         output = userspace / ('bin/systemd/targets/x86/64-glibc/packages' if repo == 'target'
@@ -320,19 +338,17 @@ def project(tree, work, apk, progress=None):
                          f'{examined}/{total} ({repo})')
             info = metadata['info']
             name = info['name']
-            # All kernel packages, including stale logical trackers left in
-            # bin/, are selected separately. Userspace remains ABI-specific.
-            family = name in ('kernel', 'kernel-dev-headers') or name.startswith(
-                ('kmod-', 'linux-image-', 'kernel-dev-headers-'))
-            if family:
-                if '-owrt-' in name:
-                    if name.endswith('-' + generation):
-                        if name in payloads and LAN.sha256(path) != LAN.sha256(payloads[name][0]):
-                            raise ValueError('Conflicting generation payload copies: ' + name)
-                        payloads[name] = (path, info)
-                else:
-                    candidates.setdefault(name, []).append((path, info))
+            if legacy_kernel_package(info):
                 continue
+            # Kernel packages and their metapackages form the kernel channel;
+            # everything else, including the config-only kmods, is userspace
+            # and no longer depends on a particular kernel.
+            if name in ('kernel', 'kernel-dev-headers', 'linux-image-openwrt') or name.startswith(
+                    ('linux-image-', 'linux-headers-')):
+                candidates.setdefault(name, []).append((path, info))
+                continue
+            if name.startswith('kmod-'):
+                kmods.setdefault(name, []).append(info)
             copy_package(path, output / path.name)
             if name in {'apk-mbedtls', 'apk-openssl', 'ubox', 'systemd-openwrt',
                         'lan-apk-feeds', 'openwrt-kernel-upgrade', 'grub2',
@@ -341,42 +357,36 @@ def project(tree, work, apk, progress=None):
     for entries in support.values():
         path, _ = newest(entries, apk)
         copy_package(path, channel / path.name)
-    if image not in payloads or payloads[image][1]['version'] != abi:
-        raise ValueError('Matching immutable kernel image is missing')
-    selected = dict(payloads)
-    required = {name.removeprefix('CONFIG_PACKAGE_') for name, value in config.items()
-                if value in ('y', 'm') and (name.startswith('CONFIG_PACKAGE_kmod-') or
-                                          name == 'CONFIG_PACKAGE_kernel-dev-headers')}
-    required.update(name.removesuffix('-' + generation) for name in payloads if name != image)
-    required.update(('kernel', 'linux-image-openwrt'))
-    for name in sorted(required):
-        if name == 'kernel':
-            valid = [p for p in candidates.get(name, []) if p[1]['version'] == abi]
-        elif name == 'linux-image-openwrt':
-            valid = [p for p in candidates.get(name, []) if p[1]['version'] == f'1-r{sequence}'
-                     and image + '=' + abi in p[1].get('depends', [])
-                     and 'kernel=' + abi in p[1].get('depends', [])]
-        else:
-            payload = payloads.get(name + '-' + generation)
-            valid = [p for p in candidates.get(name, []) if payload
-                     and p[1]['version'] == payload[1]['version']
-                     and 'kernel=' + abi in p[1].get('depends', [])
-                     and name + '-' + generation + '=' + p[1]['version'] in p[1].get('depends', [])]
+    requirements = {
+        image: lambda info: info['version'] == version,
+        'linux-image-openwrt': lambda info: (info['version'] == version and
+                                              image + '=' + version in info.get('depends', [])),
+        'kernel': lambda info: info['version'] == abi,
+    }
+    if config.get('CONFIG_PACKAGE_kernel-dev-headers') in ('y', 'm'):
+        requirements[headers] = lambda info: info['version'] == version
+        requirements['kernel-dev-headers'] = lambda info: (
+            info['version'].startswith(f'1000.{sequence}.') and
+            headers + '=' + version in info.get('depends', []))
+    selected = {}
+    for name, accept in requirements.items():
+        valid = [p for p in candidates.get(name, []) if accept(p[1])]
         if not valid:
-            raise ValueError('Missing matching kernel tracker/payload: ' + name)
+            raise ValueError('Missing matching kernel package: ' + name)
         if len(valid) > 1 and len({LAN.sha256(p[0]) for p in valid}) != 1:
-            raise ValueError('Conflicting kernel tracker copies: ' + name)
+            raise ValueError('Conflicting kernel package copies: ' + name)
         selected[name] = valid[0]
+    # Every selected kmod must be this build's configuration package.
+    for key, value in config.items():
+        if value in ('y', 'm') and key.startswith('CONFIG_PACKAGE_kmod-'):
+            name = key.removeprefix('CONFIG_PACKAGE_')
+            if not any(info['version'].startswith(f'1000.{sequence}.') and
+                       'linux-image-openwrt' in info.get('depends', [])
+                       for info in kmods.get(name, [])):
+                raise ValueError('Missing kmod configuration package for this kernel build: ' + name)
     for name, (path, info) in selected.items():
-        for dep in info.get('depends', []):
-            dependency, comparator, version = re.fullmatch(r'([^<>=~]+)([<>=~]*)(.*)', dep).groups()
-            if dependency.startswith(('kmod-', 'linux-image-')):
-                if dependency not in selected:
-                    raise ValueError('Incomplete kernel dependency closure: ' + dep)
-                if comparator == '=' and selected[dependency][1]['version'] != version:
-                    raise ValueError('Kernel dependency version mismatch: ' + dep)
         copy_package(path, channel / path.name)
-    return userspace, channel, abi, generation
+    return userspace, channel, abi, release
 
 
 def publish(tree, data, dry_run=False, progress=None):

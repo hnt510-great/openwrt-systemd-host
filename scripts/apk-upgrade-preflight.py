@@ -61,7 +61,19 @@ def installed_records(data):
     return result
 
 
+def image_sequence(name):
+    """Build number of a kernel image name in either naming scheme."""
+    match = re.fullmatch(r'linux-image-.+-(?:g([0-9]+)|([0-9]+)-openwrt)', name)
+    if not match:
+        raise ValueError('Invalid kernel image name: ' + name)
+    return int(match[1] or match[2])
+
+
 def validate_transition(baseline, packages, abi, migrations=None):
+    if baseline.get('model', 'generations') == 'packages':
+        # Kernel packages carry their own modules; kmods are configuration
+        # only, so there is no per-module ABI transition to validate.
+        return
     records = installed_records(baseline['installed'])
     current = baseline['abi']
     candidates = {p['name']: p for p in packages
@@ -147,19 +159,24 @@ with open('/lib/apk/db/lock','rb') as lock:
         'protected':'/etc/openwrt-kernel/protected','state':'/etc/openwrt-kernel/state.json'}
  data={k:pathlib.Path(p).read_bytes() for k,p in paths.items()}
  state=json.loads(data['state']); release=os.uname().release
- abis={g['abi'] for g in state['generations'].values() if g.get('release')==release}
- if len(abis)!=1 or state.get('pending') or state.get('phase')!='ready':
-  raise SystemExit('Router kernel baseline is ambiguous or has an unfinished trial')
+ if state.get('schema')==2:
+  # Kernel packages: userspace is kernel-independent; boot counting never
+  # blocks publication.
+  if state.get('phase','ready')!='ready' or not any(k==release or e.get('release')==release
+                                                  for k,e in state.get('kernels',{}).items()):
+   raise SystemExit('Router kernel baseline is not adopted')
+  abis={None}; model='packages'
+ else:
+  abis={g['abi'] for g in state['generations'].values() if g.get('release')==release}; model='generations'
+  if len(abis)!=1 or state.get('pending') or state.get('phase')!='ready':
+   raise SystemExit('Router kernel baseline is ambiguous or has an unfinished trial')
  hashes={k:h(v) for k,v in data.items()}
- # A full upgrade installs newer same-ABI kernels unless this hold exists.
- hold=pathlib.Path('/etc/openwrt-kernel/same-abi-hold')
- hashes['same-abi-hold']=h(hold.read_bytes()) if hold.is_file() else 'absent'
  for p in [pathlib.Path('/etc/apk/repositories'),*pathlib.Path('/etc/apk/repositories.d').glob('*'),
            *pathlib.Path('/lib/apk/repositories.d').glob('*'),
            *pathlib.Path('/etc/apk/keys').glob('*')]:
   if p.is_file(): hashes[str(p)]=h(p.read_bytes())
  hashes['apk']=h(pathlib.Path('/usr/bin/apk').read_bytes())
- result={'schema':1,'abi':abis.pop(),'release':release,'boot_id':pathlib.Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
+ result={'schema':1,'model':model,'abi':abis.pop(),'release':release,'boot_id':pathlib.Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
          'hashes':hashes,'world':data['world'].decode(),'installed':data['installed'].decode()}
  print(json.dumps(result))
 '''
@@ -192,6 +209,7 @@ with tempfile.TemporaryDirectory(prefix='apk-release-check-') as folder:
  # database. Ask directly for the complete final transaction, not that early
  # bootstrap phase, when binding the ELF audit to the transaction plan.
  args=['upgrade','--simulate','--no-preupgrade']; plan=root/'plan.json'
+ if request.get('userspace_only'): args.append('--userspace-only')
  if '--plan-json' in helptext: args+=['--plan-json',str(plan)]
  invocation=command+args
  if request.get('migration_world') is not None:
@@ -390,14 +408,23 @@ def preflight(destination, origin, userspace, kernel, *, progress=None, expected
             'world_before_sha256': hashlib.sha256(before['world'].encode()).hexdigest(),
             'world_after_sha256': hashlib.sha256(mapped_world.encode()).hexdigest()}
         manifest = json.loads((Path(kernel['snapshot']) / 'manifest.json').read_text())
-        latest = max(manifest['images'], key=lambda n: int(n.rsplit('-g', 1)[1]))
-        abi = manifest['images'][latest]
+        latest = max(manifest['images'], key=image_sequence)
+        packaged = not latest.endswith('-g' + str(image_sequence(latest)))
+        # Kernel packages are versioned by build; the config ABI now only names
+        # the userspace alias that legacy clients still follow.
+        abi = userspace.get('kernel') if packaged else manifest['images'][latest]
+        legacy_router = before.get('model', 'generations') == 'generations'
+        # A legacy kernelctl cannot validate a kernel package. Its first step
+        # is userspace-only: the new kernelctl, APK and feed list, no kernel.
+        migration_step = legacy_router and packaged
+        if migration_step:
+            receipt['migration_step'] = 'userspace-only'
         validate_transition(before, [e['info'] for e in manifest['packages'].values()], abi)
         indexes = []
         roots = [Path(kernel['snapshot'])]
-        # Match the existing client's first transaction: normal feeds follow
+        # Match the existing client's first transaction: legacy feeds follow
         # the running ABI. The target ABI userspace view is validated on disk.
-        if abi == before['abi']:
+        if not legacy_router or abi == before['abi']:
             roots.append(Path(userspace['snapshot']))
         for root in roots:
             for index in sorted(root.rglob('packages.adb')):
@@ -406,13 +433,14 @@ def preflight(destination, origin, userspace, kernel, *, progress=None, expected
                                 'sha256': digest(index)})
         if progress:
             progress(30, 'Simulate router upgrade')
-        simulation = remote(target, SIMULATE, {'indexes': indexes, **migration})
+        simulation = remote(target, SIMULATE, {'indexes': indexes, **migration,
+                                               **({'userspace_only': True} if migration_step else {})})
         receipt['simulation'] = simulation
         if simulation['returncode']:
             raise ValueError('Router rejects prepared release: ' + solver_error(simulation['stderr']))
-        if abi == before['abi']:
+        if not legacy_router or abi == before['abi']:
             receipt['elf_transition'] = validate_elf_transition(before, userspace_manifest, simulation)
-        if abi != before['abi']:
+        if legacy_router and abi != before['abi']:
             target_indexes = list(indexes)
             for index in sorted(Path(userspace['snapshot']).rglob('packages.adb')):
                 relative = index.relative_to(Path(destination) / 'public').as_posix()

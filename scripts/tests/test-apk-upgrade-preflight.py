@@ -32,25 +32,33 @@ class PreflightTests(unittest.TestCase):
                               'open': lambda name, *args: builtins.open(mapped(name), *args)})
         return json.loads(output.getvalue())
 
-    def test_baseline_records_same_abi_hold(self):
+    def baseline_root(self, root, state):
+        for name, data in (('lib/apk/db/lock', ''), ('lib/apk/db/installed', 'P:x\n'),
+                           ('etc/apk/world', 'x\n'), ('etc/openwrt-kernel/protected', ''),
+                           ('etc/openwrt-kernel/state.json', json.dumps(state)),
+                           ('usr/bin/apk', 'apk'), ('proc/sys/kernel/random/boot_id', 'boot\n')):
+            (root / name).parent.mkdir(parents=True, exist_ok=True)
+            (root / name).write_text(data)
+
+    def test_baseline_distinguishes_generation_and_package_routers(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            state = {'schema': 1, 'phase': 'ready', 'pending': None,
-                     'generations': {GEN: {'release': GEN, 'abi': NEW}}}
-            for name, data in (('lib/apk/db/lock', ''), ('lib/apk/db/installed', 'P:x\n'),
-                               ('etc/apk/world', 'x\n'), ('etc/openwrt-kernel/protected', ''),
-                               ('etc/openwrt-kernel/state.json', json.dumps(state)),
-                               ('usr/bin/apk', 'apk'), ('proc/sys/kernel/random/boot_id', 'boot\n')):
-                (root / name).parent.mkdir(parents=True, exist_ok=True)
-                (root / name).write_text(data)
-            before = self.baseline_in(root)
-            self.assertEqual(before['hashes']['same-abi-hold'], 'absent')
-            self.assertEqual(before['abi'], NEW)
-            (root / 'etc/openwrt-kernel/same-abi-hold').write_text('')
-            after = self.baseline_in(root)
-            self.assertNotEqual(after['hashes']['same-abi-hold'], 'absent')
-            self.assertFalse(G.same_baseline(before, after))
-            self.assertTrue(G.same_baseline(after, self.baseline_in(root)))
+            self.baseline_root(root, {'schema': 1, 'phase': 'ready', 'pending': None,
+                                      'generations': {GEN: {'release': GEN, 'abi': NEW}}})
+            legacy = self.baseline_in(root)
+            self.assertEqual((legacy['model'], legacy['abi']), ('generations', NEW))
+            self.baseline_root(root, {'schema': 2, 'phase': 'ready', 'kernels': {GEN: {'kind': 'package'}}})
+            packaged = self.baseline_in(root)
+            self.assertEqual((packaged['model'], packaged['abi']), ('packages', None))
+            self.assertFalse(G.same_baseline(legacy, packaged))
+            self.assertTrue(G.same_baseline(packaged, self.baseline_in(root)))
+            self.baseline_root(root, {'schema': 2, 'phase': 'adopting', 'kernels': {GEN: {}}})
+            with self.assertRaises(SystemExit):
+                self.baseline_in(root)
+
+    def test_package_router_skips_generation_transition_checks(self):
+        baseline = {'model': 'packages', 'abi': None, 'installed': 'P:kmod-nic\nV:1\n\n', 'world': ''}
+        G.validate_transition(baseline, [], OLD)
 
     def test_metadata_migration_preserves_pin_types_tags_and_kernel_pins(self):
         baseline = {'installed': 'P:libc\nV:1-r1\nC:Q1old\n\nP:app\nV:1-r1\nC:Q1app\n\n',
@@ -227,6 +235,38 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(len(remote.call_args_list[0].args[2]['indexes']), 1)
         self.assertEqual(len(remote.call_args_list[1].args[2]['indexes']), 2)
         self.assertTrue(remote.call_args_list[1].args[2]['replace_managed'])
+
+    def packaged_channel(self):
+        manifest = {'images': {'linux-image-' + GEN: NEW, 'linux-image-6.18.55-46-openwrt': '6.18.55-r46'},
+                    'packages': {str(i): {'info': p} for i, p in enumerate(self.packages)}}
+        (Path(self.results['kernel']['snapshot']) / 'manifest.json').write_text(json.dumps(manifest))
+
+    def test_legacy_router_takes_the_userspace_only_migration_step(self):
+        self.packaged_channel()
+        userspace = {**self.results['userspace'], 'kernel': self.baseline['abi']}
+        with patch.object(G, 'policy', return_value={'ssh_target': 'router'}), \
+                patch.object(G, 'capture', return_value=self.baseline), \
+                patch.object(G, 'remote', return_value={'returncode': 0}) as remote:
+            receipt = G.preflight(self.root, 'http://host', userspace, self.results['kernel'])
+        self.assertEqual(receipt['migration_step'], 'userspace-only')
+        self.assertEqual(remote.call_count, 1)
+        request = remote.call_args_list[0].args[2]
+        self.assertTrue(request['userspace_only'])
+        self.assertEqual(len(request['indexes']), 2)
+
+    def test_package_router_simulates_the_full_upgrade_with_userspace(self):
+        self.packaged_channel()
+        baseline = {**self.baseline, 'model': 'packages', 'abi': None}
+        userspace = {**self.results['userspace'], 'kernel': NEW}
+        with patch.object(G, 'policy', return_value={'ssh_target': 'router'}), \
+                patch.object(G, 'capture', return_value=baseline), \
+                patch.object(G, 'remote', return_value={'returncode': 0}) as remote:
+            receipt = G.preflight(self.root, 'http://host', userspace, self.results['kernel'])
+        self.assertNotIn('migration_step', receipt)
+        self.assertEqual(remote.call_count, 1)
+        request = remote.call_args_list[0].args[2]
+        self.assertNotIn('userspace_only', request)
+        self.assertEqual(len(request['indexes']), 2)
 
     def test_target_abi_userspace_failure_is_a_publication_blocker(self):
         with patch.object(G, 'policy', return_value={'ssh_target': 'router'}), \
