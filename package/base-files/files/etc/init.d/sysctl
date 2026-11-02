@@ -17,7 +17,12 @@ apply_defaults() {
 		frag_high_thresh=524288
 	fi
 
-	sysctl -qw vm.min_free_kbytes="$min_free"
+	# Only raise the reserve. The kernel's own value scales with RAM and
+	# grows further when THP is enabled; lowering it on large desktop
+	# systems starves reclaim (e.g. zram swap metadata allocations).
+	local cur_min_free="$(cat /proc/sys/vm/min_free_kbytes 2>/dev/null)"
+	[ "${cur_min_free:-0}" -lt "$min_free" ] &&
+		sysctl -qw vm.min_free_kbytes="$min_free"
 
 	[ "$frag_low_thresh" ] && sysctl -qw \
 		net.ipv4.ipfrag_low_thresh="$frag_low_thresh" \
