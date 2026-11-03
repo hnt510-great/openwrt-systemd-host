@@ -417,11 +417,15 @@ pulling upstream, a `backup/pre-upstream-<date>` branch is cut.
   branch; commits inside it go to its own repository, and the parent records only the gitlink.
   `luci-app-argon-config` is retired (its settings moved into the theme).
 - `feeds/` is git-ignored but *is* source — `feeds/packages`, `luci`, `video`, `telephony`,
-  `passwall_packages` and `passwall_luci` hold local commits. `feeds.conf.default` points those
-  feeds at their local GitLab forks (`ssh://git@192.0.2.165:2424/root/openwrt-*.git`), so a fresh
-  clone plus `./scripts/feeds update -a` reproduces them; upstream merges happen inside each feed
-  repo and are pushed to GitLab. Changing a feed URL makes `scripts/feeds` delete and re-clone that
-  feed unless `feeds/<name>.tmp/location` already holds the new URL. Never reset them.
+  `passwall_packages` and `passwall_luci` hold local commits. `feeds.conf.default` tracks upstream
+  only — OpenWrt's GitHub mirrors (`https://github.com/openwrt/<feed>.git`, not git.openwrt.org)
+  and the custom feeds' own upstreams (`Openwrt-Passwall/*`, `sirpdboy/luci-app-ddns-go`) — never
+  a local GitLab. Each modified feed branch tracks `origin/<branch>` and is ahead of it; once
+  upstream moves, `git pull --ff-only` from `./scripts/feeds update` fails, and the merge is done
+  by hand inside the feed repo. `patches/feeds/` mirrors only the `packages`, `video` and `luci`
+  commits; `telephony` and Passwall local commits live only in their feed repos. Changing a feed
+  URL makes `scripts/feeds` delete and re-clone that feed unless `feeds/<name>.tmp/location`
+  already holds the new URL. Never reset them.
 - Untracked clutter that is not source: `.DS_Store`/`._.DS_Store`, backup tarballs,
   `scripts/__pycache__/`, `scripts/tests/__pycache__/`,
   `package/custom/openwrt-kernel-upgrade/files/__pycache__/`, `package/custom/fastfetch/.claude/`,

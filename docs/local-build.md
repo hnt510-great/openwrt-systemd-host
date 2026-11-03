@@ -9,29 +9,21 @@ Weston 桌面、libvirt、普通用户/SSH 支持以及目标配置修改。
 在新 checkout 中可以复制为 `.config`，安装匹配 feeds 后再正常化配置。
 它不包含测试账号、测试 SSH 密钥或个人路由器凭据。
 
-## 从本地 GitLab 新建工作区
+## Feed 来源
 
-`feeds.conf.default` 中带本地修改的 feeds（`packages`、`luci`、`video`、
-`telephony`、`passwall_packages`、`passwall_luci`）直接指向本地 GitLab
-（`ssh://git@192.0.2.165:2424/root/openwrt-*.git`）的分支，其中已包含本地提交；
-`routing` 和 `taskplan` 仍使用上游。`package/custom/luci-theme-argon` 是指向
-GitLab 的子模块，`./scripts/feeds update` 会自动初始化尚未检出的子模块并切换到
-`.gitmodules` 中的 `branch`。因此新工作区与普通 OpenWrt 用法相同：
+`feeds.conf.default` 只跟踪上游：OpenWrt 官方 feeds 使用 GitHub 镜像
+（`https://github.com/openwrt/<feed>.git`，不使用 git.openwrt.org），
+`passwall_packages`/`passwall_luci` 使用 `Openwrt-Passwall` 上游，`taskplan`
+使用 `sirpdboy/luci-app-ddns-go`，不指向本地 GitLab。带本地提交的 feed 分支跟踪
+`origin/<branch>` 并领先于上游；上游更新后 `./scripts/feeds update` 中的
+`git pull --ff-only` 会失败，需要在该 feed 仓库内手动合并。`packages`、`video`、`luci`
+的本地提交可用下面的 `patches/feeds/` 补丁在新 checkout 中恢复；`telephony` 和
+Passwall 的本地提交目前只保存在各自的 feed 仓库中。签名密钥 `private-key.pem`/`public-key.pem`
+不在仓库中，需要从现有构建机单独复制。
 
-```sh
-git clone ssh://git@192.0.2.165:2424/root/openwrt.git
-cd openwrt
-./scripts/feeds update -a
-./scripts/feeds install -a
-cp configs/x86-64-systemd-desktop.config .config
-make defconfig
-```
-
-不要对这样新建的 feeds 再应用下面的 `patches/feeds/` 补丁。签名密钥
-`private-key.pem`/`public-key.pem` 不在仓库中，需要从现有构建机单独复制。
 `scripts/feeds` 在 feed 地址改变时会删除并重新克隆该 feed；已有工作区更换
 `feeds.conf.default` 地址前，应先把新地址写入 `feeds/<name>.tmp/location`，
-并让 feed 分支跟踪 GitLab 分支，以保留本地分支和 stash。
+以保留本地提交、分支和 stash。
 
 ## Feed 补丁备份
 
