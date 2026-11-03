@@ -8,8 +8,10 @@ import fcntl
 import hashlib
 import importlib.util
 import json
+import multiprocessing
 import os
 from pathlib import Path
+import pickle
 import re
 import shutil
 import subprocess
@@ -182,6 +184,92 @@ def kernel_channel_package(info):
         '-owrt-' in dep or re.match(r'^kernel(?:[<>=~]|$)', dep) for dep in info.get('depends', [])))
 
 
+WORKERS = min(8, os.cpu_count() or 1)
+
+
+def forked_map(function, items, workers=WORKERS):
+    """Ordered map over forked worker processes for CPU-bound Python checks.
+
+    Children inherit ``function`` and ``items`` through fork, so neither is
+    pickled (this importlib-loaded module cannot be pickled by reference);
+    only results and exceptions travel back. Results keep input order and the
+    first failure in input order is raised, exactly as a serial loop would.
+    """
+    items = list(items)
+    count = min(workers, len(items))
+    if count < 2:
+        return [function(item) for item in items]
+    context = multiprocessing.get_context('fork')
+
+    def worker(indices, connection):
+        outcomes = []
+        for index in indices:
+            try:
+                outcomes.append((index, True, function(items[index])))
+            except BaseException as error:
+                try:
+                    pickle.dumps(error)
+                except Exception:
+                    error = RuntimeError(f'{type(error).__name__}: {error}')
+                outcomes.append((index, False, error))
+                break
+        connection.send(outcomes)
+        connection.close()
+
+    processes = []
+    try:
+        for offset in range(count):
+            receiver, sender = context.Pipe(duplex=False)
+            process = context.Process(target=worker, args=(range(offset, len(items), count), sender))
+            process.start()
+            sender.close()
+            processes.append((process, receiver))
+        results = [None] * len(items)
+        failures = []
+        for process, receiver in processes:
+            try:
+                outcomes = receiver.recv()
+            except EOFError:
+                outcomes = []
+                failures.append((-1, RuntimeError('Parallel check worker exited unexpectedly')))
+            process.join()
+            if process.exitcode:
+                failures.append((-1, RuntimeError(f'Parallel check worker failed: {process.exitcode}')))
+            for index, success, value in outcomes:
+                if success:
+                    results[index] = value
+                else:
+                    failures.append((index, value))
+        if failures:
+            raise min(failures, key=lambda failure: failure[0])[1]
+        return results
+    finally:
+        for process, receiver in processes:
+            receiver.close()
+            if process.is_alive():
+                process.terminate()
+            process.join()
+
+
+def validate_alternatives(pool, alternatives, capabilities):
+    """Each migration alternative rebuilds a full ELF context; check in parallel."""
+    def check(key):
+        name, version = key
+        record = alternatives[name][version]
+        inventories = {key: item['elf'] for key, item in pool.items()}
+        for dependency in record.get('depends', []):
+            match = re.fullmatch(r'([^=<>~]+)=(.+)', dependency)
+            if match:
+                provider = alternatives.get(match[1], {}).get(match[2])
+                if provider:
+                    inventories['selected#' + match[1]] = provider['elf']
+        inventories['selected#' + name] = record['elf']
+        ELF.validate_record(name, record, ELF.Context(inventories), capabilities)
+
+    forked_map(check, [(name, version) for name, versions in alternatives.items()
+                       for version in versions])
+
+
 def validate_elf_abi(apk, keys, payload, indexes, work):
     """Inspect actual newest payloads, including retained legacy consumers."""
     selected = {}
@@ -216,17 +304,27 @@ def validate_elf_abi(apk, keys, payload, indexes, work):
                       'bump release and rebuild')
             inventory_errors.append(f'{name}-{version}: missing/stale ELF inventory; {action}')
 
-    for name, (repo, info) in sorted(selected.items()):
-        root = work / 'elf-abi-check' / name
+    def extract(job):
+        root, package = job
         root.mkdir(parents=True)
-        package = payload / repo / package_filename(info)
         subprocess.run([str(apk), 'extract', '--keys-dir', str(keys), '--no-chown',
                         '--destination', str(root), str(package)], check=True, capture_output=True)
-        inventory = ELF.inspect(root)
+        return ELF.inspect(root)
+
+    def inspect_all(jobs):
+        # Independent apk extractions plus pure-Python ELF parsing (GIL-bound
+        # in threads). Results and the first raised error keep serial order.
+        return forked_map(extract, jobs)
+
+    newest = sorted(selected.items())
+    inventories = inspect_all([(work / 'elf-abi-check' / name, payload / repo / package_filename(info))
+                               for name, (repo, info) in newest])
+    for (name, (repo, info)), inventory in zip(newest, inventories):
         inventory.update(package=name, version=info['version'])
-        check_inventory(root, inventory, name, info['version'])
+        check_inventory(work / 'elf-abi-check' / name, inventory, name, info['version'])
         records[name] = {**info, 'elf': inventory}
     alternatives = {}
+    wanted = {}
     for repo, index in indexes.items():
         for info in index['packages']:
             name, version = info['name'], info['version']
@@ -234,18 +332,15 @@ def validate_elf_abi(apk, keys, payload, indexes, work):
                 continue
             if not any(e['after'] == version for e in ledger.get(name, [])):
                 continue
-            if version in alternatives.get(name, {}):
-                continue
-            root = work / 'elf-alternative-check' / name / version
-            root.mkdir(parents=True)
-            subprocess.run([str(apk), 'extract', '--keys-dir', str(keys), '--no-chown',
-                            '--destination', str(root), str(payload / repo / package_filename(info))],
-                           check=True, capture_output=True)
-            inventory = ELF.inspect(root)
-            inventory.update(package=name, version=version)
-            check_inventory(root, inventory, name, version)
-            alternative = {**info, 'elf': inventory}
-            alternatives.setdefault(name, {})[version] = alternative
+            wanted.setdefault((name, version), (repo, info))
+    inventories = inspect_all([(work / 'elf-alternative-check' / name / version,
+                                payload / repo / package_filename(info))
+                               for (name, version), (repo, info) in wanted.items()])
+    for ((name, version), (repo, info)), inventory in zip(wanted.items(), inventories):
+        inventory.update(package=name, version=version)
+        check_inventory(work / 'elf-alternative-check' / name / version, inventory, name, version)
+        alternative = {**info, 'elf': inventory}
+        alternatives.setdefault(name, {})[version] = alternative
     if inventory_errors:
         raise ValueError('ELF ABI preflight: ' + str(len(inventory_errors)) +
                          ' packages need rebuilding:\n  ' + '\n  '.join(inventory_errors) +
@@ -265,17 +360,7 @@ def validate_elf_abi(apk, keys, payload, indexes, work):
             pool[name + '#' + version] = record
     capabilities = {value.split('=', 1)[0] for record in pool.values()
                     for value in record.get('provides', [])}
-    for name, versions in report['alternatives'].items():
-        for version, record in versions.items():
-            inventories = {key: item['elf'] for key, item in pool.items()}
-            for dependency in record.get('depends', []):
-                match = re.fullmatch(r'([^=<>~]+)=(.+)', dependency)
-                if match:
-                    provider = report['alternatives'].get(match[1], {}).get(match[2])
-                    if provider:
-                        inventories['selected#' + match[1]] = provider['elf']
-            inventories['selected#' + name] = record['elf']
-            ELF.validate_record(name, record, ELF.Context(inventories), capabilities)
+    validate_alternatives(pool, report['alternatives'], capabilities)
     report['migration'] = {n: entries for n, entries in ledger.items() if n in records}
     report['inventories'] = {name: record['elf'] for name, record in records.items()
                              if record['elf']['files']}

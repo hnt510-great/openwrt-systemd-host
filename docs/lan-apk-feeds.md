@@ -124,6 +124,16 @@ this host, before removing the redundant hash passes. Feed results, snapshot
 hashes, generation and router baseline matched. This measures the no-change
 case; router/network time can vary.
 
+When any package changes, the ELF ABI audit extracts and inspects every
+newest userspace APK and each ledger migration alternative. Those
+extractions, and the per-alternative ELF context checks, run in at most
+eight forked worker processes (more workers were slower on this host because
+extraction becomes I/O-bound). Results are consumed in input order and the
+first failure in that order is raised, so reports match the serial check. On
+2026-11-03 a one-changed-package dry run against a reflinked copy of the live
+feeds (1,087 newest APKs, 47 alternatives, no router contact) dropped from
+41.5 to 21.3 seconds, with an identical manifest apart from the snapshot name.
+
 Previously published APKs are retained when a package clean removes their
 build output. With no changes, the command reports `"status": "unchanged"`
 and creates no snapshot. The first run against an older publication may
