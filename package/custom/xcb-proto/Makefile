@@ -10,7 +10,7 @@ PKG_HASH:=2c1bacd2110f4799f74de6ebb714b94cf6f80fb112316b1219480fd22562148c
 PKG_LICENSE:=MIT
 PKG_LICENSE_FILES:=COPYING
 PKG_INSTALL:=1
-PKG_BUILD_DEPENDS:=util-macros/host
+PKG_BUILD_DEPENDS:=util-macros/host python3/host
 include $(INCLUDE_DIR)/package.mk
 include $(INCLUDE_DIR)/host-build.mk
 
