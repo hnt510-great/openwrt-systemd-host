@@ -891,6 +891,7 @@ sub update {
 		push @index_feeds, $name;
 	}
 	if ($update_custom) {
+		init_custom_submodules() == 0 or $failed=1;
 		if ($failed) {
 			warn "Skipping custom upstream updates because a selected feed failed.\n";
 		} else {
@@ -910,6 +911,32 @@ sub update {
 	}
 
 	return $failed;
+}
+
+# Initialize submodules that are not checked out yet (a fresh clone), then
+# attach each to its configured branch so the custom updater can merge into
+# it. Initialized submodules are left alone: their checkout may be ahead of
+# the recorded commit.
+sub init_custom_submodules() {
+	-f "$ENV{TOPDIR}/.gitmodules" or return 0;
+	my @paths = map { /^-[0-9a-f]+ (\S+)/ ? $1 : () }
+		split /\n/, `git -C '$ENV{TOPDIR}' submodule status 2>/dev/null`;
+	foreach my $path (@paths) {
+		warn "Initializing submodule '$path' ...\n";
+		system('git', '-C', $ENV{TOPDIR}, 'submodule', 'update', '--init', '--', $path) == 0
+			or return 1;
+		my ($name) = map { /^submodule\.(.+)\.path (.+)$/ && $2 eq $path ? $1 : () }
+			split /\n/, `git -C '$ENV{TOPDIR}' config -f .gitmodules --get-regexp '^submodule\\..*\\.path\$'`;
+		defined $name or next;
+		my $branch = `git -C '$ENV{TOPDIR}' config -f .gitmodules submodule.$name.branch`;
+		chomp $branch;
+		next unless $branch;
+		my $dir = "$ENV{TOPDIR}/$path";
+		system('git', '-C', $dir, 'checkout', '-q', '-B', $branch) == 0 and
+		system('git', '-C', $dir, 'branch', '-q', "--set-upstream-to=origin/$branch") == 0
+			or return 1;
+	}
+	return 0;
 }
 
 sub feed_config() {

@@ -42,4 +42,4 @@ Use the history's `component: imperative description` convention, such as `feeds
 
 ## Workspace & Security
 
-Preserve unrelated edits, stashes, overlays, feed commits, and nested repositories (`luci-theme-argon`, `luci-app-argon-config`). Never reset `feeds/`. Stage explicit paths. Exclude credentials, signing keys, personal `files/` overlays, backups, and generated artifacts. Treat feed publication and device deployment as separate, explicitly authorized operations; publication is gated on a reachable router preflight (`configs/lan-apk-feeds.json`). Scheduled host maintenance is disabled; do not reinstall its cron job unless asked.
+Preserve unrelated edits, stashes, overlays, feed commits, and the `luci-theme-argon` submodule. Never reset `feeds/`. Stage explicit paths. Exclude credentials, signing keys, personal `files/` overlays, backups, and generated artifacts. Treat feed publication and device deployment as separate, explicitly authorized operations; publication is gated on a reachable router preflight (`configs/lan-apk-feeds.json`). Scheduled host maintenance is disabled; do not reinstall its cron job unless asked.

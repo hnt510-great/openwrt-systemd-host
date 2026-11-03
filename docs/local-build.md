@@ -9,6 +9,32 @@ Weston 桌面、libvirt、普通用户/SSH 支持以及目标配置修改。
 在新 checkout 中可以复制为 `.config`，安装匹配 feeds 后再正常化配置。
 它不包含测试账号、测试 SSH 密钥或个人路由器凭据。
 
+## 从本地 GitLab 新建工作区
+
+`feeds.conf.default` 中带本地修改的 feeds（`packages`、`luci`、`video`、
+`telephony`、`passwall_packages`、`passwall_luci`）直接指向本地 GitLab
+（`ssh://git@192.0.2.165:2424/root/openwrt-*.git`）的分支，其中已包含本地提交；
+`routing` 和 `taskplan` 仍使用上游。`package/custom/luci-theme-argon` 是指向
+GitLab 的子模块，`./scripts/feeds update` 会自动初始化尚未检出的子模块并切换到
+`.gitmodules` 中的 `branch`。因此新工作区与普通 OpenWrt 用法相同：
+
+```sh
+git clone ssh://git@192.0.2.165:2424/root/openwrt.git
+cd openwrt
+./scripts/feeds update -a
+./scripts/feeds install -a
+cp configs/x86-64-systemd-desktop.config .config
+make defconfig
+```
+
+不要对这样新建的 feeds 再应用下面的 `patches/feeds/` 补丁。签名密钥
+`private-key.pem`/`public-key.pem` 不在仓库中，需要从现有构建机单独复制。
+`scripts/feeds` 在 feed 地址改变时会删除并重新克隆该 feed；已有工作区更换
+`feeds.conf.default` 地址前，应先把新地址写入 `feeds/<name>.tmp/location`，
+并让 feed 分支跟踪 GitLab 分支，以保留本地分支和 stash。
+
+## Feed 补丁备份
+
 `packages` 和 `video` feeds 是独立 Git 仓库，主仓库忽略 `feeds/`。
 两者的本地修改分别提交；`configs/local-feeds.json` 记录各自的基线和提交。
 对应补丁也保存在 `patches/feeds/`，便于随主仓库保存和审阅。
@@ -82,9 +108,9 @@ SHA256，允许跨次版本升级，保留本地 CMake 裁剪选项。
 版本递增，例如 `2026.06.28.2.71.0-r1`。
 
 Argon 保留独立 Git 仓库，追踪 `jerrykuku/luci-theme-argon` 的 `master`
-（包括稳定版发布后的修复）。新 checkout 可通过
-`git submodule update --init -- package/custom/luci-theme-argon` 从本地
-GitLab 初始化已保存的历史。更新器合并上游并保留本地提交；合并前先检测
+（包括稳定版发布后的修复）。新 checkout 中 `./scripts/feeds update`
+会自动执行 `git submodule update --init` 从本地 GitLab 初始化已保存的历史，
+并切换到 `master` 分支。更新器合并上游并保留本地提交；合并前先检测
 冲突，有已跟踪文件改动、隐藏索引标记或未完成 Git 操作时停止，不覆盖
 未跟踪文件。更新前的 HEAD 保存在嵌套仓库的
 `refs/custom-package-updates/`，报告位于 `logs/custom-package-updates/`。

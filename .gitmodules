@@ -1,3 +1,4 @@
 [submodule "luci-theme-argon"]
 	path = package/custom/luci-theme-argon
-	url = git@gitlab-local:root/openwrt-luci-theme-argon.git
+	url = ../openwrt-luci-theme-argon.git
+	branch = master

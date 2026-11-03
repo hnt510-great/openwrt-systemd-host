@@ -412,11 +412,16 @@ pulling upstream, a `backup/pre-upstream-<date>` branch is cut.
   kmod identities.
 - **Published APK identities are immutable.** Changed bytes require a new `PKG_RELEASE`; the ELF
   rebuild ledger is not permission to overwrite a released version.
-- `package/custom/luci-theme-argon` and `package/luci-app-argon-config` are **embedded git repositories**
-  (gitlinks with no `.gitmodules`). Commits inside them are not recorded by the parent repo; treat
-  version selection there as a separate repository operation.
-- `feeds/` is git-ignored but *is* source — `feeds/packages` and `feeds/video` hold local commits
-  that the main repo only records as patches and JSON manifests. Never reset them.
+- `package/custom/luci-theme-argon` is a **git submodule** (`.gitmodules`, branch `master`, local
+  GitLab URL). `./scripts/feeds update` initializes it on a fresh clone and attaches it to that
+  branch; commits inside it go to its own repository, and the parent records only the gitlink.
+  `luci-app-argon-config` is retired (its settings moved into the theme).
+- `feeds/` is git-ignored but *is* source — `feeds/packages`, `luci`, `video`, `telephony`,
+  `passwall_packages` and `passwall_luci` hold local commits. `feeds.conf.default` points those
+  feeds at their local GitLab forks (`ssh://git@192.0.2.165:2424/root/openwrt-*.git`), so a fresh
+  clone plus `./scripts/feeds update -a` reproduces them; upstream merges happen inside each feed
+  repo and are pushed to GitLab. Changing a feed URL makes `scripts/feeds` delete and re-clone that
+  feed unless `feeds/<name>.tmp/location` already holds the new URL. Never reset them.
 - Untracked clutter that is not source: `.DS_Store`/`._.DS_Store`, backup tarballs,
   `scripts/__pycache__/`, `scripts/tests/__pycache__/`,
   `package/custom/openwrt-kernel-upgrade/files/__pycache__/`, `package/custom/fastfetch/.claude/`,
