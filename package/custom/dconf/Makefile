@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 PKG_NAME:=dconf
 PKG_VERSION:=0.40.0
-PKG_RELEASE:=2
+PKG_RELEASE:=5
 PKG_SOURCE:=dconf-0.40.0.tar.xz
 PKG_SOURCE_URL:=https://download.gnome.org/sources/dconf/0.40/
 PKG_HASH:=cf7f22a4c9200421d8d3325c5c1b8b93a36843650c9f95d6451e20f0bcb24533
