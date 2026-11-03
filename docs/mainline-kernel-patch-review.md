@@ -734,3 +734,51 @@ nothing was published or deployed, and no router was contacted. Backup
 branches are `backup/pre-upstream-20261102T023631Z` in the main tree and in
 each feed. Evidence is in
 `/srv/openwrt-validation/upstream-update-20261102T023631Z/`.
+
+## Upstream synchronization review, 2026-11-03
+
+Merged OpenWrt through `46e6335fbd` (16 incoming main-tree commits) as
+`a5247e0d45`, plus 25 packages-feed commits, 1 LuCI commit and 1
+`passwall_luci` commit. Telephony, video, `passwall_packages`, routing and
+taskplan had nothing incoming. Backup branches are
+`backup/pre-upstream-20261103T032637Z` in the main tree and in each locally
+modified feed. The registry was compared with all 508 current generic/x86
+6.18 source patches by SHA-256: no patch was added, none was removed since the
+previous audit (the five absent entries were already recorded as upstream in
+6.18.56-6.18.60), and exactly one changed.
+
+- **Ported:** `generic/pending-6.18/456-nvmem-implement-block-NVMEM-provider.patch`
+  (upstream `5b3efb652f`) fixes a use-after-free in `blk_nvmem_register()`:
+  the error path read `bnv->nvmem` after `kfree(bnv)`. The same hunks are now
+  in `pending-7.3/456-...`; its `block.c` section is byte-identical to the
+  6.18 one, and only the Kconfig/Makefile context differs. The registry source
+  and ported hashes are refreshed. The driver is optional and not enabled by
+  the x86 configuration.
+- **Not applicable to the 7.3 stack:** the Realtek DSA/QoS rework, rtl931x,
+  ipq40xx watchdog/DTS/config changes and the Sony NCP-HG100 ART fix are all in
+  board-specific 6.18 trees that keep their own kernel series.
+- **Packages, not kernel patches:** mac80211 backports gain
+  `ath12k/105-...assign-device-id-from-the-WSI-index` and
+  `subsys/484-...don-t-estimate-airtime-for-unsupported-rate-widths`
+  (`PKG_RELEASE` 11 to 12). `kselftests-bpf` and `ppp.sh` changes are
+  independent of the kernel series.
+
+Release identities: ppp (local r8, upstream r7, both published) is r9, and
+pulseaudio (local r8 published, upstream r5) is r9 in the packages feed, so
+neither reuses a published version. perl moves to 5.44.0-r1.
+
+Validation: Linux 7.3.1 is still the latest release, and the archive SHA256
+matches `kernel-7.3`. The updater's own `validate_patches` applies the full
+7.3 stack (generic backport/pending/hack, x86, overlays) to a fresh extraction
+with zero fuzz; every registered ported hash matches; the 20 updater and 7
+build-input tests pass. All mac80211 patches apply with zero fuzz to the
+hash-verified `backports-7.2` archive. `scripts/feeds update -i -a` and
+`install -a` succeed; `make defconfig` only adds the new
+`# CONFIG_PACKAGE_perlbase-source is not set` symbol, and
+`conf --fatalrecursive` reports no cycle (results written to an isolated file;
+the working `.config` was restored unchanged).
+
+This is source integration and patch-application validation only. Nothing was
+compiled or booted, the optional blk-nvmem driver and the mac80211 changes were
+not built against Linux 7.3, nothing was published, and no router was
+contacted. The three optional-feature findings above remain open.

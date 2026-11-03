@@ -2417,9 +2417,9 @@
         "drivers/nvmem/block.c"
       ],
       "status": "rebased",
-      "source_sha256": "54e2e9ebfa62c73ed20c4d8c18cfd3b90cce4bf0ca80aab96c4a87e19cb06f87",
+      "source_sha256": "660394d0a64471f7fe8f2530cf98b6edf5ec542364827f22ff8ad7a74f927bcf",
       "ported": "target/linux/generic/pending-7.3/456-nvmem-implement-block-NVMEM-provider.patch",
-      "ported_sha256": "54137588629dbf2f96a9fa424c057ba2cd60e7ce038c73d81cd0a179e36a3d31"
+      "ported_sha256": "daf259552334da6e50d0ac85fff0e303adf4b870553aab87db942a373bdcb5f8"
     },
     {
       "source": "target/linux/generic/pending-6.18/457-mmc-block-set-GENHD_FL_NVMEM.patch",
