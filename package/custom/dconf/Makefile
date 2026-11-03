@@ -19,7 +19,8 @@ define Package/dconf
   TITLE:=dconf
   DEPENDS:=@TARGET_x86_64 @USE_GLIBC +glib2 +dbus
 endef
-MESON_ARGS += -Dvapi=false -Dman=false -Dgtk_doc=false -Dbash_completion=false
+MESON_ARGS += -Dvapi=false -Dman=false -Dgtk_doc=false -Dbash_completion=false \
+	-Dsystemduserunitdir=/usr/lib/systemd/user
 
 define Build/InstallDev
 	$(INSTALL_DIR) $(1)/usr/lib $(1)/usr/include $(1)/usr/share/gir-1.0 $(1)/usr/lib/girepository-1.0
