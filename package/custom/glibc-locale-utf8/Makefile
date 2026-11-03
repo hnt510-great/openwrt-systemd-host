@@ -12,8 +12,13 @@ ifeq ($(DUMP),1)
 else
   GLIBC_VERSION:=$(LIBC_VERSION)
   GLIBC_RUNTIME_VERSION:=$(strip $(shell cat $(STAGING_DIR)/libc.version 2>/dev/null))
+  # Source-only goals (download, clean, ...) must work before libc is built.
   ifeq ($(GLIBC_RUNTIME_VERSION),)
-    $(error Missing $(STAGING_DIR)/libc.version; build the target libc package first)
+    ifneq ($(filter download clean dirclean prereq check refresh,$(MAKECMDGOALS)),)
+      GLIBC_RUNTIME_VERSION:=$(GLIBC_VERSION)-r0
+    else
+      $(error Missing $(STAGING_DIR)/libc.version; build the target libc package first)
+    endif
   endif
   GLIBC_RUNTIME_RELEASE:=$(patsubst $(GLIBC_VERSION)-r%,%,$(GLIBC_RUNTIME_VERSION))
   ifeq ($(GLIBC_RUNTIME_RELEASE),$(GLIBC_RUNTIME_VERSION))
