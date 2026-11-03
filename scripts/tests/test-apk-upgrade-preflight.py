@@ -224,6 +224,52 @@ class PreflightTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'baseline changed'):
                 G.preflight(self.root, 'http://host', **self.results, expected_baseline=self.baseline)
 
+    def test_full_readiness_is_the_reusable_complete_scan(self):
+        full = {**self.baseline, 'elf': {}, 'hashes': {**self.baseline['hashes'], 'elf': 'same'}}
+        with patch.object(G, 'policy', return_value={'ssh_target': 'router'}), \
+                patch.object(G, 'capture', return_value=full) as capture, \
+                patch.object(G, 'remote') as remote:
+            self.assertIs(G.readiness(self.root, self.packages, NEW, full=True), full)
+        capture.assert_called_once_with('router')
+        remote.assert_not_called()
+        with patch.object(G, 'policy', return_value={'ssh_target': 'router'}), \
+                patch.object(G, 'capture', return_value=self.baseline) as capture, \
+                patch.object(G, 'remote', return_value=self.baseline):
+            with self.assertRaisesRegex(ValueError, 'no target ABI tracker'):
+                G.readiness(self.root, [], NEW, full=True)
+
+    def test_reused_baseline_without_recheck_scans_router_only_to_simulate(self):
+        full = {**self.baseline, 'elf': {}, 'hashes': {**self.baseline['hashes'], 'elf': 'same'}}
+        with patch.object(G, 'policy', return_value={'ssh_target': 'router'}), \
+                patch.object(G, 'capture') as capture, \
+                patch.object(G, 'remote', return_value={'returncode': 0}) as remote:
+            receipt = G.preflight(self.root, 'http://host', **self.results, baseline=full, recheck=False)
+        capture.assert_not_called()
+        self.assertTrue(all(call.args[1] == G.SIMULATE for call in remote.call_args_list))
+        self.assertEqual(receipt['status'], 'passed')
+        self.assertEqual(receipt['baseline']['hashes'], full['hashes'])
+        self.assertNotIn('elf', receipt['baseline'])
+
+    def test_reused_baseline_still_rechecked_by_default(self):
+        full = {**self.baseline, 'elf': {}, 'hashes': {**self.baseline['hashes'], 'elf': 'same'}}
+        changed = {**full, 'hashes': {**full['hashes'], 'elf': 'changed'}}
+        with patch.object(G, 'policy', return_value={'ssh_target': 'router'}), \
+                patch.object(G, 'capture', return_value=changed) as capture, \
+                patch.object(G, 'remote', return_value={'returncode': 0}):
+            with self.assertRaisesRegex(ValueError, 'changed during upgrade validation'):
+                G.preflight(self.root, 'http://host', **self.results, baseline=full)
+        capture.assert_called_once_with('router')
+
+    def test_reused_baseline_requires_elf_fingerprint(self):
+        with patch.object(G, 'policy', return_value={'ssh_target': 'router'}), \
+                patch.object(G, 'capture') as capture, \
+                patch.object(G, 'remote') as remote:
+            with self.assertRaisesRegex(ValueError, 'lacks its ELF fingerprint'):
+                G.preflight(self.root, 'http://host', **self.results, baseline=self.baseline,
+                            recheck=False)
+        capture.assert_not_called()
+        remote.assert_not_called()
+
     def test_fresh_router_simulation_and_bound_receipt(self):
         with patch.object(G, 'policy', return_value={'ssh_target': 'router'}), \
                 patch.object(G, 'capture', return_value=self.baseline), \

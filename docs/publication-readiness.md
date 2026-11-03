@@ -42,8 +42,10 @@ python3 scripts/build-and-publish.py build-only -j3 V=s
 The publication wrapper validates existing outputs; it does not run a build or
 edit router world constraints. Its early router check reports missing target
 trackers and incompatible installed checksum/version locks before expensive feed
-staging. A fresh baseline and both actual solver simulations remain mandatory
-before promotion. A baseline change during preparation requires a retry.
+staging. That early check is the complete router baseline scan the simulation
+reuses; both actual solver simulations and a second complete scan, which must
+match it, remain mandatory before promotion. A baseline change at any point
+after the early check requires a retry.
 
 The ELF audit reports all missing, stale or malformed inventories in one pass,
 including retained migration alternatives. An excluded package can be rebuilt

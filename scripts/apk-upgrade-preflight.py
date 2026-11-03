@@ -132,12 +132,17 @@ def validate_transition(baseline, packages, abi, migrations=None):
                     raise ValueError('Upgrade preflight: empty compatibility rule would discard a real file: ' + name)
 
 
-def readiness(destination, packages, abi):
-    """Catch router compatibility omissions before expensive feed staging."""
+def readiness(destination, packages, abi, full=False):
+    """Catch router compatibility omissions before expensive feed staging.
+
+    With full=True this is the one complete (ELF-fingerprinted) router scan
+    that preflight(baseline=...) reuses instead of scanning the router again.
+    """
     selected_policy = policy(destination)
     if not selected_policy:
         return None
-    baseline = remote(selected_policy['ssh_target'], BASELINE)
+    target = selected_policy['ssh_target']
+    baseline = capture(target) if full else remote(target, BASELINE)
     validate_transition(baseline, list(packages), abi)
     return baseline
 
@@ -378,8 +383,16 @@ def check_prepared(result, record):
         raise ValueError('Prepared release changed after upgrade validation')
 
 
-def preflight(destination, origin, userspace, kernel, *, progress=None, expected_baseline=None):
-    """Bind simulation to snapshot hashes; authorize() rechecks before promotion."""
+def preflight(destination, origin, userspace, kernel, *, progress=None, expected_baseline=None,
+              baseline=None, recheck=True):
+    """Bind simulation to snapshot hashes; authorize() rechecks before promotion.
+
+    baseline: a complete capture() taken earlier in this publication (see
+    readiness(full=True)); used as the simulated baseline without rescanning.
+    recheck=False skips the post-simulation router rescan. Only a caller that
+    itself compares receipt['baseline'] with a fresh capture() before moving
+    any pointer may pass it; that later check covers this window too.
+    """
     selected_policy = policy(destination)
     if progress:
         progress(0, 'Record snapshot hashes')
@@ -392,9 +405,14 @@ def preflight(destination, origin, userspace, kernel, *, progress=None, expected
                'elf_rebuilds_sha256': digest(ELF.REBUILDS_FILE)}
     if selected_policy:
         target = selected_policy['ssh_target']
-        if progress:
-            progress(10, 'Read router baseline')
-        before = capture(target)
+        if baseline is not None:
+            if 'elf' not in baseline or 'elf' not in baseline.get('hashes', {}):
+                raise ValueError('Upgrade preflight: reused router baseline lacks its ELF fingerprint')
+            before = baseline
+        else:
+            if progress:
+                progress(10, 'Read router baseline')
+            before = capture(target)
         # Readiness captures the APK/configuration baseline only. The full
         # capture adds an ELF fingerprint, which remains mandatory for all
         # subsequent same_baseline() checks and the promotion receipt.
@@ -455,10 +473,11 @@ def preflight(destination, origin, userspace, kernel, *, progress=None, expected
                 raise ValueError('Router rejects target ABI userspace view: ' +
                                  solver_error(target_simulation['stderr']))
             receipt['elf_transition'] = validate_elf_transition(before, userspace_manifest, target_simulation)
-        if progress:
-            progress(80, 'Recheck router baseline')
-        if not same_baseline(before, capture(target)):
-            raise ValueError('Router baseline changed during upgrade validation')
+        if recheck:
+            if progress:
+                progress(80, 'Recheck router baseline')
+            if not same_baseline(before, capture(target)):
+                raise ValueError('Router baseline changed during upgrade validation')
         receipt['baseline'] = {k: v for k, v in before.items() if k not in ('world', 'installed', 'elf')}
     # The coordinator calls authorize() for BOTH views before any pointer can
     # move. Rehashing here would immediately duplicate that integrity check.

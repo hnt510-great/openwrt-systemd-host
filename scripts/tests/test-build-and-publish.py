@@ -391,6 +391,38 @@ class BuildPublicationTests(unittest.TestCase):
         self.assertTrue(events)
         self.assertTrue(all(percent < 100 for percent, _ in events))
 
+    def router_baseline(self):
+        return {'schema': 1, 'model': 'packages', 'abi': None, 'release': '6.18.55-1-openwrt',
+                'boot_id': 'boot', 'hashes': {'installed': 'same', 'elf': 'same'},
+                'world': '', 'installed': '', 'elf': {}}
+
+    def test_router_is_scanned_once_before_and_once_after_simulation(self):
+        B.publish(self.tree, self.data)
+        self.generation(2)
+        baseline = self.router_baseline()
+        with patch.object(B.GUARD, 'policy', return_value={'ssh_target': 'router'}), \
+                patch.object(B.GUARD, 'capture', return_value=baseline) as capture, \
+                patch.object(B.GUARD, 'remote',
+                             return_value={'returncode': 0, 'plan': {'changes': []}}) as remote:
+            result = B.publish(self.tree, self.data, dry_run=True)
+        self.assertEqual(result['upgrade_preflight']['status'], 'passed')
+        self.assertEqual(capture.call_count, 2)
+        self.assertTrue(remote.call_args_list)
+        self.assertTrue(all(call.args[1] == B.GUARD.SIMULATE for call in remote.call_args_list))
+
+    def test_router_change_after_simulation_blocks_promotion(self):
+        B.publish(self.tree, self.data)
+        self.generation(2)
+        before = self.aliases()
+        baseline = self.router_baseline()
+        changed = {**baseline, 'hashes': {**baseline['hashes'], 'installed': 'changed'}}
+        with patch.object(B.GUARD, 'policy', return_value={'ssh_target': 'router'}), \
+                patch.object(B.GUARD, 'capture', side_effect=[baseline, changed]), \
+                patch.object(B.GUARD, 'remote', return_value={'returncode': 0, 'plan': {'changes': []}}):
+            with self.assertRaisesRegex(ValueError, 'changed before release promotion'):
+                B.publish(self.tree, self.data)
+        self.assertEqual(before, self.aliases())
+
     def test_router_readiness_failure_precedes_feed_staging(self):
         before = self.aliases()
         with patch.object(B.GUARD, 'readiness', side_effect=ValueError('world locks block')), \

@@ -423,9 +423,12 @@ def publish_locked(tree, data, apk, dry_run, progress=None):
         if data.get('kernel') and data['kernel'] != abi:
             raise ValueError('Requested ABI differs from compiled generation')
         if progress:
-            progress(29, 'Check router trackers and constraints')
+            progress(29, 'Read router baseline and check trackers')
+        # The only complete router scan before promotion: the simulation is
+        # bound to it, and the promotion recheck below must still match it.
         baseline = GUARD.readiness(destination,
-            (metadata['info'] for _, metadata in LAN.dump_indexes(apk, sorted(channel.glob('*.apk')))), abi)
+            (metadata['info'] for _, metadata in LAN.dump_indexes(apk, sorted(channel.glob('*.apk')))), abi,
+            full=True)
         args = argparse.Namespace(source_root=userspace, kernel=abi, destination=destination,
             base_url=data['base_url'], incremental=True, dry_run=False, kernel_upgrade_view=True,
             stage_only=True)
@@ -441,8 +444,11 @@ def publish_locked(tree, data, apk, dry_run, progress=None):
             prepared.append(kernel)
             def preflight_progress(percent, phase):
                 progress(55 + percent * 0.25, phase)
+            # Reuse the readiness scan, and leave the single post-simulation
+            # rescan to the promotion check below, which compares the same
+            # receipt baseline after the snapshots are rehashed.
             receipt = GUARD.preflight(destination, data['base_url'], lan, kernel,
-                                      expected_baseline=baseline,
+                                      baseline=baseline, recheck=False,
                                       progress=preflight_progress if progress else None)
             # Recheck BOTH before moving either alias. These are the exact
             # staged snapshots, never a second projection of mutable bin/.

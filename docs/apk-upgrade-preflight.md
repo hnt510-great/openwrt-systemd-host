@@ -84,8 +84,10 @@ userspace and kernel snapshots before changing either active pointer. It then:
 
 1. Reads a consistent router baseline under APK's database lock, including
    package metadata, world, running ABI, protected constraints, kernel state,
-   public-key/configuration hashes, APK identity and boot ID. Pending trials or
-   unreachable routers stop publication.
+   public-key/configuration hashes, APK identity, boot ID and the ELF
+   fingerprint of installed files. Pending trials or unreachable routers stop
+   publication. This complete scan happens once, before feed staging; the
+   simulation and receipt are bound to it.
 2. Checks installed logical kmods against the candidate ABI's actual trackers
    and generation payloads. This check does not depend on the new `.config`.
 3. Fetches the candidate signed indexes into temporary router directories,
@@ -99,6 +101,13 @@ userspace and kernel snapshots before changing either active pointer. It then:
    Snapshot hashes are recorded before simulation; the coordinator rechecks
    both views before either pointer moves. The preflight helper does not
    repeat this full-file check immediately before the coordinator does it.
+   The router is scanned completely a second time only after both snapshots
+   are rehashed, immediately before promotion, and must match the step 1
+   baseline; any change since step 1, including during simulation, requires
+   a retry. A publication therefore performs two complete router scans plus
+   the simulations. Standalone `preflight()` callers keep their own
+   post-simulation rescan unless they pass `recheck=False` and perform this
+   promotion check themselves.
    Each promotion also rechecks its own view at the commit boundary.
    A production dry run discards its own prepared snapshots. Formal publication
    writes a private receipt, exposes userspace first, then the kernel channel.
