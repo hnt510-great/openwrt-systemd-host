@@ -24,6 +24,14 @@ QEMU to abort while setting MSR `0x40000021`. See the
 [QEMU Hyper-V documentation](https://www.qemu.org/docs/master/system/i386/hyperv.html).
 KVM remains built into the kernel for both Intel and AMD processors.
 
+`CONFIG_IA32_EMULATION=y` is also set there, with
+`CONFIG_IA32_EMULATION_DEFAULT_DISABLED` unset, so 32-bit x86 programs run
+without an `ia32_emulation=` boot argument. Steam needs this because its client
+and runtime include i386 binaries; the Flatpak Steam package supplies its own
+32-bit libraries, so the host still has no i386 userspace. The legacy x32 ABI
+and the iptables 32-bit compatibility layer stay disabled. Because enabling this
+option changes the kernel ABI, it requires a new kernel generation and a reboot.
+
 The image also enables performance counters, task/I/O accounting, pressure
 stall information, process page monitoring, kprobes/BPF tracing and huge
 pages. Transparent huge pages default to `madvise`, and no reserved huge-page
