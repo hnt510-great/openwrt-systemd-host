@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=polkit
 PKG_VERSION:=128
-PKG_RELEASE:=4
+PKG_RELEASE:=5
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/polkit-org/polkit/tar.gz/refs/tags/$(PKG_VERSION)?
 PKG_HASH:=6edb06bf1448e49e428f9597a97af6a05d62146dd0b58f86eeaebcee3f5ecfaa
@@ -15,6 +15,8 @@ PKG_BUILD_DEPENDS:=glib2/host
 include $(INCLUDE_DIR)/package.mk
 include $(INCLUDE_DIR)/meson.mk
 PKG_CONFIG_DEPENDS+=CONFIG_PACKAGE_gtk4
+# Metadata scans ignore .config, so declare the GIR build deps conditionally.
+PKG_BUILD_DEPENDS += PACKAGE_gtk4:gobject-introspection/host PACKAGE_gtk4:gobject-introspection PACKAGE_gtk4:glib2-gir
 ifneq ($(CONFIG_PACKAGE_gtk4),)
 include $(INCLUDE_DIR)/gobject-introspection.mk
 PKG_BUILD_DEPENDS+=glib2-gir
