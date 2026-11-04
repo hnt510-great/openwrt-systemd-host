@@ -1,0 +1,8 @@
+{
+  "packages": {
+    "url": "https://github.com/openwrt/packages.git",
+    "base": "651352dd355d96b23ccde654ad05cae330e597c6",
+    "commit": "3d86bfd736f6a2900957359336a268d3b4c331ab",
+    "patch": "patches/feeds/0031-packages-libsoup3-release.patch"
+  }
+}
