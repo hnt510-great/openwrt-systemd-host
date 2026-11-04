@@ -395,8 +395,8 @@ pulling upstream, a `backup/pre-upstream-<date>` branch is cut.
   four spaces in Python, `NNN-description.patch` names, focused commits with feed histories kept
   separate, explicit-path staging, and feed publication / device deployment only when explicitly
   authorized.
-- `README.md` is unmodified upstream text; its "installed via the OpenWrt package manager called
-  `opkg`" claim does not describe this tree, which uses APK.
+- `README.md` retains upstream introduction text alongside this fork's private clone instructions;
+  the upstream `opkg` description does not describe this tree, which uses APK.
 - `.github/llm-review-rules.md` holds project-specific review rules. Beyond patch regeneration, it
   requires LED properties (`color`/`function`, not `label = "green:status"`) and `nvmem-cells` for
   MACs instead of `mediatek,mtd-eeprom`, and requires new-device commits to document hardware,
@@ -422,14 +422,14 @@ pulling upstream, a `backup/pre-upstream-<date>` branch is cut.
   sibling repository URL). `./scripts/feeds update` initializes it on a fresh clone and attaches it to that
   branch; commits inside it go to its own repository, and the parent records only the gitlink.
   `luci-app-argon-config` is retired (its settings moved into the theme).
-- `feeds/` is git-ignored but *is* source — `feeds/packages`, `luci`, `video`, `telephony`,
-  `passwall_packages` and `passwall_luci` hold local commits. `feeds.conf.default` tracks upstream
-  only — OpenWrt's GitHub mirrors (`https://github.com/openwrt/<feed>.git`, not git.openwrt.org)
-  and the custom feeds' own upstreams (`Openwrt-Passwall/*`, `sirpdboy/luci-app-ddns-go`) — never
-  a local GitLab. Each modified feed branch tracks `origin/<branch>` and is ahead of it; once
-  upstream moves, `git pull --ff-only` from `./scripts/feeds update` fails, and the merge is done
-  by hand inside the feed repo. `patches/feeds/` mirrors only the `packages`, `video` and `luci`
-  commits; `telephony` and Passwall local commits live only in their feed repos. Changing a feed
+- `feeds/` is git-ignored but *is* source. `feeds.conf.default` tracks eight private GitHub
+  repositories under `hnt510-great`, preserving local integration commits. The repository,
+  branch and original upstream map is `configs/github-source-repositories.json`.
+  `origin` tracks the private repository; maintainers merge original sources via `upstream`
+  and push reviewed changes before other clients run `./scripts/feeds update -a`.
+  Feed updates do not automatically merge original upstreams. `patches/feeds/` and feature
+  manifests remain historical backups; do not reapply patches to already integrated clones.
+  Existing GitLab remotes are retained separately in the migrated workspace. Changing a feed
   URL makes `scripts/feeds` delete and re-clone that feed unless `feeds/<name>.tmp/location`
   already holds the new URL. Never reset them.
 - Untracked clutter that is not source: `.DS_Store`/`._.DS_Store`, backup tarballs,

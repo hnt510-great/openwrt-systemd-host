@@ -11,6 +11,25 @@ full customization, to use the device in ways never envisioned.
 
 Sunshine!
 
+## This private fork
+
+The main tree, feeds and Argon theme are hosted in private repositories under
+`hnt510-great`. Authenticate before cloning:
+
+```sh
+gh auth login --hostname github.com --git-protocol https --web
+gh auth setup-git
+git clone https://github.com/hnt510-great/openwrt.git
+cd openwrt
+./scripts/feeds update -a
+./scripts/feeds install -a
+```
+
+The custom feed lives in the main tree; its updater initializes the Argon
+submodule automatically. This fork's update command also checks upstream
+versions of registered custom packages and can modify recipes. For the saved
+configuration and upstream maintenance workflow, see [local build](docs/local-build.md).
+
 ## Download
 
 Built firmware images are available for many architectures and come with a

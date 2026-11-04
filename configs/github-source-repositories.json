@@ -1,0 +1,105 @@
+{
+  "owner": "hnt510-great",
+  "visibility": "private",
+  "repositories": [
+    {
+      "path": ".",
+      "name": "openwrt",
+      "branch": "main",
+      "url": "https://github.com/hnt510-great/openwrt.git",
+      "upstream": "https://github.com/openwrt/openwrt.git",
+      "upstream_branch": "main",
+      "active_feed": false
+    },
+    {
+      "path": "feeds/passwall_packages",
+      "name": "openwrt-passwall-packages",
+      "branch": "main",
+      "url": "https://github.com/hnt510-great/openwrt-passwall-packages.git",
+      "upstream": "https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git",
+      "upstream_branch": "main",
+      "active_feed": true
+    },
+    {
+      "path": "feeds/passwall_luci",
+      "name": "openwrt-passwall-luci",
+      "branch": "main",
+      "url": "https://github.com/hnt510-great/openwrt-passwall-luci.git",
+      "upstream": "https://github.com/Openwrt-Passwall/openwrt-passwall.git",
+      "upstream_branch": "main",
+      "active_feed": true
+    },
+    {
+      "path": "feeds/taskplan",
+      "name": "openwrt-taskplan",
+      "branch": "main",
+      "url": "https://github.com/hnt510-great/openwrt-taskplan.git",
+      "upstream": "https://github.com/sirpdboy/luci-app-ddns-go.git",
+      "upstream_branch": "main",
+      "active_feed": true
+    },
+    {
+      "path": "feeds/packages",
+      "name": "openwrt-packages",
+      "branch": "master",
+      "url": "https://github.com/hnt510-great/openwrt-packages.git",
+      "upstream": "https://github.com/openwrt/packages.git",
+      "upstream_branch": "master",
+      "active_feed": true
+    },
+    {
+      "path": "feeds/luci",
+      "name": "openwrt-luci",
+      "branch": "master",
+      "url": "https://github.com/hnt510-great/openwrt-luci.git",
+      "upstream": "https://github.com/openwrt/luci.git",
+      "upstream_branch": "master",
+      "active_feed": true
+    },
+    {
+      "path": "feeds/routing",
+      "name": "openwrt-routing",
+      "branch": "master",
+      "url": "https://github.com/hnt510-great/openwrt-routing.git",
+      "upstream": "https://github.com/openwrt/routing.git",
+      "upstream_branch": "master",
+      "active_feed": true
+    },
+    {
+      "path": "feeds/telephony",
+      "name": "openwrt-telephony",
+      "branch": "master",
+      "url": "https://github.com/hnt510-great/openwrt-telephony.git",
+      "upstream": "https://github.com/openwrt/telephony.git",
+      "upstream_branch": "master",
+      "active_feed": true
+    },
+    {
+      "path": "feeds/video",
+      "name": "openwrt-video",
+      "branch": "master",
+      "url": "https://github.com/hnt510-great/openwrt-video.git",
+      "upstream": "https://github.com/openwrt/video.git",
+      "upstream_branch": "master",
+      "active_feed": true
+    },
+    {
+      "path": "package/custom/luci-theme-argon",
+      "name": "openwrt-luci-theme-argon",
+      "branch": "master",
+      "url": "https://github.com/hnt510-great/openwrt-luci-theme-argon.git",
+      "upstream": "https://github.com/jerrykuku/luci-theme-argon.git",
+      "upstream_branch": "master",
+      "active_feed": false
+    },
+    {
+      "path": "feeds/argon_config",
+      "name": "openwrt-luci-app-argon-config",
+      "branch": "master",
+      "url": "https://github.com/hnt510-great/openwrt-luci-app-argon-config.git",
+      "upstream": "https://github.com/jerrykuku/luci-app-argon-config.git",
+      "upstream_branch": "master",
+      "active_feed": false
+    }
+  ]
+}

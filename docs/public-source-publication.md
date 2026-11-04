@@ -23,12 +23,12 @@ validated on hardware.
 ## Theme repository prerequisite
 
 `.gitmodules` points to `../openwrt-luci-theme-argon.git`, a sibling repository
-under the same hosting account or organization as the main project. Before
-advertising recursive clones, publish the customized theme there, including
-commit `9e263d988b7be4d6319442f297f4105871e12808`, or set the URL to another
-public repository that contains that exact commit. The existing submodule
-checkout and its local remote have been preserved. An upstream theme URL alone
-may not contain the customized commit.
+under the same hosting account or organization as the main project. The private
+GitHub hosting layout uses `hnt510-great/openwrt-luci-theme-argon`, including
+recorded commit `9e263d988b7be4d6319442f297f4105871e12808`. Authentication is required
+for the main tree and each private source repository. See
+[local build](local-build.md) and the
+[repository map](../configs/github-source-repositories.json).
 
 ## Publication scope
 
@@ -42,7 +42,9 @@ changing patch bodies.
 Git history and commit author metadata were deliberately left unchanged.
 Removing personal references from the current tree does not remove them from
 older commits. This audit does not certify historical credential safety.
-No GitHub repository was created and nothing was pushed by this cleanup.
+The cleanup itself created no GitHub repository and pushed nothing. The later
+private GitHub migration is separate from that audit; its settings and checks
+are recorded in [GitHub hosting validation](github-source-hosting-validation.md).
 
 See [validation](public-source-publication-validation.md) for audit coverage,
 scanner findings and test limitations.
