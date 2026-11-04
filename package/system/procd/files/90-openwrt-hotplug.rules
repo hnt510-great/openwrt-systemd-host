@@ -1,0 +1,6 @@
+# Native systemd: udev owns device events and nodes. Hand events with OpenWrt
+# handlers to procd, which runs /etc/hotplug.d scripts in its serial queue.
+# The forwarder does nothing unless procd runs with --systemd=units.
+TEST=="/etc/hotplug.d/$env{SUBSYSTEM}", RUN+="/usr/libexec/openwrt-udev-forward"
+SUBSYSTEM=="usb-serial", TEST!="/etc/hotplug.d/$env{SUBSYSTEM}", RUN+="/usr/libexec/openwrt-udev-forward"
+ENV{FIRMWARE}=="?*", TEST!="/etc/hotplug.d/$env{SUBSYSTEM}", RUN+="/usr/libexec/openwrt-udev-forward"

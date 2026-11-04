@@ -1,0 +1,3 @@
+# Native systemd: udev applies the device policy of 55-printer.json.
+SUBSYSTEM=="printer|usbmisc", KERNEL=="lp[0-9]*", GROUP="lp", MODE="0660"
+SUBSYSTEM=="ppdev", GROUP="lp", MODE="0660"

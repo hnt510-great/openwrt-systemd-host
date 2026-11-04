@@ -625,7 +625,9 @@ static json_object *health(const char *name, json_object *snap)
 		json_object_object_foreach(instances, key, in) {
 			json_object *entry = json_object_new_object();
 
-			add_string(entry, "scope", string(in, "systemd_scope"));
+			/* Units mode reports a transient service instead of a scope. */
+			add_string(entry, "scope", *string(in, "systemd_unit") ?
+				   string(in, "systemd_unit") : string(in, "systemd_scope"));
 			add_string(entry, "placement", string(in, "systemd_placement"));
 			json_object_object_add(placement, key, entry);
 		}

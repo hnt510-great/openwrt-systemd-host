@@ -1,14 +1,15 @@
 [Unit]
-Description=OpenWrt procd service and hotplug compatibility
+Description=OpenWrt procd service API and hotplug handlers
 Requires=openwrt-ubusd.service
-Wants=openwrt-services.service
-After=openwrt-ubusd.service
+Wants=openwrt-services.service systemd-udevd.service
+After=openwrt-ubusd.service systemd-udevd.service systemd-udev-trigger.service
 Before=openwrt-services.service
 
 [Service]
 Type=notify
 NotifyAccess=main
-ExecStart=/sbin/procd --systemd -S
+# Instances run as transient openwrt-SERVICE@INSTANCE.service units.
+ExecStart=/sbin/procd --systemd=units -S
 TimeoutStartSec=90
 TimeoutStopSec=30
 KillMode=control-group

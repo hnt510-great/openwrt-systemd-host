@@ -1,0 +1,2009 @@
+Subject: [PATCH] procd: run service instances as transient systemd units
+
+With --systemd=units, each capable instance is started as a transient
+openwrt-SERVICE@INSTANCE.service in openwrt-SERVICE.slice. systemd
+executes, restarts (Restart=, RestartSec=, start limits derived from the
+procd respawn settings), logs to the journal, contains and stops the
+processes. procd keeps the ubus service/system/hotplug API, triggers,
+validation, data and configuration comparison. Unit state arrives as
+D-Bus signals on systemd's private socket and is applied from uloop.
+
+Instances using vrf, trace, OCI bundles, passed descriptors or a jail
+console keep the existing fork and scope path.
+
+udev owns uevents and device nodes in this mode. Device events with
+OpenWrt handlers are forwarded by openwrt-udev-forward to a root-only
+procd.udev ubus object and run through /etc/hotplug-systemd.json; procd
+still reads the synthetic button events, which udev cannot see. Once per
+boot procd requests "add" for every device through udevadm, as udevtrigger
+did. systemd owns the hardware watchdog; "system watchdog" reports it
+read-only.
+
+---
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -42,7 +42,10 @@
+   ADD_EXECUTABLE(openwrt-cgroup scope-helper.c $<TARGET_OBJECTS:systemd-cgroup>)
+   TARGET_LINK_LIBRARIES(openwrt-cgroup ${systemd})
+   INSTALL(TARGETS openwrt-cgroup RUNTIME DESTINATION ${CMAKE_INSTALL_LIBEXECDIR})
+-  SET(SOURCES ${SOURCES} $<TARGET_OBJECTS:systemd-cgroup>)
++  SET(SOURCES ${SOURCES} $<TARGET_OBJECTS:systemd-cgroup> service/unit.c)
++  ADD_EXECUTABLE(openwrt-udev-forward udev-forward.c)
++  TARGET_LINK_LIBRARIES(openwrt-udev-forward ${ubox} ${ubus})
++  INSTALL(TARGETS openwrt-udev-forward RUNTIME DESTINATION ${CMAKE_INSTALL_LIBEXECDIR})
+ ENDIF()
+ 
+ SET(LIBS ${ubox} ${ubus} ${json} ${blobmsg_json} ${json_script} ${udebug})
+--- a/hotplug-dispatch.c
++++ b/hotplug-dispatch.c
+@@ -34,6 +34,7 @@
+ 
+ #include "procd.h"
+ #include "utils/utils.h"
++#include "plug/hotplug.h"
+ 
+ #define HOTPLUG_BASEDIR "/etc/hotplug.d"
+ #define HOTPLUG_OBJECT_PREFIX "hotplug."
+@@ -459,9 +460,50 @@
+ 	ubus_notify(ctx, &h->ubus, "event", data, -1);
+ }
+ 
++enum {
++	UDEV_EVENT_ENV,
++	__UDEV_EVENT_MAX
++};
++
++static const struct blobmsg_policy udev_event_policy[__UDEV_EVENT_MAX] = {
++	[UDEV_EVENT_ENV] = { .name = "env", .type = BLOBMSG_TYPE_TABLE },
++};
++
++/* Units mode: udev hands over each processed device event (root only). */
++static int udev_event(struct ubus_context *ctx, struct ubus_object *obj,
++		      struct ubus_request_data *req, const char *method,
++		      struct blob_attr *msg)
++{
++	struct blob_attr *tb[__UDEV_EVENT_MAX];
++
++	blobmsg_parse(udev_event_policy, __UDEV_EVENT_MAX, tb, blobmsg_data(msg),
++		      blobmsg_data_len(msg));
++	if (!tb[UDEV_EVENT_ENV])
++		return UBUS_STATUS_INVALID_ARGUMENT;
++
++	hotplug_inject(tb[UDEV_EVENT_ENV]);
++	return UBUS_STATUS_OK;
++}
++
++static const struct ubus_method udev_methods[] = {
++	UBUS_METHOD("event", udev_event, udev_event_policy),
++};
++
++static struct ubus_object_type udev_object_type =
++	UBUS_OBJECT_TYPE("procd-udev", udev_methods);
++
++static struct ubus_object udev_object = {
++	.name = "procd.udev",
++	.type = &udev_object_type,
++	.methods = udev_methods,
++	.n_methods = ARRAY_SIZE(udev_methods),
++};
++
+ void ubus_init_hotplug(struct ubus_context *newctx)
+ {
+ 	ctx = newctx;
++	if (procd_units)
++		ubus_add_object(ctx, &udev_object);
+ 	remove_all_subsystems();
+ 	if (init_subsystems()) {
+ 		printf("failed to initialize hotplug subsystems from %s\n", HOTPLUG_BASEDIR);
+--- a/plug/coldplug.c
++++ b/plug/coldplug.c
+@@ -17,6 +17,7 @@
+ #include <sys/mount.h>
+ #include <sys/sysmacros.h>
+ 
++#include <fcntl.h>
+ #include <stdlib.h>
+ #include <unistd.h>
+ 
+@@ -44,10 +45,93 @@
+ 	hotplug_last_event(coldplug_complete);
+ }
+ 
++#define UDEV_COLDPLUG_MARKER "/run/procd-udev-coldplug"
++#define UDEV_COLDPLUG_TIMEOUT (45 * 1000)
++
++static struct uloop_process udev_replay;
++static struct uloop_timeout udev_replay_timeout;
++static bool udev_replay_finished;
++
++static void udev_replay_done(void)
++{
++	int fd;
++
++	if (udev_replay_finished)
++		return;
++	udev_replay_finished = true;
++	fd = open(UDEV_COLDPLUG_MARKER, O_WRONLY | O_CREAT | O_CLOEXEC, 0600);
++	if (fd >= 0)
++		close(fd);
++	uloop_timeout_cancel(&udev_replay_timeout);
++	procd_systemd_coldplug_ready();
++}
++
++static void udev_replay_complete(struct uloop_process *proc, int ret)
++{
++	if (ret)
++		ERROR("udev coldplug exited with %d\n", ret);
++	P_DEBUG(4, "Finished udev coldplug\n");
++	udev_replay_done();
++}
++
++static void udev_replay_expired(struct uloop_timeout *t)
++{
++	ERROR("udev coldplug is still running; continuing\n");
++	udev_replay_done();
++}
++
++/*
++ * As udevtrigger does without systemd, request "add" for every device once
++ * per boot, after procd can receive udev's forwarded events. udev applies
++ * its rules and procd runs the OpenWrt handlers. A procd restart must not
++ * repeat it: device consumers such as the desktop are already running.
++ */
++static void udev_coldplug(void)
++{
++	static char * const argv[] = { "/usr/bin/udevadm", "trigger", "--type=devices",
++				       "--action=add", "--settle", NULL };
++
++	if (!access(UDEV_COLDPLUG_MARKER, F_OK)) {
++		procd_systemd_coldplug_ready();
++		return;
++	}
++
++	udev_replay.cb = udev_replay_complete;
++	udev_replay_timeout.cb = udev_replay_expired;
++	udev_replay.pid = fork();
++	if (!udev_replay.pid) {
++		int fd = open("/dev/null", O_RDWR);
++
++		if (fd >= 0) {
++			dup2(fd, STDIN_FILENO);
++			if (fd > STDERR_FILENO)
++				close(fd);
++		}
++		execv(argv[0], argv);
++		ERROR("Failed to start udev coldplug: %m\n");
++		_exit(EXIT_FAILURE);
++	}
++	if (udev_replay.pid < 0) {
++		ERROR("Failed to start udev coldplug: %m\n");
++		udev_replay_done();
++		return;
++	}
++	uloop_process_add(&udev_replay);
++	uloop_timeout_set(&udev_replay_timeout, UDEV_COLDPLUG_TIMEOUT);
++	P_DEBUG(4, "Launched udev coldplug, pid=%d\n", (int) udev_replay.pid);
++}
++
+ void procd_coldplug(void)
+ {
+ 	char *argv[] = { "udevtrigger", NULL };
+-	unsigned int oldumask = umask(0);
++	unsigned int oldumask;
++
++	if (procd_units) {
++		udev_coldplug();
++		return;
++	}
++
++	oldumask = umask(0);
+ 
+ 	if (!is_container() && !procd_systemd) {
+ 		umount2("/dev/pts", MNT_DETACH);
+--- a/plug/hotplug.c
++++ b/plug/hotplug.c
+@@ -89,6 +89,8 @@
+ static char *rule_file;
+ static struct blob_buf script;
+ static struct cmd_queue *current;
++/* Units mode: udev owns device nodes and forwards its events to procd. */
++static bool hotplug_external;
+ 
+ static void hotplug_handler(struct uloop_fd *u, unsigned int ev);
+ static struct uloop_fd hotplug_fd = {
+@@ -172,6 +174,11 @@
+ 	char *major = hotplug_msg_find_var(msg, "MAJOR");
+ 	char *subsystem = hotplug_msg_find_var(msg, "SUBSYSTEM");
+ 
++	if (hotplug_external) {
++		umask(oldumask);
++		return;
++	}
++
+ 	blobmsg_parse_array(mkdev_policy, 3, tb, blobmsg_data(data), blobmsg_data_len(data));
+ 	if (tb[0] && tb[1] && minor && major && subsystem) {
+ 		mode_t m = S_IFCHR;
+@@ -199,6 +206,9 @@
+ 	};
+ 	struct blob_attr *tb;
+ 
++	if (hotplug_external)
++		return;
++
+ 	blobmsg_parse_array(&rm_policy, 1, &tb, blobmsg_data(data), blobmsg_data_len(data));
+ 	if (tb)
+ 		unlink(blobmsg_data(tb));
+@@ -759,6 +769,21 @@
+ 		}
+ 		i += l;
+ 	}
++
++	/*
++	 * udev forwards device events. Only the synthetic button events,
++	 * which lack a device path and are ignored by udev, are read here.
++	 */
++	if (hotplug_external) {
++		char *subsystem = hotplug_msg_find_var(b.head, "SUBSYSTEM");
++
++		free(c);
++		c = NULL;
++		if (!subsystem || strcmp(subsystem, "button") ||
++		    hotplug_msg_find_var(b.head, "DEVPATH"))
++			return;
++	}
++
+ 	hotplug_ubus_event(b.head);
+ 	hotplug_handler_debug(b.head);
+ 	json_script_run(&jctx, rule_file, b.head);
+@@ -809,6 +834,37 @@
+ 	uloop_fd_add(&hotplug_fd, ULOOP_READ);
+ }
+ 
++void hotplug_units(char *rules)
++{
++	hotplug_external = true;
++	hotplug(rules);
++}
++
++/* Run the rules for an event udev has finished processing. */
++void hotplug_inject(struct blob_attr *env)
++{
++	struct blob_attr *cur;
++	const char *value;
++	int rem;
++
++	if (!hotplug_external || !rule_file)
++		return;
++
++	blob_buf_init(&b, 0);
++	blobmsg_for_each_attr(cur, env, rem) {
++		if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING || !*blobmsg_name(cur))
++			continue;
++		value = blobmsg_get_string(cur);
++		/* udev reports the node path; kernel events and rules use the name. */
++		if (!strcmp(blobmsg_name(cur), "DEVNAME") && !strncmp(value, "/dev/", 5))
++			value += 5;
++		blobmsg_add_string(&b, blobmsg_name(cur), value);
++	}
++	hotplug_ubus_event(b.head);
++	hotplug_handler_debug(b.head);
++	json_script_run(&jctx, rule_file, b.head);
++}
++
+ int hotplug_run(char *rules)
+ {
+ 	uloop_init();
+--- a/plug/hotplug.h
++++ b/plug/hotplug.h
+@@ -17,8 +17,12 @@
+ 
+ #include <libubox/uloop.h>
+ 
++struct blob_attr;
++
+ #ifndef DISABLE_INIT
+ void hotplug(char *rules);
++void hotplug_units(char *rules);
++void hotplug_inject(struct blob_attr *env);
+ int hotplug_run(char *rules);
+ void hotplug_shutdown(void);
+ void hotplug_last_event(uloop_timeout_handler handler);
+@@ -28,6 +32,14 @@
+ {
+ }
+ 
++static inline void hotplug_units(char *rules)
++{
++}
++
++static inline void hotplug_inject(struct blob_attr *env)
++{
++}
++
+ static inline int hotplug_run(char *rules)
+ {
+ 	return 0;
+--- a/procd.c
++++ b/procd.c
+@@ -20,18 +20,21 @@
+ #include <unistd.h>
+ #include <getopt.h>
+ #include <libgen.h>
++#include <string.h>
+ 
+ #include "procd.h"
+ #include "watchdog.h"
+ #include "plug/hotplug.h"
+ #include "service/service.h"
++#include "service/unit.h"
+ #ifdef OPENWRT_SYSTEMD
+ #include <systemd/sd-daemon.h>
+ #endif
+ 
+ bool procd_systemd;
+ bool procd_systemd_stopping;
+-static bool systemd_ubus_ready, systemd_coldplug_ready;
++bool procd_units;
++static bool systemd_ubus_ready, systemd_coldplug_ready, systemd_coldplug_started;
+ 
+ static void systemd_ready(void)
+ {
+@@ -44,6 +47,11 @@
+ void procd_systemd_ubus_ready(void)
+ {
+ 	systemd_ubus_ready = true;
++	/* Replayed udev events reach procd over ubus. */
++	if (procd_units && !systemd_coldplug_started) {
++		systemd_coldplug_started = true;
++		procd_coldplug();
++	}
+ 	systemd_ready();
+ }
+ 
+@@ -80,8 +88,10 @@
+ 	sd_notify(0, "STOPPING=1");
+ 	service_stop_all();
+ 	hotplug_shutdown();
+-	watchdog_set_magicclose(true);
+-	watchdog_set_stopped(true);
++	if (!procd_units) {
++		watchdog_set_magicclose(true);
++		watchdog_set_stopped(true);
++	}
+ 	uloop_timeout_set(&systemd_drain, 0);
+ }
+ 
+@@ -149,6 +159,7 @@
+ 		"	-I <path>	Path to init.d directory\n"
+ 		"	-R <path>	Path to rc.d directory\n"
+ 		"	-S		Print messages to stdout\n"
++		"	--systemd[=units]	Run below systemd; units: as transient services\n"
+ 		"\n", prog);
+ 	return 1;
+ }
+@@ -157,7 +168,7 @@
+ {
+ 	int ch;
+ 	static const struct option options[] = {
+-		{ "systemd", no_argument, NULL, 1000 },
++		{ "systemd", optional_argument, NULL, 1000 },
+ 		{ NULL, 0, NULL, 0 }
+ 	};
+ 	char *dbglvl = getenv("DBGLVL");
+@@ -174,7 +185,10 @@
+ 		case 1000:
+ 			if (getpid() == 1)
+ 				return usage(argv[0]);
++			if (optarg && strcmp(optarg, "units"))
++				return usage(argv[0]);
+ 			procd_systemd = true;
++			procd_units = !!optarg;
+ 			break;
+ #endif
+ 		case 'h':
+@@ -208,9 +222,14 @@
+ #ifdef OPENWRT_SYSTEMD
+ 	if (procd_systemd) {
+ 		uloop_signal_add(&systemd_term);
+-		watchdog_init(0);
+-		hotplug("/etc/hotplug.json");
+-		procd_coldplug();
++		if (procd_units) {
++			unit_init();
++			hotplug_units("/etc/hotplug-systemd.json");
++		} else {
++			watchdog_init(0);
++			hotplug("/etc/hotplug.json");
++			procd_coldplug();
++		}
+ 	}
+ #endif
+ 	procd_udebug_set_enabled(true);
+--- a/procd.h
++++ b/procd.h
+@@ -33,6 +33,8 @@
+ extern const char *ubus_socket;
+ extern bool procd_systemd;
+ extern bool procd_systemd_stopping;
++/* Native systemd runs instances as units; udev and systemd own devices and the watchdog. */
++extern bool procd_units;
+ void procd_systemd_ubus_ready(void);
+ void procd_systemd_coldplug_ready(void);
+ 
+--- a/service/instance.c
++++ b/service/instance.c
+@@ -43,6 +43,7 @@
+ 
+ #include "service.h"
+ #include "instance.h"
++#include "unit.h"
+ #include "vrf.h"
+ 
+ #define JAIL_CREATE_TIMEOUT_DEFAULT 120
+@@ -353,15 +354,14 @@
+ 	static char stop_timeout_str[12];
+ 	static char incarnation_str[21];
+ 	static char notify_fd_str[12];
++	static char term_timeout_str[12];
+ 	struct blobmsg_list_node *var;
+ 	struct jail *jail = &in->jail;
+-	char *term_timeout_str;
+ 	int argc = 0;
+ 
+ 	argv[argc++] = UJAIL_BIN_PATH;
+ 
+-	if (asprintf(&term_timeout_str, "%d", in->term_timeout) == -1)
+-		exit(ENOMEM);
++	snprintf(term_timeout_str, sizeof(term_timeout_str), "%d", in->term_timeout);
+ 
+ 	argv[argc++] = "-t";
+ 	argv[argc++] = term_timeout_str;
+@@ -725,6 +725,44 @@
+ 	exit(127);
+ }
+ 
++/*
++ * Command line of a transient unit, with the wrappers instance_run() adds.
++ * The strings stay valid until the next call; free() the returned array.
++ */
++char **
++instance_unit_argv(struct service_instance *in, bool *seccomp)
++{
++	struct blob_attr *cur;
++	char **argv;
++	int argc = 0, rem;
++
++	*seccomp = !in->has_jail && in->seccomp;
++	blobmsg_for_each_attr(cur, in->command, rem)
++		argc++;
++	argv = calloc(argc + in->jail.argc + 8, sizeof(char *));
++	if (!argv)
++		return NULL;
++
++	argc = 0;
++	if (*seccomp) {
++#ifdef SECCOMP_SUPPORT
++		argv[argc++] = "/sbin/seccomp-trace";
++#else
++		ULOG_WARN("Seccomp support for %s::%s not available\n", in->srv->name, in->name);
++		*seccomp = false;
++#endif
++	}
++
++	if (in->has_jail)
++		argc = jail_run(in, argv);
++
++	blobmsg_for_each_attr(cur, in->command, rem)
++		argv[argc++] = blobmsg_data(cur);
++	argv[argc] = NULL;
++
++	return argv;
++}
++
+ static int
+ instance_add_cgroup(const char *service, const char *instance)
+ {
+@@ -890,6 +928,15 @@
+ int
+ instance_signal(struct service_instance *in, int sig)
+ {
++	if (in->unit) {
++		int ret = unit_signal(in, sig);
++
++		if (!ret)
++			return 0;
++		errno = -ret;
++		return -1;
++	}
++
+ 	if (in->proc_pidfd >= 0)
+ 		return syscall(SYS_pidfd_send_signal, in->proc_pidfd, sig, NULL, 0);
+ 
+@@ -1110,6 +1157,18 @@
+ 		return;
+ 	}
+ 
++	if (in->unit_loaded) {
++		/* Its unit must disappear before the name is reused. */
++		if (in->halt || in->unit_stopping) {
++			in->restart = true;
++		} else if (!in->unit_running) {
++			in->halt = true;
++			in->restart = true;
++			unit_stop(in);
++		}
++		return;
++	}
++
+ 	if (in->proc.pending || (procd_systemd && in->systemd_cleaning)) {
+ 		if (in->halt)
+ 			in->restart = true;
+@@ -1136,6 +1195,34 @@
+ 	if (!in->valid)
+ 		return;
+ 
++	in->unit = false;
++	if (procd_units) {
++		const char *why;
++
++		if (unit_capable(in, &why)) {
++			in->incarnation = ++last_incarnation;
++			ret = unit_start(in);
++			if (!ret) {
++				in->unit = true;
++				in->unit_running = true;
++				in->unit_failed = false;
++				in->respawn_count = 0;
++				in->proc.pid = 0;
++				clock_gettime(CLOCK_MONOTONIC, &in->start);
++				if (in->watchdog.mode != INSTANCE_WATCHDOG_MODE_DISABLED)
++					uloop_timeout_set(&in->watchdog.timeout,
++							  in->watchdog.freq * 1000);
++				service_event("instance.start", in->srv->name, in->name);
++				return;
++			}
++			ULOG_WARN("Starting %s::%s without a unit: %s\n",
++				  in->srv->name, in->name, strerror(-ret));
++		} else {
++			ULOG_WARN("Starting %s::%s without a unit: %s\n",
++				  in->srv->name, in->name, why);
++		}
++	}
++
+ 	if (in->_stdout.fd.fd > -2 && in->stdio_fd[1] < 0) {
+ 		if (pipe(opipe)) {
+ 			ULOG_WARN("pipe() failed: %m\n");
+@@ -1664,9 +1751,176 @@
+ 	instance_cgroup_wait(in);
+ }
+ 
++bool
++instance_running(struct service_instance *in)
++{
++	if (in->unit)
++		return in->unit_loaded && in->unit_running;
++	return in->proc.pending;
++}
++
++static bool
++instance_unit_state_running(struct service_instance *in)
++{
++	const char *a = in->unit_active;
++
++	if (!in->unit_loaded)
++		return false;
++	/* Started, but no state has been reported yet. */
++	if (!*a)
++		return true;
++	if (!strncmp(in->unit_sub, "auto-restart", strlen("auto-restart")))
++		return false;
++	return !strcmp(a, "active") || !strcmp(a, "activating") ||
++	       !strcmp(a, "reloading") || !strcmp(a, "refreshing") ||
++	       !strcmp(a, "deactivating");
++}
++
++static int
++instance_unit_exit_code(struct service_instance *in)
++{
++	switch (in->unit_exec_code) {
++	case CLD_EXITED:
++		return in->unit_exec_status;
++	case CLD_KILLED:
++	case CLD_DUMPED:
++		return SIGNALLED_OFFSET + in->unit_exec_status;
++	default:
++		return in->exit_code;
++	}
++}
++
++static void
++instance_unit_changed(struct service_instance *in)
++{
++	bool running = instance_unit_state_running(in);
++	bool ended = !strcmp(in->unit_active, "inactive") || !strcmp(in->unit_active, "failed");
++
++	if (in->unit_pid && (pid_t)in->unit_pid != in->proc.pid) {
++		in->proc.pid = in->unit_pid;
++		instance_writepid(in);
++	}
++
++	if (in->unit_restarts > (uint32_t)in->respawn_count) {
++		in->respawn_count = in->unit_restarts;
++		in->respawn_last = uptime_get();
++		in->exit_code = instance_unit_exit_code(in);
++		service_event_instance_exit("instance.respawn", in);
++	}
++
++	if (running != in->unit_running) {
++		in->unit_running = running;
++		if (running) {
++			clock_gettime(CLOCK_MONOTONIC, &in->start);
++			service_event("instance.start", in->srv->name, in->name);
++		} else {
++			clock_gettime(CLOCK_MONOTONIC, &in->stop);
++			in->exit_code = instance_unit_exit_code(in);
++			P_DEBUG(2, "Instance %s::%s exit with error code %d\n",
++				in->srv->name, in->name, in->exit_code);
++			uloop_timeout_cancel(&in->watchdog.timeout);
++			if (in->halt)
++				instance_removepid(in);
++			service_event("instance.stop", in->srv->name, in->name);
++		}
++	}
++
++	if (!in->unit_failed && in->respawn && !in->halt &&
++	    !strcmp(in->unit_result, "start-limit-hit")) {
++		in->unit_failed = true;
++		LOG("Instance %s::%s s in a crash loop %d crashes\n",
++		    in->srv->name, in->name, in->respawn_count);
++		service_event_instance_exit("instance.fail", in);
++	}
++
++	/* Normally UnitRemoved follows; confirm it if the signal is missed. */
++	if (ended && !in->unit_stopping)
++		uloop_timeout_set(&in->unit_check, 2000);
++}
++
++static void
++instance_unit_removed(struct service_instance *in)
++{
++	bool restart = false;
++
++	if (in->unit_running) {
++		in->unit_running = false;
++		clock_gettime(CLOCK_MONOTONIC, &in->stop);
++		in->exit_code = instance_unit_exit_code(in);
++		if (in->halt)
++			instance_removepid(in);
++		service_event("instance.stop", in->srv->name, in->name);
++	}
++	uloop_timeout_cancel(&in->unit_check);
++	uloop_timeout_cancel(&in->watchdog.timeout);
++	in->unit_loaded = false;
++	in->unit_stopping = false;
++	in->proc.pid = 0;
++	*in->unit_active = '\0';
++	*in->unit_sub = '\0';
++
++	if (in->halt) {
++		if (in->restart)
++			restart = true;
++		else {
++			instance_delete(in);
++			return;
++		}
++	} else if (in->restart) {
++		restart = true;
++	}
++
++	if (restart) {
++		instance_start(in);
++		rc(in->srv->name, "running");
++	}
++}
++
++/* Unit callbacks run inside sd-bus dispatch; apply their results from uloop. */
++static void
++instance_unit_work(struct uloop_timeout *t)
++{
++	struct service_instance *in = container_of(t, struct service_instance, unit_work);
++
++	if (in->unit_dirty) {
++		in->unit_dirty = false;
++		if (in->unit_loaded)
++			instance_unit_changed(in);
++	}
++
++	if (in->unit_gone) {
++		in->unit_gone = false;
++		if (in->unit_loaded && unit_confirm_gone(in))
++			instance_unit_removed(in);
++	}
++}
++
++void
++instance_unit_notify(struct service_instance *in, bool gone)
++{
++	if (gone)
++		in->unit_gone = true;
++	else
++		in->unit_dirty = true;
++	uloop_timeout_set(&in->unit_work, 0);
++}
++
+ void
+ instance_stop(struct service_instance *in, bool halt)
+ {
++	if (in->unit_loaded) {
++		in->halt = halt;
++		in->restart = false;
++		uloop_timeout_cancel(&in->watchdog.timeout);
++		unit_stop(in);
++		return;
++	}
++	if (in->unit) {
++		if (halt)
++			instance_delete(in);
++		return;
++	}
++
+ 	if (!in->proc.pending) {
+ 		if (procd_systemd && *in->systemd_scope) {
+ 			in->halt = halt;
+@@ -1690,6 +1944,19 @@
+ static void
+ instance_restart(struct service_instance *in, bool reload)
+ {
++	if (in->unit) {
++		if (!in->unit_loaded || in->unit_stopping)
++			return;
++		if (reload && in->reload_signal) {
++			instance_signal(in, in->reload_signal);
++			return;
++		}
++		in->halt = true;
++		in->restart = true;
++		unit_stop(in);
++		return;
++	}
++
+ 	if (!in->proc.pending)
+ 		return;
+ 
+@@ -2530,7 +2797,7 @@
+ instance_update(struct service_instance *in, struct service_instance *in_new)
+ {
+ 	bool changed = instance_config_changed(in, in_new);
+-	bool running = in->proc.pending;
++	bool running = instance_running(in);
+ 	bool stopping = in->halt;
+ 
+ 	if (in_new->stdio_fd[1] > -1)
+@@ -2629,6 +2896,7 @@
+ 	uloop_timeout_cancel(&in->timeout);
+ 	uloop_timeout_cancel(&in->watchdog.timeout);
+ 	instance_cgroup_wait_stop(in);
++	unit_forget(in);
+ 	trigger_del(in);
+ 	watch_del(in);
+ 	if (in->has_cgroup)
+@@ -2676,6 +2944,7 @@
+ 	in->cgroup_events.fd = -1;
+ 	in->cgroup_events.cb = instance_cgroup_events_cb;
+ 	in->cgroup_timeout.cb = instance_cgroup_timeout_cb;
++	in->unit_work.cb = instance_unit_work;
+ 	in->term_timeout = 5;
+ 	in->syslog_facility = LOG_DAEMON;
+ 	in->exit_code = 0;
+@@ -2726,13 +2995,20 @@
+ 		return;
+ 
+ 	i = blobmsg_open_table(b, in->name);
+-	blobmsg_add_u8(b, "running", in->proc.pending);
+-	if (procd_systemd) {
++	blobmsg_add_u8(b, "running", instance_running(in));
++	if (in->unit) {
++		blobmsg_add_string(b, "systemd_unit", in->unit_name);
++		blobmsg_add_string(b, "systemd_placement", "unit");
++		if (in->unit_loaded && *in->unit_active) {
++			blobmsg_add_string(b, "systemd_state", in->unit_active);
++			blobmsg_add_string(b, "systemd_substate", in->unit_sub);
++		}
++	} else if (procd_systemd) {
+ 		blobmsg_add_string(b, "systemd_scope", in->systemd_scope);
+ 		blobmsg_add_string(b, "systemd_placement", in->systemd_placement > 0 ? "managed" :
+ 				  in->systemd_placement < 0 ? "inherited" : "pending");
+ 	}
+-	if (in->proc.pending)
++	if (instance_running(in) && in->proc.pid)
+ 		blobmsg_add_u32(b, "pid", in->proc.pid);
+ 	if (in->incarnation)
+ 		blobmsg_add_u64(b, "incarnation", in->incarnation);
+@@ -2747,7 +3023,7 @@
+ 	if (in->bundle)
+ 		blobmsg_add_string(b, "bundle", in->bundle);
+ 	blobmsg_add_u32(b, "term_timeout", in->term_timeout);
+-	if (!in->proc.pending)
++	if (!instance_running(in))
+ 		blobmsg_add_u32(b, "exit_code", in->exit_code);
+ 
+ 	if (!avl_is_empty(&in->errors.avl)) {
+--- a/service/instance.h
++++ b/service/instance.h
+@@ -164,6 +164,29 @@
+ 	struct blobmsg_list errors;
+ 
+ 	struct watchdog watchdog;
++
++	/* Native-systemd units mode: the execution is a transient service. */
++	bool unit;
++	bool unit_loaded;
++	bool unit_stopping;
++	bool unit_running;
++	bool unit_dirty;
++	bool unit_gone;
++	bool unit_failed;
++	int unit_exists;
++	char unit_name[256];
++	char *unit_path;
++	void *unit_call;
++	void *unit_stop_call;
++	struct uloop_timeout unit_work;
++	struct uloop_timeout unit_check;
++	char unit_active[16];
++	char unit_sub[32];
++	char unit_result[32];
++	uint32_t unit_pid;
++	uint32_t unit_restarts;
++	int32_t unit_exec_code;
++	int32_t unit_exec_status;
+ };
+ 
+ void instance_start(struct service_instance *in);
+@@ -177,5 +200,8 @@
+ void instance_free(struct service_instance *in);
+ void instance_dump(struct blob_buf *b, struct service_instance *in, int debug);
+ void service_event_instance_exit(const char *type, struct service_instance *in);
++bool instance_running(struct service_instance *in);
++char **instance_unit_argv(struct service_instance *in, bool *seccomp);
++void instance_unit_notify(struct service_instance *in, bool gone);
+ 
+ #endif
+--- a/service/service.c
++++ b/service/service.c
+@@ -781,9 +781,9 @@
+ 
+ 	spawn = !!blobmsg_get_u8(tb[SERVICE_STATE_ATTR_SPAWN]);
+ 	vlist_for_each_element(&s->instances, in, node) {
+-		if (!!in->proc.pending == !!spawn)
++		if (instance_running(in) == !!spawn)
+ 			continue;
+-		else if (!in->proc.pending)
++		else if (!instance_running(in))
+ 			instance_start(in);
+ 		else
+ 			instance_stop(in, false);
+--- /dev/null
++++ b/service/unit.c
+@@ -0,0 +1,868 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Native-systemd units mode: run procd service instances as transient
++ * systemd services. procd keeps its ubus API, triggers, validation and
++ * configuration comparison; systemd executes, restarts, logs, contains and
++ * stops the processes. Unit state reaches procd through D-Bus signals on
++ * systemd's private socket and is applied from the instance state machine.
++ */
++#define _GNU_SOURCE
++#include <sys/resource.h>
++#include <sys/socket.h>
++#include <sys/stat.h>
++#include <ctype.h>
++#include <errno.h>
++#include <limits.h>
++#include <poll.h>
++#include <signal.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <time.h>
++#include <unistd.h>
++#include <systemd/sd-bus.h>
++
++#include <libubox/blobmsg.h>
++
++#include "../procd.h"
++#include "../systemd-cgroup.h"
++#include "service.h"
++#include "instance.h"
++#include "unit.h"
++
++#define DEST "org.freedesktop.systemd1"
++#define MANAGER "/org/freedesktop/systemd1"
++#define MIFACE DEST ".Manager"
++#define UIFACE DEST ".Unit"
++#define SVCIFACE DEST ".Service"
++#define PIFACE "org.freedesktop.DBus.Properties"
++#define UNIT_ROOT MANAGER "/unit"
++/* sd_bus_path_encode() escapes the dash of "openwrt-" as _2d. */
++#define UNIT_PATH_PREFIX UNIT_ROOT "/openwrt_2d"
++#define BOUND_UNIT "openwrt-procd.service"
++#define RC_UNIT "openwrt-services.service"
++#define CALL_TIMEOUT (5 * 1000000ULL)
++#define RECONNECT_MSEC 1000
++#define CHECK_SLACK_MSEC 10000
++#define EXISTS_RETRIES 5
++#define USEC 1000000ULL
++/* A respawn policy without a reset period never forgets earlier crashes. */
++#define NO_RESET_PERIOD (30U * 24 * 3600)
++
++static sd_bus *bus;
++static struct uloop_fd bus_fd;
++static struct uloop_timeout bus_timer;
++static struct uloop_timeout bus_retry;
++
++static const struct {
++	const char *procd;
++	const char *systemd;
++	int resource;
++} unit_limits[] = {
++	{ "as", "AS", RLIMIT_AS },
++	{ "core", "CORE", RLIMIT_CORE },
++	{ "cpu", "CPU", RLIMIT_CPU },
++	{ "data", "DATA", RLIMIT_DATA },
++	{ "fsize", "FSIZE", RLIMIT_FSIZE },
++	{ "memlock", "MEMLOCK", RLIMIT_MEMLOCK },
++	{ "nofile", "NOFILE", RLIMIT_NOFILE },
++	{ "nproc", "NPROC", RLIMIT_NPROC },
++	{ "rss", "RSS", RLIMIT_RSS },
++	{ "stack", "STACK", RLIMIT_STACK },
++	{ "nice", "NICE", RLIMIT_NICE },
++	{ "rtprio", "RTPRIO", RLIMIT_RTPRIO },
++	{ "msgqueue", "MSGQUEUE", RLIMIT_MSGQUEUE },
++	{ "sigpending", "SIGPENDING", RLIMIT_SIGPENDING },
++};
++
++static void bus_connect(struct uloop_timeout *t);
++static void unit_refresh(struct service_instance *in);
++static void unit_check_cb(struct uloop_timeout *t);
++
++static uint64_t now_usec(void)
++{
++	struct timespec ts;
++
++	clock_gettime(CLOCK_MONOTONIC, &ts);
++	return ts.tv_sec * USEC + ts.tv_nsec / 1000;
++}
++
++/* Call fn for every units-mode instance; stop early when it returns true. */
++static struct service_instance *
++unit_instances(bool (*fn)(struct service_instance *in, const void *arg), const void *arg)
++{
++	struct avl_tree *trees[] = { &services, &containers };
++	struct service_instance *in;
++	struct service *s;
++	size_t i;
++
++	for (i = 0; i < ARRAY_SIZE(trees); i++)
++		avl_for_each_element(trees[i], s, avl)
++			vlist_for_each_element(&s->instances, in, node)
++				if (in->unit && fn(in, arg))
++					return in;
++	return NULL;
++}
++
++static bool unit_drop_calls(struct service_instance *in, const void *arg)
++{
++	in->unit_call = sd_bus_slot_unref(in->unit_call);
++	in->unit_stop_call = sd_bus_slot_unref(in->unit_stop_call);
++	return false;
++}
++
++static void bus_lost(int r)
++{
++	ERROR("lost systemd manager connection: %s\n", strerror(-r));
++	uloop_fd_delete(&bus_fd);
++	uloop_timeout_cancel(&bus_timer);
++	unit_instances(unit_drop_calls, NULL);
++	bus = sd_bus_close_unref(bus);
++	bus_retry.cb = bus_connect;
++	uloop_timeout_set(&bus_retry, RECONNECT_MSEC);
++}
++
++static void bus_arm(void)
++{
++	uint64_t until, now;
++	int events;
++
++	if (!bus)
++		return;
++	events = sd_bus_get_events(bus);
++	if (events < 0) {
++		bus_lost(events);
++		return;
++	}
++	uloop_fd_add(&bus_fd, ULOOP_READ | ((events & POLLOUT) ? ULOOP_WRITE : 0));
++	if (sd_bus_get_timeout(bus, &until) < 0 || until == UINT64_MAX) {
++		uloop_timeout_cancel(&bus_timer);
++		return;
++	}
++	now = now_usec();
++	until = until > now ? (until - now + 999) / 1000 : 0;
++	uloop_timeout_set(&bus_timer, until > INT_MAX ? INT_MAX : (int)until);
++}
++
++static void bus_process(void)
++{
++	int r;
++
++	if (!bus)
++		return;
++	do {
++		r = sd_bus_process(bus, NULL);
++	} while (r > 0 && bus);
++	if (!bus)
++		return;
++	if (r < 0) {
++		bus_lost(r);
++		return;
++	}
++	bus_arm();
++}
++
++/* Flush queued calls and parse messages a synchronous call has buffered. */
++static void bus_kick(void)
++{
++	if (bus)
++		uloop_timeout_set(&bus_timer, 0);
++}
++
++static void bus_fd_cb(struct uloop_fd *fd, unsigned int events)
++{
++	bus_process();
++}
++
++static void bus_timer_cb(struct uloop_timeout *t)
++{
++	bus_process();
++}
++
++static bool unit_has_path(struct service_instance *in, const void *path)
++{
++	return in->unit_path && !strcmp(in->unit_path, path);
++}
++
++static struct service_instance *unit_lookup(const char *path)
++{
++	if (!path || strncmp(path, UNIT_PATH_PREFIX, strlen(UNIT_PATH_PREFIX)))
++		return NULL;
++	return unit_instances(unit_has_path, path);
++}
++
++static void copy_string(char *dst, size_t len, const char *src)
++{
++	snprintf(dst, len, "%s", src ? src : "");
++}
++
++/* Read the a{sv} part of a GetAll reply or a PropertiesChanged signal. */
++static int unit_parse_props(struct service_instance *in, sd_bus_message *m)
++{
++	int r = sd_bus_message_enter_container(m, 'a', "{sv}");
++
++	while (r >= 0 && (r = sd_bus_message_enter_container(m, 'e', "sv")) > 0) {
++		const char *key, *s;
++		uint32_t u;
++		int32_t i;
++
++		r = sd_bus_message_read(m, "s", &key);
++		if (r < 0)
++			break;
++		if (!strcmp(key, "ActiveState")) {
++			r = sd_bus_message_read(m, "v", "s", &s);
++			if (r >= 0)
++				copy_string(in->unit_active, sizeof(in->unit_active), s);
++		} else if (!strcmp(key, "SubState")) {
++			r = sd_bus_message_read(m, "v", "s", &s);
++			if (r >= 0)
++				copy_string(in->unit_sub, sizeof(in->unit_sub), s);
++		} else if (!strcmp(key, "Result")) {
++			r = sd_bus_message_read(m, "v", "s", &s);
++			if (r >= 0)
++				copy_string(in->unit_result, sizeof(in->unit_result), s);
++		} else if (!strcmp(key, "MainPID")) {
++			r = sd_bus_message_read(m, "v", "u", &u);
++			if (r >= 0)
++				in->unit_pid = u;
++		} else if (!strcmp(key, "NRestarts")) {
++			r = sd_bus_message_read(m, "v", "u", &u);
++			if (r >= 0)
++				in->unit_restarts = u;
++		} else if (!strcmp(key, "ExecMainCode")) {
++			r = sd_bus_message_read(m, "v", "i", &i);
++			if (r >= 0)
++				in->unit_exec_code = i;
++		} else if (!strcmp(key, "ExecMainStatus")) {
++			r = sd_bus_message_read(m, "v", "i", &i);
++			if (r >= 0)
++				in->unit_exec_status = i;
++		} else {
++			r = sd_bus_message_skip(m, "v");
++		}
++		if (r >= 0)
++			r = sd_bus_message_exit_container(m);
++	}
++	if (r >= 0)
++		r = sd_bus_message_exit_container(m);
++	return r;
++}
++
++static int unit_props_changed(sd_bus_message *m, void *userdata, sd_bus_error *error)
++{
++	struct service_instance *in = unit_lookup(sd_bus_message_get_path(m));
++	const char *iface;
++
++	if (!in || sd_bus_message_read(m, "s", &iface) < 0 ||
++	    (strcmp(iface, UIFACE) && strcmp(iface, SVCIFACE)))
++		return 0;
++	if (unit_parse_props(in, m) < 0)
++		ULOG_WARN("cannot parse state of %s\n", in->unit_name);
++	instance_unit_notify(in, false);
++	return 0;
++}
++
++static int unit_removed(sd_bus_message *m, void *userdata, sd_bus_error *error)
++{
++	struct service_instance *in;
++	const char *id, *path;
++
++	if (sd_bus_message_read(m, "so", &id, &path) < 0)
++		return 0;
++	in = unit_lookup(path);
++	if (in && !strcmp(in->unit_name, id))
++		instance_unit_notify(in, true);
++	return 0;
++}
++
++static bool unit_reconcile(struct service_instance *in, const void *arg)
++{
++	if (!in->unit_loaded)
++		return false;
++	unit_refresh(in);
++	if (in->unit_stopping && in->unit_loaded && !in->unit_stop_call)
++		unit_stop(in);
++	return false;
++}
++
++static void bus_connect(struct uloop_timeout *t)
++{
++	struct ucred peer;
++	socklen_t len = sizeof(peer);
++	int r = sd_bus_new(&bus);
++
++	if (r >= 0)
++		r = sd_bus_set_address(bus, "unix:path=/run/systemd/private");
++	if (r >= 0)
++		r = sd_bus_set_method_call_timeout(bus, CALL_TIMEOUT);
++	if (r >= 0)
++		r = sd_bus_start(bus);
++	if (r >= 0 && (getsockopt(sd_bus_get_fd(bus), SOL_SOCKET, SO_PEERCRED, &peer, &len) ||
++		      peer.uid != 0 || peer.pid != 1))
++		r = -EPERM;
++	if (r >= 0)
++		r = sd_bus_match_signal(bus, NULL, NULL, NULL, PIFACE, "PropertiesChanged",
++					unit_props_changed, NULL);
++	if (r >= 0)
++		r = sd_bus_match_signal(bus, NULL, NULL, MANAGER, MIFACE, "UnitRemoved",
++					unit_removed, NULL);
++	if (r >= 0)
++		r = sd_bus_call_method(bus, DEST, MANAGER, MIFACE, "Subscribe", NULL, NULL, "");
++	if (r < 0) {
++		ERROR("cannot connect to the systemd manager: %s\n", strerror(-r));
++		bus = sd_bus_close_unref(bus);
++		bus_retry.cb = bus_connect;
++		uloop_timeout_set(&bus_retry, RECONNECT_MSEC);
++		return;
++	}
++	bus_fd.fd = sd_bus_get_fd(bus);
++	bus_fd.cb = bus_fd_cb;
++	bus_timer.cb = bus_timer_cb;
++	DEBUG(2, "Connected to the systemd manager\n");
++	unit_instances(unit_reconcile, NULL);
++	bus_arm();
++	bus_kick();
++}
++
++void unit_init(void)
++{
++	bus_connect(&bus_retry);
++}
++
++bool unit_capable(struct service_instance *in, const char **why)
++{
++	*why = NULL;
++	if (!in->command)
++		*why = "no command";
++	else if (in->bundle)
++		*why = "OCI bundle";
++	else if (in->trace)
++		*why = "trace";
++	else if (in->vrf)
++		*why = "vrf";
++	else if (in->stdio_fd[0] > -1 || in->stdio_fd[1] > -1 || in->stdio_fd[2] > -1)
++		*why = "passed stdio descriptors";
++	else if (in->notify_fd > -1)
++		*why = "notify descriptor";
++	else if (in->has_jail && (in->jail.console || !avl_is_empty(&in->jail.setns.avl)))
++		*why = "jail console or setns";
++	return !*why;
++}
++
++/* Escape a name component: \xNN outside [A-Za-z0-9:_.-], and a leading dot. */
++static int unit_escape(char *dst, size_t len, const char *src)
++{
++	const unsigned char *p = (const unsigned char *)src;
++	size_t n = 0;
++
++	if (!*p)
++		return -EINVAL;
++	for (; *p; p++) {
++		bool literal = isalnum(*p) || *p == '_' || *p == ':' || *p == '-' ||
++			       (*p == '.' && p != (const unsigned char *)src);
++
++		if (n + (literal ? 1 : 4) >= len)
++			return -ENAMETOOLONG;
++		if (literal)
++			dst[n++] = *p;
++		else
++			n += sprintf(dst + n, "\\x%02x", *p);
++	}
++	dst[n] = '\0';
++	return 0;
++}
++
++static int unit_name(struct service_instance *in, char *name, size_t len)
++{
++	char service[128], instance[128];
++
++	if (unit_escape(service, sizeof(service), in->srv->name) ||
++	    unit_escape(instance, sizeof(instance), in->name) ||
++	    snprintf(name, len, "openwrt-%s@%s.service", service, instance) >= (int)len)
++		return -ENAMETOOLONG;
++	return 0;
++}
++
++/* Like execvp(), resolve a bare command name against the procd PATH. */
++static const char *unit_exec_path(const char *cmd, char *buf, size_t len)
++{
++	const char *path = getenv("PATH");
++	const char *p, *end;
++
++	if (strchr(cmd, '/'))
++		return cmd;
++	if (!path)
++		path = "/usr/sbin:/usr/bin:/sbin:/bin";
++	for (p = path; *p; p = *end ? end + 1 : end) {
++		end = strchrnul(p, ':');
++		if (end == p)
++			continue;
++		if (snprintf(buf, len, "%.*s/%s", (int)(end - p), p, cmd) < (int)len &&
++		    !access(buf, X_OK))
++			return buf;
++	}
++	return cmd;
++}
++
++static int prop_open(sd_bus_message *m, const char *key, const char *type)
++{
++	int r = sd_bus_message_open_container(m, 'r', "sv");
++
++	if (r >= 0)
++		r = sd_bus_message_append(m, "s", key);
++	if (r >= 0)
++		r = sd_bus_message_open_container(m, 'v', type);
++	return r;
++}
++
++static int prop_close(sd_bus_message *m)
++{
++	int r = sd_bus_message_close_container(m);
++
++	return r < 0 ? r : sd_bus_message_close_container(m);
++}
++
++static int append_exec(sd_bus_message *m, struct service_instance *in, bool *seccomp)
++{
++	char **argv = instance_unit_argv(in, seccomp);
++	char path[PATH_MAX];
++	int r;
++
++	if (!argv)
++		return -ENOMEM;
++	r = prop_open(m, "ExecStart", "a(sasb)");
++	if (r >= 0)
++		r = sd_bus_message_open_container(m, 'a', "(sasb)");
++	if (r >= 0)
++		r = sd_bus_message_open_container(m, 'r', "sasb");
++	if (r >= 0)
++		r = sd_bus_message_append(m, "s", unit_exec_path(argv[0], path, sizeof(path)));
++	if (r >= 0)
++		r = sd_bus_message_append_strv(m, argv);
++	if (r >= 0)
++		r = sd_bus_message_append(m, "b", 0);
++	if (r >= 0)
++		r = sd_bus_message_close_container(m);
++	if (r >= 0)
++		r = sd_bus_message_close_container(m);
++	if (r >= 0)
++		r = prop_close(m);
++	free(argv);
++	return r;
++}
++
++static int append_env(sd_bus_message *m, struct service_instance *in, bool seccomp)
++{
++	struct blobmsg_list_node *var;
++	char *entry;
++	int r = prop_open(m, "Environment", "as");
++
++	if (r >= 0)
++		r = sd_bus_message_open_container(m, 'a', "s");
++	blobmsg_list_for_each(&in->env, var) {
++		if (r < 0)
++			break;
++		if (asprintf(&entry, "%s=%s", blobmsg_name(var->data),
++			     (char *)blobmsg_data(var->data)) < 0)
++			return -ENOMEM;
++		r = sd_bus_message_append(m, "s", entry);
++		free(entry);
++	}
++	if (r >= 0 && seccomp) {
++		if (asprintf(&entry, "SECCOMP_FILE=%s", in->seccomp) < 0)
++			return -ENOMEM;
++		r = sd_bus_message_append(m, "s", entry);
++		free(entry);
++	}
++	/* procd line-buffers captured stdout the same way. */
++	if (r >= 0 && in->_stdout.fd.fd > -2)
++		r = sd_bus_message_append(m, "s", "LD_PRELOAD=/lib/libsetlbf.so");
++	if (r >= 0)
++		r = sd_bus_message_close_container(m);
++	return r < 0 ? r : prop_close(m);
++}
++
++/* procd semantics: an omitted half keeps procd's own current limit. */
++static int append_limits(sd_bus_message *m, struct service_instance *in)
++{
++	struct blobmsg_list_node *var;
++	char key[32];
++	size_t i;
++	int r = 0;
++
++	blobmsg_list_for_each(&in->limits, var) {
++		const char *name = blobmsg_name(var->data);
++		const char *value = blobmsg_data(var->data);
++		unsigned long cur, max;
++		struct rlimit rlim;
++
++		for (i = 0; i < ARRAY_SIZE(unit_limits); i++)
++			if (!strcmp(unit_limits[i].procd, name))
++				break;
++		if (i == ARRAY_SIZE(unit_limits))
++			continue;
++		if (!strcmp(value, "unlimited")) {
++			cur = max = (unsigned long)RLIM_INFINITY;
++		} else {
++			if (getrlimit(unit_limits[i].resource, &rlim))
++				continue;
++			cur = rlim.rlim_cur;
++			max = rlim.rlim_max;
++			if (sscanf(value, "%lu %lu", &cur, &max) < 1)
++				continue;
++		}
++		if (cur > max) {
++			ULOG_WARN("%s::%s: ignoring limit %s %s, soft above hard\n",
++				  in->srv->name, in->name, name, value);
++			continue;
++		}
++		snprintf(key, sizeof(key), "Limit%s", unit_limits[i].systemd);
++		r = sd_bus_message_append(m, "(sv)", key, "t",
++				(uint64_t)(max == (unsigned long)RLIM_INFINITY ? UINT64_MAX : max));
++		snprintf(key, sizeof(key), "Limit%sSoft", unit_limits[i].systemd);
++		if (r >= 0)
++			r = sd_bus_message_append(m, "(sv)", key, "t",
++				(uint64_t)(cur == (unsigned long)RLIM_INFINITY ? UINT64_MAX : cur));
++		if (r < 0)
++			break;
++	}
++	return r;
++}
++
++/*
++ * procd respawn [threshold timeout retry]: give up after retry+1 consecutive
++ * runs shorter than threshold. systemd counts starts in a sliding window, so
++ * allow retry+1 starts per threshold*(retry+1).
++ */
++static int append_restart(sd_bus_message *m, struct service_instance *in)
++{
++	uint64_t window, delay, max;
++	uint32_t steps = 0;
++	int r;
++
++	if (!in->respawn) {
++		r = sd_bus_message_append(m, "(sv)", "Restart", "s", "no");
++		/* A one-shot command may leave workers; it ends with its cgroup. */
++		if (r >= 0)
++			r = sd_bus_message_append(m, "(sv)", "ExitType", "s", "cgroup");
++		if (r >= 0)
++			r = sd_bus_message_append(m, "(sv)", "StartLimitIntervalUSec", "t",
++						  (uint64_t)0);
++		return r;
++	}
++
++	r = sd_bus_message_append(m, "(sv)", "Restart", "s",
++				  in->respawn_on_failure ? "on-failure" : "always");
++	if (r >= 0)
++		r = sd_bus_message_append(m, "(sv)", "RestartUSec", "t",
++					  (uint64_t)in->respawn_timeout * USEC);
++	if (r >= 0 && in->respawn_on_failure && in->respawn_timeout &&
++	    in->respawn_max > in->respawn_timeout && in->respawn_multiplier > 1000) {
++		delay = in->respawn_timeout * 1000ULL;
++		max = in->respawn_max * 1000ULL;
++		while (delay < max && steps < 1000) {
++			delay = delay * in->respawn_multiplier / 1000;
++			steps++;
++		}
++		r = sd_bus_message_append(m, "(sv)", "RestartSteps", "u", steps);
++		if (r >= 0)
++			r = sd_bus_message_append(m, "(sv)", "RestartMaxDelayUSec", "t",
++						  (uint64_t)in->respawn_max * USEC);
++	}
++	if (r < 0)
++		return r;
++	if (!in->respawn_retry)
++		return sd_bus_message_append(m, "(sv)", "StartLimitIntervalUSec", "t",
++					     (uint64_t)0);
++	window = (uint64_t)(in->respawn_threshold ? in->respawn_threshold : NO_RESET_PERIOD) *
++		 (in->respawn_retry + 1ULL) * USEC;
++	r = sd_bus_message_append(m, "(sv)", "StartLimitBurst", "u", in->respawn_retry + 1);
++	if (r >= 0)
++		r = sd_bus_message_append(m, "(sv)", "StartLimitIntervalUSec", "t", window);
++	return r;
++}
++
++static void unit_reset_state(struct service_instance *in)
++{
++	*in->unit_active = '\0';
++	*in->unit_sub = '\0';
++	*in->unit_result = '\0';
++	in->unit_pid = 0;
++	in->unit_restarts = 0;
++	in->unit_exec_code = 0;
++	in->unit_exec_status = 0;
++}
++
++static int unit_start_reply(sd_bus_message *m, void *userdata, sd_bus_error *error)
++{
++	struct service_instance *in = userdata;
++	const sd_bus_error *e;
++
++	in->unit_call = sd_bus_slot_unref(in->unit_call);
++	if (!sd_bus_message_is_method_error(m, NULL)) {
++		in->unit_exists = 0;
++		return 0;
++	}
++	e = sd_bus_message_get_error(m);
++	if (sd_bus_error_has_name(e, DEST ".UnitExists") && in->unit_exists++ < EXISTS_RETRIES) {
++		/* An earlier execution still holds the name: replace it. */
++		ULOG_WARN("%s is still loaded, restarting it\n", in->unit_name);
++		in->halt = true;
++		in->restart = true;
++		unit_stop(in);
++		return 0;
++	}
++	ERROR("cannot start %s: %s\n", in->unit_name, e && e->message ? e->message : "error");
++	in->unit_exists = 0;
++	in->unit_exec_code = CLD_EXITED;
++	in->unit_exec_status = 127;
++	instance_unit_notify(in, true);
++	return 0;
++}
++
++int unit_start(struct service_instance *in)
++{
++	char slice[256], description[512], *path = NULL;
++	const char *ident;
++	sd_bus_message *m = NULL;
++	bool seccomp = false;
++	uint32_t timeout = in->has_jail ? in->term_timeout * 2 : in->term_timeout;
++	int r;
++
++	if (!bus)
++		return -ENOTCONN;
++	r = unit_name(in, in->unit_name, sizeof(in->unit_name));
++	if (r >= 0)
++		r = sd_bus_path_encode(UNIT_ROOT, in->unit_name, &path);
++	if (r >= 0) {
++		free(in->unit_path);
++		in->unit_path = path;
++		r = owrt_service_slice(in->srv->name, slice);
++	}
++	if (r < 0)
++		return r;
++
++	ident = basename(blobmsg_data(blobmsg_data(in->command)));
++	snprintf(description, sizeof(description), "OpenWrt %s::%s", in->srv->name, in->name);
++	r = sd_bus_message_new_method_call(bus, &m, DEST, MANAGER, MIFACE, "StartTransientUnit");
++	if (r >= 0)
++		r = sd_bus_message_append(m, "ss", in->unit_name, "fail");
++	if (r >= 0)
++		r = sd_bus_message_open_container(m, 'a', "(sv)");
++#define PROP(...) do { if (r >= 0) r = sd_bus_message_append(m, "(sv)", __VA_ARGS__); } while (0)
++	PROP("Description", "s", description);
++	PROP("Slice", "s", slice);
++	PROP("CollectMode", "s", "inactive-or-failed");
++	PROP("BindsTo", "as", 1, BOUND_UNIT);
++	/* Shutdown runs the rc stop scripts while the daemons are still up. */
++	PROP("Before", "as", 1, RC_UNIT);
++	PROP("Type", "s", "exec");
++	PROP("KillMode", "s", in->respawn ? "mixed" : "control-group");
++	PROP("TimeoutStopUSec", "t", (uint64_t)timeout * USEC);
++	PROP("TasksMax", "t", UINT64_MAX);
++	PROP("OOMPolicy", "s", "continue");
++	PROP("IgnoreSIGPIPE", "b", 0);
++	PROP("Delegate", "b", (int)in->has_jail);
++	PROP("StandardInput", "s", "null");
++	PROP("StandardOutput", "s", in->_stdout.fd.fd > -2 ? "journal" : "null");
++	PROP("StandardError", "s", in->_stderr.fd.fd > -2 ? "journal" : "null");
++	PROP("SyslogIdentifier", "s", ident);
++	PROP("SyslogFacility", "i", (int32_t)(in->syslog_facility >> 3));
++	if (in->nice)
++		PROP("Nice", "i", (int32_t)in->nice);
++	/* ujail switches credentials itself, as with procd. */
++	if (!in->has_jail && in->user)
++		PROP("User", "s", in->user);
++	if (!in->has_jail && in->group)
++		PROP("Group", "s", in->group);
++#undef PROP
++	if (r >= 0)
++		r = append_limits(m, in);
++	if (r >= 0)
++		r = append_restart(m, in);
++	if (r >= 0)
++		r = append_exec(m, in, &seccomp);
++	if (r >= 0)
++		r = append_env(m, in, seccomp);
++	if (r >= 0)
++		r = sd_bus_message_close_container(m);
++	if (r >= 0)
++		r = sd_bus_message_append(m, "a(sa(sv))", 0);
++	if (r >= 0) {
++		in->unit_call = sd_bus_slot_unref(in->unit_call);
++		r = sd_bus_call_async(bus, (sd_bus_slot **)&in->unit_call, m,
++				      unit_start_reply, in, CALL_TIMEOUT);
++	}
++	sd_bus_message_unref(m);
++	if (r < 0)
++		return r;
++
++	unit_reset_state(in);
++	in->unit_check.cb = unit_check_cb;
++	in->unit_loaded = true;
++	in->unit_stopping = false;
++	bus_kick();
++	return 0;
++}
++
++static void unit_check_cb(struct uloop_timeout *t)
++{
++	struct service_instance *in = container_of(t, struct service_instance, unit_check);
++
++	if (!bus || !in->unit_loaded)
++		return;
++	unit_refresh(in);
++	if (in->unit_loaded && in->unit_stopping)
++		uloop_timeout_set(t, CHECK_SLACK_MSEC);
++}
++
++static int unit_stop_reply(sd_bus_message *m, void *userdata, sd_bus_error *error)
++{
++	struct service_instance *in = userdata;
++	const sd_bus_error *e;
++
++	in->unit_stop_call = sd_bus_slot_unref(in->unit_stop_call);
++	if (!sd_bus_message_is_method_error(m, NULL))
++		return 0;
++	e = sd_bus_message_get_error(m);
++	if (sd_bus_error_has_name(e, DEST ".NoSuchUnit")) {
++		instance_unit_notify(in, true);
++		return 0;
++	}
++	ERROR("cannot stop %s: %s\n", in->unit_name, e && e->message ? e->message : "error");
++	return 0;
++}
++
++void unit_stop(struct service_instance *in)
++{
++	uint32_t timeout = in->has_jail ? in->term_timeout * 2 : in->term_timeout;
++	int r;
++
++	in->unit_stopping = true;
++	in->unit_check.cb = unit_check_cb;
++	uloop_timeout_set(&in->unit_check, timeout * 1000 + CHECK_SLACK_MSEC);
++	if (!bus)
++		return;
++	in->unit_stop_call = sd_bus_slot_unref(in->unit_stop_call);
++	r = sd_bus_call_method_async(bus, (sd_bus_slot **)&in->unit_stop_call, DEST, MANAGER,
++				     MIFACE, "StopUnit", unit_stop_reply, in, "ss",
++				     in->unit_name, "replace");
++	if (r < 0)
++		ERROR("cannot stop %s: %s\n", in->unit_name, strerror(-r));
++	bus_kick();
++}
++
++int unit_signal(struct service_instance *in, int sig)
++{
++	sd_bus_error error = SD_BUS_ERROR_NULL;
++	int r;
++
++	if (!in->unit_loaded)
++		return -ESRCH;
++	if (!bus)
++		return -ENOTCONN;
++	r = sd_bus_call_method(bus, DEST, MANAGER, MIFACE, "KillUnit", &error, NULL,
++			       "ssi", in->unit_name, "main", sig);
++	if (sd_bus_error_has_name(&error, DEST ".NoSuchUnit") ||
++	    sd_bus_error_has_name(&error, DEST ".NoSuchProcess"))
++		r = -ESRCH;
++	else if (sd_bus_error_has_name(&error, SD_BUS_ERROR_INVALID_ARGS))
++		r = -EINVAL;
++	sd_bus_error_free(&error);
++	bus_kick();
++	return r < 0 ? r : 0;
++}
++
++static int unit_get_all(struct service_instance *in, const char *iface)
++{
++	sd_bus_message *reply = NULL;
++	int r = sd_bus_call_method(bus, DEST, in->unit_path, PIFACE, "GetAll", NULL, &reply,
++				   "s", iface);
++
++	if (r >= 0)
++		r = unit_parse_props(in, reply);
++	sd_bus_message_unref(reply);
++	return r;
++}
++
++/* Synchronously compare procd's view with the manager, e.g. after reconnecting. */
++static void unit_refresh(struct service_instance *in)
++{
++	sd_bus_error error = SD_BUS_ERROR_NULL;
++	int r;
++
++	if (!bus || !in->unit_path)
++		return;
++	r = sd_bus_call_method(bus, DEST, MANAGER, MIFACE, "GetUnit", &error, NULL,
++			       "s", in->unit_name);
++	if (sd_bus_error_has_name(&error, DEST ".NoSuchUnit")) {
++		sd_bus_error_free(&error);
++		instance_unit_notify(in, true);
++		bus_kick();
++		return;
++	}
++	sd_bus_error_free(&error);
++	if (r >= 0)
++		r = unit_get_all(in, UIFACE);
++	if (r >= 0)
++		r = unit_get_all(in, SVCIFACE);
++	if (r < 0)
++		ULOG_WARN("cannot refresh %s: %s\n", in->unit_name, strerror(-r));
++	else
++		instance_unit_notify(in, false);
++	bus_kick();
++}
++
++/* A removal hint is applied only if the manager no longer knows the name. */
++bool unit_confirm_gone(struct service_instance *in)
++{
++	sd_bus_error error = SD_BUS_ERROR_NULL;
++	bool gone;
++	int r;
++
++	if (!bus)
++		return true;
++	r = sd_bus_call_method(bus, DEST, MANAGER, MIFACE, "GetUnit", &error, NULL,
++			       "s", in->unit_name);
++	if (r < 0 && !sd_bus_error_has_name(&error, DEST ".NoSuchUnit"))
++		ULOG_WARN("cannot look up %s: %s\n", in->unit_name, strerror(-r));
++	/* On a lookup failure, a reused name is caught as UnitExists later. */
++	gone = r < 0;
++	sd_bus_error_free(&error);
++	bus_kick();
++	return gone;
++}
++
++void unit_forget(struct service_instance *in)
++{
++	uloop_timeout_cancel(&in->unit_check);
++	uloop_timeout_cancel(&in->unit_work);
++	in->unit_call = sd_bus_slot_unref(in->unit_call);
++	in->unit_stop_call = sd_bus_slot_unref(in->unit_stop_call);
++	if (bus && in->unit_loaded && !in->unit_stopping) {
++		/* Never leave an untracked execution behind. */
++		sd_bus_call_method_async(bus, NULL, DEST, MANAGER, MIFACE, "StopUnit",
++					 NULL, NULL, "ss", in->unit_name, "replace");
++		bus_kick();
++	}
++	in->unit_loaded = false;
++	free(in->unit_path);
++	in->unit_path = NULL;
++}
++
++int unit_watchdog_timeout(unsigned int *seconds)
++{
++	uint64_t usec;
++	int r;
++
++	if (!bus)
++		return -ENOTCONN;
++	r = sd_bus_get_property_trivial(bus, DEST, MANAGER, MIFACE, "RuntimeWatchdogUSec",
++					NULL, 't', &usec);
++	bus_kick();
++	if (r < 0)
++		return r;
++	*seconds = usec == UINT64_MAX ? UINT_MAX : usec / USEC;
++	return 0;
++}
+--- /dev/null
++++ b/service/unit.h
+@@ -0,0 +1,59 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#ifndef __PROCD_UNIT_H
++#define __PROCD_UNIT_H
++
++#include <stdbool.h>
++#include <errno.h>
++
++struct service_instance;
++
++#ifdef OPENWRT_SYSTEMD
++void unit_init(void);
++bool unit_capable(struct service_instance *in, const char **why);
++int unit_start(struct service_instance *in);
++void unit_stop(struct service_instance *in);
++int unit_signal(struct service_instance *in, int sig);
++bool unit_confirm_gone(struct service_instance *in);
++void unit_forget(struct service_instance *in);
++int unit_watchdog_timeout(unsigned int *seconds);
++#else
++static inline void unit_init(void)
++{
++}
++
++static inline bool unit_capable(struct service_instance *in, const char **why)
++{
++	*why = "native systemd support not built";
++	return false;
++}
++
++static inline int unit_start(struct service_instance *in)
++{
++	return -EOPNOTSUPP;
++}
++
++static inline void unit_stop(struct service_instance *in)
++{
++}
++
++static inline int unit_signal(struct service_instance *in, int sig)
++{
++	return -EOPNOTSUPP;
++}
++
++static inline bool unit_confirm_gone(struct service_instance *in)
++{
++	return true;
++}
++
++static inline void unit_forget(struct service_instance *in)
++{
++}
++
++static inline int unit_watchdog_timeout(unsigned int *seconds)
++{
++	return -EOPNOTSUPP;
++}
++#endif
++
++#endif
+--- a/system.c
++++ b/system.c
+@@ -34,6 +34,7 @@
+ #include "sysupgrade.h"
+ #include "watchdog.h"
+ #include "service/service.h"
++#include "service/unit.h"
+ #include <sys/wait.h>
+ #include <errno.h>
+ 
+@@ -530,6 +531,25 @@
+ 		return UBUS_STATUS_INVALID_ARGUMENT;
+ 
+ 	blobmsg_parse(watchdog_policy, __WDT_MAX, tb, blob_data(msg), blob_len(msg));
++	if (procd_units) {
++		unsigned int timeout = 0;
++		int i;
++
++		/* The systemd manager owns the hardware watchdog in this mode. */
++		for (i = 0; i < __WDT_MAX; i++)
++			if (tb[i])
++				return UBUS_STATUS_NOT_SUPPORTED;
++		blob_buf_init(&b, 0);
++		if (unit_watchdog_timeout(&timeout))
++			blobmsg_add_string(&b, "status", "unknown");
++		else
++			blobmsg_add_string(&b, "status", timeout ? "running" : "offline");
++		blobmsg_add_string(&b, "owner", "systemd");
++		blobmsg_add_u32(&b, "timeout", timeout);
++		ubus_send_reply(ctx, req, b.head);
++		return 0;
++	}
++
+ 	if (tb[WDT_FREQUENCY]) {
+ 		unsigned int timeout = tb[WDT_TIMEOUT] ? blobmsg_get_u32(tb[WDT_TIMEOUT]) :
+ 						watchdog_timeout(0);
+--- a/systemd-cgroup.c
++++ b/systemd-cgroup.c
+@@ -19,6 +19,7 @@
+ #define MIFACE DEST ".Manager"
+ #define UIFACE DEST ".Unit"
+ #define SIFACE DEST ".Scope"
++#define SVCIFACE DEST ".Service"
+ #define CALL_TIMEOUT 2000000
+ 
+ static int manager(sd_bus **bus)
+@@ -57,7 +58,7 @@
+ }
+ 
+ /* Escape a component, including dashes: they delimit slice hierarchy. */
+-static int service_slice(const char *service, char slice[256])
++int owrt_service_slice(const char *service, char slice[256])
+ {
+ 	const unsigned char *p = (const unsigned char *)service;
+ 	size_t n = strlen("openwrt-");
+@@ -130,7 +131,7 @@
+ 	uint32_t job_id = 0;
+ 	struct timespec deadline, now;
+ 
+-	r = service_slice(service, slice);
++	r = owrt_service_slice(service, slice);
+ 	if (r < 0)
+ 		return r;
+ 	pidfd = syscall(SYS_pidfd_open, pid, 0);
+@@ -246,13 +247,18 @@
+ 	return r < 0 ? r : 0;
+ }
+ 
+-/* Only an explicitly delegated scope may serve as a direct-write boundary. */
++/*
++ * Only an explicitly delegated scope, or a delegated procd transient
++ * service, may serve as a direct-write boundary.
++ */
+ int owrt_scope_delegation(char *path, size_t len)
+ {
+ 	sd_bus *bus = NULL;
+ 	sd_bus_message *reply = NULL;
+ 	char *object = NULL, *id = NULL, *group = NULL;
+-	const char *p;
++	const char *p, *iface = SIFACE;
++	bool service = false;
++	size_t n;
+ 	int r = manager(&bus), delegated = 0;
+ 
+ 	if (r >= 0)
+@@ -267,15 +273,22 @@
+ 	}
+ 	if (r >= 0)
+ 		r = sd_bus_get_property_string(bus, DEST, object, UIFACE, "Id", NULL, &id);
+-	if (r >= 0 && (strncmp(id, "openwrt-", 8) || !strstr(id, ".scope")))
+-		r = -EPERM;
++	if (r >= 0) {
++		n = strlen(id);
++		service = n > 8 && !strcmp(id + n - 8, ".service");
++		if (service)
++			iface = SVCIFACE;
++		if (strncmp(id, "openwrt-", 8) ||
++		    (!service && (n < 6 || strcmp(id + n - 6, ".scope"))))
++			r = -EPERM;
++	}
+ 	if (r >= 0)
+-		r = sd_bus_get_property_trivial(bus, DEST, object, SIFACE,
++		r = sd_bus_get_property_trivial(bus, DEST, object, iface,
+ 					       "Delegate", NULL, 'b', &delegated);
+ 	if (r >= 0 && !delegated)
+ 		r = -EPERM;
+ 	if (r >= 0)
+-		r = sd_bus_get_property_string(bus, DEST, object, SIFACE,
++		r = sd_bus_get_property_string(bus, DEST, object, iface,
+ 					       "ControlGroup", NULL, &group);
+ 	if (r >= 0 && (!*group || snprintf(path, len, "/sys/fs/cgroup%s", group) >= len))
+ 		r = -ENAMETOOLONG;
+--- a/systemd-cgroup.h
++++ b/systemd-cgroup.h
+@@ -13,6 +13,7 @@
+ int owrt_scope_path(const char *name, char *path, size_t len);
+ int owrt_scope_stop(const char *name);
+ int owrt_scope_delegation(char *path, size_t len);
++int owrt_service_slice(const char *service, char slice[256]);
+ #else
+ static inline bool owrt_systemd_active(void)
+ {
+@@ -43,5 +44,10 @@
+ {
+ 	return -EOPNOTSUPP;
+ }
++
++static inline int owrt_service_slice(const char *service, char slice[256])
++{
++	return -EOPNOTSUPP;
++}
+ #endif
+ #endif
+--- /dev/null
++++ b/udev-forward.c
+@@ -0,0 +1,55 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * udev RUN helper: hand a processed device event to procd, which runs the
++ * OpenWrt /etc/hotplug.d handlers in its own serial queue. Long-lived
++ * helpers therefore survive the udev worker. Without ubus or a procd in
++ * units mode there is nothing to notify, which is not an error.
++ */
++#define _GNU_SOURCE
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++
++#include <libubox/blobmsg.h>
++#include <libubus.h>
++
++#define FORWARD_TIMEOUT 5000
++
++int main(int argc, char **argv)
++{
++	static struct blob_buf b;
++	struct ubus_context *ctx;
++	uint32_t id;
++	char **e;
++	void *t;
++	int ret;
++
++	ctx = ubus_connect(NULL);
++	if (!ctx)
++		return 0;
++	if (ubus_lookup_id(ctx, "procd.udev", &id)) {
++		ubus_free(ctx);
++		return 0;
++	}
++
++	blob_buf_init(&b, 0);
++	t = blobmsg_open_table(&b, "env");
++	for (e = environ; *e; e++) {
++		char *sep = strchr(*e, '=');
++
++		if (!sep || sep == *e)
++			continue;
++		*sep = '\0';
++		blobmsg_add_string(&b, *e, sep + 1);
++		*sep = '=';
++	}
++	blobmsg_close_table(&b, t);
++
++	ret = ubus_invoke(ctx, id, "event", b.head, NULL, NULL, FORWARD_TIMEOUT);
++	if (ret)
++		fprintf(stderr, "openwrt-udev-forward: %s\n", ubus_strerror(ret));
++	blob_buf_free(&b);
++	ubus_free(ctx);
++	return 0;
++}

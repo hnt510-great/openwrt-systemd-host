@@ -1,0 +1,2 @@
+# Native systemd: udev applies the device policy of 45-dvb.json.
+SUBSYSTEM=="dvb", GROUP="dvb", MODE="0660"

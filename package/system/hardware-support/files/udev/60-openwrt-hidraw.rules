@@ -1,0 +1,2 @@
+# Native systemd: udev applies the device policy of 60-hidraw.json.
+SUBSYSTEM=="hidraw", GROUP="hidraw", MODE="0660"

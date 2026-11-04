@@ -5,12 +5,13 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=hardware-support
-PKG_RELEASE:=2
+PKG_RELEASE:=3
 
 PKG_LICENSE:=GPL-2.0-only
 PKG_MAINTAINER:=Daniel Golle <daniel@makrotopia.org>
 
 PKG_BUILD_DIR := $(BUILD_DIR)/$(PKG_NAME)
+PKG_CONFIG_DEPENDS := CONFIG_OPENWRT_SYSTEMD
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -26,6 +27,17 @@ endef
 define InstallFragment
 	$(INSTALL_DIR) $(1)/etc/hotplug.json.d
 	$(INSTALL_CONF) ./files/$(2) $(1)/etc/hotplug.json.d/
+	$(call InstallUdevRule,$(1),$(patsubst %.json,%,$(word 2,$(subst -, ,$(2)))))
+endef
+
+# Native systemd: udev owns device nodes. Its default rules already match or
+# exceed these fragments for kvm and render nodes; ship only the differences.
+UDEV_RULE = $(if $(CONFIG_OPENWRT_SYSTEMD),$(wildcard ./files/udev/60-openwrt-$(1).rules))
+
+# 1: destination, 2: fragment topic
+define InstallUdevRule
+	$(if $(call UDEV_RULE,$(2)),$(INSTALL_DIR) $(1)/usr/lib/udev/rules.d)
+	$(if $(call UDEV_RULE,$(2)),$(INSTALL_DATA) $(call UDEV_RULE,$(2)) $(1)/usr/lib/udev/rules.d/)
 endef
 
 define Package/audio-support

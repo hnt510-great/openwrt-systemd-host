@@ -8,7 +8,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=procd
-PKG_RELEASE:=5
+PKG_RELEASE:=6
 
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL=$(PROJECT_GIT)/project/procd.git
@@ -118,12 +118,15 @@ define Package/procd/install
 
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/{init,procd,askfirst,udevtrigger,upgraded} $(1)/sbin/
 ifneq ($(CONFIG_OPENWRT_SYSTEMD),)
-	$(INSTALL_DIR) $(1)/usr/libexec
+	$(INSTALL_DIR) $(1)/usr/libexec $(1)/usr/lib/udev/rules.d
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/libexec/openwrt-cgroup $(1)/usr/libexec/
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/libexec/openwrt-udev-forward $(1)/usr/libexec/
+	$(INSTALL_DATA) ./files/90-openwrt-hotplug.rules $(1)/usr/lib/udev/rules.d/
+	$(INSTALL_CONF) ./files/hotplug-systemd.json $(1)/etc/
 endif
 	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/lib/libsetlbf.so $(1)/lib
 	$(INSTALL_BIN) ./files/reload_config $(1)/sbin/
-	$(INSTALL_CONF) ./files/hotplug*.json $(1)/etc/
+	$(INSTALL_CONF) ./files/hotplug.json ./files/hotplug-preinit.json $(1)/etc/
 	$(INSTALL_DATA) ./files/procd.sh $(1)/lib/functions/
 	$(INSTALL_BIN) ./files/service $(1)/sbin/service
 endef

@@ -371,6 +371,15 @@ with open(root / 'fixture.lock', 'a') as lock:
         self.assertIn('Cgroup main: inherited openwrt-test.scope', status.stdout)
         self.assertIn('1/1 instances running', status.stdout)
 
+    def test_units_mode_placement_names_the_transient_service(self):
+        self.set_snapshot({'sample': {'instances': {
+            'main': {'running': True, 'systemd_unit': 'openwrt-sample@main.service',
+                     'systemd_placement': 'unit'}}}})
+        status = self.call('status', 'openwrt@sample')
+        self.assertEqual(status.returncode, 0)
+        self.assertIn('Cgroup main: unit openwrt-sample@main.service', status.stdout)
+        self.assertIn('1/1 instances running', status.stdout)
+
     def test_status_traffic_does_not_create_manager_jobs(self):
         stop = threading.Event()
         failures = []

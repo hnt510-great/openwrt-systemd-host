@@ -1,0 +1,4 @@
+# Native systemd: udev applies the device policy of 20-audio.json.
+SUBSYSTEM=="sound", ENV{DEVNAME}=="/dev/snd/*", GROUP="audio", MODE="0660"
+SUBSYSTEM=="sound", ENV{DEVNAME}=="/dev/snd/seq|/dev/snd/midi*", GROUP="midi", MODE="0660"
+SUBSYSTEM=="sound", ENV{DEVNAME}=="/dev/snd/pcm*c", GROUP="audio-capture", MODE="0660"

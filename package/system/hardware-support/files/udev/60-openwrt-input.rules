@@ -1,0 +1,2 @@
+# Native systemd: udev applies the device policy of 40-input.json.
+SUBSYSTEM=="input", GROUP="input", MODE="0660"

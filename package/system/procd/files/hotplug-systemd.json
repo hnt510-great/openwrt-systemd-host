@@ -1,0 +1,33 @@
+[
+	[ "if",
+		[ "and",
+			[ "has", "FIRMWARE" ],
+			[ "eq", "ACTION", "add" ]
+		],
+		[
+			[ "exec", "/sbin/hotplug-call", "%SUBSYSTEM%" ],
+			[ "load-firmware", "/lib/firmware" ],
+			[ "return" ]
+		]
+	],
+	[ "if",
+		[ "and",
+			[ "has", "BUTTON" ],
+			[ "eq", "SUBSYSTEM", "button" ]
+		],
+		[ "button", "/etc/rc.button/%BUTTON%" ]
+	],
+	[ "if",
+		[ "and",
+			[ "eq", "SUBSYSTEM", "usb-serial" ],
+			[ "regex", "DEVNAME",
+				[ "^ttyUSB", "^ttyACM" ]
+			]
+		],
+		[ "exec", "/sbin/hotplug-call", "tty" ],
+		[ "if",
+			[ "isdir", "/etc/hotplug.d/%SUBSYSTEM%" ],
+			[ "exec", "/sbin/hotplug-call", "%SUBSYSTEM%" ]
+		]
+	]
+]

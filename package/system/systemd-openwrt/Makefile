@@ -1,9 +1,9 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=systemd-openwrt
-PKG_RELEASE:=13
+PKG_RELEASE:=14
 PKG_LICENSE:=GPL-2.0-only
-PKG_CONFIG_DEPENDS:=CONFIG_TARGET_ROOTFS_PERSIST_VAR CONFIG_PACKAGE_systemd-udev
+PKG_CONFIG_DEPENDS:=CONFIG_TARGET_ROOTFS_PERSIST_VAR
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -18,6 +18,8 @@ define Package/systemd-openwrt
   TITLE:=OpenWrt native systemd boot and procd compatibility
   DEPENDS:=@OPENWRT_SYSTEMD +systemd +polkit +dbus +procd +ubusd +ubus +jsonfilter +coreutils-timeout +kmod-fs-vfat
   DEPENDS+=+openssh-server-pam +logd
+  # udev owns device events; procd runs OpenWrt hotplug handlers for it.
+  DEPENDS+=+systemd-udev
 endef
 
 define Package/systemd-openwrt/conffiles
@@ -88,11 +90,6 @@ define Package/systemd-openwrt/install
 		$(LN) /usr/lib/systemd/system/openwrt-console@.service \
 			$(1)/etc/systemd/system/multi-user.target.wants/openwrt-console@$$$$tty.service; \
 	done
-	$(if $(CONFIG_PACKAGE_systemd-udev),,for unit in systemd-udevd.service systemd-udevd-control.socket systemd-udevd-kernel.socket \
-		systemd-udevd-varlink.socket systemd-udev-load-credentials.service \
-		systemd-udev-trigger.service systemd-udev-settle.service; do \
-		$(LN) /dev/null $(1)/etc/systemd/system/$$$$unit; \
-	done)
 	for unit in systemd-sysctl.service systemd-modules-load.service; do \
 		$(LN) /dev/null $(1)/etc/systemd/system/$$$$unit; \
 	done
