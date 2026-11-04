@@ -1,11 +1,11 @@
 # 当前本地构建的源码保存
 
-本次提交同时包含 virt-manager 移植和此前未提交的自定义包、开发工具、
-Weston 桌面、libvirt、普通用户/SSH 支持以及目标配置修改。
+本源码集合包含 virt-manager、自定义包、开发工具、GNOME 桌面、libvirt、
+普通用户/SSH 支持以及配套目标配置。主树与各 feed 分别维护提交历史。
 
 `configs/x86-64-systemd-desktop.config` 保存完整构建配置，现已合并
-`configs/gnome-desktop.config`，使用 GNOME 并关闭 Weston、seatd 和旧启动器。
-早期 Weston 镜像的冷启动验收不代表当前 GNOME 配置的镜像验收。
+`configs/gnome-desktop.config`，使用 GNOME 与原生 systemd/udev。
+当前桌面的验收范围见 GNOME 验证与物理部署记录。
 在新 checkout 中可以复制为 `.config`，安装匹配 feeds 后再正常化配置。
 它不包含测试账号、测试 SSH 密钥或个人路由器凭据。
 

@@ -3,10 +3,8 @@
 The native x86_64/glibc/APK image includes systemd with polkit and PAM,
 logind, PAM-enabled OpenSSH, BusyBox PAM console login, and a user D-Bus
 service. The base packages create no ordinary account, password, key or
-service grant. This checkout's personal firmware overlay provisions the
-[builder sudo account](builder-account.md) on first boot.
-The existing seatd backend continues to control desktop display/input devices.
-Logind tracks sessions; this integration does not provide udev device ACLs.
+service grant. Create accounts through [multiuser setup](multiuser.md).
+The current GNOME profile uses native udev and logind for device/seat handling.
 
 ## Explicit service delegation
 
@@ -63,13 +61,12 @@ policy. Console login uses BusyBox PAM, with login sessions running as child
 processes so PAM closes them on logout. The existing OpenWrt console root
 autologin/`ttylogin` setting is retained.
 
-`desktop-setup alice` still requires an existing, unlocked ordinary account
-and creates its TLS VNC credentials. In native mode the desktop starts as
-that user in a transient system service with a dedicated PAM stack. It shares
-the logind-managed runtime directory and user D-Bus with that user's SSH
-sessions. On systems with virtual terminals, the desktop activates VT 7.
-Stopping `/etc/init.d/desktop` terminates the desktop's session and apps while
-leaving separate SSH sessions and their shared user manager available.
+`desktop-setup alice` requires an existing ordinary account and provisions its
+GNOME session, including the keyring bootstrap described in
+[GNOME setup](gnome-desktop.md). RDP credentials are configured separately by
+`desktop-rdp-setup alice`. The desktop uses PAM/logind on VT7 and the account's
+runtime directory and user D-Bus. Stopping the desktop ends its applications
+while separate SSH sessions and their shared user manager can remain active.
 
 Inspect the resulting sessions with:
 
@@ -127,8 +124,8 @@ still opts it back out.
 
 The GRUB `procd recovery` and failsafe paths remain available. PAM session
 registration is optional for SSH/console so login does not require logind
-under procd. The desktop retains its previous procd, seatd and private D-Bus
-startup path. Logind/polkit/user managers are native-mode facilities.
+under procd. The GNOME desktop requires native systemd; recovery is for router
+recovery and flashing. Logind/polkit/user managers are native-mode facilities.
 
 Enable `CONFIG_OPENWRT_SYSTEMD=y`, select the PAM OpenSSH variant, run
 `make defconfig`, build the integration package and rebuild the full image.
@@ -144,12 +141,12 @@ existing PAM/desktop runtime directory instead of replacing it on shell login.
 
 ```sh
 make package/system/systemd-openwrt/compile -j3 V=s
-make -j3 V=s
+python3 scripts/build-and-publish.py build-only -j3 V=s
 ```
 
 Outputs are under `bin/systemd`. Before hardware deployment, verify fresh
 native boot, allow/deny/revoke authorization, SSH and console sessions, user
-service lifecycle and lingering, desktop/VNC, router services and a separate
+service lifecycle and lingering, GNOME/remote access, router services and a separate
 procd recovery boot. A VM cannot establish physical HDMI/USB/NIC behavior.
 The [2026-10-11 validation record](systemd-permissions-validation.md) covers
 the rebuilt image, isolated VM acceptance and recovery/failsafe checks.

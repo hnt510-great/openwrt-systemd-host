@@ -15,8 +15,7 @@ on an unusual base combination that everything else depends on:
 - target `x86/64`, now on **mainline Linux 7.3** (`CONFIG_LINUX_7_3=y`); the versioned 6.18
   configuration and patch directories are retained, and other subtargets/boards keep their own
   kernel selection
-- a shared-user **GNOME desktop** session (local display, LAN RDP, Sunshine/Moonlight) replacing
-  the earlier Weston profile
+- a shared-user **GNOME desktop** session (local display, LAN RDP, Sunshine/Moonlight)
 - router datapath additions: full cone NAT in kernel/nftables/firewall4, a netlink fast path for
   dnsmasq `nftset`, and opt-in `daed` (eBPF transparent proxy) beside the default Passwall
 
@@ -76,8 +75,8 @@ sharing the toolchain and `dl/`.
   `./scripts/kconfig.pl + .config configs/<feature>.config > .config.new && mv .config.new .config && make defconfig`
 
 The snapshot and the working `.config` now describe the native **GNOME** desktop on Linux 7.3
-(`CONFIG_PACKAGE_gnome-shell=y`, `weston` unset). `configs/gnome-desktop.config` is the fragment
-that produced it: it disables `weston`, `seatd`, `libudev-zero` and `openwrt-desktop-launcher` and
+(`CONFIG_PACKAGE_gnome-shell=y`). `configs/gnome-desktop.config` is the fragment
+that produced it: it disables `seatd`, `libudev-zero` and `openwrt-desktop-launcher` and
 selects `gnome-shell`, `gnome-remote-desktop`, `sunshine`, Flatpak/AppImage and the IME/audio
 meta-packages. Preserve the existing `.config`; do not overwrite it with the snapshot unprompted.
 
@@ -125,7 +124,7 @@ covers it.
 
 `package/custom/openwrt-desktop` is the meta-package: an ordinary user's GNOME 51 session on VT7,
 started through PAM/logind, sharing the local display over `gnome-remote-desktop` (RDP, LAN IPv4
-only) and Sunshine. There is no Weston, no seatd and no separate RDP login session. Companion
+only) and Sunshine. The session uses native udev/logind and has no separate RDP login session. Companion
 meta-packages are `openwrt-desktop-ime` (Fcitx5 with the GNOME Kimpanel extension) and
 `openwrt-desktop-audio` (PipeWire/PulseAudio adapter).
 
@@ -143,7 +142,7 @@ systemd `LoadCredential`; never put user passwords or credentials in firmware or
 The recipes cover session startup through PAM/logind (no display manager),
 GTK4/GJS/SpiderMonkey, Xwayland, XDG portals, `systemd-udev`/logind seats, and the pinned Kimpanel
 extension. See `docs/gnome-desktop.md`;
-`docs/desktop.md` documents the superseded Weston/VNC profile.
+`docs/desktop.md` is the shared-session setup entry point.
 
 ### Kernel: mainline series and parallel generations
 
@@ -383,7 +382,7 @@ Older docs are Chinese (`docs/local-build.md`, `docs/native-development.md`,
 `docs/custom-package-updates.md`); newer ones are English — match the neighbouring document.
 
 Commit subjects use `area: imperative summary` (e.g. `systemd: maintain full kmod indexes through
-boot and APK changes`, `desktop: replace Weston with GNOME and native RDP`). Feature commits
+boot and APK changes`, `desktop: provide shared GNOME and native RDP`). Feature commits
 typically add the code, the config fragment or snapshot update, and both docs together. Before
 pulling upstream, a `backup/pre-upstream-<date>` branch is cut.
 
@@ -395,8 +394,8 @@ pulling upstream, a `backup/pre-upstream-<date>` branch is cut.
   four spaces in Python, `NNN-description.patch` names, focused commits with feed histories kept
   separate, explicit-path staging, and feed publication / device deployment only when explicitly
   authorized.
-- `README.md` retains upstream introduction text alongside this fork's private clone instructions;
-  the upstream `opkg` description does not describe this tree, which uses APK.
+- `README.md` is the Chinese project entry point; `README.en.md` is its English counterpart.
+  Both describe this fork's glibc/APK/native-systemd/GNOME architecture and private clone workflow.
 - `.github/llm-review-rules.md` holds project-specific review rules. Beyond patch regeneration, it
   requires LED properties (`color`/`function`, not `label = "green:status"`) and `nvmem-cells` for
   MACs instead of `mediatek,mtd-eeprom`, and requires new-device commits to document hardware,

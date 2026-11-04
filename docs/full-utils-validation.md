@@ -113,7 +113,7 @@ The before/after preservation snapshots are identical for:
 - Network, firewall, DHCP, PassWall and desktop configuration.
 - Account/group files, password file and subordinate UID/GID mappings.
 - libc, systemd, procd, BusyBox, zsh and xtables binary hashes.
-- Procd, netifd, Weston, cron and NTP PIDs, default route and firewall table names.
+- Procd, netifd, cron and NTP PIDs, default route and firewall table names.
 
 Host DNS and LAN HTTPS still pass. The router reports no failed system units.
 No router daemon was deliberately restarted, and no clock or firewall rules

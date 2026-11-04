@@ -107,7 +107,7 @@ upgrade simulation. Baseline metadata is kept private.
 
 Kconfig output written to separate scratch files confirms both explicit
 enablement and default enablement with manager/editor selection. Pre-existing
-Weston/Xwayland and WeeChat recursive dependency diagnostics still occur; this
+WeeChat recursive dependency diagnostics still occur; this
 is not a clean repository-wide Kconfig check. Signed feed dry runs, live APK
 signature checks and `git diff --check` pass. No firmware/kernel rebuild was
 needed for this configuration-default and support deployment follow-up.

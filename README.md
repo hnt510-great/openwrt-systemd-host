@@ -1,20 +1,32 @@
-![OpenWrt logo](include/logo.png)
+# OpenWrt：路由器与 GNOME 桌面
 
-OpenWrt Project is a Linux operating system targeting embedded devices. Instead
-of trying to create a single, static firmware, OpenWrt provides a fully
-writable filesystem with package management. This frees you from the
-application selection and configuration provided by the vendor and allows you
-to customize the device through the use of packages to suit any application.
-For developers, OpenWrt is the framework to build an application without having
-to build a complete firmware around it; for users this means the ability for
-full customization, to use the device in ways never envisioned.
+**简体中文** | [English](README.en.md)
 
-Sunshine!
+面向 x86_64 的 OpenWrt 定制主树，将路由、普通用户 GNOME 桌面、容器与
+本机虚拟化整合在同一套系统中。项目保留 UCI、LuCI 和 procd 服务接口，
+使用 glibc、APK 和原生 systemd，并跟踪 Linux 7.3 主线内核系列。
 
-## This private fork
+## 项目特点
 
-The main tree, feeds and Argon theme are hosted in private repositories under
-`hnt510-great`. Authenticate before cloning:
+| 领域 | 实现 |
+| --- | --- |
+| 系统基础 | x86_64、glibc、签名 APK、合并 `/usr` 布局、原生 systemd；procd 提供 OpenWrt 服务与恢复接口 |
+| 桌面 | GNOME 51 普通用户 Wayland 会话，包含 Files、Terminal、Tweaks、Firefox ESR 和中文输入支持 |
+| 远程访问 | GNOME Remote Desktop 的 LAN RDP 与 Sunshine/Moonlight 共享本地同一个桌面会话 |
+| 音频与输入 | PipeWire/WirePlumber、PulseAudio 兼容层、Fcitx5 与 GNOME Kimpanel |
+| 应用与开发 | 用户级 Flatpak、AppImage、原生开发工具、Rust 构建支持 |
+| 容器与虚拟化 | Rootless Podman、systemd/Quadlet、QEMU/KVM、libvirt、virt-manager 与 SPICE/VirGL |
+| 路由增强 | Full cone NAT、dnsmasq nftset netlink 快路径；Passwall 为默认代理方案，daed 为默认停用的替代方案 |
+| 升级 | ELF/ucode ABI 检查、不可变 APK 身份、内核生成批次与试启动、基于路由器升级预检的发布流程 |
+
+这是配套维护的主树与 feeds 组合。具体选项见
+[`configs/x86-64-systemd-desktop.config`](configs/x86-64-systemd-desktop.config)，
+架构与运行方式见 [原生 systemd](docs/systemd.md) 和 [GNOME 桌面](docs/gnome-desktop.md)。
+
+## 获取源码
+
+主树、8 个活动 feeds 和 Argon 主题共使用 10 个私有 GitHub 仓库。
+构建账号需要对这些仓库具有读取权限。先在构建机完成认证：
 
 ```sh
 gh auth login --hostname github.com --git-protocol https --web
@@ -25,108 +37,75 @@ cd openwrt
 ./scripts/feeds install -a
 ```
 
-The custom feed lives in the main tree; its updater initializes the Argon
-submodule automatically. This fork's update command also checks upstream
-versions of registered custom packages and can modify recipes. For the saved
-configuration and upstream maintenance workflow, see [local build](docs/local-build.md).
-Repository layout and validation are documented in
-[private GitHub source hosting](docs/github-source-hosting.md).
+`custom` feed 直接链接主树的 `package/custom`；更新器会初始化 Argon 主题
+子模块，并检查注册的 custom 包上游版本，因此 `update -a` 可能修改配方。
+已有工作区只需重建索引时，使用 `./scripts/feeds update -i -a`。
 
-## Download
+## 配置与构建
 
-Built firmware images are available for many architectures and come with a
-package selection to be used as WiFi home router. To quickly find a factory
-image usable to migrate from a vendor stock firmware to OpenWrt, try the
-*Firmware Selector*.
+使用具备 OpenWrt 构建依赖的 Linux 主机。项目保留完整配置和按功能拆分的片段。
+仅在新 checkout 中恢复保存的完整配置：
 
-* [OpenWrt Firmware Selector](https://firmware-selector.openwrt.org/)
-
-If your device is supported, please follow the **Info** link to see install
-instructions or consult the support resources listed below.
-
-##
-
-An advanced user may require additional or specific package. (Toolchain, SDK, ...) For everything else than simple firmware download, try the wiki download page:
-
-* [OpenWrt Wiki Download](https://openwrt.org/downloads)
-
-## Development
-
-To build your own firmware you need a GNU/Linux, BSD or macOS system (case
-sensitive filesystem required). Cygwin is unsupported because of the lack of a
-case sensitive file system.
-
-### Requirements
-
-You need the following tools to compile OpenWrt, the package names vary between
-distributions. A complete list with distribution specific packages is found in
-the [Build System Setup](https://openwrt.org/docs/guide-developer/build-system/install-buildsystem)
-documentation.
-
-```
-binutils bzip2 diff find flex gawk gcc-6+ getopt grep install libc-dev libz-dev
-make4.1+ perl python3.8+ rsync subversion unzip which
+```sh
+cp configs/x86-64-systemd-desktop.config .config
+make defconfig
+make download
+python3 scripts/build-and-publish.py build-only -j12 V=s
 ```
 
-### Quickstart
+已有工作区应保留 `.config`，需要时用 `scripts/kconfig.pl` 合并功能片段。
+`build-only` 为完整构建保留内核生成批次，且不发布 APK、不部署设备。
+原生 systemd 的固件和包输出位于 `bin/systemd/`。
 
-1. Run `./scripts/feeds update -a` to obtain all the latest package definitions
-   defined in feeds.conf / feeds.conf.default
+单包构建示例：
 
-2. Run `./scripts/feeds install -a` to install symlinks for all obtained
-   packages into package/feeds/
+```sh
+make package/custom/openwrt-desktop/compile V=s
+make package/feeds/packages/qemu/compile V=s
+```
 
-3. Run `make menuconfig` to select your preferred configuration for the
-   toolchain, target system & firmware packages.
+完整新镜像必须搭配相同 ABI 的模块和开发头文件。构建流程、配置恢复与历史
+feed 补丁说明见 [本地构建](docs/local-build.md)。
 
-4. Run `make` to build your firmware. This will download all sources, build the
-   cross-compile toolchain and then cross-compile the GNU/Linux kernel & all chosen
-   applications for your target system.
+## Feeds 与维护
 
-### Related Repositories
+| Feed | 私有仓库 | 用途 |
+| --- | --- | --- |
+| `packages` | [openwrt-packages](https://github.com/hnt510-great/openwrt-packages) | 系统库、应用、容器和虚拟化依赖 |
+| `luci` | [openwrt-luci](https://github.com/hnt510-great/openwrt-luci) | Web 管理界面及本地集成 |
+| `video` | [openwrt-video](https://github.com/hnt510-great/openwrt-video) | 图形库、Mesa 和显示组件 |
+| `routing` | [openwrt-routing](https://github.com/hnt510-great/openwrt-routing) | 可选路由与组网软件 |
+| `telephony` | [openwrt-telephony](https://github.com/hnt510-great/openwrt-telephony) | 语音通信及相关依赖 |
+| `passwall_packages` | [openwrt-passwall-packages](https://github.com/hnt510-great/openwrt-passwall-packages) | 代理核心、DNS 工具和规则数据 |
+| `passwall_luci` | [openwrt-passwall-luci](https://github.com/hnt510-great/openwrt-passwall-luci) | Passwall 页面、服务脚本和翻译 |
+| `taskplan` | [openwrt-taskplan](https://github.com/hnt510-great/openwrt-taskplan) | DDNS-Go 服务和 LuCI 界面 |
 
-The main repository uses multiple sub-repositories to manage packages of
-different categories. All packages are installed via the OpenWrt package
-manager called `opkg`. If you're looking to develop the web interface or port
-packages to OpenWrt, please find the fitting repository below.
+各 feed 独立提交。`scripts/feeds update` 拉取私有分支；维护者将原始上游
+合并、验证并推送后，其他机器才能取得相应更新。仓库地址、分支和原始上游见
+[源码仓库清单](configs/github-source-repositories.json) 与
+[私有 GitHub 托管说明](docs/github-source-hosting.md)。
 
-* [LuCI Web Interface](https://github.com/openwrt/luci): Modern and modular
-  interface to control the device via a web browser.
+## 设备配置与文档
 
-* [OpenWrt Packages](https://github.com/openwrt/packages): Community repository
-  of ported packages.
+固件不预置个人账号、密码、SSH 密钥或代理配置。创建普通用户后，在设备上
+使用 `desktop-setup USER`、`desktop-rdp-setup USER` 等工具进行显式配置。
+桌面、代理和虚拟机的使用说明见：
 
-* [OpenWrt Routing](https://github.com/openwrt/routing): Packages specifically
-  focused on (mesh) routing.
+- [普通用户与账号](docs/multiuser.md)、[GNOME 会话与远程桌面](docs/gnome-desktop.md)
+- [中文输入](docs/desktop-ime.md)、[桌面音频](docs/desktop-audio.md)、[Firefox](docs/firefox.md)
+- [Flatpak](docs/flatpak.md)、[AppImage](docs/appimage.md)、[原生开发](docs/native-development.md)
+- [Rootless Podman](docs/podman-rootless.md)、[Libvirt](docs/libvirt.md)、[虚拟机管理](docs/virt-manager.md)
+- [Full cone NAT](docs/fullcone-nat.md)、[DNS 快路径](docs/dnsmasq-nftset.md)、[daed](docs/daed.md)
+- [内核升级](docs/kernel-upgrade.md)、[APK 升级预检](docs/apk-upgrade-preflight.md)、[发布准备](docs/publication-readiness.md)
 
-* [OpenWrt Video](https://github.com/openwrt/video): Packages specifically
-  focused on display servers and clients (Xorg and Wayland).
+`docs/*-validation.md` 区分源码检查、VM 和物理设备结果；历史记录不代表
+当前每次构建均已验收。当前桌面证据见 [GNOME 验证](docs/gnome-desktop-validation.md)
+及其链接的物理部署记录。
 
-## Support Information
+APK 发布与设备部署是独立操作；生产发布要求可达路由器及通过升级预检。
+主机定时维护保持停用。个人 overlay、凭据、签名密钥和构建产物不纳入源码仓库。
 
-For a list of supported devices see the [OpenWrt Hardware Database](https://openwrt.org/supported_devices)
+## 许可与来源
 
-### Documentation
-
-* [Quick Start Guide](https://openwrt.org/docs/guide-quick-start/start)
-* [User Guide](https://openwrt.org/docs/guide-user/start)
-* [Developer Documentation](https://openwrt.org/docs/guide-developer/start)
-* [Technical Reference](https://openwrt.org/docs/techref/start)
-
-### Support Community
-
-* [Forum](https://forum.openwrt.org): For usage, projects, discussions and hardware advise.
-* [Support Chat](https://webchat.oftc.net/#openwrt): Channel `#openwrt` on **oftc.net**.
-
-### Developer Community
-
-* [Bug Reports](https://bugs.openwrt.org): Report bugs in OpenWrt
-* [Dev Mailing List](https://lists.openwrt.org/mailman/listinfo/openwrt-devel): Send patches
-* [Dev Chat](https://webchat.oftc.net/#openwrt-devel): Channel `#openwrt-devel` on **oftc.net**.
-
-## License
-
-OpenWrt is licensed under GPL-2.0
-
-For this fork’s source publication settings and audit scope, see
-[public source publication](docs/public-source-publication.md).
+本项目基于 [OpenWrt](https://github.com/openwrt/openwrt)，保留其 GPL-2.0
+许可和上游版权。各软件包按各自配方和源码中的许可声明分发；详见 [COPYING](COPYING)。

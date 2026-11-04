@@ -1,9 +1,9 @@
-# Firefox ESR on the Weston desktop
+# Firefox ESR on the GNOME desktop
 
 The x86_64/glibc image includes Mozilla's official Simplified Chinese Firefox
 ESR build as `firefox-esr-bin`. It runs directly on Wayland as an ordinary user.
 After creating a user, setting a password and running `desktop-setup USER`,
-click the Firefox icon in Weston's top panel. The browser does not start
+launch Firefox from the GNOME application overview. The browser does not start
 automatically. From the desktop terminal, run:
 
 ```sh
@@ -29,8 +29,8 @@ the browser uses Wayland and needs no Xorg or Xwayland server.
 
 This integration covers browsing, downloads and basic video pictures.
 Protected streaming and screen sharing are outside this integration. Hardware
-video decoding is validated separately from audio and remote-display transport. Weston VNC mirrors the desktop and its input;
-it does not transport browser audio.
+video decoding is validated separately from audio and remote-display transport. GNOME RDP and Sunshine share the desktop session; their audio paths are
+documented in [desktop audio](desktop-audio.md).
 
 ## VA-API video decoding
 
@@ -157,7 +157,7 @@ Run `python3 scripts/tests/test-firefox-updater.py` on the build host.
 Run `scripts/tests/firefox-smoke.sh` on the target after copying the script.
 Fresh-image VM checks cover Wayland, sandbox status, HTTPS, LuCI, Chinese text,
 clipboard, file selection/downloads, MP4/WebM playback, profile persistence,
-APK reinstall, retained-configuration recovery upgrades and desktop/VNC
+APK reinstall, retained-configuration recovery upgrades and desktop/remote-access
 regressions. Physical Intel display, USB and performance require hardware tests.
 
 See [the firmware validation record](firefox-validation.md) for results and artifacts.

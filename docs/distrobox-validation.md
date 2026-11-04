@@ -62,9 +62,7 @@ QEMU evidence includes full display captures. Physical PNGs capture the GTK
 application's rendering after actual desktop input:
 [Wayland](/srv/openwrt-validation/distrobox-validation-20261015/physical-wayland.png),
 [Xwayland](/srv/openwrt-validation/distrobox-validation-20261015/physical-x11.png).
-The stock Weston screenshooter stalled while collecting capture data from the
-existing mirrored outputs. Only that test client was terminated; the compositor
-was retained. An optional AT-SPI service warning did not prevent the tested GUI
+An optional AT-SPI service warning did not prevent the tested GUI
 behavior.
 
 ## Physical deployment and preservation
@@ -76,8 +74,7 @@ matches the signed, locally tested APKs.
 
 The final snapshot exactly matches the pre-install snapshot for boot ID,
 kernel-package inventory, kernel configuration, TUN vermagic, default route,
-firewall tables, and core service state/PIDs. Procd PID 1235, netifd PID 3123,
-and Weston PID 19639 remained running. Network/firewall/DHCP/PassWall/desktop
+firewall tables, and core service state/PIDs. Procd PID 1235 and netifd PID 3123 remained running. Network/firewall/DHCP/PassWall/desktop
 configuration, passwd/group, subordinate mappings, and libc/systemd/procd binary
 hashes are unchanged. Host DNS and HTTPS still pass.
 

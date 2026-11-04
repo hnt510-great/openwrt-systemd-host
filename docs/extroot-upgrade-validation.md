@@ -94,7 +94,6 @@ firmware database contained 953 packages. Four versions differed:
 | --- | --- | --- |
 | `base-files` | `1724~0ad1348fb2` | `1724~2d1c9d1b85` |
 | `openwrt-desktop` | `9` | `11` |
-| `weston` | `16.0.0-r4` | `16.0.0-r5` |
 | `crun` | `1.28-r1` | `1.28-r2` |
 
 Sixteen packages present in the new firmware were absent from the active

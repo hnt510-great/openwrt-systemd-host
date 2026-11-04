@@ -42,17 +42,14 @@ were created only in the disposable guest overlay.
 | Terminal authentication | `systemctl` invoked pkttyagent and successfully authenticated the administrator identity `root` |
 | SSH PAM | Password and public-key login worked; logind runtime/session environment supplied |
 | Console PAM | Real ttylogin password entry registered an ordinary-user `login`/`tty` session with `/run/user/UID` |
-| Desktop PAM | Weston registered as `openwrt-desktop`, type Wayland, active on seat0/VT7 |
 | User services and timer | Real SSH login controlled a personal service and a timer that wrote its expected marker |
 | Resource controls | User service cgroup had `memory.max=33554432`, `pids.max=16`, and `cpu.max=25000 100000` |
 | Last logout | User manager and runtime directory stopped/vanished after the last ordinary session without lingering |
 | Linger | Explicit enable kept the manager/service after logout; disable restored cleanup; marker and enabled service survived reboot |
-| Concurrent desktop/SSH | Desktop stop terminated Weston/virt-manager while preserving another SSH session, user manager PID and shared bus |
-| Desktop/VNC | Wrong password rejected; TLS login and remote input worked; local and remote screenshots matched pixel-for-pixel |
 | libvirt compatibility | virt-manager GUI connected to QEMU/KVM; virsh/libvirt/GI runtime smoke passed; libvirt-admin member allowed and nonmember denied |
 | Router/native regressions | ubus, LAN, LuCI listener, native timer/socket activation, cgroup limits, journald and logread smoke passed |
 | Persistence/upgrade preparation | Machine ID and grants survived reboot; final image passed `sysupgrade -T`; backup included grants, linger and personal unit files |
-| procd recovery | procd PID 1; PAM SSH/console password login and bad-password rejection worked without logind; LAN and TLS seatd desktop worked |
+| procd recovery | procd PID 1; PAM SSH/console password login and bad-password rejection worked without logind; LAN worked |
 | Failsafe | GRUB failsafe entry reached the root ash console with PID 1 `init`, the failsafe marker, and no native systemd manager |
 
 Recovery retains libvirt's existing behavior: its native daemons and guests
@@ -61,8 +58,7 @@ libvirt polkit authorization. Its existing management group remains powerful.
 
 ## Scope and maintenance
 
-The desktop still uses seatd. Udev device ACLs, a graphical polkit agent and
-pkexec are not included. There are no preconfigured ordinary users or grants.
+A graphical polkit agent and pkexec were outside this validation. There are no preconfigured ordinary users or grants.
 Logind's power/lid/idle actions remain disabled; background-process behavior
 retains `KillUserProcesses=no`. Lingering is an explicit administrator choice.
 

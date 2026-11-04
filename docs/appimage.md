@@ -1,10 +1,10 @@
 # AppImage applications on the systemd desktop
 
 `openwrt-appimage` supports downloaded x86_64 AppImages on this checkout's
-glibc/native-systemd Weston desktop. It supplies FUSE 2 and FUSE 3, Mozilla
-NSS/NSPR, the CUPS client library and the existing GTK/audio/font libraries. `WESTON_XWAYLAND` adds
-Weston's on-demand rootless X server for X11 applications. The desktop Mesa
-provider and GLVND include GLX as well as their existing Wayland EGL/GLES paths.
+glibc/native-systemd GNOME desktop. It supplies FUSE 2 and FUSE 3, Mozilla
+NSS/NSPR, the CUPS client library and the existing GTK/audio/font libraries.
+GNOME supplies Xwayland for X11 applications; Mesa and GLVND provide the
+configured graphics runtime.
 
 Merge `configs/appimage.config` into the existing configuration and run
 `make defconfig`. The new selections are also retained in the desktop config.
@@ -17,7 +17,7 @@ their incremental patch and source revisions are recorded with this feature.
 The application runtime is embedded in each AppImage. No AppImage daemon or
 automatic application installer is needed. As the ordinary desktop user,
 download an application from its publisher, verify its published checksum or
-signature, and run it from a Weston terminal:
+signature, and run it from a GNOME terminal:
 
 ```sh
 mkdir -p ~/Applications
@@ -29,7 +29,7 @@ Replace an application file manually to update it. AppImage packaging does
 not automatically sandbox applications; an Electron application's own sandbox
 is separate and should remain enabled. Root execution and `--no-sandbox` are
 not part of the supported desktop workflow. Native Wayland options differ by
-application; X11 applications use the `DISPLAY` assigned by Weston.
+application; X11 applications use the `DISPLAY` supplied by the desktop session.
 
 Older Type 2 runtimes use the real FUSE 2 `libfuse.so.2` and `fusermount`.
 Current static runtimes can use `fusermount3`. Both helpers must be owned by
@@ -55,7 +55,7 @@ services need separate compatibility work.
 Native-systemd images intentionally disable public OpenWrt snapshot feeds.
 Use signed packages from the matching `bin/systemd` build, not Alpine or
 public musl/procd repositories. The AppImage bundle contains its dependency
-packages and the updated Weston, Cairo, GLVND, Mesa and desktop-session hooks.
+packages and their matching desktop libraries and session integration.
 
 Transfer the complete bundle and its checksums over SSH. As root, verify the
 checksums and APK signatures, then simulate the offline transaction before
@@ -63,21 +63,14 @@ installing it. The transaction must contain only the reviewed additions and
 desktop-library replacements; libc, kernel and router packages are excluded.
 Keep the original desktop APKs and configuration backup for rollback.
 
-After building, freeze the reviewed additions for an existing desktop image:
-
-```sh
-python3 scripts/create-appimage-bundle.py /path/to/new-appimage-bundle
-```
-
-This 21-package bundle assumes the existing desktop's other dependencies are
-installed. It is not a complete dependency closure for an arbitrary firmware.
-The generator verifies package signatures and refuses to overwrite an existing
-directory. Transfer the directory, then run `sh install.sh --simulate` as root.
-Review every addition and replacement before `sh install.sh --install`.
+Build and review the complete userspace dependency transaction for the current
+GNOME image. Retain the existing trust configuration and use matching signed
+packages. Package sets from earlier desktop integrations are not a dependency
+closure for the current image.
 
 No firmware reflash or device reboot is needed for these userspace packages.
 Restarting the desktop to activate Xwayland closes its applications; router
-services remain running. Open a new Weston terminal after the restart so
+services remain running. Open a new desktop terminal after the restart so
 `DISPLAY` and `WAYLAND_DISPLAY` refer to the current session.
 
 Application files and data under `/home` enter the existing upgrade backup
@@ -96,6 +89,6 @@ arguments and renderer seccomp state when validating an application's sandbox.
 controlled legacy and modern probe images built from
 `scripts/tests/appimage-probe.c`. It checks FUSE mounting, arguments containing
 spaces, unmount cleanup and extraction fallback. GUI acceptance additionally
-checks both GTK backends, local/VNC input, clipboard and an official Electron
+checks both GTK backends, local/RDP input, clipboard and an official Electron
 AppImage with its sandbox enabled. See `appimage-validation.md` for the exact
 artifacts, build results and physical-device evidence.

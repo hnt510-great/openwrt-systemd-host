@@ -41,9 +41,7 @@ Pango、HarfBuzz 和 GdkPixbuf 增加必要 metadata 构建支持。
 固件安装运行所需 typelib；Python 不读取 Debian 的 typelib 或目标运行库。
 GTK 3 使用独立库名和包名，不替换 GTK 4 包。GTK 4 应用的同时运行未单独测试。
 
-修复了 GTK 3 对 Weston VNC 动态 seat 的绑定，以及弹出菜单使用错误 seat
-输入序号的问题；验证了客户端连接、断开后重连及菜单操作。其他关键修复
-包括 libosinfo/libvirt-glib 交叉构建时的 introspection 禁用、Python 扩展的
+相关构建修复包括 libosinfo/libvirt-glib 交叉构建时的 introspection 禁用、Python 扩展的
 OpenWrt 构建规则覆盖、缓存安装脚本和 libvirt socket drop-in 排序。
 
 逐层软件包构建及最终 `make -j4 V=s` 成功，完整构建日志为父目录的
@@ -64,7 +62,6 @@ schema、GIO、MIME 缓存及图标资源存在。
 
 | 项目 | 结果与证据 |
 | --- | --- |
-| 冷启动与普通用户 | 新磁盘启动原生 systemd；自行创建测试账号后从 Weston 图标启动，进程以普通用户运行。`application-identity.log` |
 | 授权 | 未授权 GUI 提示 root 命令、原始错误和重试；授权成功；撤销并重启桌面后拒绝；另一个用户仍拒绝。`authorization-before.png`、`revoked-after-host-reboot.png` |
 | UNIX sockets | QEMU、storage、secret 的读写/只读客户端 sockets 为 root:libvirt-admin 0660；admin、log、lock 为 root:root 0600；宿主重启后保持。`initial-domain-network-permissions.log`、`host-reboot-persistence.log` |
 | 连接失败重试 | 停止 QEMU libvirt 服务和 sockets 后显示具体错误；恢复服务后点击重试成功。`daemon-failure-error.png`、`daemon-retry-success.png` |
@@ -76,7 +73,6 @@ schema、GIO、MIME 缓存及图标资源存在。
 | XML 与设置 | GtkTextView XML 页面可用；GUI 启用 XML 编辑，应用重启后保留；宿主重启前后 dconf 文件 SHA256 相同。`gtk-textview-xml.png`、`preferences-after-app-restart.png`、`host-reboot-preferences-authorization.log` |
 | KVM 与路由 | 三个客体的 QMP query-kvm 均为 enabled=true；客体从 OpenWrt dnsmasq 获得 DHCP 地址，经宿主访问软件仓库，并提供 HTTP。`pre-host-reboot.log`、`iso-network-packages.png` |
 | 持久化 | 宿主重启后定义及目录池保留，ISO 客体自动启动，内存为 640 MiB，HTTP 返回 FINAL_DISK_MARKER_20261011。`host-reboot-persistence.log` |
-| 桌面会话 | 私有 D-Bus 随桌面退出；TLS 证书校验连接成功、错误密码被拒绝；VNC 重连及菜单正常。`desktop-dbus-cleanup-and-revoke.log`、`vnc-authentication.log` |
 | systemd 回归 | 路由服务、LAN、timer、socket activation、cgroup 内存/进程限制、journal 与 OpenWrt 日志检查通过。`systemd-router-smoke.log` |
 | procd recovery | 同一测试磁盘冷启动 recovery，PID 1 为 procd，LAN/DHCP/LuCI/SSH 正常；最终固件 sysupgrade -T 和配置备份成功。`procd-recovery.log`、`procd-recovery-image-backup-check.log` |
 

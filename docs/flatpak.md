@@ -1,10 +1,9 @@
 # Flatpak on the native systemd desktop
 
-This optional package supports ordinary-user Flatpak applications on the
-x86_64/glibc/systemd Weston image. Applications are managed from a terminal.
-The first version covers Wayland windows and file selection through the GTK
-desktop portal. X11 applications, desktop audio, screen sharing, a graphical
-software store and system-wide installation are outside this version.
+This package supports ordinary-user Flatpak applications on the
+x86_64/glibc/native-systemd GNOME desktop. The GNOME and GTK portal backends
+are packaged with the desktop integration. Applications retain their normal
+sandbox permissions and runtime dependencies.
 
 ## Build
 
@@ -37,7 +36,7 @@ Build the packages first, then the complete image:
 
 ```sh
 make -j4 package/custom/openwrt-flatpak/compile V=s
-make -j4 V=s
+python3 scripts/build-and-publish.py build-only -j4 V=s
 ```
 
 The native firmware remains under `bin/systemd/targets/x86/64-glibc/`.
@@ -78,28 +77,17 @@ Use `--user` for all management operations. Flatpak itself otherwise defaults
 to system installation. Existing native applications, including Firefox,
 are independent of these commands.
 
-Weston's autolaunch hook imports the display, session D-Bus address and Flatpak export directories
-into `systemd --user`, starts the OpenWrt Flatpak session target and restarts the
-portal services. The GTK backend handles file-selection dialogs. The hook
-starts a separate user service to monitor the compositor and stops graphical
-portal services when it exits. This service survives termination of the
-desktop's PAM session, allowing its cleanup to finish.
-The session target pulls in `graphical-session.target` by dependency; systemd
-does not permit manually starting that target. FUSE device permissions are
-provided through procd's hotplug JSON rules, with a matching udev rule for
-systems using udev.
-The desktop starts through a non-setuid helper that clears inherited and
-ambient capabilities: `pam_systemd` can grant `CAP_WAKE_ALARM` to seat sessions,
-which non-setuid bubblewrap rejects. The FUSE mounting helper can still acquire
-its normal setuid privilege when needed. Mirrored VNC input uses the local
-Weston seat, allowing GTK applications to receive both local and remote input;
-disconnecting a client releases its held keys and buttons.
-SSH alone does not provide a graphical display; run applications from the
-desktop terminal. For diagnostics use:
+GNOME supplies the session display and D-Bus environment. The desktop
+integration imports application export directories and connects the per-user
+portal services to that session. The capability-clearing helper keeps inherited
+capabilities from interfering with non-setuid bubblewrap. FUSE helpers retain
+their configured permissions.
+
+Launch applications from the ordinary user's graphical session. For diagnostics:
 
 ```sh
-systemctl --user status xdg-desktop-portal xdg-desktop-portal-gtk
-journalctl --user -u xdg-desktop-portal -u xdg-desktop-portal-gtk
+systemctl --user status xdg-desktop-portal xdg-desktop-portal-gnome xdg-desktop-portal-gtk
+journalctl --user -u xdg-desktop-portal
 ```
 
 ## Storage and firmware upgrades
@@ -143,7 +131,7 @@ configuration backup outside the device.
 
 Acceptance requires a freshly built image in an isolated VM: ordinary-user
 installation and signature checks, Wayland GUI input, portal file grants,
-reboot persistence, upgrade restoration and existing router/SSH/VNC services.
+reboot persistence, upgrade restoration and existing router/SSH/remote-desktop services.
 VM rendering does not establish physical Intel GPU performance. Record actual
 image size, disk usage and memory measurements with the validation report.
 See [flatpak-validation.md](flatpak-validation.md) for the completed build,

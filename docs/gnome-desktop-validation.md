@@ -1,10 +1,9 @@
 # GNOME desktop validation
 
 Full GNOME firmware builds and disposable VM client checks have completed.
-Existing Weston reports are historical evidence, not GNOME acceptance.
 Physical-router deployment and hardware acceptance remain separate.
 The subsequent [physical deployment report](gnome-desktop-deployment-20261028.md)
-records signed publication, installation, hardware checks and Weston removal.
+records signed publication, installation and hardware checks.
 
 ## Recorded run: 2026-10-28
 
@@ -29,7 +28,7 @@ Source/feed heads and the original configuration are recorded in `baseline/`.
 | LAN lifecycle | Actual netifd LAN address change moves the listeners; removing the supplied LAN environment closes remotes while retaining the local desktop. Restoring LAN restores remotes. `vm-final/lan-migration.json` |
 | Boot persistence | Three actual reboots in each rendering path preserve credentials, RDP input, Moonlight pairing and portal capture consent without local login. `vm-final/boot-persistence.json`, `vm-release/boot-persistence.json`. The fresh release software cycles take 69.48, 71.70 and 97.73 seconds including client checks. |
 | Failure paths | Invalid RDP credentials produce `ERRCONNECT_LOGON_FAILURE`. Missing keyring bootstrap prevents desktop startup and leaves RDP closed; restoring the unchanged credential restores the session, RDP authentication and already-paired Moonlight capture/audio. Wrong-passphrase rejection is also tested against the real target keyring daemon on a private bus. `vm-release/invalid-rdp.json`, `keyring-negative.json`, `valid-rdp-after-keyring.json`, `after-keyring-stream.json`, keyring test log |
-| Image contents | Required units, locale, typelib, schemas and icons present; retired Weston and GNOME system/headless/handover RDP paths absent; no preset desktop credentials. `final-image-payload-audit.json`. Fresh release first boot decodes an SVG application icon without a manual cache repair. |
+| Image contents | Required units, locale, typelib, schemas and icons present; retired desktop and GNOME system/headless/handover RDP paths absent; no preset desktop credentials. `final-image-payload-audit.json`. Fresh release first boot decodes an SVG application icon without a manual cache repair. |
 | Router smoke | Disposable guest namespaces exercise LAN DHCP, native DNS, WAN DHCP and firewall/NAT; procd/netifd/SSH remain usable and fixture configuration is restored. `vm-software/router-smoke.log`. Kernel generation reports ready with no pending activation; installed package queries pass. `vm-final/package-kernel-smoke.log` |
 
 The router fixture uses a temporary native DNS listener on port 1053 because

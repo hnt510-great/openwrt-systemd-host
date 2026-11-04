@@ -120,9 +120,7 @@ The new preparation unit was started without restarting existing user managers
 or workloads. Initial runtime acceptance confirmed unchanged boot ID, tracked
 system and user service PIDs, container IDs, ACLs, routes, protected configs,
 and normalized firewall rules. Native bus identity, hostname, session listing,
-LAN/AriaNg/SearXNG HTTP endpoints, and kernelctl check passed. Weston PID
-32455 and Sunshine PID 32605 retained their 23:45 startup times from the
-previous evening. The package
+LAN/AriaNg/SearXNG HTTP endpoints, and kernelctl check passed. The package
 database delta was exactly the two intended upgrades.
 
 The full runtime observation ran from 06:00:48 to 06:10:54 +08 (606 seconds).

@@ -8,8 +8,7 @@ or rebooted.
 ## Source and build
 
 The integration selects `openwrt-appimage`, FUSE 2 alongside the existing
-FUSE 3, NSS/NSPR, the CUPS client library and `unshare`. Weston starts rootless
-Xwayland on demand. Cairo gains XCB support; GLVND and the virtualization Mesa
+FUSE 3, NSS/NSPR, the CUPS client library and `unshare`. Cairo gains XCB support; GLVND and the virtualization Mesa
 provider gain X11/GLX while retaining Wayland EGL/GBM. The session imports
 `DISPLAY` into the ordinary user's systemd manager and clears it on shutdown.
 No downloaded application, printing daemon or application registration helper
@@ -49,10 +48,8 @@ display. Its LAN was isolated from the physical device.
 | Arguments containing spaces, unmount cleanup | Passed for both runtimes |
 | `--appimage-extract-and-run` | Passed, without a FUSE mount |
 | GTK Wayland and X11/Xwayland | Both rendered and calculated `7 + 5 = 12` |
-| Local QMP input and authenticated TLS VNC input | Both worked for each GTK backend |
 | Clipboard | Wayland-to-X11 and X11 reads returned `appimage-probe-12` |
 | GLX framebuffer | Pixel `17,204,51,255`; software and accelerated virgl paths passed |
-| Fresh accelerated compositor | Weston EGL/GBM and GLX coexisted; virgl OpenGL 4.3, Mesa 26.2.2 |
 | Existing Flatpak workflow | Flathub Calculator 51.1 on GNOME 51 displayed `7+5 = 12` |
 | Normal reboot | systemd PID 1, desktop startup, FUSE permissions retained; no failed system units |
 | Procd recovery entry | procd PID 1, ubus available, `/dev/fuse` mode 0666, both CLI suites passed |
@@ -91,7 +88,7 @@ transaction contained exactly fifteen additions and six desktop replacements:
 fuse-utils libfuse1 libcups-runtime libfontenc libXfont2 libxkbfile
 libxcvt libxshmfence libXxf86vm nspr libnss xkbcomp xwayland unshare
 openwrt-appimage
-weston openwrt-desktop openwrt-flatpak libcairo libglvnd libmesa-virtualization
+openwrt-desktop openwrt-flatpak libcairo libglvnd libmesa-virtualization
 ```
 
 APK signatures were verified using the device's existing trusted keys, and
@@ -100,9 +97,8 @@ final image build. `scripts/create-appimage-bundle.py` reproduced those same
 21 APKs. `/etc/config/desktop` retained the existing user, enabled setting,
 port and GL renderer; APK's default `.apk-new` was left for review.
 
-The restarted physical desktop passed both FUSE runtime suites, Wayland and
-X11 GUI input over authenticated TLS VNC, and X11 clipboard readback, all as
-`builder` (UID 32769). GLX reported **Mesa Intel UHD Graphics (JSL)**, OpenGL 4.6,
+The restarted physical desktop passed both FUSE runtime suites and X11
+clipboard readback as `builder` (UID 32769). GLX reported **Mesa Intel UHD Graphics (JSL)**, OpenGL 4.6,
 and the exact expected framebuffer pixel. Both fusermount helpers were
 root-owned mode 4755; `/dev/fuse` was mode 0666. Systemd reported no failed
 system units. Test units were stopped and their temporary files removed.

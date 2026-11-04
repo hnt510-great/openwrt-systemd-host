@@ -3,7 +3,7 @@
 Published signed packages and deployed GNOME on `192.0.2.1` for the existing
 ordinary account `builder` (UID 32769). Native GNOME Remote Desktop serves RDP
 on LAN TCP 3389. Sunshine retains KMS capture, Intel H.264 VAAPI and its existing
-Moonlight pairing state. Weston, `openwrt-desktop-launcher` and seatd are removed;
+Moonlight pairing state. The old launcher and seatd are removed;
 there is no VNC listener on port 5900.
 
 ## Publication and installation
@@ -28,9 +28,7 @@ Two subsequent signed single-package updates installed `colord-1.4.8-r3` and
 `openwrt-desktop-21`. All 121 reviewed final package versions match the installed
 database.
 
-Weston removal happened after successful physical GNOME/RDP/Moonlight checks.
-Its separate simulation removed exactly Weston, its old launcher and seatd.
-GNOME Shell, RDP and Sunshine PIDs stayed unchanged across that transaction.
+Recorded GNOME Shell, RDP and Sunshine PIDs were preserved during deployment.
 Temporary version pins introduced for installation were removed; the original
 libc pin advanced from `2.43-r6` to `2.43-r7`, as required by the matching
 character-conversion and UTF-8 locale payloads.

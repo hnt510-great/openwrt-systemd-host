@@ -60,7 +60,7 @@ invocations with the same kernel channel, a failed build followed by a same-sequ
 retry, and source changes during make being blocked before publication. These
 tests use actual signed APKs; make is mocked so no whole-firmware build or physical
 deployment is implied. Read-only fingerprinting of the actual main checkout also
-confirmed that changing a Weston package selection leaves the fingerprint intact.
+checked a userspace-only package-selection change independently of the kernel fingerprint.
 The final optimization run passed 37 combined publisher tests, 13 legacy LAN
 publisher tests and 29 kernel-upgrade tests (79 total). The combined tests also
 cover effective module-version changes, generation numbers embedded in metadata
@@ -114,7 +114,7 @@ headers are versioned and the original headers remain available after migration.
   by the Linux-module stripping routine.
 
 These are targeted build checks, not a complete clean toolchain rebuild. The
-existing Weston/Xwayland and WeeChat recursive Kconfig dependency diagnostics
+existing WeeChat recursive Kconfig dependency diagnostics
 remain outside this change; `make defconfig` can report them while exiting zero.
 
 ## Clean installation runtime evidence

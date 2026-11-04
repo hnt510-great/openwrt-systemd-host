@@ -1,6 +1,6 @@
 # GNOME desktop for native systemd
 
-This profile replaces the Weston desktop with GNOME. Local display, GNOME
+This profile runs the shared GNOME desktop. Local display, GNOME
 Remote Desktop's RDP screen sharing, and Sunshine/Moonlight use one ordinary
 user's Wayland session. There is no VNC backend or separate RDP login session.
 The first validation milestone is a disposable VM; publication and installation
@@ -13,7 +13,7 @@ The RDP server is `gnome-remote-desktop`, using FreeRDP libraries internally.
 
 Preserve `.config` before merging `configs/gnome-desktop.config`, then run
 `make defconfig`. The fragment requires x86_64, glibc and native systemd.
-`CONFIG_PACKAGE_libudev-zero`, Weston, seatd and the old desktop launcher must
+`CONFIG_PACKAGE_libudev-zero`, seatd and the old desktop launcher must
 be absent from the resulting profile. Keep GTK-VNC if virt-manager needs it;
 that library does not provide a desktop VNC listener.
 

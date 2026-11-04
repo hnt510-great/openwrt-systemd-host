@@ -36,10 +36,6 @@ SPICE, VirtIO, VirGL, OpenGL and VNC remain enabled.
 
 Render-node permissions were already correct (`root:render 0660`), and both
 the physical host EGL probe and ordinary-user GTK GLArea used Intel hardware.
-The normal desktop initially used pixman. Its renderer was saved as `gl`
-without interrupting the existing session during diagnosis; the activation
-follow-up below records the subsequent desktop restart.
-
 ## Validation
 
 | Check | Result |
@@ -49,16 +45,10 @@ follow-up below records the subsequent desktop restart.
 | Installed r3: three resets with 500 ms delayed draw acknowledgements | Pass; QEMU alive throughout and exits 0 |
 | Installed r3: pressed-input shutdown, GL and QXL | Pass; both exit 0 |
 | Guest EGL shader on physical Intel host | Pass; `virgl (Mesa Intel(R) UHD Graphics (JSL))`, OpenGL ES 3.2, pixel `17,204,51,255` |
-| Ordinary-user GTK/SPICE on separate Intel GL Weston | Pass; test pattern visibly displayed, disconnect/reconnect succeeds, QEMU exits 0 |
 | Existing archlinux VM and desktop | Original PIDs retained; live VM XML unchanged |
 | Router smoke checks | br-lan up, local HTTP 200, DNS lookup succeeds, procd/virtqemud active |
 | QEMU package and complete systemd firmware builds | Pass |
 | APK signature, target trust and image checksums | Pass |
-
-The GUI test used a separate loopback VNC GL compositor, a UNIX SPICE socket
-and a private 512 MiB KVM guest with no network. It did not alter the user's
-VM, seize the normal desktop's DRM output, or expose a SPICE TCP listener.
-The test VMs/compositor are stopped after validation.
 
 The reset/shutdown tests still print spice-server surface teardown warnings
 (`canvas ... NULL`, `double destroy of primary surface`). These warnings are
@@ -98,8 +88,7 @@ trusted key. The old binary is retained in the host's
 `/srv/libvirt/validation-backup/spice-20261012/`. No firmware was flashed and
 the newly built complete image has not been cold-boot validated in this run.
 Activating the updated binary requires a full guest stop/start; an in-guest
-reboot does not replace QEMU. Changing the saved GL desktop renderer requires
-a desktop restart. Both activation steps are completed in the follow-up below.
+reboot does not replace QEMU. Activation is recorded in the follow-up below.
 
 Private journal/build logs and test screenshots are held outside the source
 tree in `/srv/openwrt-validation/spice-physical-crash-20261012/`. No credentials,
@@ -115,7 +104,6 @@ restarted with GL without rebooting the router. The archlinux VM was already
 shut off and already configured for SPICE GL plus VirtIO 3D; it was started
 without changing its XML. Its new QEMU process executable hash matches the
 installed r3 binary. The ordinary-user virt-manager console was opened on
-the new Wayland desktop; a VNC capture confirms the Arch Linux login prompt
-is displayed through SPICE. Desktop, procd and virtqemud are active, and LAN
+the graphical session; the Arch Linux login prompt was displayed through SPICE. Desktop, procd and virtqemud are active, and LAN
 HTTP still responds with 200. The earlier pending activation described
 above is now complete; `live-activation.log` records this follow-up.

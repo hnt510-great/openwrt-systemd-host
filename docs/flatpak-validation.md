@@ -1,7 +1,7 @@
 # Flatpak integration validation — 2026-10-12
 
 The supported configuration is x86_64, glibc and native systemd, with an
-ordinary-user Weston desktop. The acceptance application was the signed
+ordinary-user Wayland desktop. The acceptance application was the signed
 Flathub `org.gnome.Calculator` stable release (51.0, GNOME runtime 51).
 The test fixture `org.openwrt.PortalProbe` used the same runtime and only
 Wayland/IPC permissions; its local unsigned remote was confined to the VM.
@@ -16,7 +16,7 @@ of 4722481 bytes (4.50 MiB) over the starting artifact. Its SHA256 is
 `1d932bd3d22417fdcad115ed14bf504c1fc6d4d6f011f55afea7f4295f5f8f83`.
 The last complete build took 4m56s with a peak compiler/build-process RSS of
 about 2.03 GiB. The selected final packages include `openwrt-flatpak` 1-r5,
-`libpipewire` 1.6.9-r3 and Weston 16.0.0-r3.
+`libpipewire` 1.6.9-r3.
 Compiler/linker flags were checked for host `/usr/include` and `/usr/lib`
 leaks after correcting `libsystemd.pc`; the new libraries/modules have no
 RPATH/RUNPATH pointing at host libraries.
@@ -24,7 +24,7 @@ RPATH/RUNPATH pointing at host libraries.
 All previously selected `.config` options were retained. Nineteen additional
 options select the Flatpak stack and its prerequisites. Unrelated working
 tree changes were retained. Changes span the main tree, `feeds/packages`
-(GnuPG and FUSE), and `feeds/video` (Weston mirrored input); deploy or archive
+(GnuPG and FUSE), and `feeds/video`; deploy or archive
 all three source trees together. Feed commit/base references and incremental
 patches are recorded in `configs/flatpak-feeds.json`; the nineteen additional
 build selections are in `configs/flatpak.config`.
@@ -47,8 +47,6 @@ SSH keys, remotes and applications exist only in the disposable guest.
 | User setup | Root account rejected; setup repeatable; UID repository 0700; repository link preserved |
 | Flathub | Remote import with GPG verification enabled, search, install, update and uninstall/reinstall passed |
 | Sandboxing | Calculator uses seccomp filter mode 2 and no effective capabilities; the desktop clears ambient/inherited capabilities |
-| Wayland and VNC | Keyboard and button input worked in GTK4; local and VNC calculations both produced 12; application pixel components matched over 99.98% |
-| VNC authentication | TLS/X509Plain ordinary-user login passed; root and wrong-password attempts rejected; a held Control key was released on disconnect |
 | File authorization | GTK native Save dialog returned `/run/user/UID/doc/...`; authorized file written; unrelated host file and directory remained hidden before and after selection |
 | Real update | PortalProbe commit changed and `/app/revision` became `revision-2`; the signed Calculator update check also passed |
 | Desktop lifecycle | Independent user monitor starts portals, stops them after desktop termination and restores them on restart |
@@ -70,8 +68,8 @@ application list and `~/.var/app` marker without following the link into
 `flatpak-user-setup` recreated it safely; adding Flathub and reinstalling the
 applications restored functionality while preserving the personal marker.
 Normal uninstall also preserved that marker. After flashing the final image,
-seven relevant files (session hook, capability helper, desktop launcher,
-FUSE rule, PipeWire client config/protocol module and Weston VNC backend)
+the retained session and runtime files (session hook, capability helper, desktop launcher,
+FUSE rule and PipeWire client config/protocol module)
 matched both `/rom` and the final built rootfs. The final boot reported no
 failed system units and no desktop startup retries.
 
@@ -95,9 +93,8 @@ not limits for arbitrary Flatpak applications.
 
 The software-rendered VM does not establish physical GPU performance,
 physical display/USB hotplug behavior, or simultaneous multi-client input
-arbitration. One earlier post-upgrade boot retried the VNC compositor before
-it became available; subsequent boots started without retries. Hardware
-validation should include desktop startup and network-interface transitions.
+arbitration. Hardware validation should include desktop startup and
+network-interface transitions.
 
 Settings/accessibility and `xdg_foreign` warnings remain outside the first
 version's supported file-selection path. PipeWire client context creation

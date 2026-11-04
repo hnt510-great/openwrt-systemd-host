@@ -45,11 +45,10 @@ signature results in `application-signatures.log`.
 
 ## Runtime evidence
 
-The graphical acceptance run uses an ordinary `vmadmin` account explicitly
-authorized through `virt-manager-setup`. The manager and SPICE GTK client run
-under that UID. For accelerated SPICE buffers, the desktop is explicitly set
-to `desktop.main.renderer='gl'`; the default remains pixman. Both the
-compositor and GTK GLArea report VirGL. There is no automatic GL fallback.
+The graphical acceptance run used an ordinary `vmadmin` account explicitly
+authorized through `virt-manager-setup`. The manager and SPICE GTK client ran
+under that UID. The retained GPU results describe that dated test environment;
+current host-session setup is documented in [GNOME](gnome-desktop.md).
 
 | Check | Observed result |
 | --- | --- |

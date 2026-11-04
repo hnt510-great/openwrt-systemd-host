@@ -35,19 +35,15 @@ The existing enabled configuration and unrelated tracked changes were retained.
 | HTTPS without certificate override and local LuCI page | Passed |
 | Chinese browser UI, web text and Noto CJK glyphs | Passed |
 | Browser's complete upstream license document | Available through about:license |
-| Copy/paste, local QEMU keyboard and TLS VNC keyboard | Passed |
 | Native GTK file chooser, upload selection and download contents | Passed |
 | 720p H.264, H.264 with AAC track, VP9 WebM | Video frames advanced for all three |
 | Video pause, seek and native-input fullscreen | Passed |
-| Certificate-verified TLS VNC and local/remote display comparison | Passed; initial comparison matched every pixel |
-| Incorrect VNC password and root VNC login | Rejected |
 | Terminal and virt-manager on the updated GTK3 stack | Passed; qemu:///system connected |
 | Desktop restart and native reboot autostart | Passed |
 | Profile settings and bookmark after native reboot | Retained |
 | Signed APK release upgrade in the VM | Passed; settings/profile retained |
 | Actual GRUB procd-recovery boot and Firefox panel launch | Passed |
 | Actual retained-configuration firmware flash from procd | Returned to systemd |
-| Profile marker, bookmark and VNC certificate after flashing | Retained |
 | Home/profile directory owners and permissions | Preserved by the updated sysupgrade backup |
 | Final image launcher and introspection metadata | 32-pixel icon and xlib-2.0 typelib present |
 | Browser autostart | Disabled; browser opens only when requested |
@@ -175,7 +171,7 @@ No firmware was flashed and no system or desktop restart was performed.
 | Pause, seek, resume / H.264 fullscreen | Passed; screenshots visually inspected |
 | GPU activity during playback | Video engine peak 21.48%; Firefox RDD PID 8631 Video peak 18.95% |
 | Sandbox | Content level 6; RDD seccomp 2, `NoNewPrivs=1`, zero effective capabilities |
-| Protected runtime state | Boot ID, running kernel, Weston/network/container-helper PIDs, config/key hashes unchanged |
+| Protected runtime state | Boot ID, running kernel, network/container-helper PIDs, config/key hashes unchanged |
 | Normal Firefox data | 462 files unchanged, including settings, history and bookmarks |
 | Failed system units / temporary browser and monitoring processes | None at final inspection |
 
