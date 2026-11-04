@@ -1,0 +1,8 @@
+{
+	"admin/system/desktop-setup": {
+		"title": "Desktop Setup Wizard",
+		"order": 2,
+		"action": { "type": "view", "path": "system/desktop-setup" },
+		"depends": { "acl": [ "luci-app-desktop-setup" ] }
+	}
+}

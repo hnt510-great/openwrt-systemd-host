@@ -1,0 +1,415 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: Apache-2.0
+"""rpcd plugin. Request secrets use stdin, never argv or progress/state files."""
+import fcntl
+import json
+import os
+from pathlib import Path
+import re
+import signal
+import stat
+import subprocess
+import sys
+import time
+
+FEATURES = ("rdp", "moonlight", "containers", "flatpak", "virtual_machines")
+HELPERS = {
+    "desktop": "/usr/sbin/desktop-setup",
+    "rdp": "/usr/sbin/desktop-rdp-setup",
+    "moonlight": "/usr/sbin/sunshine-setup",
+    "containers": "/usr/sbin/podman-rootless-setup",
+    "flatpak": "/usr/sbin/flatpak-user-setup",
+    "virtual_machines": "/usr/sbin/virt-manager-setup",
+}
+SCHEMA = {
+    "status": {},
+    "defer": {},
+    "apply": {"username": "", "mode": "", "password": "", "rdp_password": "",
+              "keyring_password": "", "capture": "", "confirm_restart": True,
+              **{key: True for key in FEATURES}},
+}
+
+
+class SetupError(Exception):
+    pass
+
+
+class Backend:
+    def __init__(self, root=Path("/")):
+        # Only tests instantiate another root; RPC input cannot choose paths.
+        self.root = Path(root)
+        self.runtime = self.path("/run/desktop-setup")
+        self.persistent = self.path("/etc/desktop-setup")
+
+    def path(self, name):
+        return self.root / name.lstrip("/")
+
+    def command(self, args, secret=None, timeout=120, check=True):
+        # No shell, user-controlled executable, environment or command options.
+        env = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C", "HOME": "/root"}
+        process = subprocess.Popen(args, stdin=subprocess.PIPE,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                   env=env, start_new_session=True)
+        try:
+            process.communicate(secret.encode() if secret is not None else b"", timeout=timeout)
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait()
+            raise SetupError("command_timeout") from None
+        if check and process.returncode:
+            raise SetupError("helper_failed")
+        return process.returncode
+
+    def capture(self, args):
+        try:
+            return subprocess.check_output(args, stderr=subprocess.DEVNULL, timeout=3,
+                                           env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C"},
+                                           text=True).strip()
+        except (OSError, subprocess.SubprocessError):
+            return ""
+
+    def uci(self, key):
+        return self.capture(["/sbin/uci", "-q", "get", key])
+
+    def private_dir(self, folder):
+        folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+        info = folder.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid():
+            raise SetupError("unsafe_state_directory")
+        folder.chmod(0o700)
+
+    def read(self, filename):
+        try:
+            info = filename.lstat()
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid():
+                return {}
+            value = json.loads(filename.read_text())
+            return value if isinstance(value, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def write(self, filename, value):
+        self.private_dir(filename.parent)
+        temporary = filename.with_suffix(".new")
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "w") as stream:
+            json.dump(value, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, filename)
+
+    def state(self):
+        return self.read(self.persistent / "state.json")
+
+    def lock(self):
+        self.private_dir(self.runtime)
+        fd = os.open(self.runtime / "lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(fd)
+            raise SetupError("busy") from None
+        return fd
+
+    def accounts(self):
+        records = []
+        shadows = {}
+        try:
+            for line in self.path("/etc/shadow").read_text().splitlines():
+                fields = line.split(":")
+                if len(fields) >= 2:
+                    shadows[fields[0]] = fields[1]
+            lines = self.path("/etc/passwd").read_text().splitlines()
+        except OSError:
+            return []
+        owned = self.state().get("created_accounts", [])
+        for line in lines:
+            fields = line.split(":")
+            if len(fields) != 7 or not fields[2].isdigit() or not fields[3].isdigit():
+                continue
+            name, _, uid, gid, _, home, shell = fields
+            if not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", name):
+                continue
+            if int(uid) < 1000 or int(gid) == 0 or not home.startswith("/"):
+                continue
+            if shell.endswith(("/false", "/nologin")) or not self.path(home).is_dir():
+                continue
+            if not os.access(self.path(shell), os.X_OK):
+                continue
+            password = shadows.get(name, "")
+            unlocked = bool(password and not password.startswith(("!", "*")))
+            if unlocked or name in owned:
+                records.append({"username": name, "uid": int(uid), "home": home,
+                                "unlocked": unlocked, "recoverable": name in owned and not unlocked})
+        return records[:128]
+
+    def account_exists(self, name):
+        try:
+            return any(line.split(":", 1)[0] == name
+                       for line in self.path("/etc/passwd").read_text().splitlines())
+        except OSError:
+            raise SetupError("account_database_unavailable") from None
+
+    def keyring_required(self, account):
+        if not account:
+            return False
+        credential = self.path(f'/etc/desktop/gnome/{account["uid"]}.keyring-passphrase')
+        return (self.path(account["home"]) / ".local/share/keyrings/login.keyring").exists() and not credential.is_file()
+
+    def platform(self):
+        lan = self.capture(["/bin/ubus", "call", "network.interface.lan", "status"])
+        try:
+            addresses = json.loads(lan).get("ipv4-address", [])
+            address = addresses[0]["address"] if addresses else ""
+        except (ValueError, KeyError, TypeError):
+            address = ""
+        return {"native": self.path("/run/systemd/system").is_dir(), "lan_address": address,
+                "available": {key: os.access(self.path(value), os.X_OK) for key, value in HELPERS.items()}}
+
+    def group_refresh_required(self, account):
+        if not account:
+            return False
+        pid = self.capture(["/usr/bin/systemctl", "show", f'user@{account["uid"]}.service',
+                            "--property=MainPID", "--value"])
+        if not pid.isdigit() or int(pid) < 1:
+            return False
+        try:
+            groups = self.path("/etc/group").read_text().splitlines()
+            expected = {line.split(":")[2] for line in groups if len(line.split(":")) == 4
+                        and line.split(":")[0] in ("libvirt-admin", "render")
+                        and account["username"] in line.split(":")[3].split(",")}
+            process = self.path(f"/proc/{pid}/status").read_text().splitlines()
+            actual = set()
+            for line in process:
+                if line.startswith(("Groups:", "Gid:")):
+                    actual.update(line.split()[1:])
+            return bool(expected - actual)
+        except OSError:
+            return False
+
+    def status(self):
+        fd = None
+        try:
+            fd = self.lock()
+        except SetupError as error:
+            if str(error) != "busy":
+                raise
+            running = True
+        else:
+            running = False
+        try:
+            # Read a completed job while still holding the free lock. Otherwise
+            # a worker finishing between the read and lock check can be falsely
+            # reported as interrupted, or a new submission mistaken for stale work.
+            state = self.state()
+            job = self.read(self.runtime / "job.json")
+        finally:
+            if fd is not None:
+                os.close(fd)
+        if not running and job.get("status") == "running":
+            job.update(status="interrupted", error="interrupted")
+        accounts = self.accounts()
+        for account in accounts:
+            account["keyring_required"] = self.keyring_required(account)
+        configured = self.uci("desktop.main.user")
+        selected = next((a for a in accounts if a["username"] == configured), None)
+        fingerprint = ""
+        if selected:
+            certificate = self.path(f"/etc/desktop/tls/{configured}.crt")
+            if certificate.is_file() and not certificate.is_symlink():
+                public = self.capture(["/usr/bin/openssl", "x509", "-in", str(certificate),
+                                       "-noout", "-fingerprint", "-sha256"])
+                match = re.fullmatch(r"sha256 Fingerprint=((?:[0-9A-F]{2}:){31}[0-9A-F]{2})", public, re.I)
+                if match:
+                    fingerprint = match[1]
+        return {"success": True, "platform": self.platform(), "accounts": accounts,
+                "completed": bool(state.get("completed")),
+                "automatic": not state.get("completed") and not state.get("deferred"),
+                "username": configured or state.get("username", ""),
+                "features": state.get("features", {}), "capture": state.get("capture", "portal"),
+                "rdp_enabled": self.uci("desktop.main.rdp_enabled") == "1",
+                "rdp_port": self.uci("desktop.main.rdp_port") or "3389",
+                "rdp_fingerprint": fingerprint,
+                "group_refresh_required": self.group_refresh_required(selected),
+                "running": running, "job": job}
+
+    @staticmethod
+    def password(value, required=False):
+        if not isinstance(value, str) or len(value.encode()) > 256 or any(c in value for c in "\x00\r\n"):
+            raise SetupError("invalid_password")
+        if (required or value) and len(value) < 12:
+            raise SetupError("password_too_short")
+        return value
+
+    def validate(self, request):
+        if not isinstance(request, dict) or set(request) - (set(SCHEMA["apply"]) | {"ubus_rpc_session"}):
+            raise SetupError("invalid_request")
+        name = request.get("username")
+        if not isinstance(name, str) or not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", name):
+            raise SetupError("invalid_username")
+        if request.get("mode") not in ("create", "existing") or request.get("capture") not in ("portal", "kms"):
+            raise SetupError("invalid_request")
+        if request.get("confirm_restart") is not True:
+            raise SetupError("restart_confirmation_required")
+        if any(type(request.get(key)) is not bool for key in FEATURES):
+            raise SetupError("invalid_request")
+        platform = self.platform()
+        if not platform["native"]:
+            raise SetupError("native_systemd_required")
+        if not platform["lan_address"]:
+            raise SetupError("lan_required")
+        if not platform["available"]["desktop"] or any(request[key] and not platform["available"][key] for key in FEATURES):
+            raise SetupError("missing_package")
+        account = next((a for a in self.accounts() if a["username"] == name), None)
+        if request["mode"] == "create" and self.account_exists(name):
+            raise SetupError("account_exists")
+        if request["mode"] == "existing" and not account:
+            raise SetupError("invalid_existing_account")
+        password = self.password(request.get("password", ""), request["mode"] == "create" or bool(account and not account["unlocked"]))
+        if account and account["unlocked"] and password:
+            raise SetupError("existing_password_preserved")
+        rdp_password = self.password(request.get("rdp_password", ""))
+        if request["rdp"] and not rdp_password and (self.uci("desktop.main.user") != name or self.uci("desktop.main.rdp_enabled") != "1"):
+            raise SetupError("rdp_password_required")
+        keyring_password = request.get("keyring_password", "")
+        if not isinstance(keyring_password, str) or len(keyring_password.encode()) > 1024 or any(c in keyring_password for c in "\x00\r\n"):
+            raise SetupError("invalid_password")
+        if self.keyring_required(account) and not keyring_password:
+            raise SetupError("keyring_password_required")
+        return {key: request[key] for key in ("username", "mode", "capture", *FEATURES)} | {
+            "password": password, "rdp_password": rdp_password, "keyring_password": keyring_password}
+
+    def submit(self, request):
+        fd = self.lock()
+        try:
+            plan = self.validate(request)
+            job = {"status": "running", "username": plan["username"], "started": int(time.time()), "steps": []}
+            self.write(self.runtime / "job.json", job)
+            pid = os.fork()
+            if pid == 0:
+                try:
+                    os.setsid()
+                    null = os.open("/dev/null", os.O_RDWR)
+                    for target in (0, 1, 2):
+                        os.dup2(null, target)
+                    if null > 2:
+                        os.close(null)
+                    self.execute(plan, job)
+                finally:
+                    os.close(fd)
+                    os._exit(0)
+            # Closing the parent's descriptor retains the child's flock.
+            return {"success": True, "accepted": True}
+        finally:
+            os.close(fd)
+
+    def execute(self, plan, job):
+        name = plan["username"]
+        def step(identifier, action):
+            item = {"id": identifier, "status": "running"}
+            job["steps"].append(item)
+            self.write(self.runtime / "job.json", job)
+            action()
+            item["status"] = "done"
+            self.write(self.runtime / "job.json", job)
+        try:
+            if plan["mode"] == "create":
+                def create():
+                    if self.account_exists(name):
+                        raise SetupError("account_exists")
+                    self.command(["/usr/sbin/useradd", "-m", "-U", name])
+                    state = self.state()
+                    state["created_accounts"] = sorted(set(state.get("created_accounts", []) + [name]))
+                    self.write(self.persistent / "state.json", state)
+                step("account", create)
+            if plan["password"]:
+                step("password", lambda: self.command(["/usr/sbin/chpasswd", "-c", "SHA512"], f'{name}:{plan["password"]}\n'))
+            # Grant these groups before the first PAM session creates a user
+            # manager. Never kill an existing manager or its containers to
+            # refresh credentials; status reports that case for maintenance.
+            if plan["virtual_machines"]:
+                step("virtual_machines", lambda: self.command([HELPERS["virtual_machines"], name]))
+            step("desktop", lambda: self.command([HELPERS["desktop"], name, "--keyring-password-stdin"], plan["keyring_password"] + "\n"))
+            if plan["rdp"] and plan["rdp_password"]:
+                step("rdp", lambda: self.command([HELPERS["rdp"], name, "--password-stdin"], plan["rdp_password"] + "\n"))
+            if plan["rdp"] and not plan["moonlight"]:
+                step("audio", lambda: self.command(["/usr/sbin/desktop-audio-setup", name]))
+            for key in ("moonlight", "containers", "flatpak"):
+                if not plan[key]:
+                    continue
+                args = [HELPERS[key], name]
+                if key == "moonlight":
+                    args.append("--enable-kms" if plan["capture"] == "kms" else "--capture=portal")
+                step(key, lambda args=args: self.command(args))
+            if plan["containers"]:
+                def allowlist():
+                    self.command(["/sbin/uci", "-q", "del_list", f"luci_podman.main.users={name}"], check=False)
+                    self.command(["/sbin/uci", "add_list", f"luci_podman.main.users={name}"])
+                    self.command(["/sbin/uci", "commit", "luci_podman"])
+                step("container_access", allowlist)
+            def restart():
+                self.command(["/etc/init.d/desktop", "restart"])
+                for _ in range(30):
+                    if self.command(["/usr/bin/systemctl", "is-active", "--quiet", "openwrt-desktop.service"], check=False) == 0:
+                        return
+                    time.sleep(1)
+                raise SetupError("desktop_not_running")
+            step("restart", restart)
+            state = self.state()
+            state.update(completed=True, deferred=False, username=name, capture=plan["capture"],
+                         features={key: plan[key] for key in FEATURES}, updated=int(time.time()))
+            self.write(self.persistent / "state.json", state)
+            job["status"] = "done"
+        except (SetupError, OSError) as error:
+            job["status"] = "failed"
+            job["error"] = str(error) if isinstance(error, SetupError) else "helper_failed"
+            if job["steps"]:
+                job["steps"][-1]["status"] = "failed"
+        finally:
+            # Only fixed stage names and error codes reach disk, never helper output.
+            job["finished"] = int(time.time())
+            self.write(self.runtime / "job.json", job)
+            for key in ("password", "rdp_password", "keyring_password"):
+                plan[key] = ""
+
+    def defer(self):
+        fd = self.lock()
+        try:
+            state = self.state()
+            state["deferred"] = True
+            self.write(self.persistent / "state.json", state)
+        finally:
+            os.close(fd)
+        return {"success": True}
+
+
+def main():
+    if len(sys.argv) == 2 and sys.argv[1] == "list":
+        print(json.dumps(SCHEMA))
+        return
+    if os.geteuid() != 0 or len(sys.argv) != 3 or sys.argv[1] != "call":
+        print(json.dumps({"success": False, "error": "invalid_request"}))
+        return
+    backend = Backend()
+    try:
+        method = sys.argv[2]
+        if method == "status":
+            result = backend.status()
+        elif method == "defer":
+            result = backend.defer()
+        elif method == "apply":
+            raw = sys.stdin.buffer.read(8193)
+            if len(raw) > 8192:
+                raise SetupError("invalid_request")
+            result = backend.submit(json.loads(raw))
+        else:
+            raise SetupError("invalid_request")
+    except SetupError as error:
+        result = {"success": False, "error": str(error)}
+    except (ValueError, OSError, TypeError):
+        result = {"success": False, "error": "invalid_request"}
+    print(json.dumps(result))
+
+
+if __name__ == "__main__":
+    main()

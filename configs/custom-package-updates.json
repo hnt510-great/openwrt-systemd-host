@@ -714,6 +714,10 @@
       "provider": "local",
       "reason": "Locally maintained LuCI control for daed"
     },
+    "luci-app-desktop-setup": {
+      "provider": "local",
+      "reason": "First-run and reusable GNOME desktop enrollment wizard"
+    },
     "luci-app-needrestart": {
       "provider": "local",
       "reason": "Locally maintained integration package"

@@ -1,0 +1,264 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-desktop-setup 1.0.0\n"
+"PO-Revision-Date: 2026-11-04 00:00+0000\n"
+"Last-Translator: Project contributors\n"
+"Language-Team: Simplified Chinese\n"
+"MIME-Version: 1.0\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "A password is too long or contains an invalid control character."
+msgstr ""
+
+msgid "A selected setup helper is missing. Install the matching desktop packages first."
+msgstr ""
+
+msgid "A setup helper failed. Completed steps are retained; review the failed step and retry. Passwords and helper output are not logged."
+msgstr ""
+
+msgid "A setup helper timed out. Inspect the retained state before retrying."
+msgstr ""
+
+msgid "Account"
+msgstr ""
+
+msgid "Account password"
+msgstr ""
+
+msgid "Account:"
+msgstr ""
+
+msgid "After a fresh ordinary-user login, use podman info, flatpak list --user and virsh -c qemu:///system list --all. Add Flathub and create your own containers and virtual machines as needed. New Fcitx profiles use Ctrl+Space."
+msgstr ""
+
+msgid "Allow this account in LuCI Podman"
+msgstr ""
+
+msgid "Another setup is running. Wait for it to finish."
+msgstr ""
+
+msgid "Apply and restart desktop"
+msgstr ""
+
+msgid "Apply configuration"
+msgstr ""
+
+msgid "At least 12 characters. Leave blank only to preserve RDP already configured for this same account."
+msgstr ""
+
+msgid "At least 12 characters. This is the Unix/SSH password."
+msgstr ""
+
+msgid "Back"
+msgstr ""
+
+msgid "Boot the native-systemd image to configure GNOME."
+msgstr ""
+
+msgid "Choose an unlocked ordinary account with a home directory and login shell."
+msgstr ""
+
+msgid "Configuration completed. Verify the desktop and remote clients before relying on unattended startup."
+msgstr ""
+
+msgid "Configure GNOME"
+msgstr ""
+
+msgid "Configure RDP credentials"
+msgstr ""
+
+msgid "Configure a LAN IPv4 address before setting up the desktop."
+msgstr ""
+
+msgid "Configure again"
+msgstr ""
+
+msgid "Configuring the desktop. You may leave this page and return to view progress."
+msgstr ""
+
+msgid "Confirm RDP password"
+msgstr ""
+
+msgid "Confirm account password"
+msgstr ""
+
+msgid "Confirm that the desktop may be started or restarted."
+msgstr ""
+
+msgid "Container enrollment allocates subordinate IDs, enables user linger and grants LuCI Podman access. VM enrollment grants full local VM administration with privileges comparable to root. No sudo membership is granted."
+msgstr ""
+
+msgid "Create a new account"
+msgstr ""
+
+msgid "Create account"
+msgstr ""
+
+msgid "Create or select an ordinary user, then enroll desktop and application features. You can reopen this wizard at System → Desktop Setup Wizard."
+msgstr ""
+
+msgid "Create ordinary accounts and grant desktop, streaming, container and full VM administration permissions"
+msgstr ""
+
+msgid "Desktop Setup Wizard"
+msgstr ""
+
+msgid "Desktop setup"
+msgstr ""
+
+msgid "Done"
+msgstr ""
+
+msgid "Enable desktop audio"
+msgstr ""
+
+msgid "Enter an RDP password for this account."
+msgstr ""
+
+msgid "Enter the existing login-keyring passphrase."
+msgstr ""
+
+msgid "Existing home directories, passwords and personal settings are preserved."
+msgstr ""
+
+msgid "Existing login-keyring passphrase"
+msgstr ""
+
+msgid "Failed"
+msgstr ""
+
+msgid "Features"
+msgstr ""
+
+msgid "Flatpak applications"
+msgstr ""
+
+msgid "GNOME did not remain active. Check the connected display and the desktop journal before retrying."
+msgstr ""
+
+msgid "GNOME portal"
+msgstr ""
+
+msgid "Go to overview"
+msgstr ""
+
+msgid "I agree to start or restart GNOME. Open desktop applications will close; router network configuration is not changed."
+msgstr ""
+
+msgid "KMS capture"
+msgstr ""
+
+msgid "Local GNOME is configured for the selected account. Unchecked features keep their existing settings; this wizard does not revoke previous permissions."
+msgstr ""
+
+msgid "Matching package is not installed."
+msgstr ""
+
+msgid "Moonlight capture"
+msgstr ""
+
+msgid "Moonlight streaming"
+msgstr ""
+
+msgid "Needed once to enroll unattended unlock of this existing keyring."
+msgstr ""
+
+msgid "New passwords must contain at least 12 characters."
+msgstr ""
+
+msgid "Next"
+msgstr ""
+
+msgid "No accounts or application data were removed. Choose the existing account when retrying; a wizard-created locked account can finish password setup. Review journalctl -u openwrt-desktop.service for desktop startup failures."
+msgstr ""
+
+msgid "Open Desktop Setup Wizard"
+msgstr ""
+
+msgid "Open Sunshine Web UI"
+msgstr ""
+
+msgid "Portal capture may ask you to select a screen in GNOME. KMS grants the enrolled Sunshine executable its capture capability."
+msgstr ""
+
+msgid "RDP address:"
+msgstr ""
+
+msgid "RDP password"
+msgstr ""
+
+msgid "RDP uses the selected username and separate RDP password. Moonlight needs its own Web credentials and PIN pairing."
+msgstr ""
+
+msgid "Remote desktop (RDP)"
+msgstr ""
+
+msgid "Restart GNOME"
+msgstr ""
+
+msgid "Result"
+msgstr ""
+
+msgid "Review"
+msgstr ""
+
+msgid "Rootless containers"
+msgstr ""
+
+msgid "Running"
+msgstr ""
+
+msgid "Set account password"
+msgstr ""
+
+msgid "Set up later"
+msgstr ""
+
+msgid "Setup"
+msgstr ""
+
+msgid "Setup could not be completed."
+msgstr ""
+
+msgid "Setup has already completed. You can enroll additional features or configure another ordinary account."
+msgstr ""
+
+msgid "Setup was interrupted. Completed steps are retained; review the account and retry."
+msgstr ""
+
+msgid "Start the local GNOME session"
+msgstr ""
+
+msgid "Status is temporarily unavailable. Reopen the wizard to resume monitoring."
+msgstr ""
+
+msgid "The existing account password is preserved. Leave that password field empty."
+msgstr ""
+
+msgid "The passwords do not match."
+msgstr ""
+
+msgid "The setup request is invalid. Refresh and try again."
+msgstr ""
+
+msgid "This account already exists. Choose Use an existing account."
+msgstr ""
+
+msgid "Use 1–32 lowercase letters, digits, underscores or hyphens, starting with a letter or underscore."
+msgstr ""
+
+msgid "Use an existing account"
+msgstr ""
+
+msgid "Username"
+msgstr ""
+
+msgid "Virtual machine administration"
+msgstr ""
+
+msgid "Some existing user services still have old group memberships. Re-login for new shells; restart the user manager or reboot during maintenance to refresh all services. Existing containers are not stopped by this wizard."
+msgstr ""
+
+msgid "RDP TLS certificate fingerprint (SHA256):"
+msgstr ""

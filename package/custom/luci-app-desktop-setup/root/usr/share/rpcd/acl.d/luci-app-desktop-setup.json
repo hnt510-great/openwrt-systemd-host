@@ -1,0 +1,7 @@
+{
+	"luci-app-desktop-setup": {
+		"description": "Create ordinary accounts and grant desktop, streaming, container and full VM administration permissions",
+		"read": { "ubus": { "luci.desktop-setup": [ "status" ] } },
+		"write": { "ubus": { "luci.desktop-setup": [ "apply", "defer" ] } }
+	}
+}

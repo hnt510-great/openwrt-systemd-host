@@ -3,13 +3,23 @@ set -eu
 set +x
 . /usr/libexec/desktop-common.sh
 [ "$(id -u)" = 0 ] || { desktop_error 'Run desktop-setup as root'; exit 1; }
-[ "$#" = 1 ] || { [ "$#" = 2 ] && [ "$2" = --refresh-keyring ]; } || {
-	printf 'Usage: desktop-setup USER [--refresh-keyring]\n' >&2; exit 1;
+[ "$#" -ge 1 ] || {
+	printf 'Usage: desktop-setup USER [--refresh-keyring] [--keyring-password-stdin]\n' >&2; exit 1;
 }
+user=$1
+shift
+refresh_keyring=0
+keyring_stdin=0
+for option in "$@"; do
+	case "$option" in
+		--refresh-keyring) refresh_keyring=1 ;;
+		--keyring-password-stdin) keyring_stdin=1 ;;
+		*) desktop_error 'Invalid desktop-setup option'; exit 1 ;;
+	esac
+done
 [ -d /run/systemd/system ] && [ -x /usr/bin/gnome-session ] || {
 	desktop_error 'The GNOME desktop requires a native-systemd image'; exit 1;
 }
-user=$1
 desktop_validate_user "$user"
 usermod -a -G video,render "$user"
 desktop_setup_tls
@@ -19,7 +29,7 @@ mkdir -p "$secret_dir"
 chown 0:0 "$secret_dir"
 chmod 0700 "$secret_dir"
 secret="$secret_dir/$DESKTOP_USER_UID.keyring-passphrase"
-if [ ! -e "$secret" ] || [ "${2:-}" = --refresh-keyring ]; then
+if [ ! -e "$secret" ] || [ "$refresh_keyring" = 1 ]; then
 	umask 077
 	tmp="$(mktemp "$secret_dir/.keyring.XXXXXX")"
 	tty_state=
@@ -31,14 +41,18 @@ if [ ! -e "$secret" ] || [ "${2:-}" = --refresh-keyring ]; then
 	trap cleanup EXIT
 	trap 'exit 1' HUP INT TERM
 	if [ -e "$DESKTOP_USER_HOME/.local/share/keyrings/login.keyring" ]; then
-		exec 3</dev/tty 4>/dev/tty
-		tty_state="$(stty -g <&3)"
-		stty -echo <&3
-		printf 'Existing login-keyring passphrase: ' >&4
-		IFS= read -r passphrase <&3
-		printf '\n' >&4
-		stty "$tty_state" <&3
-		tty_state=
+		if [ "$keyring_stdin" = 1 ]; then
+			IFS= read -r passphrase
+		else
+			exec 3</dev/tty 4>/dev/tty
+			tty_state="$(stty -g <&3)"
+			stty -echo <&3
+			printf 'Existing login-keyring passphrase: ' >&4
+			IFS= read -r passphrase <&3
+			printf '\n' >&4
+			stty "$tty_state" <&3
+			tty_state=
+		fi
 		[ -n "$passphrase" ] || { desktop_error 'An empty bootstrap passphrase is not accepted'; exit 1; }
 		printf '%s' "$passphrase" > "$tmp"
 		unset passphrase

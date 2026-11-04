@@ -26,6 +26,15 @@ The main tree and feeds are maintained together. See the complete
 
 ## After flashing: enable and use features
 
+The complete desktop configuration now selects `luci-app-desktop-setup`.
+On first visiting the LuCI overview, an authorized administrator enters the
+**Desktop Setup Wizard**: Account → Features → Review → Result. It creates or
+selects an ordinary account and enrolls GNOME/RDP, Moonlight, containers,
+Flatpak and VM permissions. After completion or **Set up later**, automatic
+entry stops; **System → Desktop Setup Wizard** remains available at any time.
+See the [wizard guide](docs/desktop-setup.md). Manual setup remains below as an
+alternative and for troubleshooting.
+
 These steps assume an image built with this project's complete desktop
 configuration. Replace the example account `alice` consistently with your own
 username; `LAN-IP` means the device's actual LAN address. Run **root** commands

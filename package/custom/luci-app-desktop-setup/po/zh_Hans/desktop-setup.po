@@ -1,0 +1,266 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-desktop-setup 1.0.0\n"
+"PO-Revision-Date: 2026-11-04 00:00+0000\n"
+"Last-Translator: Project contributors\n"
+"Language-Team: Simplified Chinese\n"
+"MIME-Version: 1.0\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: zh_Hans\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "A password is too long or contains an invalid control character."
+msgstr "密码过长或包含无效控制字符。"
+
+msgid "A selected setup helper is missing. Install the matching desktop packages first."
+msgstr "缺少所选功能的配置助手，请先安装匹配的桌面软件包。"
+
+msgid "A setup helper failed. Completed steps are retained; review the failed step and retry. Passwords and helper output are not logged."
+msgstr "配置助手执行失败。已完成的步骤会保留，请检查失败步骤后重试。密码和助手输出不会写入日志。"
+
+msgid "A setup helper timed out. Inspect the retained state before retrying."
+msgstr "配置助手执行超时，请先检查保留的状态再重试。"
+
+msgid "Account"
+msgstr "账号"
+
+msgid "Account password"
+msgstr "账号密码"
+
+msgid "Account:"
+msgstr "账号："
+
+msgid "After a fresh ordinary-user login, use podman info, flatpak list --user and virsh -c qemu:///system list --all. Add Flathub and create your own containers and virtual machines as needed. New Fcitx profiles use Ctrl+Space."
+msgstr "重新登录普通用户后，可使用 podman info、flatpak list --user 和 virsh -c qemu:///system list --all。按需添加 Flathub，并创建自己的容器与虚拟机。新 Fcitx 配置使用 Ctrl+Space 切换输入法。"
+
+msgid "Allow this account in LuCI Podman"
+msgstr "将此账号加入 LuCI Podman 白名单"
+
+msgid "Another setup is running. Wait for it to finish."
+msgstr "另一个配置任务正在运行，请等待完成。"
+
+msgid "Apply and restart desktop"
+msgstr "应用并重启桌面"
+
+msgid "Apply configuration"
+msgstr "应用配置"
+
+msgid "At least 12 characters. Leave blank only to preserve RDP already configured for this same account."
+msgstr "至少 12 个字符；仅在保留此账号已配置的 RDP 凭据时可留空。"
+
+msgid "At least 12 characters. This is the Unix/SSH password."
+msgstr "至少 12 个字符，用于系统与 SSH 登录。"
+
+msgid "Back"
+msgstr "上一步"
+
+msgid "Boot the native-systemd image to configure GNOME."
+msgstr "请启动原生 systemd 镜像后再配置 GNOME。"
+
+msgid "Choose an unlocked ordinary account with a home directory and login shell."
+msgstr "请选择已解锁、具有家目录和登录 Shell 的普通账号。"
+
+msgid "Configuration completed. Verify the desktop and remote clients before relying on unattended startup."
+msgstr "配置完成。请验证桌面与远程客户端，再确认无人值守启动可用。"
+
+msgid "Configure GNOME"
+msgstr "配置 GNOME"
+
+msgid "Configure RDP credentials"
+msgstr "配置 RDP 凭据"
+
+msgid "Configure a LAN IPv4 address before setting up the desktop."
+msgstr "请先配置 LAN IPv4 地址，再设置桌面。"
+
+msgid "Configure again"
+msgstr "重新配置"
+
+msgid "Configuring the desktop. You may leave this page and return to view progress."
+msgstr "正在配置桌面。可以离开此页面，稍后重新打开查看进度。"
+
+msgid "Confirm RDP password"
+msgstr "确认 RDP 密码"
+
+msgid "Confirm account password"
+msgstr "确认账号密码"
+
+msgid "Confirm that the desktop may be started or restarted."
+msgstr "请确认允许启动或重启桌面。"
+
+msgid "Container enrollment allocates subordinate IDs, enables user linger and grants LuCI Podman access. VM enrollment grants full local VM administration with privileges comparable to root. No sudo membership is granted."
+msgstr "容器登记会分配 subordinate IDs、启用用户 linger 并授予 LuCI Podman 管理权限。虚拟机登记会授予接近 root 的完整本机虚拟机管理权限。向导不添加 sudo 组权限。"
+
+msgid "Create a new account"
+msgstr "创建新账号"
+
+msgid "Create account"
+msgstr "创建账号"
+
+msgid "Create or select an ordinary user, then enroll desktop and application features. You can reopen this wizard at System → Desktop Setup Wizard."
+msgstr "创建或选择普通用户，再登记桌面与应用功能。以后可通过“系统 → 桌面设置向导”重新打开。"
+
+msgid "Create ordinary accounts and grant desktop, streaming, container and full VM administration permissions"
+msgstr "创建普通账号并授予桌面、串流、容器与完整虚拟机管理权限"
+
+msgid "Desktop Setup Wizard"
+msgstr "桌面设置向导"
+
+msgid "Desktop setup"
+msgstr "桌面设置"
+
+msgid "Done"
+msgstr "完成"
+
+msgid "Enable desktop audio"
+msgstr "启用桌面音频"
+
+msgid "Enter an RDP password for this account."
+msgstr "请输入此账号的 RDP 密码。"
+
+msgid "Enter the existing login-keyring passphrase."
+msgstr "请输入已有登录 keyring 的原密码。"
+
+msgid "Existing home directories, passwords and personal settings are preserved."
+msgstr "已有家目录、系统密码和个人设置会保留。"
+
+msgid "Existing login-keyring passphrase"
+msgstr "已有登录 keyring 的原密码"
+
+msgid "Failed"
+msgstr "失败"
+
+msgid "Features"
+msgstr "功能"
+
+msgid "Flatpak applications"
+msgstr "Flatpak 应用"
+
+msgid "GNOME did not remain active. Check the connected display and the desktop journal before retrying."
+msgstr "GNOME 未保持运行，请检查显示器连接和桌面日志后重试。"
+
+msgid "GNOME portal"
+msgstr "GNOME Portal"
+
+msgid "Go to overview"
+msgstr "返回概览"
+
+msgid "I agree to start or restart GNOME. Open desktop applications will close; router network configuration is not changed."
+msgstr "我同意启动或重启 GNOME，当前桌面应用将关闭，路由网络配置不会改变。"
+
+msgid "KMS capture"
+msgstr "KMS 捕获"
+
+msgid "Local GNOME is configured for the selected account. Unchecked features keep their existing settings; this wizard does not revoke previous permissions."
+msgstr "将为所选账号配置本地 GNOME。未勾选的功能保留已有设置，向导不会撤销此前授予的权限。"
+
+msgid "Matching package is not installed."
+msgstr "尚未安装匹配的软件包。"
+
+msgid "Moonlight capture"
+msgstr "Moonlight 捕获方式"
+
+msgid "Moonlight streaming"
+msgstr "Moonlight 串流"
+
+msgid "Needed once to enroll unattended unlock of this existing keyring."
+msgstr "为已有 keyring 配置无人值守解锁时需要输入一次。"
+
+msgid "New passwords must contain at least 12 characters."
+msgstr "新密码至少需要 12 个字符。"
+
+msgid "Next"
+msgstr "下一步"
+
+msgid "No accounts or application data were removed. Choose the existing account when retrying; a wizard-created locked account can finish password setup. Review journalctl -u openwrt-desktop.service for desktop startup failures."
+msgstr "账号和应用数据均未删除。重试时请选择已有账号；向导创建但尚未解锁的账号可继续设置密码。桌面启动失败时查看 journalctl -u openwrt-desktop.service。"
+
+msgid "Open Desktop Setup Wizard"
+msgstr "打开桌面设置向导"
+
+msgid "Open Sunshine Web UI"
+msgstr "打开 Sunshine Web 管理界面"
+
+msgid "Portal capture may ask you to select a screen in GNOME. KMS grants the enrolled Sunshine executable its capture capability."
+msgstr "Portal 捕获可能需要在 GNOME 中选择共享屏幕。KMS 会为已登记的 Sunshine 程序授予捕获能力。"
+
+msgid "RDP address:"
+msgstr "RDP 地址："
+
+msgid "RDP password"
+msgstr "RDP 密码"
+
+msgid "RDP uses the selected username and separate RDP password. Moonlight needs its own Web credentials and PIN pairing."
+msgstr "RDP 使用所选用户名和独立的 RDP 密码。Moonlight 还需要设置 Sunshine Web 管理凭据并进行 PIN 配对。"
+
+msgid "Remote desktop (RDP)"
+msgstr "远程桌面（RDP）"
+
+msgid "Restart GNOME"
+msgstr "重启 GNOME"
+
+msgid "Result"
+msgstr "结果"
+
+msgid "Review"
+msgstr "确认"
+
+msgid "Rootless containers"
+msgstr "Rootless 容器"
+
+msgid "Running"
+msgstr "运行中"
+
+msgid "Set account password"
+msgstr "设置账号密码"
+
+msgid "Set up later"
+msgstr "稍后设置"
+
+msgid "Setup"
+msgstr "配置"
+
+msgid "Setup could not be completed."
+msgstr "无法完成配置。"
+
+msgid "Setup has already completed. You can enroll additional features or configure another ordinary account."
+msgstr "已完成初始配置。可以继续登记其他功能，或配置另一个普通账号。"
+
+msgid "Setup was interrupted. Completed steps are retained; review the account and retry."
+msgstr "配置已中断。已完成的步骤会保留，请检查账号后重试。"
+
+msgid "Start the local GNOME session"
+msgstr "启动本地 GNOME 会话"
+
+msgid "Status is temporarily unavailable. Reopen the wizard to resume monitoring."
+msgstr "暂时无法读取状态，重新打开向导可继续查看进度。"
+
+msgid "The existing account password is preserved. Leave that password field empty."
+msgstr "已有账号的系统密码保持不变，请将该密码字段留空。"
+
+msgid "The passwords do not match."
+msgstr "两次输入的密码不一致。"
+
+msgid "The setup request is invalid. Refresh and try again."
+msgstr "配置请求无效，请刷新后重试。"
+
+msgid "This account already exists. Choose Use an existing account."
+msgstr "账号已存在，请选择“使用已有账号”。"
+
+msgid "Use 1–32 lowercase letters, digits, underscores or hyphens, starting with a letter or underscore."
+msgstr "使用 1–32 个小写字母、数字、下划线或连字符，并以字母或下划线开头。"
+
+msgid "Use an existing account"
+msgstr "使用已有账号"
+
+msgid "Username"
+msgstr "用户名"
+
+msgid "Virtual machine administration"
+msgstr "虚拟机管理权限"
+
+msgid "Some existing user services still have old group memberships. Re-login for new shells; restart the user manager or reboot during maintenance to refresh all services. Existing containers are not stopped by this wizard."
+msgstr "部分已有用户服务仍使用旧组成员关系。重新登录可刷新新 Shell；请在维护时重启用户管理器或设备，以刷新所有服务。向导不会停止已有容器。"
+
+msgid "RDP TLS certificate fingerprint (SHA256):"
+msgstr "RDP TLS 证书指纹（SHA256）："
