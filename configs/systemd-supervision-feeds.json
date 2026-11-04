@@ -1,0 +1,8 @@
+{
+  "packages": {
+    "url": "https://github.com/openwrt/packages.git",
+    "base": "1f7abcb5127707be54c8edac0201baa82ad641d7",
+    "commit": "e9d85b6388f388d99de3b8857fcd1423f0353f30",
+    "patch": "patches/feeds/0030-packages-samba4-no-process-group.patch"
+  }
+}

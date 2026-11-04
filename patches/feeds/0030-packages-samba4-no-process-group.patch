@@ -1,0 +1,73 @@
+From e9d85b6388f388d99de3b8857fcd1423f0353f30 Mon Sep 17 00:00:00 2001
+From: hnt510 <hnt510@gmail.com>
+Date: Wed, 4 Nov 2026 14:39:26 +0800
+Subject: [PATCH] samba4: run daemons without creating a process group
+
+systemd makes each service a session leader, so smbd and nmbd fail in
+setsid() with "Failed to create session" when supervised by native
+systemd. Pass --no-process-group, as Samba's own systemd units do; it is
+harmless under procd. Bump PKG_RELEASE to 5: the APK release ledger maps
+r1-r3 to the published r4.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ net/samba4/Makefile         | 2 +-
+ net/samba4/files/samba.init | 8 ++++----
+ 2 files changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/net/samba4/Makefile b/net/samba4/Makefile
+index 87826313a..6882c0338 100644
+--- a/net/samba4/Makefile
++++ b/net/samba4/Makefile
+@@ -3,7 +3,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=samba
+ PKG_VERSION:=4.24.5
+-PKG_RELEASE:=1
++PKG_RELEASE:=5
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
+ PKG_SOURCE_URL:= \
+diff --git a/net/samba4/files/samba.init b/net/samba4/files/samba.init
+index 468ba553a..54a2ba9fd 100644
+--- a/net/samba4/files/samba.init
++++ b/net/samba4/files/samba.init
+@@ -197,7 +197,7 @@ start_service() {
+ 	# start main AD-DC daemon, will spawn (smbd,nmbd,winbindd) as needed/configured.
+ 	if [ "$DISABLE_AD_DC" -ne 1 ] && [ -x /usr/sbin/samba ]; then
+ 		procd_open_instance
+-		procd_set_param command /usr/sbin/samba -F
++		procd_set_param command /usr/sbin/samba -F --no-process-group
+ 		procd_set_param nice "$nice_value"
+ 		procd_set_param respawn
+ 		procd_set_param file /etc/samba/smb.conf
+@@ -206,7 +206,7 @@ start_service() {
+ 	else
+ 		# start fileserver daemon
+ 		procd_open_instance
+-		procd_set_param command /usr/sbin/smbd -F
++		procd_set_param command /usr/sbin/smbd -F --no-process-group
+ 		procd_set_param nice "$nice_value"
+ 		procd_set_param respawn
+ 		procd_set_param file /etc/samba/smb.conf
+@@ -216,7 +216,7 @@ start_service() {
+ 		# start netbios daemon
+ 		if [ "$DISABLE_NETBIOS" -ne 1 ] && [ -x /usr/sbin/nmbd ]; then
+ 			procd_open_instance
+-			procd_set_param command /usr/sbin/nmbd -F
++			procd_set_param command /usr/sbin/nmbd -F --no-process-group
+ 			procd_set_param nice "$nice_value"
+ 			procd_set_param respawn
+ 			procd_set_param file /etc/samba/smb.conf
+@@ -225,7 +225,7 @@ start_service() {
+ 		# start winbind daemon
+ 		if [ "$DISABLE_WINBIND" -ne 1 ] && [ -x /usr/sbin/winbindd ]; then
+ 			procd_open_instance
+-			procd_set_param command /usr/sbin/winbindd -F
++			procd_set_param command /usr/sbin/winbindd -F --no-process-group
+ 			procd_set_param nice "$nice_value"
+ 			procd_set_param respawn
+ 			procd_set_param file /etc/samba/smb.conf
+-- 
+2.53.0
+
