@@ -33,6 +33,13 @@ Flatpak, OSTree, AppStream, the desktop portals and their dependencies.
 document portal mounts. Bubblewrap remains non-setuid and uses user namespaces
 and seccomp. No Flatpak system installation helper is installed.
 
+Flatpak is built with `-Dxauth=enabled` (linked against `libXau`). GNOME
+protects Xwayland with a per-session cookie file named by `XAUTHORITY`; with
+X11 authorization support Flatpak writes a filtered copy of that cookie into
+the sandbox for applications that use the `x11` socket (for example Steam).
+Builds before `1.18.4-r4` passed `DISPLAY` without the cookie, so X11-only
+applications could not authenticate to Xwayland.
+
 Build the packages first, then the complete image:
 
 ```sh
