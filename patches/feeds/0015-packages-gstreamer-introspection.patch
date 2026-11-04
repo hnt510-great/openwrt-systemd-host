@@ -1,5 +1,5 @@
 From 3ad57a3db691cb5fbfb2dd4f4d191c210858b73d Mon Sep 17 00:00:00 2001
-From: hnt510 <hnt510@gmail.com>
+From: Project contributors <contributors@example.invalid>
 Date: Sun, 18 Oct 2026 18:26:02 +0800
 Subject: [PATCH] gstreamer1: declare conditional introspection build
  dependencies

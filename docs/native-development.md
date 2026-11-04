@@ -180,7 +180,7 @@ fwknopd、gensio 循环依赖阻挡，修改前后报告的相关符号完全一
 
 旧 Cockpit 的 `cockpit-session` 依赖本地 `libcom_err.so.3`，而 APK 提供
 `libcom_err.so.0`，因此没有直接删除旧库。使用 APK 开发文件，在
-`/home/desktop-user/cockpit-build/apk-cockpit-369/` 重新配置和编译 Cockpit 369，
+`/home/builder/cockpit-build/apk-cockpit-369/` 重新配置和编译 Cockpit 369，
 再替换 5 个 C 程序：`cockpit-session`、`cockpit-tls`、`cockpit-ws`、
 `cockpit-wsinstance-factory`、`cockpit-certificate-ensure`。均无 RPATH/RUNPATH，
 动态依赖解析至系统库；运行中的 Cockpit 进程映射也确认不再加载

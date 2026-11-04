@@ -29,7 +29,7 @@ for administrator review. Shadow useradd can allocate mappings for new
 accounts once the first-boot initialization creates `/etc/subuid` and
 `/etc/subgid`. Both files already participate in multiuser sysupgrade
 backups. This checkout's personal account initialization also enrolls
-`desktop-user`; the package itself creates no ordinary account.
+`builder`; the package itself creates no ordinary account.
 
 Enrollment adds the account to the `podman` group. A boot service sets
 `/dev/net/tun` to `root:podman`, mode 0660. Native-systemd builds also grant

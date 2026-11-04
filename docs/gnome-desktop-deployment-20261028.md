@@ -1,7 +1,7 @@
 # Physical GNOME deployment, 2026-10-28
 
 Published signed packages and deployed GNOME on `192.0.2.1` for the existing
-ordinary account `desktop-user` (UID 32769). Native GNOME Remote Desktop serves RDP
+ordinary account `builder` (UID 32769). Native GNOME Remote Desktop serves RDP
 on LAN TCP 3389. Sunshine retains KMS capture, Intel H.264 VAAPI and its existing
 Moonlight pairing state. Weston, `openwrt-desktop-launcher` and seatd are removed;
 there is no VNC listener on port 5900.

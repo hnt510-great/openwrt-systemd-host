@@ -1,5 +1,10 @@
 # Local LAN APK feeds
 
+The checked-in settings use anonymized example addresses. Configure your own
+origin, nginx listener and allowed subnets, create the `openwrt-feeds` service
+account, and set `upgrade_preflight.ssh_target` before publication. The default
+SSH target is empty, so production publication fails closed.
+
 The Debian build host uses nginx to serve signed native-systemd/glibc packages at
 `http://apk.example.invalid:8088`. Its system service is `lan-apk-feeds.service` and
 starts automatically at boot. The `lan-apk-feeds` package (release 6 and later)
@@ -378,7 +383,7 @@ The service remains running without a restart. Validation evidence is under
 The installed unit is `/etc/systemd/system/lan-apk-feeds.service`; its source
 template is `configs/lan-apk-feeds.service`. Its standalone nginx configuration
 is `/etc/openwrt-feeds/nginx.conf`, sourced from
-`configs/lan-apk-feeds.nginx.conf`. The service runs nginx as `desktop-user`, with
+`configs/lan-apk-feeds.nginx.conf`. The service runs nginx as `openwrt-feeds`, with
 a read-only filesystem and a writable `/run/lan-apk-feeds` runtime directory.
 It does not use the distribution `nginx.service` or its default website.
 
@@ -400,7 +405,7 @@ sudo systemctl enable --now lan-apk-feeds.service
 
 When replacing an already running service, use `systemctl restart` after
 installing the files. For configuration-only changes, run
-`sudo -u desktop-user nginx -t -c /etc/openwrt-feeds/nginx.conf` before
+`sudo -u openwrt-feeds nginx -t -c /etc/openwrt-feeds/nginx.conf` before
 `sudo systemctl reload lan-apk-feeds.service`. Publication itself needs no reload:
 nginx follows the publisher-owned snapshot symlinks on each request. Keep this
 publication tree writable only by the trusted publisher; do not place symlinks

@@ -1,5 +1,5 @@
 From 5405dabc43fd3767d5036b0e15f1c0a4f91c010a Mon Sep 17 00:00:00 2001
-From: hnt510 <hnt510@gmail.com>
+From: Project contributors <contributors@example.invalid>
 Date: Sun, 18 Oct 2026 11:30:12 +0800
 Subject: [PATCH] luci-mod-status: show CPU temperature and frequency on
  overview

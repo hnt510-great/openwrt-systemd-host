@@ -2,7 +2,7 @@
 
 Distrobox was added to the x86_64/glibc native-systemd profile, validated from
 a clean firmware boot in QEMU, and installed on `192.0.2.1` without rebooting
-or flashing the router. All container tests ran as the existing `desktop-user` user
+or flashing the router. All container tests ran as the existing `builder` user
 (UID 32769, GID 32770) with rootless Podman 5.8.4 and crun 1.28.
 
 | Installed package | Version |

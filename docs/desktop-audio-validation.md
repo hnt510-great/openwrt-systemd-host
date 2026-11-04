@@ -153,7 +153,7 @@ identities matched all 99 published payloads. Repository indexes were refreshed,
 and APK world constraints were normalized while preserving unrelated entries;
 an offline fix simulation then required no package changes.
 
-The existing user `desktop-user` was explicitly enrolled for desktop audio and
+The existing user `builder` was explicitly enrolled for desktop audio and
 Sunshine KMS. PipeWire, WirePlumber and the PulseAudio compatibility service
 are active. Selected-user sound/input ACLs, the restricted Sunshine executable
 and KMS capability, and boot-time permission restoration are configured.

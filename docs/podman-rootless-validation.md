@@ -56,11 +56,11 @@ installation simulation contained exactly the five listed changes and
 retained existing dependencies. Installed Podman, crun and UID/GID helper
 hashes match the signed package payloads.
 
-Account `desktop-user` was enrolled with these host ranges:
+Account `builder` was enrolled with these host ranges:
 
 ```text
-subuid: desktop-user:100000:65536
-subgid: desktop-user:165536:65536
+subuid: builder:100000:65536
+subgid: builder:165536:65536
 ```
 
 The account retained its previous supplementary groups and gained `podman`.

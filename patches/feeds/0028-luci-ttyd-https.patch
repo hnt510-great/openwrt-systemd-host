@@ -1,5 +1,5 @@
 From fce3f1d74e7778a17539413a7128b2666915bfd6 Mon Sep 17 00:00:00 2001
-From: hnt510 <hnt510@gmail.com>
+From: Project contributors <contributors@example.invalid>
 Date: Sun, 1 Nov 2026 00:37:28 +0800
 Subject: [PATCH] luci-app-ttyd: warn about mixed content and link to the
  terminal

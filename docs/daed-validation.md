@@ -113,7 +113,7 @@ same build tree; no packages were installed on the router.
 
 | Check | Result |
 | --- | --- |
-| Router upgrade preflight (`desktop-user@192.0.2.1`, baseline ABI `7.3.1~2f47df105af5f7d3cac5e3b7f5fd2bee-r1`) | Passed; userspace and target-ABI simulations `full`/`passed`, no blockers |
+| Router upgrade preflight (`builder@192.0.2.1`, baseline ABI `7.3.1~2f47df105af5f7d3cac5e3b7f5fd2bee-r1`) | Passed; userspace and target-ABI simulations `full`/`passed`, no blockers |
 | Userspace snapshot | `/srv/openwrt-feeds/public/snapshots/20261101T024109.091311Z` (daed APKs in `base/` and `custom/`, byte-identical, as for other custom packages) |
 | Kernel snapshot | `/srv/openwrt-feeds/public/kernel-snapshots/1793500924785524813`, generation `7.3.1-owrt-d4c77a6d354d9d21248f93d7f68211ce-r1-g45` |
 | Receipt | `/srv/openwrt-feeds/upgrade-receipts/1793500991307529129.json` (`passed`) |

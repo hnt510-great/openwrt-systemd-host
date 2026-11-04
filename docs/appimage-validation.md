@@ -102,7 +102,7 @@ port and GL renderer; APK's default `.apk-new` was left for review.
 
 The restarted physical desktop passed both FUSE runtime suites, Wayland and
 X11 GUI input over authenticated TLS VNC, and X11 clipboard readback, all as
-`desktop-user` (UID 32769). GLX reported **Mesa Intel UHD Graphics (JSL)**, OpenGL 4.6,
+`builder` (UID 32769). GLX reported **Mesa Intel UHD Graphics (JSL)**, OpenGL 4.6,
 and the exact expected framebuffer pixel. Both fusermount helpers were
 root-owned mode 4755; `/dev/fuse` was mode 0666. Systemd reported no failed
 system units. Test units were stopped and their temporary files removed.

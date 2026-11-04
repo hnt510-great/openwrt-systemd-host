@@ -89,7 +89,7 @@ Their Quadlets now explicitly select `Network=pasta`.
   was performed. Physical reboot behavior remains untested.
 
 The old store remains inactive at
-`/home/desktop-user/.local/share/containers/storage`; existing containers/internal
+`/home/builder/.local/share/containers/storage`; existing containers/internal
 volumes were not migrated. The three application images and Alpine were
 loaded into the fresh native store. No bind-mounted application data was
 removed. Large temporary installation archives were removed from router RAM.

@@ -34,7 +34,7 @@ for the file-handle and UUID requirements.
 | `podman` | `5.8.4-r7` | Set `xino=off` in temporary rootless capability probes, including probes which ignore storage mount options. |
 | `fstools` | `2026.10.18~907cf449-r2` | Select `xino=off` when pivoting over a SquashFS lower root; keep other lower filesystems and the global kernel default unchanged. |
 
-Both remote users, `desktop-user` and `aria2`, now have `mountopt =
+Both remote users, `builder` and `aria2`, now have `mountopt =
 "nodev,xino=off"`. Their graphroots remain under `/overlay/containers/UID/storage`.
 The Podman feed change is also stored in
 `patches/feeds/0019-packages-podman-overlay-xino.patch` for reproduction.

@@ -76,7 +76,7 @@ they do not reboot automatically.
 Use `scripts/publish-changed-feeds.sh`, including `--dry-run` for a complete
 publication preflight. The canonical production destination in
 `configs/lan-apk-feeds.json` requires `upgrade_preflight.ssh_target`; it currently
-identifies `desktop-user@192.0.2.1`. Direct low-level production publication is
+identifies `builder@192.0.2.1`. Direct low-level production publication is
 rejected. Low-level dry runs only validate their individual repository view.
 
 The coordinator holds a destination-wide publication lock and prepares signed

@@ -6,8 +6,8 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-User=desktop-user
-Group=desktop-user
+User=openwrt-feeds
+Group=openwrt-feeds
 RuntimeDirectory=lan-apk-feeds
 ExecStartPre=/usr/sbin/nginx -t -c /etc/openwrt-feeds/nginx.conf
 ExecStart=/usr/sbin/nginx -c /etc/openwrt-feeds/nginx.conf

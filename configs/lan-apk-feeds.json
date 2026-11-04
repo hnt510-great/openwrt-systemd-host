@@ -2,6 +2,6 @@
   "base_url": "http://apk.example.invalid:8088",
   "destination": "/srv/openwrt-feeds",
   "upgrade_preflight": {
-    "ssh_target": "desktop-user@192.0.2.1"
+    "ssh_target": ""
   }
 }

@@ -139,7 +139,7 @@ The user rebooted the router. Inspection at 06:15--06:17 found boot ID
 `00000000-0000-4000-8000-000000000001`, still running generation 30.
 
 - TUN preparation completed at boot +16.102 s, before user managers began at
-  +16.423 s (desktop-user) and +16.441 s (aria2). Both direct UID ACLs were correct.
+  +16.423 s (builder) and +16.441 s (aria2). Both direct UID ACLs were correct.
   There were zero missing/denied TUN device errors in this boot.
 - The native system bus and logind started without restart. The live identity
   audit, hostnamed activation, hostname sync, and fresh SSH session registration

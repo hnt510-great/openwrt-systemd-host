@@ -1,5 +1,5 @@
 From a0ad6205e6de38788ae6d0a275dd823d9adf2fc5 Mon Sep 17 00:00:00 2001
-From: hnt510 <hnt510@gmail.com>
+From: Project contributors <contributors@example.invalid>
 Date: Mon, 12 Oct 2026 15:54:52 +0800
 Subject: [PATCH] flatpak: enable GnuPG verification and user FUSE mounts
 

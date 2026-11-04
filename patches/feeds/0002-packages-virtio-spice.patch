@@ -1,5 +1,5 @@
 From 3047e348b9a0065bf23d27edd04d8a55ea89a05b Mon Sep 17 00:00:00 2001
-From: hnt510 <hnt510@gmail.com>
+From: Project contributors <contributors@example.invalid>
 Date: Mon, 12 Oct 2026 06:20:38 +0800
 Subject: [PATCH] qemu: enable SPICE and EGL VirGL rendering
 

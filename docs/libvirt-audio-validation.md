@@ -96,7 +96,7 @@ active daemons were refreshed; the desktop and audio services were retained.
 No system or user-session VMs were defined or running before installation.
 
 The instance `libvirt-pipewire-access@32769.path` is enabled for the configured
-desktop/audio account `desktop-user`. A temporary diskless, paused QEMU process
+desktop/audio account `builder`. A temporary diskless, paused QEMU process
 running as `libvirt-qemu` connected to this account's PipeWire and registered
 both `Stream/Output/Audio` and `Stream/Input/Audio`. It was then terminated.
 SPICE GStreamer elements and default virt-install sound-card generation pass.

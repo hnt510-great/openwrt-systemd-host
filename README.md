@@ -106,3 +106,6 @@ For a list of supported devices see the [OpenWrt Hardware Database](https://open
 ## License
 
 OpenWrt is licensed under GPL-2.0
+
+For this fork’s source publication settings and audit scope, see
+[public source publication](docs/public-source-publication.md).

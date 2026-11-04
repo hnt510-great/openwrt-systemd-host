@@ -118,7 +118,7 @@ python3 scripts/update-mainline-kernel.py --check|--update # Check or update mai
 ### APK Upgrade Preflight & Publication Gate
 - `scripts/publish-changed-feeds.sh` is the production publication gate.
 - Strict requirements:
-  - Connects to physical router via SSH (`upgrade_preflight.ssh_target` in `configs/lan-apk-feeds.json`, currently `desktop-user@192.0.2.1`).
+  - Connects to physical router via SSH (`upgrade_preflight.ssh_target` in `configs/lan-apk-feeds.json`, empty in the public example).
   - Reads installed package state under APK lock.
   - Simulates upgrade transactions with `scripts/apk-upgrade-preflight.py` (`--plan-json`, `--userspace-only`).
   - Halts if router is unreachable, has pending kernel trial, or simulation encounters blockers.
@@ -190,7 +190,7 @@ Every non-trivial feature must maintain a documentation pair:
 >      - `files/etc/uci-defaults/{99-multiuser,99-openssh-access,99-uhttpd-luci,99-zsh-default}`
 >      - `files/etc/zsh/zshrc`
 >      - `files/lib/upgrade/keep.d/{multiuser,openssh-access}`
->    - All other files in `files/` (e.g., `99-local-user`, private credentials, network configs) are unversioned. Do NOT stage or commit them.
+>    - Keep personal account provisioning, credentials and network overlays outside the public source tree. Do NOT stage or commit them.
 > 4. **Embedded Submodules**: `package/custom/luci-theme-argon` and `package/luci-app-argon-config` are embedded Git repositories without `.gitmodules`. Do not stage unintended changes inside them.
 > 5. **Immutable Packages**: Never overwrite a published APK release without incrementing `PKG_RELEASE`.
 > 6. **Feeds Working Tree**: Do not hard-reset `feeds/packages` or `feeds/video`; they contain live local branches.

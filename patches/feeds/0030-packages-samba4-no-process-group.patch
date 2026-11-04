@@ -1,5 +1,5 @@
 From e9d85b6388f388d99de3b8857fcd1423f0353f30 Mon Sep 17 00:00:00 2001
-From: hnt510 <hnt510@gmail.com>
+From: Project contributors <contributors@example.invalid>
 Date: Wed, 4 Nov 2026 14:39:26 +0800
 Subject: [PATCH] samba4: run daemons without creating a process group
 

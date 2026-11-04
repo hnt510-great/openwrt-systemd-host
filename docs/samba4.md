@@ -25,7 +25,7 @@ Choose the path, allowed users, guest access, and read/write permissions there.
 For password-protected access, add a Samba password for an existing Unix user:
 
 ```sh
-sudo smbpasswd -a desktop-user
+sudo smbpasswd -a builder
 ```
 
 The Samba password is separate from the SSH/Unix password. Clients connect
@@ -37,7 +37,7 @@ including on the native-systemd image. Useful checks are:
 ```sh
 sudo /etc/init.d/samba4 status
 sudo testparm -s
-sudo smbclient -L 192.0.2.1 -U desktop-user
+sudo smbclient -L 192.0.2.1 -U builder
 ```
 
 To build the packages without a VM test:

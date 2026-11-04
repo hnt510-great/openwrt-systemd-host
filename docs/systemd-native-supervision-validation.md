@@ -82,7 +82,7 @@ The Samba failure is the `setsid()` conflict described in the guide. Fixed in
 samba4 4.24.5-r5 (feed patch 0030); the fix was booted in a VM (no restarts,
 ports 139/445 listening, all 14 guest checks passing; image SHA-256
 `9912dc3ae83d3dc23666f4853b90f6792df2cac3bf8ce95c43a4bbc4b8f29881`), published,
-installed on the router, and a share listing on 192.0.2.1 returned `desktop-user`
+installed on the router, and a share listing on 192.0.2.1 returned `builder`
 and `downloads`. File reads and writes from a client were not tested.
 
 Also observed on the router: miniupnpd exits once at boot because its STUN

@@ -31,7 +31,7 @@ git diff --check
 
 ## QEMU 实际操作
 
-- `podman-luci-exec desktop-user info` 确认 rootless=true、serviceIsRemote=false，
+- `podman-luci-exec builder info` 确认 rootless=true、serviceIsRemote=false，
   UID 映射的 host UID 为 32769，存储位于该用户的 HOME，使用 systemd cgroups。
 - root 账号被拒绝；普通用户直接调用执行助手也被拒绝。助手无 setuid 位。
 - 容器创建保留含引号、空格和 `$(id)` 的环境变量值，按参数传入；创建带端口、
@@ -44,7 +44,7 @@ git diff --check
 - 镜像的真实后台 pull 和 rm 通过；网络与卷的 create/inspect/list/rm 路径
   中，create/list/rm 已实际执行，详情使用通用 inspect 后端。
 - 第二个普通用户 `podmanluciqa` 的 rootless info 和空容器列表通过，存储位于
-  `/home/podmanluciqa/`，与 desktop-user 相互独立。
+  `/home/podmanluciqa/`，与 builder 相互独立。
 - 实际只读 rpcd 登录允许 list/detail/job，拒绝 action；Chrome 验证只读页面
   仅显示详情和日志，没有创建、启停、删除按钮。
 - Chrome 检查了概览、容器列表、真实日志对话框、账号白名单配置及镜像列表。
@@ -79,16 +79,16 @@ git diff --check
 ## 后续物理安装，2026-10-14
 
 按用户要求，将上述最终 APK 安装到 `192.0.2.1`，通过已有普通账号
-`desktop-user` 的 SSH 与 sudo 完成。设备为 x86_64/glibc native-systemd，所有
+`builder` 的 SSH 与 sudo 完成。设备为 x86_64/glibc native-systemd，所有
 依赖已安装；该账号原有 subordinate IDs、Podman 组、运行时目录和 linger
 已可用，无需重新配置或迁移用户存储。
 
 - 设备现有 APK 签名密钥验证两包通过。离线安装模拟及实际安装仅新增
   `luci-app-podman` 和中文包，没有升级其他包。
-- 在新应用的 UCI 白名单中加入 desktop-user；没有修改 rpcd 登录账号或密码。
-  设备目前只配置 root 作为 LuCI 登录账号，desktop-user 是 SSH/sudo 账号。
+- 在新应用的 UCI 白名单中加入 builder；没有修改 rpcd 登录账号或密码。
+  设备目前只配置 root 作为 LuCI 登录账号，builder 是 SSH/sudo 账号。
 - 实际 RPC info 返回 rootless=true、serviceIsRemote=false、systemd cgroups，
-  graphRoot 为 `/home/desktop-user/.local/share/containers/storage`。
+  graphRoot 为 `/home/builder/.local/share/containers/storage`。
   资源列表正常读取，观察到 4 个容器、0 个 Pod、5 个镜像、1 个网络、0 个卷；
   没有对已有容器或其他用户资源执行修改操作。
 - 已安装的 RPC 脚本、C 执行助手、任务脚本和前端资源校验值与最终签名包

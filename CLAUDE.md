@@ -204,7 +204,7 @@ prepares signed userspace and kernel snapshots, reads a consistent router baseli
 database lock, checks installed kmods against the candidate ABI, simulates both upgrade paths,
 rechecks hashes, then exposes userspace before the kernel pointer. Receipts are written under
 `<destination>/upgrade-receipts/`. Production publication **requires**
-`upgrade_preflight.ssh_target` (`configs/lan-apk-feeds.json`, currently `desktop-user@192.0.2.1`); an
+`upgrade_preflight.ssh_target` (`configs/lan-apk-feeds.json`, empty in the public example); an
 unreachable router or pending kernel trial stops publication, and direct low-level production
 publication is rejected. `--dry-run` performs the full preflight and discards the snapshots.
 Publication never installs on the physical router. See `docs/apk-upgrade-preflight.md`.
@@ -418,8 +418,8 @@ pulling upstream, a `backup/pre-upstream-<date>` branch is cut.
   kmod identities.
 - **Published APK identities are immutable.** Changed bytes require a new `PKG_RELEASE`; the ELF
   rebuild ledger is not permission to overwrite a released version.
-- `package/custom/luci-theme-argon` is a **git submodule** (`.gitmodules`, branch `master`, local
-  GitLab URL). `./scripts/feeds update` initializes it on a fresh clone and attaches it to that
+- `package/custom/luci-theme-argon` is a **git submodule** (`.gitmodules`, branch `master`, relative
+  sibling repository URL). `./scripts/feeds update` initializes it on a fresh clone and attaches it to that
   branch; commits inside it go to its own repository, and the parent records only the gitlink.
   `luci-app-argon-config` is retired (its settings moved into the theme).
 - `feeds/` is git-ignored but *is* source — `feeds/packages`, `luci`, `video`, `telephony`,
@@ -440,10 +440,9 @@ pulling upstream, a `backup/pre-upstream-<date>` branch is cut.
   Exactly **11 files were force-added** and are versioned: `etc/config/fstab`, `etc/skel/.zshrc`,
   `etc/ssh/sshd_config.d/00-openwrt-access.conf`, `etc/sudoers.d/10-multiuser`,
   `etc/uci-defaults/{99-multiuser,99-openssh-access,99-uhttpd-luci,99-zsh-default}`,
-  `etc/zsh/zshrc`, `lib/upgrade/keep.d/{multiuser,openssh-access}`. Everything else under `files/` —
-  including `etc/uci-defaults/99-local-user` (personal password hash) and personal
-  network/DDNS/proxy configs — is present on disk but **unversioned**. Do not commit those.
-  `docs/multiuser.md` and `docs/multiuser.md` describe the intended account state.
+  `etc/zsh/zshrc`, `lib/upgrade/keep.d/{multiuser,openssh-access}`. Personal overlays,
+  account provisioning scripts, credentials and private network configs must stay outside the
+  public source tree. See `docs/multiuser.md` for on-device account creation.
 - OpenWrt patches are quilt-managed: regenerate with `make target/linux/refresh` or
   `make package/<pkg>/refresh`, never `git format-patch`.
 - The fork's images and packages are published, not deployed: the wrappers write to

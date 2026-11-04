@@ -93,7 +93,7 @@ router preflight validated the userspace-only migration step
 (`migration_step: userspace-only`). `public/current` and the kernel channel
 (sequence 47: build 47 plus legacy g45 and g43) were promoted.
 
-The router (`desktop-user@192.0.2.1`: legacy 6.18.55 rescue, g45 running, g43
+The router (`builder@192.0.2.1`: legacy 6.18.55 rescue, g45 running, g43
 previous) was migrated without a reboot. Each step was simulated first and run
 as a transient systemd unit. The user then rebooted the router.
 

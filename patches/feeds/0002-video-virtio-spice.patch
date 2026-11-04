@@ -1,5 +1,5 @@
 From 5e068983c0d02f482400fab04492bcc2b592edb3 Mon Sep 17 00:00:00 2001
-From: hnt510 <hnt510@gmail.com>
+From: Project contributors <contributors@example.invalid>
 Date: Mon, 12 Oct 2026 06:20:38 +0800
 Subject: [PATCH] mesa: add Intel VirtIO virtualization rendering provider
 

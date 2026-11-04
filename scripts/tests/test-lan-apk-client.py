@@ -7,7 +7,7 @@ import unittest
 
 TREE = Path(__file__).resolve().parents[2]
 FILES = TREE / 'package/custom/lan-apk-feeds/files'
-BASE = 'http://192.0.2.164:8088'
+BASE = 'http://apk.example.invalid:8088'
 OLD = '6.18.55~old-r1'
 NEW = '6.18.55~new-r1'
 

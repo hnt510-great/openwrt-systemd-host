@@ -1,5 +1,5 @@
 From 51551b1c9cf6fd26898cf85c542cec97228ec5cb Mon Sep 17 00:00:00 2001
-From: hnt510 <hnt510@gmail.com>
+From: Project contributors <contributors@example.invalid>
 Date: Sun, 1 Nov 2026 07:25:21 +0800
 Subject: [PATCH] luci-app-firewall: add a full cone NAT checkbox
 

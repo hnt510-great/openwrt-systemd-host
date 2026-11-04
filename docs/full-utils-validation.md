@@ -1,7 +1,7 @@
 # Standalone utilities validation, 2026-10-15
 
 Built and selected standalone replacements in this tree and installed the
-signed userspace APKs on `desktop-user@192.0.2.1`. BusyBox remains installed.
+signed userspace APKs on `builder@192.0.2.1`. BusyBox remains installed.
 BusyBox command links fell from **42 to 16** across /usr/bin and /usr/sbin,
 and from **24 to 8** in /usr/bin.
 

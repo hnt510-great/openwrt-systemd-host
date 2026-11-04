@@ -1,4 +1,4 @@
-From: hnt510 <hnt510@gmail.com>
+From: Project contributors <contributors@example.invalid>
 Subject: [PATCH] firewall4: probe IPv6 fullcone support before using it
 
 defaults.fullcone6 emits the nft "fullcone" expression, which needs the
