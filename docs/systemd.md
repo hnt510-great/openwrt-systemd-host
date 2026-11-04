@@ -17,11 +17,14 @@ falls back to procd. The `procd recovery` entry passes `openwrt.init=procd`;
 the failsafe entry also retains procd. A command line without the selector
 defaults to procd.
 
-Systemd owns the system manager, native units, timers, sockets and journald.
-`openwrt-ubusd.service` owns ubusd. `openwrt-procd.service` runs procd as a
-service supervisor, hotplug and watchdog daemon, and reports readiness after
-ubus registration and coldplug. `openwrt-services.service` runs enabled OpenWrt
-rc scripts in order. Existing UCI, LuCI and `/etc/init.d/*` controls continue
+Systemd owns the system manager, native units, timers, sockets, journald,
+device events (udevd) and the hardware watchdog. `openwrt-ubusd.service` owns
+ubusd. `openwrt-procd.service` runs `procd --systemd=units`: procd provides the
+OpenWrt service API and hotplug handlers, while every instance an init script
+registers runs as a transient `openwrt-SERVICE@INSTANCE.service`; see
+[systemd supervision of OpenWrt services](systemd-native-supervision.md). procd
+reports readiness after ubus registration and its first-boot udev coldplug.
+`openwrt-services.service` runs enabled OpenWrt rc scripts in order. Existing UCI, LuCI and `/etc/init.d/*` controls continue
 to address procd-managed router services. D-Bus and OpenSSH have native units
 and their rc scripts are skipped in systemd mode. The rc shutdown unmount script is also
 skipped so systemd can unmount filesystems after stopping services.
@@ -30,25 +33,27 @@ nonzero status, matching procd's rc queue, and reports that status in the
 journal. An active bridge means the sequence completed; check individual
 router services separately. Shutdown scripts use a bounded GNU timeout.
 Console login uses the existing OpenWrt
-login helper. Procd retains supervision while daemon executions occupy systemd-managed
-scopes beneath per-service slices. See [cgroup ownership and cleanup](systemd-cgroups.md).
+login helper. Daemon executions run as transient services beneath per-service
+slices; rc scripts and the few instances procd still starts itself occupy
+scopes there. See [cgroup ownership and cleanup](systemd-cgroups.md).
 
 An optional [service control bridge](systemd-service-bridge.md) exposes
 individual openwrt@NAME.service controls, shared rc.d enablement and live
 status through systemctl. It preserves the ownership and boot ordering above
 and defaults to off.
 
-OpenWrt retains netifd, firewall, DHCP/DNS, NTP, device events, module loading,
-sysctl and logd. Udev, its generators, and systemd's competing sysctl/module
-units are disabled. Native units should use explicit paths and service
-dependencies; udev-backed `.device` dependencies are outside this integration.
+OpenWrt retains netifd, firewall, DHCP/DNS, NTP, module loading, sysctl and
+logd. udevd receives device events and forwards those with `/etc/hotplug.d`
+handlers to procd; it installs no interface-renaming, firmware or
+module-loading rules. systemd's competing sysctl/module units are disabled.
+Native units should use explicit paths and service dependencies.
 Journald owns `/dev/log` and collects syslog, kernel messages and native unit
-output. In systemd mode, procd starts `logd -J` as a journal-backed compatibility
+output. In systemd mode, the log init script starts `logd -J` as a journal-backed compatibility
 reader: `logread`, the existing LuCI System Log page and UCI log forwarding
 continue to work. Recovery boots retain logd's original syslog/kernel readers.
 Journald uses persistent storage on root/extroot with bounded disk usage; see
-[journal storage and cleanup](journald.md). Systemd watchdog handling is
-disabled so procd remains the watchdog owner.
+[journal storage and cleanup](journald.md). The systemd manager owns the
+hardware watchdog (`RuntimeWatchdogSec=30s`); procd recovery keeps its own.
 
 The package excludes networkd, resolved and timesyncd. Native mode includes
 polkit, PAM login sessions, logind and systemd user managers; see
@@ -57,7 +62,7 @@ generator is removed; the PAM variant of OpenWrt OpenSSH runs under
 `sshd.service`, retaining its configuration and PAM integration. Lifecycle and
 normal-boot enablement use systemctl; procd recovery retains its independent
 rc.d SSH setting. See [native OpenSSH](systemd-sshd.md).
-Display/input device access still uses seatd.
+Display and input device access uses udev tags and logind seats.
 
 ### Network readiness
 
@@ -149,7 +154,8 @@ their corresponding packages are selected.
 
 Agents should read the OPENWRT_* identity fields before choosing administrative
 commands: this host uses glibc and matching native APK repositories, systemd
-for the default init, and UCI/netifd/procd for router services. Firmware flashing
+for the default init and process supervision, and UCI/netifd/procd init
+scripts for router service configuration. Firmware flashing
 requires procd recovery. OPENWRT_DEFAULT_INIT describes the default boot mode;
 check /proc/1/comm for the current mode, since recovery runs procd.
 
@@ -170,7 +176,8 @@ key private; the firmware includes the public verification key.
 
 Install native units in `/etc/systemd/system`, then use `systemctl daemon-reload`
 and `systemctl enable --now example.service`. Keep router service configuration
-in UCI. Avoid adding a second native unit for an existing procd service.
+in UCI. Avoid adding a second native unit for an existing procd service; its
+daemon already runs as `openwrt-NAME@INSTANCE.service`.
 Reboot, halt, poweroff and `ubus call system reboot` delegate to systemd in
 native mode and retain the usual behavior in recovery.
 

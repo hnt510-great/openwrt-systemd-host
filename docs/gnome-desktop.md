@@ -73,9 +73,11 @@ on the device with `fc-list :charset=23f5 family`.
 
 Full systemd libudev and udevd provide device tags for logind seats. The udev
 package installs device-identification, seat and access rules, not networking
-renaming, firmware or module-loading rules. Existing procd hotplug dispatch,
-netifd, firewall and router service ownership continue to apply. A coldplug
-unit identifies DRM/input/audio devices before starting the desktop.
+renaming, firmware or module-loading rules. udevd is the only receiver of
+device events; it forwards events with `/etc/hotplug.d` handlers to procd (see
+[systemd supervision](systemd-native-supervision.md)). netifd, firewall and
+router service configuration are unchanged. A coldplug unit identifies
+DRM/input/audio devices before starting the desktop.
 The native library also provides the legacy `libudev-zero` virtual name and
 excludes the old implementation. An existing unpinned `libudev-zero` world
 selection therefore migrates to native libudev in one APK transaction.

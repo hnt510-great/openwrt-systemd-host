@@ -86,7 +86,10 @@ not a native systemd service unit. Direct D-Bus StartUnit/StopUnit operations,
 native unit dependencies, show, and list-unit-files do not provide the bridge's
 lifecycle semantics. Use the supported CLI actions or original init scripts.
 
-Real processes appear in transient scopes beneath openwrt-SERVICE.slice, with
+In units mode (see [systemd supervision](systemd-native-supervision.md)),
+procd instances are transient openwrt-SERVICE@INSTANCE.service units and the
+status display names that unit in place of a scope. Otherwise, real processes
+appear in transient scopes beneath openwrt-SERVICE.slice, with
 unit escaping applied to SERVICE (a literal dash becomes \x2d). Resource controls
 belong on that slice, not on the reserved CLI spelling. The status display
 separates live health from observed placement; unknown placement does not imply

@@ -1,5 +1,16 @@
 # Native-systemd OpenWrt cgroups
 
+> **Units mode.** Since procd 6 / systemd-openwrt 14, `openwrt-procd.service`
+> runs `procd --systemd=units` and procd instances are transient
+> `openwrt-SERVICE@INSTANCE.service` units in the same per-service slices,
+> supervised by systemd; see
+> [systemd supervision of OpenWrt services](systemd-native-supervision.md).
+> Their ubus records carry `systemd_unit` and `systemd_placement: unit`. The
+> scope mechanism below still applies to rc script executions
+> (`openwrt-cgroup exec`), to instances that units mode cannot express (vrf,
+> trace, OCI bundles, passed descriptors, jail console or setns) and to the
+> legacy `--systemd` mode used for rollback.
+
 Procd remains the supervisor for OpenWrt service instances. Original init scripts
 retain legacy lifecycle actions, respawn helpers, custom restart locks, UCI
 triggers, and rc.d enablement. Systemd owns the scope and slice hierarchy. The

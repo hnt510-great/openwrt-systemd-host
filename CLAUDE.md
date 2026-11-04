@@ -10,7 +10,8 @@ on an unusual base combination that everything else depends on:
 
 - **glibc**, not musl (`CONFIG_LIBC_USE_GLIBC=y`, `CONFIG_USE_GLIBC=y`)
 - **APK**, not opkg (`CONFIG_USE_APK=y`), signed packages (`CONFIG_SIGNED_PACKAGES=y`)
-- **native systemd** as PID 1 alongside a retained procd (`CONFIG_OPENWRT_SYSTEMD=y`)
+- **native systemd** as PID 1 and process supervisor, with procd retained as the OpenWrt service
+  API, hotplug-handler runner and recovery init (`CONFIG_OPENWRT_SYSTEMD=y`)
 - target `x86/64`, now on **mainline Linux 7.3** (`CONFIG_LINUX_7_3=y`); the versioned 6.18
   configuration and patch directories are retained, and other subtargets/boards keep their own
   kernel selection
@@ -93,13 +94,18 @@ passes `openwrt.init=systemd`, and init execs systemd as PID 1, falling back to 
 check fails; a `procd recovery` entry passes `openwrt.init=procd`. A command line without a selector
 defaults to procd.
 
-Systemd owns the manager, units, timers, sockets and journald. The bridge lives in
-`package/system/systemd-openwrt/`: `openwrt-ubusd.service` (ubusd), `openwrt-procd.service` (procd
-as service supervisor, hotplug and watchdog), `openwrt-services.service` (runs enabled
-`/etc/init.d/*` rc scripts in order), `openwrt-network-wait-online.service` (holds
+Systemd owns the manager, units, timers, sockets, journald, udev device events and the hardware
+watchdog. The bridge lives in `package/system/systemd-openwrt/`: `openwrt-ubusd.service` (ubusd),
+`openwrt-procd.service` (`procd --systemd=units`: the ubus `service`/`system`/`hotplug.*` API,
+triggers, validation, and `/etc/hotplug.d` handlers fed by udev), `openwrt-services.service` (runs
+enabled `/etc/init.d/*` rc scripts in order), `openwrt-network-wait-online.service` (holds
 `network-online.target` until netifd's static local interfaces such as `lan` are up; rootless
-Quadlets depend on it). UCI, LuCI and rc scripts keep addressing procd-managed services, so most
-router-side work is still procd-shaped. See `docs/systemd.md`.
+Quadlets depend on it). Each instance an init script registers through `procd.sh` runs as a
+transient `openwrt-SERVICE@INSTANCE.service` (procd patch `130-systemd-transient-units.patch`);
+vrf/trace/bundle/descriptor-passing instances fall back to procd children in scopes. Init scripts
+stay procd-shaped and UCI/LuCI are unchanged. Rollback to procd supervision is a drop-in
+(`--systemd`) plus `RuntimeWatchdogSec=0`. See `docs/systemd.md` and
+`docs/systemd-native-supervision.md`.
 
 An optional compatibility bridge (`CONFIG_OPENWRT_SYSTEMD_SERVICE_BRIDGE`, off by default,
 `package/system/systemd-openwrt-services/`) adds a C daemon that maps
