@@ -1,0 +1,251 @@
+--- a/src/grd-rdp-dvc-audio-playback.c
++++ b/src/grd-rdp-dvc-audio-playback.c
+@@ -33,7 +33,19 @@
+ #define MAX_IDLING_TIME_US_DEFAULT (5 * G_USEC_PER_SEC)
+ #define MAX_IDLING_TIME_US_OPUS (10 * G_USEC_PER_SEC)
+ #define MAX_LOCAL_FRAMES_LIFETIME_US (50 * 1000)
++/*
++ * Maximum amount of *queueing* delay tolerated before pending frames are
++ * dropped. The client's reported latency includes an output-device delay
++ * that dropping audio cannot reduce. Only the delay above the
++ * recently observed minimum (the baseline) indicates a growing backlog.
++ */
+ #define MAX_RENDER_LATENCY_MS 300
++/*
++ * The baseline is the minimum over two consecutive buckets, so it follows a
++ * persistent change (e.g. a switch to a different output device) within
++ * BASELINE_BUCKET_US to 2 * BASELINE_BUCKET_US.
++ */
++#define BASELINE_BUCKET_US (5 * G_USEC_PER_SEC)
+ 
+ #define N_CHANNELS 2
+ #define N_SAMPLES_PER_SEC_DEFAULT 44100
+@@ -57,6 +69,14 @@
+   int64_t render_latency_set_us;
+ } BlockInfo;
+ 
++typedef struct _DelayBaseline
++{
++  gboolean valid;
++  int64_t bucket_start_us;
++  uint32_t current_min_ms;
++  uint32_t previous_min_ms;
++} DelayBaseline;
++
+ struct _GrdRdpDvcAudioPlayback
+ {
+   GrdRdpDvc parent;
+@@ -90,6 +110,7 @@
+ 
+   GMutex block_mutex;
+   BlockInfo block_infos[256];
++  DelayBaseline render_latency_baseline;
+ 
+   GSource *pipewire_setup_source;
+   GSource *pipewire_source;
+@@ -226,6 +247,57 @@
+ }
+ 
+ static void
++delay_baseline_add_sample (DelayBaseline *baseline,
++                           uint32_t       delay_ms,
++                           int64_t        current_time_us)
++{
++  if (!baseline->valid ||
++      current_time_us - baseline->bucket_start_us >= 2 * BASELINE_BUCKET_US)
++    {
++      baseline->valid = TRUE;
++      baseline->bucket_start_us = current_time_us;
++      baseline->current_min_ms = delay_ms;
++      baseline->previous_min_ms = delay_ms;
++    }
++  else if (current_time_us - baseline->bucket_start_us >= BASELINE_BUCKET_US)
++    {
++      baseline->bucket_start_us = current_time_us;
++      baseline->previous_min_ms = baseline->current_min_ms;
++      baseline->current_min_ms = delay_ms;
++    }
++  else
++    {
++      baseline->current_min_ms = MIN (baseline->current_min_ms, delay_ms);
++    }
++}
++
++static gboolean
++delay_baseline_get (DelayBaseline *baseline,
++                    uint32_t      *delay_ms)
++{
++  if (!baseline->valid)
++    return FALSE;
++
++  *delay_ms = MIN (baseline->current_min_ms, baseline->previous_min_ms);
++  return TRUE;
++}
++
++static void
++reset_block_infos (GrdRdpDvcAudioPlayback *audio_playback)
++{
++  uint16_t i;
++
++  for (i = 0; i < 256; ++i)
++    {
++      BlockInfo *block_info = &audio_playback->block_infos[i];
++
++      block_info->render_latency_ms = 0;
++    }
++
++  audio_playback->render_latency_baseline.valid = FALSE;
++}
++
++static void
+ set_other_streams_inactive (GrdRdpDvcAudioPlayback *audio_playback)
+ {
+   GrdRdpAudioOutputStream *audio_output_stream;
+@@ -291,8 +363,6 @@
+ static void
+ release_stream_lock (GrdRdpDvcAudioPlayback *audio_playback)
+ {
+-  uint16_t i;
+-
+   g_assert (audio_playback->has_stream_lock);
+ 
+   g_debug ("[RDP.AUDIO_PLAYBACK] Unlocking audio stream (was locked to "
+@@ -303,12 +373,7 @@
+   g_mutex_unlock (&audio_playback->pending_frames_mutex);
+ 
+   g_mutex_lock (&audio_playback->block_mutex);
+-  for (i = 0; i < 256; ++i)
+-    {
+-      BlockInfo *block_info = &audio_playback->block_infos[i];
+-
+-      block_info->render_latency_ms = 0;
+-    }
++  reset_block_infos (audio_playback);
+   g_mutex_unlock (&audio_playback->block_mutex);
+ 
+   audio_playback->has_stream_lock = FALSE;
+@@ -714,6 +779,9 @@
+ {
+   GrdRdpDvcAudioPlayback *audio_playback = rdpsnd_context->data;
+   BlockInfo *block_info;
++  int64_t current_time_us;
++
++  current_time_us = g_get_monotonic_time ();
+ 
+   g_mutex_lock (&audio_playback->block_mutex);
+   block_info = &audio_playback->block_infos[confirm_block_num];
+@@ -721,7 +789,9 @@
+   if (wtimestamp > 0)
+     {
+       block_info->render_latency_ms = wtimestamp;
+-      block_info->render_latency_set_us = g_get_monotonic_time ();
++      block_info->render_latency_set_us = current_time_us;
++      delay_baseline_add_sample (&audio_playback->render_latency_baseline,
++                                 wtimestamp, current_time_us);
+     }
+   g_mutex_unlock (&audio_playback->block_mutex);
+ 
+@@ -950,16 +1020,13 @@
+ }
+ 
+ static uint32_t
+-get_current_render_latency (GrdRdpDvcAudioPlayback *audio_playback)
++get_current_render_latency (GrdRdpDvcAudioPlayback *audio_playback,
++                            int64_t                 current_time_us)
+ {
+   uint32_t accumulated_render_latency_ms = 0;
+   uint32_t n_latencies = 0;
+-  int64_t current_time_us;
+   uint16_t i;
+ 
+-  current_time_us = g_get_monotonic_time ();
+-
+-  g_mutex_lock (&audio_playback->block_mutex);
+   for (i = 0; i < 256; ++i)
+     {
+       BlockInfo *block_info = &audio_playback->block_infos[i];
+@@ -971,7 +1038,6 @@
+           ++n_latencies;
+         }
+     }
+-  g_mutex_unlock (&audio_playback->block_mutex);
+ 
+   if (n_latencies == 0)
+     return 0;
+@@ -979,19 +1045,54 @@
+   return accumulated_render_latency_ms / n_latencies;
+ }
+ 
++/*
++ * Returns the delay accumulated on top of the baseline. A constant delay,
++ * however large, means the client keeps up; a growing one means a backlog.
++ */
++static uint32_t
++get_queueing_delay (DelayBaseline *baseline,
++                    uint32_t       delay_ms)
++{
++  uint32_t baseline_ms;
++
++  if (!delay_baseline_get (baseline, &baseline_ms) || delay_ms <= baseline_ms)
++    return 0;
++
++  return delay_ms - baseline_ms;
++}
++
+ static void
+ maybe_drop_pending_frames (GrdRdpDvcAudioPlayback *audio_playback)
+ {
+   uint32_t render_latency_ms;
++  uint32_t render_queueing_ms;
++  int64_t current_time_us;
+   uint16_t i;
+ 
+-  render_latency_ms = get_current_render_latency (audio_playback);
+-  if (render_latency_ms <= MAX_RENDER_LATENCY_MS)
+-    return;
+-
+-  g_queue_clear_full (audio_playback->pending_frames, audio_data_free);
++  current_time_us = g_get_monotonic_time ();
+ 
+   g_mutex_lock (&audio_playback->block_mutex);
++  render_latency_ms = get_current_render_latency (audio_playback,
++                                                 current_time_us);
++  render_queueing_ms =
++    get_queueing_delay (&audio_playback->render_latency_baseline,
++                       render_latency_ms);
++
++  /*
++   * A missing confirmation alone is not evidence of growing playback delay.
++   * Do not let one stale block repeatedly discard otherwise healthy audio.
++   * Local frames are independently bounded by MAX_LOCAL_FRAMES_LIFETIME_US.
++   */
++  if (render_queueing_ms <= MAX_RENDER_LATENCY_MS)
++    {
++      g_mutex_unlock (&audio_playback->block_mutex);
++      return;
++    }
++
++  g_debug ("[RDP.AUDIO_PLAYBACK] Dropping pending frames: render latency "
++           "%ums (%ums above baseline)", render_latency_ms, render_queueing_ms);
++
++  /* Preserve the baseline: dropping local frames cannot change the device. */
+   for (i = 0; i < 256; ++i)
+     {
+       BlockInfo *block_info = &audio_playback->block_infos[i];
+@@ -999,6 +1100,8 @@
+       block_info->render_latency_ms = 0;
+     }
+   g_mutex_unlock (&audio_playback->block_mutex);
++
++  g_queue_clear_full (audio_playback->pending_frames, audio_data_free);
+ }
+ 
+ static void
+@@ -1401,6 +1504,7 @@
+ 
+   g_mutex_init (&audio_playback->protocol_timeout_mutex);
+   g_mutex_init (&audio_playback->block_mutex);
++  reset_block_infos (audio_playback);
+   g_mutex_init (&audio_playback->streams_mutex);
+   g_mutex_init (&audio_playback->stream_lock_mutex);
+   g_mutex_init (&audio_playback->pending_frames_mutex);

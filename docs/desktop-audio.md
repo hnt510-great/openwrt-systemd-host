@@ -43,6 +43,28 @@ source when microphone redirection is enabled by the client. Select that source
 in the recording application. It is not automatically played through speakers.
 Clients without audio redirection continue to share the desktop normally.
 
+Upstream gnome-remote-desktop drops queued playback whenever the client's
+reported latency exceeds 300 ms. That figure includes the client's output-device
+latency, so a device claiming e.g. 500 ms caused a flush loop and roughly half
+of the audio was lost even on a sub-millisecond LAN. Patch
+`005-ignore-constant-audio-device-latency.patch` compares recent reported render
+latency against the minimum seen over two consecutive five-second buckets.
+Audio is dropped only when the reported latency grows more than 300 ms above
+that baseline. A steady 520 ms report therefore does not trigger flushing;
+increasing delay still does. After a switch to a slower output device, drops
+can continue for up to 10 seconds until the baseline adapts. This is a heuristic:
+an acknowledgment does not identify which part of the delay is the device,
+client queue or transport.
+
+Missing confirmations alone do not trigger flushing. The former oldest-block
+check could repeatedly discard all newly captured audio for almost two seconds
+because one confirmation was missing, even while later blocks were confirmed
+normally. The existing 50 ms local-frame age limit remains in force. The
+baseline resets when the stream lock is released. Run
+`python3 -B scripts/tests/test-gnome-rdp-audio-latency.py` to exercise the patched
+C policy, including steady high latency, missing and delayed confirmations,
+increasing delay, device changes and stream resets.
+
 ## VNC with SSH audio
 
 VNC continues to carry display and input through its existing TLS connection.
