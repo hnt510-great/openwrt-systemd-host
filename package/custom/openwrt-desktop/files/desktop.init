@@ -4,7 +4,7 @@ STOP=5
 USE_PROCD=1
 
 write_lan_environment() {
-	local address path tmp
+	local address path rdp tmp
 	path=/run/openwrt-desktop
 	[ ! -L "$path" ] || return 1
 	mkdir -p "$path" || return 1
@@ -14,8 +14,11 @@ write_lan_environment() {
 	case "$address" in
 		''|0.0.0.0|*[!0-9.]*) rm -f "$path/$DESKTOP_USER_UID.env"; return 0 ;;
 	esac
+	rdp=0
+	[ "$(uci -q get desktop.main.rdp_enabled || :)" != 1 ] || rdp=1
 	tmp="$(mktemp "$path/.lan.XXXXXX")" || return 1
-	printf 'OPENWRT_DESKTOP_LAN_ADDRESS=%s\nOPENWRT_RDP_ADDRESS=%s\n' "$address" "$address" > "$tmp"
+	printf 'OPENWRT_DESKTOP_LAN_ADDRESS=%s\nOPENWRT_RDP_ADDRESS=%s\nOPENWRT_DESKTOP_RDP_ENABLED=%s\n' \
+		"$address" "$address" "$rdp" > "$tmp"
 	chmod 0644 "$tmp"
 	mv -f "$tmp" "$path/$DESKTOP_USER_UID.env"
 }

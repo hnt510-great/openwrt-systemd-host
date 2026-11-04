@@ -11,35 +11,64 @@ if [ "$(uci -q get desktop.main.audio_enabled || :)" = 1 ] &&
 fi
 if [ -x /usr/libexec/desktop-audio-session ]; then /usr/libexec/desktop-audio-session; fi
 if [ -x /usr/libexec/desktop-flatpak-session ]; then /usr/libexec/desktop-flatpak-session; fi
-address_file="/run/openwrt-desktop/$(id -u).env"
-previous=
+uid=$(id -u)
+address_file="/run/openwrt-desktop/$uid.env"
+sunshine_unit=app-dev.lizardbyte.app.Sunshine.service
+sunshine_user_link="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/gnome-session.target.wants/$sunshine_unit"
+sunshine_system_link="/etc/systemd/user/gnome-session.target.wants/$sunshine_unit"
+# Ticks are fork-free apart from sleep; systemd is only contacted when the
+# inputs change, and every resync_ticks so stopped services are restarted.
+resync_ticks=15
+ticks=0
+previous_key=
+previous_address=
 cleanup() {
 	systemctl --user stop gnome-remote-desktop.service sunshine.service 2>/dev/null || :
+}
+read_environment() {
+	address= rdp=
+	[ -f "$address_file" ] && [ ! -L "$address_file" ] || return 0
+	while IFS= read -r line || [ -n "$line" ]; do
+		case "$line" in
+			OPENWRT_DESKTOP_LAN_ADDRESS=*) address=${line#*=} ;;
+			OPENWRT_DESKTOP_RDP_ENABLED=*) rdp=${line#*=} ;;
+		esac
+	done 2>/dev/null <"$address_file" || address= rdp=
 }
 trap cleanup EXIT
 trap 'exit 0' HUP INT TERM
 while :; do
-	address=
-	if [ -f "$address_file" ] && [ ! -L "$address_file" ] &&
-	   [ "$(stat -c %u "$address_file")" = 0 ]; then
-		address=$(sed -n 's/^OPENWRT_DESKTOP_LAN_ADDRESS=//p' "$address_file")
-	fi
-	case "$address" in ''|0.0.0.0|*[!0-9.]*) address= ;; esac
-	if [ "$address" != "$previous" ]; then
-		cleanup
-		previous=$address
-	fi
-	if [ -n "$address" ]; then
-		if [ "$(uci -q get desktop.main.rdp_enabled || :)" = 1 ]; then
-			systemctl --user start gnome-remote-desktop.service || :
-		else
-			systemctl --user stop gnome-remote-desktop.service || :
+	read_environment
+	sunshine=0
+	if [ -e "$sunshine_user_link" ] || [ -e "$sunshine_system_link" ]; then sunshine=1; fi
+	key="$address|$rdp|$sunshine"
+	if [ "$key" != "$previous_key" ] || [ "$ticks" -ge "$resync_ticks" ]; then
+		previous_key=$key
+		ticks=0
+		if [ -n "$address" ] && [ "$(stat -c %u "$address_file" 2>/dev/null || :)" != 0 ]; then
+			address=
 		fi
-		if systemctl --user is-enabled --quiet app-dev.lizardbyte.app.Sunshine.service 2>/dev/null; then
-			systemctl --user start sunshine.service || :
-		else
-			systemctl --user stop sunshine.service || :
+		case "$address" in ''|0.0.0.0|*[!0-9.]*) address= ;; esac
+		if [ "$address" != "$previous_address" ]; then
+			cleanup
+			previous_address=$address
+		fi
+		if [ -n "$address" ]; then
+			# Environment files written before RDP state was recorded.
+			[ -n "$rdp" ] || rdp=$(uci -q get desktop.main.rdp_enabled || :)
+			if [ "$rdp" = 1 ]; then
+				systemctl --user start gnome-remote-desktop.service || :
+			else
+				systemctl --user stop gnome-remote-desktop.service || :
+			fi
+			if [ "$sunshine" = 1 ]; then
+				systemctl --user start sunshine.service || :
+			else
+				systemctl --user stop sunshine.service || :
+			fi
 		fi
 	fi
-	sleep 2
+	ticks=$((ticks + 1))
+	sleep 2 &
+	wait $! || :
 done
