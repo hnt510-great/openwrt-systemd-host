@@ -1,0 +1,493 @@
+From: hnt510 <hnt510@gmail.com>
+Subject: [PATCH] dae-core: splice XTLS Vision flows after the direct switch
+
+dae chooses a relay path once, when the relay starts. A Vision conn does
+not unwrap to *net.TCPConn, so its flows always took relayCopyLoop, and
+kept copying both directions through userspace after Vision had switched
+them to the raw socket (inner TLS 1.3, which is most proxied traffic).
+
+relayCopyLoop now checks, between chunks and only when one end is a
+netproxy.DirectTCPConnProvider, whether both ends of its direction
+resolve to raw sockets. When they do, the direction continues with the
+splice(2) loop of the fast path (relaySpliceTCPPair, split out of
+relayFastCopy unchanged), with the same traffic records, activity
+refreshes, deadlines and half-close. Bytes that a LAN-side sniffing
+wrapper still buffers are written first, as tryRelayGatherWrite does.
+The sockmap offload and its opt-in are unchanged.
+
+See docs/dae-kernel-proxy-study.md, option A.
+---
+Index: daed-2.1.1/dae-core/control/tcp_copy_engine.go
+===================================================================
+--- daed-2.1.1.orig/dae-core/control/tcp_copy_engine.go
++++ daed-2.1.1/dae-core/control/tcp_copy_engine.go
+@@ -68,12 +68,22 @@ func (defaultRelayCopyEngine) Copy(ctx context.Context, dst netproxy.Conn, src n
+ func relayCopyLoop(ctx context.Context, dst netproxy.Conn, src netproxy.Conn, buf []byte, record func(int64), onActive func(int64)) (written int64, err error) {
+ 	record = normalizeTrafficRecord(record)
+ 	onActive = normalizeTrafficRecord(onActive)
++	handover := relayDirectHandoverCandidate(dst, src)
+ 	for {
+ 		// Check context cancellation. relayCore.run ensures ctx is never nil.
+ 		if cerr := ctx.Err(); cerr != nil {
+ 			return written, cerr
+ 		}
+ 
++		// Between chunks buf is empty, so once both ends of this direction
++		// resolve to raw sockets (XTLS Vision after its direct switch) the
++		// rest of the direction can move to splice(2) without reordering.
++		if handover {
++			if n, err, ok := tryRelayDirectHandover(ctx, dst, src, record, onActive); ok {
++				return written + n, err
++			}
++		}
++
+ 		nr, er := src.Read(buf)
+ 		if nr > 0 {
+ 			onActive(int64(nr))
+Index: daed-2.1.1/dae-core/control/tcp_copy_linux.go
+===================================================================
+--- daed-2.1.1.orig/dae-core/control/tcp_copy_linux.go
++++ daed-2.1.1/dae-core/control/tcp_copy_linux.go
+@@ -62,38 +62,7 @@ func relayFastCopy(ctx context.Context, dst netproxy.Conn, src netproxy.Conn, re
+ 
+ 	// Fast path: both sides are plain TCP connections
+ 	if dstOk && srcOk {
+-		// Propagate context deadline to TCP connections if present.
+-		// relayCore.run ensures ctx is never nil.
+-		if ctx != nil {
+-			if deadline, ok := ctx.Deadline(); ok {
+-				// Check if already canceled (only when we have a deadline)
+-				select {
+-				case <-ctx.Done():
+-					return 0, ctx.Err()
+-				default:
+-				}
+-				// Set deadline on both connections.
+-				// Ignore errors: connections may be closed by forceClose concurrently.
+-				_ = srcTCP.SetReadDeadline(deadline)
+-				_ = dstTCP.SetWriteDeadline(deadline)
+-				defer func() {
+-					// Clear deadline on exit. Ignore errors for same reason.
+-					_ = srcTCP.SetReadDeadline(time.Time{})
+-					_ = dstTCP.SetWriteDeadline(time.Time{})
+-				}()
+-			}
+-		}
+-		// Direct splice remains enabled. When runtime accounting is requested,
+-		// use an explicit splice loop so we can account exact bytes written while
+-		// staying in the kernel zero-copy path. relayCore.forceClose() will
+-		// unblock blocked splice calls via SetReadDeadline(past).
+-		// The bare io.Copy shortcut is legal only when neither record nor
+-		// onActive is set: io.Copy cannot refresh lastActiveNano, and the
+-		// idle watchdog is armed unconditionally by relayCore.run.
+-		if record == nil && onActive == nil {
+-			return io.Copy(dstTCP, srcTCP)
+-		}
+-		return relaySpliceCopyExact(ctx, dstTCP, srcTCP, record, onActive)
++		return relaySpliceTCPPair(ctx, dstTCP, srcTCP, record, onActive)
+ 	}
+ 
+ 	// Fallback: use WriterTo if available, or buffered copy
+@@ -116,6 +85,87 @@ func relayFastCopy(ctx context.Context, dst netproxy.Conn, src netproxy.Conn, re
+ 	return relayCopyLoop(ctx, dst, src, buf, record, onActive)
+ }
+ 
++// relaySpliceTCPPair copies src to dst with splice(2), with the deadline and
++// accounting handling of the splice fast path.
++func relaySpliceTCPPair(ctx context.Context, dstTCP, srcTCP *net.TCPConn, record func(int64), onActive func(int64)) (int64, error) {
++	// Propagate context deadline to TCP connections if present.
++	// relayCore.run ensures ctx is never nil.
++	if ctx != nil {
++		if deadline, ok := ctx.Deadline(); ok {
++			// Check if already canceled (only when we have a deadline)
++			select {
++			case <-ctx.Done():
++				return 0, ctx.Err()
++			default:
++			}
++			// Set deadline on both connections.
++			// Ignore errors: connections may be closed by forceClose concurrently.
++			_ = srcTCP.SetReadDeadline(deadline)
++			_ = dstTCP.SetWriteDeadline(deadline)
++			defer func() {
++				// Clear deadline on exit. Ignore errors for same reason.
++				_ = srcTCP.SetReadDeadline(time.Time{})
++				_ = dstTCP.SetWriteDeadline(time.Time{})
++			}()
++		}
++	}
++	// Direct splice remains enabled. When runtime accounting is requested,
++	// use an explicit splice loop so we can account exact bytes written while
++	// staying in the kernel zero-copy path. relayCore.forceClose() will
++	// unblock blocked splice calls via SetReadDeadline(past).
++	// The bare io.Copy shortcut is legal only when neither record nor
++	// onActive is set: io.Copy cannot refresh lastActiveNano, and the
++	// idle watchdog is armed unconditionally by relayCore.run.
++	if record == nil && onActive == nil {
++		return io.Copy(dstTCP, srcTCP)
++	}
++	return relaySpliceCopyExact(ctx, dstTCP, srcTCP, record, onActive)
++}
++
++// tryRelayDirectHandover continues a relayCopyLoop direction with
++// relaySpliceTCPPair once both of its ends resolve to raw sockets. It is
++// called between chunks, so nothing is held in the copy buffer. ok=false
++// means the direction stays on the copy loop for now.
++//
++// The end that is not the DirectTCPConnProvider is the LAN socket, possibly
++// behind dae's sniffing wrappers. As in tryRelayGatherWrite, bytes those
++// wrappers still buffer are written to dst first and only then is the socket
++// read directly.
++func tryRelayDirectHandover(ctx context.Context, dst netproxy.Conn, src netproxy.Conn, record func(int64), onActive func(int64)) (int64, error, bool) {
++	srcTCP, ok := relayDirectReadTCPConn(src)
++	if !ok {
++		return 0, nil, false
++	}
++	dstTCP, ok := relayDirectWriteTCPConn(dst)
++	if !ok {
++		return 0, nil, false
++	}
++	record = normalizeTrafficRecord(record)
++	onActive = normalizeTrafficRecord(onActive)
++
++	var written int64
++	if _, isProvider := src.(netproxy.DirectTCPConnProvider); !isProvider {
++		var scratch [relayGatherInlineSegmentCap][]byte
++		if segments := relayTakeSourceSegments(src, &scratch); len(segments) > 0 {
++			rawConn, err := dstTCP.SyscallConn()
++			if err != nil {
++				return 0, err, true
++			}
++			n, err := relayWritevAll(rawConn, segments)
++			if n > 0 {
++				written += int64(n)
++				record(int64(n))
++				onActive(int64(n))
++			}
++			if err != nil {
++				return written, err, true
++			}
++		}
++	}
++	n, err := relaySpliceTCPPair(ctx, dstTCP, srcTCP, record, onActive)
++	return written + n, err, true
++}
++
+ func relaySpliceCopyExact(ctx context.Context, dst, src *net.TCPConn, record func(int64), onActive func(int64)) (int64, error) {
+ 	record = normalizeTrafficRecord(record)
+ 	onActive = normalizeTrafficRecord(onActive)
+Index: daed-2.1.1/dae-core/control/tcp_copy_other.go
+===================================================================
+--- daed-2.1.1.orig/dae-core/control/tcp_copy_other.go
++++ daed-2.1.1/dae-core/control/tcp_copy_other.go
+@@ -33,3 +33,7 @@ func relayFastCopy(ctx context.Context, dst netproxy.Conn, src netproxy.Conn, re
+ func shouldUseRelayFastPath(_ netproxy.Conn, _ netproxy.Conn) bool {
+ 	return false
+ }
++
++func tryRelayDirectHandover(_ context.Context, _ netproxy.Conn, _ netproxy.Conn, _ func(int64), _ func(int64)) (int64, error, bool) {
++	return 0, nil, false
++}
+Index: daed-2.1.1/dae-core/control/tcp_relay_capabilities.go
+===================================================================
+--- daed-2.1.1.orig/dae-core/control/tcp_relay_capabilities.go
++++ daed-2.1.1/dae-core/control/tcp_relay_capabilities.go
+@@ -86,3 +86,31 @@ func unwrapRelayTCPConn(conn any) (*net.TCPConn, bool) {
+ 	}
+ 	return nil, false
+ }
++
++// relayDirectHandoverCandidate reports whether an end of a relay direction
++// can switch to its raw socket while the relay runs (XTLS Vision direct
++// mode, see netproxy.DirectTCPConnProvider). Only then does relayCopyLoop
++// look for a handover, so other flows pay nothing per chunk.
++func relayDirectHandoverCandidate(dst netproxy.Conn, src netproxy.Conn) bool {
++	_, dstOk := dst.(netproxy.DirectTCPConnProvider)
++	_, srcOk := src.(netproxy.DirectTCPConnProvider)
++	return dstOk || srcOk
++}
++
++// relayDirectReadTCPConn resolves the socket a relay direction may read from
++// in place of src: the provider's switched socket, or a transparent wrapper's
++// socket as for the splice fast path.
++func relayDirectReadTCPConn(src netproxy.Conn) (*net.TCPConn, bool) {
++	if p, ok := src.(netproxy.DirectTCPConnProvider); ok {
++		return p.DirectReadTCPConn()
++	}
++	return unwrapRelayTCPConn(src)
++}
++
++// relayDirectWriteTCPConn is relayDirectReadTCPConn for the writing end.
++func relayDirectWriteTCPConn(dst netproxy.Conn) (*net.TCPConn, bool) {
++	if p, ok := dst.(netproxy.DirectTCPConnProvider); ok {
++		return p.DirectWriteTCPConn()
++	}
++	return unwrapRelayTCPConn(dst)
++}
+Index: daed-2.1.1/dae-core/control/tcp_relay_direct_handover_test.go
+===================================================================
+--- /dev/null
++++ daed-2.1.1/dae-core/control/tcp_relay_direct_handover_test.go
+@@ -0,0 +1,262 @@
++//go:build linux
++
++/*
++ * SPDX-License-Identifier: AGPL-3.0-only
++ * Copyright (c) 2022-2026, daeuniverse Organization <dae@v2raya.org>
++ */
++
++package control
++
++import (
++	"bytes"
++	"context"
++	"crypto/rand"
++	"io"
++	"net"
++	"sync"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/daeuniverse/outbound/netproxy"
++)
++
++// directSwitchConn imitates XTLS Vision for the relay: Read and Write pass
++// through to the socket (standing in for the outer TLS phase) until the
++// configured number of calls has happened, then the matching direction
++// offers the socket through netproxy.DirectTCPConnProvider.
++type directSwitchConn struct {
++	*net.TCPConn
++	readsBeforeDirect  int64
++	writesBeforeDirect int64
++	reads              atomic.Int64
++	writes             atomic.Int64
++}
++
++var _ netproxy.DirectTCPConnProvider = (*directSwitchConn)(nil)
++
++func (c *directSwitchConn) Read(b []byte) (int, error) {
++	c.reads.Add(1)
++	return c.TCPConn.Read(b)
++}
++
++func (c *directSwitchConn) Write(b []byte) (int, error) {
++	c.writes.Add(1)
++	return c.TCPConn.Write(b)
++}
++
++func (c *directSwitchConn) DirectReadTCPConn() (*net.TCPConn, bool) {
++	if c.readsBeforeDirect < 0 || c.reads.Load() < c.readsBeforeDirect {
++		return nil, false
++	}
++	return c.TCPConn, true
++}
++
++func (c *directSwitchConn) DirectWriteTCPConn() (*net.TCPConn, bool) {
++	if c.writesBeforeDirect < 0 || c.writes.Load() < c.writesBeforeDirect {
++		return nil, false
++	}
++	return c.TCPConn, true
++}
++
++func newHandoverTCPPair(t *testing.T) (*net.TCPConn, *net.TCPConn) {
++	t.Helper()
++	ln, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
++	if err != nil {
++		t.Fatalf("listen: %v", err)
++	}
++	defer ln.Close()
++	type acceptResult struct {
++		conn *net.TCPConn
++		err  error
++	}
++	accepted := make(chan acceptResult, 1)
++	go func() {
++		c, err := ln.AcceptTCP()
++		accepted <- acceptResult{c, err}
++	}()
++	client, err := net.DialTCP("tcp", nil, ln.Addr().(*net.TCPAddr))
++	if err != nil {
++		t.Fatalf("dial: %v", err)
++	}
++	res := <-accepted
++	if res.err != nil {
++		t.Fatalf("accept: %v", res.err)
++	}
++	t.Cleanup(func() {
++		_ = client.Close()
++		_ = res.conn.Close()
++	})
++	return client, res.conn
++}
++
++type handoverResult struct {
++	written  int64
++	recorded int64
++	err      error
++}
++
++// runHandoverCopy relays src -> dst through relayCopyLoop while feeder
++// writes payload into the far end of src, and returns what the far end of
++// dst received.
++func runHandoverCopy(t *testing.T, dst, src netproxy.Conn, feed io.WriteCloser, sink io.Reader, payload []byte) (handoverResult, []byte) {
++	t.Helper()
++	var recorded atomic.Int64
++	done := make(chan handoverResult, 1)
++	go func() {
++		buf := make([]byte, relayCopyBufferSize)
++		n, err := relayCopyLoop(context.Background(), dst, src, buf,
++			func(n int64) { recorded.Add(n) }, nil)
++		// relayCore half-closes the destination when a direction ends.
++		closeWriteRelayConn(dst)
++		done <- handoverResult{written: n, err: err}
++	}()
++
++	var wg sync.WaitGroup
++	wg.Add(1)
++	go func() {
++		defer wg.Done()
++		// Small writes first so the relay sees several chunks before the
++		// switch, then the bulk.
++		for i := 0; i < 4 && len(payload) > 0; i++ {
++			k := min(1024, len(payload))
++			_, _ = feed.Write(payload[:k])
++			payload = payload[k:]
++			time.Sleep(5 * time.Millisecond)
++		}
++		_, _ = feed.Write(payload)
++		_ = feed.(interface{ CloseWrite() error }).CloseWrite()
++	}()
++
++	got, err := io.ReadAll(sink)
++	if err != nil {
++		t.Fatalf("read relayed bytes: %v", err)
++	}
++	wg.Wait()
++	select {
++	case res := <-done:
++		res.recorded = recorded.Load()
++		return res, got
++	case <-time.After(5 * time.Second):
++		t.Fatal("relayCopyLoop did not return")
++	}
++	return handoverResult{}, nil
++}
++
++func handoverPayload(t *testing.T) []byte {
++	t.Helper()
++	payload := make([]byte, 8<<20)
++	if _, err := rand.Read(payload); err != nil {
++		t.Fatal(err)
++	}
++	return payload
++}
++
++// Download direction: the proxy conn is the source and switches its reads to
++// the raw socket after the first chunk; the rest must move to splice, in
++// order and fully accounted.
++func TestRelayCopyLoopHandsSwitchedReadsToSplice(t *testing.T) {
++	upFar, upNear := newHandoverTCPPair(t)
++	lanNear, lanFar := newHandoverTCPPair(t)
++	src := &directSwitchConn{TCPConn: upNear, readsBeforeDirect: 1, writesBeforeDirect: -1}
++
++	payload := handoverPayload(t)
++	res, got := runHandoverCopy(t, lanNear, src, upFar, lanFar, payload)
++
++	if res.err != nil {
++		t.Fatalf("relayCopyLoop: %v", res.err)
++	}
++	if !bytes.Equal(got, payload) {
++		t.Fatalf("relayed %d bytes, want %d identical bytes", len(got), len(payload))
++	}
++	if res.written != int64(len(payload)) || res.recorded != int64(len(payload)) {
++		t.Fatalf("written=%d recorded=%d, want %d", res.written, res.recorded, len(payload))
++	}
++	if n := src.reads.Load(); n != 1 {
++		t.Fatalf("proxy conn Read called %d times; want 1 before the splice handover", n)
++	}
++}
++
++// Upload direction: the proxy conn is the destination and switches its
++// writes after the first chunk.
++func TestRelayCopyLoopHandsSwitchedWritesToSplice(t *testing.T) {
++	lanFar, lanNear := newHandoverTCPPair(t)
++	upNear, upFar := newHandoverTCPPair(t)
++	dst := &directSwitchConn{TCPConn: upNear, readsBeforeDirect: -1, writesBeforeDirect: 1}
++
++	payload := handoverPayload(t)
++	res, got := runHandoverCopy(t, dst, lanNear, lanFar, upFar, payload)
++
++	if res.err != nil {
++		t.Fatalf("relayCopyLoop: %v", res.err)
++	}
++	if !bytes.Equal(got, payload) {
++		t.Fatalf("relayed %d bytes, want %d identical bytes", len(got), len(payload))
++	}
++	if res.written != int64(len(payload)) || res.recorded != int64(len(payload)) {
++		t.Fatalf("written=%d recorded=%d, want %d", res.written, res.recorded, len(payload))
++	}
++	if n := dst.writes.Load(); n != 1 {
++		t.Fatalf("proxy conn Write called %d times; want 1 before the splice handover", n)
++	}
++}
++
++// A conn that never switches (inner traffic not TLS 1.3) stays on the copy
++// loop for its whole life.
++func TestRelayCopyLoopKeepsUnswitchedProxyConn(t *testing.T) {
++	lanFar, lanNear := newHandoverTCPPair(t)
++	upNear, upFar := newHandoverTCPPair(t)
++	dst := &directSwitchConn{TCPConn: upNear, readsBeforeDirect: -1, writesBeforeDirect: -1}
++
++	payload := handoverPayload(t)
++	res, got := runHandoverCopy(t, dst, lanNear, lanFar, upFar, payload)
++
++	if res.err != nil {
++		t.Fatalf("relayCopyLoop: %v", res.err)
++	}
++	if !bytes.Equal(got, payload) {
++		t.Fatalf("relayed %d bytes, want %d identical bytes", len(got), len(payload))
++	}
++	if n := dst.writes.Load(); n < int64(len(payload)/relayCopyBufferSize) {
++		t.Fatalf("proxy conn Write called %d times; the copy loop should have carried every chunk", n)
++	}
++}
++
++// Bytes a LAN-side wrapper still buffers (sniffed prefix) must reach the
++// proxy socket before anything spliced from the LAN socket.
++func TestRelayDirectHandoverFlushesSourcePrefixFirst(t *testing.T) {
++	lanFar, lanNear := newHandoverTCPPair(t)
++	upNear, upFar := newHandoverTCPPair(t)
++	dst := &directSwitchConn{TCPConn: upNear, readsBeforeDirect: -1, writesBeforeDirect: 0}
++	prefix := []byte("sniffed-client-hello|")
++	src := &prefixedConn{Conn: lanNear, prefix: append([]byte(nil), prefix...)}
++
++	payload := handoverPayload(t)
++	res, got := runHandoverCopy(t, dst, src, lanFar, upFar, payload)
++
++	if res.err != nil {
++		t.Fatalf("relayCopyLoop: %v", res.err)
++	}
++	want := append(append([]byte(nil), prefix...), payload...)
++	if !bytes.Equal(got, want) {
++		t.Fatalf("relayed %d bytes, want prefix then payload (%d bytes)", len(got), len(want))
++	}
++	if res.written != int64(len(want)) || res.recorded != int64(len(want)) {
++		t.Fatalf("written=%d recorded=%d, want %d", res.written, res.recorded, len(want))
++	}
++	if n := dst.writes.Load(); n != 0 {
++		t.Fatalf("proxy conn Write called %d times; want an immediate handover", n)
++	}
++}
++
++// Flows without a DirectTCPConnProvider never look for a handover.
++func TestRelayDirectHandoverCandidateOnlyForProviders(t *testing.T) {
++	a, b := newHandoverTCPPair(t)
++	if relayDirectHandoverCandidate(a, b) {
++		t.Fatal("plain TCP pair reported as handover candidate")
++	}
++	p := &directSwitchConn{TCPConn: a}
++	if !relayDirectHandoverCandidate(p, b) || !relayDirectHandoverCandidate(b, p) {
++		t.Fatal("provider not reported as handover candidate")
++	}
++}

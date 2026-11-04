@@ -41,7 +41,7 @@ core instead, the same way upstream dae-wing did after the daed release:
 
 On top of the v2.1.1 core, `package/custom/daed/patches/` carries three
 later upstream dae fixes (code only; docs and changelog hunks dropped) and
-two local changes:
+four local changes:
 
 | Patch | Upstream | Fix |
 | --- | --- | --- |
@@ -50,6 +50,8 @@ two local changes:
 | `003-dae-core-stop-LAN-ICMP-redirects.patch` | `e3fee8f` | Also writes `conf/all/send_redirects=0`; the kernel ORs it with the per-interface value, so the router otherwise kept sending ICMP redirects that steer LAN hosts past dae |
 | `004-dae-wing-default-lan-interface-for-new-configs.patch` | local | A config created with an empty `lan_interface` gets the UCI `default_lan_interface` (`br-lan`); see [No LAN interface](#no-lan-interface-lan-traffic-goes-direct) |
 | `005-outbound-vision-udp-read-with-64k-buffer.patch` | local | Vision UDP replies are read into dae's 64 KiB DNS buffer instead of failing with `short buffer`; points both `go.mod` replace directives at `third_party/outbound`; see [DNS warnings](#dns-warnings-through-a-vision-node) |
+| `006-outbound-vision-offer-raw-sockets-after-direct-switch.patch` | local | Vision offers its raw socket per direction once that direction has switched to direct mode (`netproxy.DirectTCPConnProvider`); direct-mode writes over plain TLS are flushed instead of waiting in the record coalescer; see [Vision flows after the direct switch](#vision-flows-after-the-direct-switch) |
+| `007-dae-core-splice-vision-direct-flows.patch` | local | dae's copy loop moves a switched Vision direction to its `splice(2)` loop |
 
 The dashboard of daed v2.1.1 is compatible with the re-pinned backend: the
 GraphQL schemas differ only in the global config, where `soMarkFromDaeSet` was
@@ -289,6 +291,29 @@ When both the UDP and TCP attempts fail, the client gets SERVFAIL
 those; daed runs with `--disable-timestamp`, so its log has no times to
 correlate with.
 
+### Vision flows after the direct switch
+
+When the traffic inside a VLESS `xtls-rprx-vision` tunnel is TLS 1.3, Vision
+stops wrapping it after the first records and each direction becomes a plain
+relay to the node's TCP socket. Up to release `2.1.1-r3` dae could not see
+that socket and kept copying both directions through a 32 KiB userspace
+buffer. From `2.1.1-r4` (patches 006 and 007) the relay checks between
+chunks, and once a direction has switched it continues with the same
+`splice(2)` loop it uses for unwrapped TCP pairs, so the bytes stay in the
+kernel. Traffic counters, the idle and half-close timeouts and half-close
+itself behave as before. Nothing is configured; there is no kernel change.
+
+What is not covered: Vision traffic whose inner protocol is not TLS 1.3 (it
+never switches), UDP and QUIC through Vision, and nodes using TLS
+fragmentation or a chained dialer (the socket is not offered through
+wrappers that are not known to be transparent). Those keep the copy loop.
+The [kernel proxy design study](dae-kernel-proxy-study.md) describes why
+this was chosen over a kernel module (option A there).
+
+Patch 006 also fixes a stall on `security=tls` Vision nodes (REALITY was not
+affected): direct-mode uploads were buffered in the TLS record coalescer
+until the download direction read something or 128 KiB had accumulated.
+
 ## Recovery
 
 - `/etc/init.d/daed stop` detaches the BPF programs, removes `dae0` and the
@@ -326,4 +351,6 @@ correlate with.
   recovery` entry (GRUB `next_entry`, as for a kernel trial) and repeats the
   autostart, routing and cleanup checks.
 
-See the [validation record](daed-validation.md).
+See the [validation record](daed-validation.md). Whether dae's proxy plane
+could move into a kernel module is analysed in the
+[kernel proxy design study](dae-kernel-proxy-study.md).

@@ -1,0 +1,382 @@
+From: hnt510 <hnt510@gmail.com>
+Subject: [PATCH] outbound: offer Vision's raw socket per direction after the direct switch
+
+After XTLS Vision switches a direction to direct mode, that direction
+is a plain pass-through to the dialed TCP socket, but vision.Conn hides
+the socket from relays: it implements neither UnderlyingConnProvider
+nor any other capability, so dae copies every byte of a switched flow
+through a 32 KiB userspace buffer.
+
+Add netproxy.DirectTCPConnProvider and implement it on vision.Conn (and
+on vision.PacketConn for TCP, which is what the dialer returns when
+xudp is on). DirectReadTCPConn answers once readWrapper.directRead is
+set, i.e. after the outer TLS conn's input and rawInput buffers have
+been handed out; DirectWriteTCPConn answers once writeWrapper.writeDirect
+is set. Only the two wrappers transport/tls and REALITY put between the
+TLS conn and the socket (coalesce.Conn and netproxy.FakeNetConn) are
+peeled, and the coalescer is flushed on the way, so nothing written
+earlier can be overtaken. Any other underlay (TLS fragmentation, chained
+dialers) keeps the flow on the wrapper.
+
+Also flush the coalescer after each direct-mode write. Over
+transport/tls (not REALITY) direct writes land in the coalescer, below
+the FlushConn that flushes outer-TLS writes; until now they were only
+pushed out by the next read on the conn or at 128 KiB, so an upload
+stalled while the download goroutine was parked in a read.
+---
+Index: daed-2.1.1/third_party/outbound/netproxy/unwrap.go
+===================================================================
+--- daed-2.1.1.orig/third_party/outbound/netproxy/unwrap.go
++++ daed-2.1.1/third_party/outbound/netproxy/unwrap.go
+@@ -25,6 +25,22 @@ type IntrinsicConnProvider interface {
+ 	IntrinsicConn() Conn
+ }
+ 
++// DirectTCPConnProvider is implemented by protocol conns that stop
++// transforming one direction of the byte stream part way through a
++// connection and pass it to the raw socket underneath unchanged (XTLS
++// Vision's direct mode). Each method reports, per direction, whether that
++// switch has happened and nothing is buffered between the conn and the socket
++// for that direction. A relay may then move the direction to the returned
++// socket (for example with splice(2)) and stop calling Read or Write on the
++// wrapper for it. ok=false means "not yet" (or never): keep using the wrapper.
++//
++// The calls are meant for the goroutine that owns the direction, between its
++// own Read or Write calls; they do not stop a concurrent Read or Write.
++type DirectTCPConnProvider interface {
++	DirectReadTCPConn() (*net.TCPConn, bool)
++	DirectWriteTCPConn() (*net.TCPConn, bool)
++}
++
+ // ForwardCloseWrite half-closes c. Protocol wrappers that implement
+ // WriteCloser are preferred; otherwise a *net.TCPConn is unwrapped via
+ // UnderlyingConnProvider. crypto/tls.Conn is not a WriteCloser and is not
+Index: daed-2.1.1/third_party/outbound/protocol/vless/vision/conn.go
+===================================================================
+--- daed-2.1.1.orig/third_party/outbound/protocol/vless/vision/conn.go
++++ daed-2.1.1/third_party/outbound/protocol/vless/vision/conn.go
+@@ -47,7 +47,19 @@ type writeWrapper struct {
+ func (w *writeWrapper) Write(p []byte) (int, error) {
+ 	// logrus.Println("write wrapper", "w.writeDirect", w.writeDirect)
+ 	if w.writeDirect {
+-		return w.vision.Conn.Write(p)
++		n, err := w.vision.Conn.Write(p)
++		// Over transport/tls the underlay is the record coalescer, which
++		// only buffers. Outer-TLS writes are flushed by coalesce.FlushConn
++		// and reads flush before they block, but a direct write reaches the
++		// coalescer below both: without this flush an upload sits buffered
++		// while the download goroutine is parked in a read, until 128 KiB
++		// accumulate or the peer sends something.
++		if err == nil {
++			if f, ok := w.vision.Conn.(underlayFlusher); ok {
++				err = f.Flush()
++			}
++		}
++		return n, err
+ 	}
+ 	return w.vision.overlayConn.Write(p)
+ }
+Index: daed-2.1.1/third_party/outbound/protocol/vless/vision/direct.go
+===================================================================
+--- /dev/null
++++ daed-2.1.1/third_party/outbound/protocol/vless/vision/direct.go
+@@ -0,0 +1,96 @@
++package vision
++
++import (
++	"net"
++
++	"github.com/daeuniverse/outbound/netproxy"
++	"github.com/daeuniverse/outbound/pkg/coalesce"
++)
++
++// underlayFlusher is the record coalescer under transport/tls (coalesce.Conn).
++type underlayFlusher interface {
++	Flush() error
++}
++
++var (
++	_ underlayFlusher                = (*coalesce.Conn)(nil)
++	_ netproxy.DirectTCPConnProvider = (*Conn)(nil)
++	_ netproxy.DirectTCPConnProvider = (*PacketConn)(nil)
++)
++
++const directUnderlayMaxDepth = 8
++
++// DirectReadTCPConn returns the raw socket once reads have switched to direct
++// mode. readWrapper.directRead is set only after the outer TLS conn's
++// decrypted (input) and undecrypted (rawInput) buffers were handed out by
++// read, so from then on Read is exactly a read on the raw socket.
++func (vc *Conn) DirectReadTCPConn() (*net.TCPConn, bool) {
++	vc.muRead.Lock()
++	defer vc.muRead.Unlock()
++	if !vc.toReadDirect || !vc.reader.directRead {
++		return nil, false
++	}
++	return directUnderlayTCPConn(vc.Conn)
++}
++
++// DirectWriteTCPConn returns the raw socket once writes have switched to
++// direct mode. Everything written before, including the padded frame that
++// carried commandPaddingDirect, has been flushed to the socket when it
++// returns, so later bytes written to the socket keep their order.
++func (vc *Conn) DirectWriteTCPConn() (*net.TCPConn, bool) {
++	vc.muWrite.Lock()
++	defer vc.muWrite.Unlock()
++	if !vc.toWriteDirect || !vc.writer.writeDirect || vc.writeFilterApplicationData {
++		return nil, false
++	}
++	return directUnderlayTCPConn(vc.Conn)
++}
++
++// directUnderlayTCPConn peels the conn that direct mode reads from and writes
++// to (tls.Conn.NetConn(): the record coalescer and/or netproxy.FakeNetConn)
++// down to the dialed *net.TCPConn. Only these two wrappers are peeled, because
++// both are known not to buffer reads; the coalescer is flushed on the way so
++// no pending bytes are left behind the socket. Anything else (for example the
++// TLS fragmentation conn, or a chained proxy dialer) keeps the flow on the
++// wrapper.
++func directUnderlayTCPConn(c net.Conn) (*net.TCPConn, bool) {
++	for range directUnderlayMaxDepth {
++		switch u := c.(type) {
++		case *net.TCPConn:
++			return u, true
++		case *coalesce.Conn:
++			if err := u.Flush(); err != nil {
++				return nil, false
++			}
++			c = u.Conn
++		case *netproxy.FakeNetConn:
++			next := u.UnderlyingConn()
++			if next == nil {
++				return nil, false
++			}
++			c = next
++		default:
++			return nil, false
++		}
++	}
++	return nil, false
++}
++
++// PacketConn is also what the dialer returns for TCP when xudp is enabled; in
++// that case Read and Write go straight to *Conn and so does the handover. UDP
++// is length-framed inside the outer TLS conn for its whole life and never
++// offers its socket to a relay.
++func (c *PacketConn) DirectReadTCPConn() (*net.TCPConn, bool) {
++	if c.network != "tcp" {
++		return nil, false
++	}
++	return c.Conn.DirectReadTCPConn()
++}
++
++// DirectWriteTCPConn: see DirectReadTCPConn.
++func (c *PacketConn) DirectWriteTCPConn() (*net.TCPConn, bool) {
++	if c.network != "tcp" {
++		return nil, false
++	}
++	return c.Conn.DirectWriteTCPConn()
++}
+Index: daed-2.1.1/third_party/outbound/protocol/vless/vision/direct_test.go
+===================================================================
+--- /dev/null
++++ daed-2.1.1/third_party/outbound/protocol/vless/vision/direct_test.go
+@@ -0,0 +1,198 @@
++package vision
++
++import (
++	"io"
++	"net"
++	"testing"
++	"time"
++
++	"github.com/daeuniverse/outbound/netproxy"
++	"github.com/daeuniverse/outbound/pkg/coalesce"
++)
++
++// tcpPair returns the two ends of a loopback TCP connection.
++func tcpPair(t *testing.T) (client, server *net.TCPConn) {
++	t.Helper()
++	ln, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
++	if err != nil {
++		t.Fatalf("listen: %v", err)
++	}
++	defer ln.Close()
++	accepted := make(chan *net.TCPConn, 1)
++	go func() {
++		c, err := ln.AcceptTCP()
++		if err != nil {
++			accepted <- nil
++			return
++		}
++		accepted <- c
++	}()
++	client, err = net.DialTCP("tcp", nil, ln.Addr().(*net.TCPAddr))
++	if err != nil {
++		t.Fatalf("dial: %v", err)
++	}
++	server = <-accepted
++	if server == nil {
++		t.Fatal("accept failed")
++	}
++	t.Cleanup(func() {
++		_ = client.Close()
++		_ = server.Close()
++	})
++	return client, server
++}
++
++// newDirectTestConn builds a Vision conn over the underlay transport/tls gives
++// it: the coalescer around a FakeNetConn around the dialed socket.
++func newDirectTestConn(raw net.Conn) (*Conn, *coalesce.Conn) {
++	co := coalesce.New(&netproxy.FakeNetConn{Conn: raw})
++	vc := &Conn{Conn: co, writeFilterApplicationData: true}
++	vc.reader = &readWrapper{vision: vc}
++	vc.writer = &writeWrapper{vision: vc}
++	return vc, co
++}
++
++func switchDirect(vc *Conn) {
++	vc.toReadDirect = true
++	vc.reader.directRead = true
++	vc.toWriteDirect = true
++	vc.writer.writeDirect = true
++	vc.writeFilterApplicationData = false
++}
++
++func readExactly(t *testing.T, c net.Conn, n int) []byte {
++	t.Helper()
++	_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
++	defer c.SetReadDeadline(time.Time{})
++	b := make([]byte, n)
++	if _, err := io.ReadFull(c, b); err != nil {
++		t.Fatalf("read %d bytes: %v", n, err)
++	}
++	return b
++}
++
++func TestDirectTCPConnRefusedBeforeSwitch(t *testing.T) {
++	client, _ := tcpPair(t)
++	vc, _ := newDirectTestConn(client)
++
++	if _, ok := vc.DirectReadTCPConn(); ok {
++		t.Fatal("DirectReadTCPConn offered the socket before direct read")
++	}
++	if _, ok := vc.DirectWriteTCPConn(); ok {
++		t.Fatal("DirectWriteTCPConn offered the socket before direct write")
++	}
++
++	// commandPaddingEnd sets toReadDirect without directRead: reads still go
++	// through the outer TLS conn, so the socket must not be offered.
++	vc.toReadDirect = true
++	if _, ok := vc.DirectReadTCPConn(); ok {
++		t.Fatal("DirectReadTCPConn offered the socket after commandPaddingEnd")
++	}
++	// toWriteDirect alone is set before the frame carrying the direct
++	// command has been written.
++	vc.toWriteDirect = true
++	if _, ok := vc.DirectWriteTCPConn(); ok {
++		t.Fatal("DirectWriteTCPConn offered the socket before writeDirect")
++	}
++}
++
++func TestDirectTCPConnAfterSwitch(t *testing.T) {
++	client, _ := tcpPair(t)
++	vc, _ := newDirectTestConn(client)
++	switchDirect(vc)
++
++	r, ok := vc.DirectReadTCPConn()
++	if !ok || r != client {
++		t.Fatalf("DirectReadTCPConn = %p, %v; want %p, true", r, ok, client)
++	}
++	w, ok := vc.DirectWriteTCPConn()
++	if !ok || w != client {
++		t.Fatalf("DirectWriteTCPConn = %p, %v; want %p, true", w, ok, client)
++	}
++}
++
++func TestDirectWriteTCPConnFlushesCoalescer(t *testing.T) {
++	client, server := tcpPair(t)
++	vc, co := newDirectTestConn(client)
++
++	// Records the outer TLS conn handed to the coalescer but nobody flushed.
++	if _, err := co.Write([]byte("pending")); err != nil {
++		t.Fatal(err)
++	}
++	switchDirect(vc)
++	if _, ok := vc.DirectWriteTCPConn(); !ok {
++		t.Fatal("DirectWriteTCPConn refused a switched conn")
++	}
++	if n := co.Pending(); n != 0 {
++		t.Fatalf("coalescer still holds %d bytes after the handover", n)
++	}
++	if got := string(readExactly(t, server, len("pending"))); got != "pending" {
++		t.Fatalf("peer read %q, want %q", got, "pending")
++	}
++}
++
++// TestDirectWriteReachesSocketWithoutRead guards the direct-write flush: with
++// the coalescer as underlay, a direct-mode upload must reach the peer even
++// though nothing reads from the conn.
++func TestDirectWriteReachesSocketWithoutRead(t *testing.T) {
++	client, server := tcpPair(t)
++	vc, co := newDirectTestConn(client)
++	switchDirect(vc)
++
++	if _, err := vc.Write([]byte("upload")); err != nil {
++		t.Fatalf("direct write: %v", err)
++	}
++	if n := co.Pending(); n != 0 {
++		t.Fatalf("direct write left %d bytes in the coalescer", n)
++	}
++	if got := string(readExactly(t, server, len("upload"))); got != "upload" {
++		t.Fatalf("peer read %q, want %q", got, "upload")
++	}
++}
++
++func TestDirectTCPConnRefusesUnknownUnderlay(t *testing.T) {
++	// The REALITY underlay without the coalescer is accepted ...
++	client, _ := tcpPair(t)
++	vc := &Conn{Conn: &netproxy.FakeNetConn{Conn: client}}
++	vc.reader = &readWrapper{vision: vc}
++	vc.writer = &writeWrapper{vision: vc}
++	switchDirect(vc)
++	if r, ok := vc.DirectReadTCPConn(); !ok || r != client {
++		t.Fatalf("FakeNetConn underlay: DirectReadTCPConn = %p, %v", r, ok)
++	}
++
++	// ... but a wrapper that is not known to be transparent is not peeled.
++	stub := &closeWriteStub{}
++	vc = &Conn{Conn: &netproxy.FakeNetConn{Conn: stub}}
++	vc.reader = &readWrapper{vision: vc}
++	vc.writer = &writeWrapper{vision: vc}
++	switchDirect(vc)
++	if _, ok := vc.DirectReadTCPConn(); ok {
++		t.Fatal("DirectReadTCPConn peeled an unknown underlay")
++	}
++	if _, ok := vc.DirectWriteTCPConn(); ok {
++		t.Fatal("DirectWriteTCPConn peeled an unknown underlay")
++	}
++}
++
++func TestPacketConnDirectTCPConnOnlyForTCP(t *testing.T) {
++	client, _ := tcpPair(t)
++	vc, _ := newDirectTestConn(client)
++	switchDirect(vc)
++
++	udp := &PacketConn{Conn: vc, network: "udp"}
++	if _, ok := udp.DirectReadTCPConn(); ok {
++		t.Fatal("UDP PacketConn offered its socket for reads")
++	}
++	if _, ok := udp.DirectWriteTCPConn(); ok {
++		t.Fatal("UDP PacketConn offered its socket for writes")
++	}
++
++	tcp := &PacketConn{Conn: vc, network: "tcp"}
++	if r, ok := tcp.DirectReadTCPConn(); !ok || r != client {
++		t.Fatalf("TCP PacketConn: DirectReadTCPConn = %p, %v", r, ok)
++	}
++	if w, ok := tcp.DirectWriteTCPConn(); !ok || w != client {
++		t.Fatalf("TCP PacketConn: DirectWriteTCPConn = %p, %v", w, ok)
++	}
++}

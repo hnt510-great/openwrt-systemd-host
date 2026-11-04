@@ -254,6 +254,38 @@ Router changes, at the user's request and without restarting daed:
   (`984b2b40…b736`). daed kept running the r2 binary (pid 1684) until the
   user's restart.
 
+## Vision splice handover (daed 2.1.1-r4)
+
+Implements option A of the [kernel proxy design study](dae-kernel-proxy-study.md):
+patches 006 (outbound library) and 007 (dae core). Validated on 2026-11-04 on
+the build host and in disposable KVM guests.
+
+| Artifact | SHA256 |
+| --- | --- |
+| `daed-2.1.1-r4.apk` (`make package/daed/clean package/daed/compile`, not published) | `c019217c16e7ef47e1008b705269180a2430161edf323d6a6ff51e3002ae94a5` |
+| `/usr/bin/daed` in it (`build_dir/.../daed-2.1.1/daed`) | `7f631af6c9697f8804b9039e1fd254cf2c7c031b91cbeb7ce93f2e0f9c584fc3` |
+
+| Check | Result |
+| --- | --- |
+| `make package/daed/clean package/daed/compile V=s` | Passed; patches 001–007 applied without fuzz; the patched sources are byte-identical to the tested tree |
+| Vision unit tests (`go test github.com/daeuniverse/outbound/protocol/vless/vision`, also with `-race`) | Passed: no socket before the switch or after `commandPaddingEnd`; socket offered after it, for `*vision.PacketConn` only over TCP; unknown underlays refused; pending coalescer bytes flushed on handover |
+| Coalescer flush regression (`TestDirectWriteReachesSocketWithoutRead`) | Fails without the patch (6 bytes left in the coalescer), passes with it |
+| dae relay tests (`go test -race ./control/ -run 'Relay\|Splice\|Offload\|Gather\|Bufio\|Sniff\|Direct'`, then the whole `./control/` and `./component/sniffing/`) | Passed. The new tests relay 8 MiB over loopback with a provider that switches after one chunk (download and upload), a provider that never switches, and a sniffed prefix that must precede spliced bytes; byte-exact and fully recorded. With the handover disabled the three handover tests fail |
+| `go test github.com/daeuniverse/outbound/protocol/vless/... pkg/coalesce netproxy` | Passed |
+| End-to-end (scratch test, not shipped): xray-core 26.10.31 from this tree as a VLESS + REALITY + Vision server on loopback, outbound's `vless://` dialer (`*vision.PacketConn`, xudp default), dae's `RelayTCPContextWithRecords`, inner TLS 1.3 with 16 MiB up and 64 MiB down | Passed; SHA-256 of the upload and every download byte checked; Vision reported both directions direct; relay counters 16801457 up and 67200966 down |
+| Same test under `strace -f`, test-only switch to disable the handover | dae's process (which also runs the inner client and target): copy loop 160.6 MiB `read` and 160.2 MiB `write`, no `splice`; handover 80.5 MiB `read`, 80.2 MiB `write` (the in-process endpoints) and 160.2 MiB through `splice`, i.e. the relay's copies moved entirely to splice |
+| Throughput or CPU on the N5105 | **Not measured.** The loopback run is not a benchmark (both took about 5.2 s, bounded by the test's own byte checks and xray) |
+| Image | `python3 scripts/build-and-publish.py build-only -j12 V=s` (kernel sequence 49, nothing published): `openwrt-x86-64-generic-squashfs-combined-efi.img.gz`, SHA-256 `9de2845ac62dcbed835668a9c29873814e1dfb385e2d29fbdf262c21c1b2dd84`; its manifest lists `daed - 2.1.1-r4` |
+| `scripts/tests/test-daed-vm.py` on that exact image (KVM router + LAN client) | Passed: all 29 required checks true (kernel options, Passwall interlock, direct and proxied routing, DNS, flow offloading, `send_redirects`, stop cleanup, restart, LuCI ACL and toggles, and the same checks after booting into the `procd recovery` entry). Regression check only: its SOCKS5 node does not exercise Vision, so the handover itself is covered by the host tests above |
+
+Published afterwards at the user's request with `scripts/publish-changed-feeds.sh`
+(dry run first, preflight passed with no blockers): `daed`, `daed-geoip`,
+`daed-geosite` 2.1.1-r4, snapshot
+`/srv/openwrt-feeds/public/snapshots/20261104T032415.180507Z`, receipt
+`/srv/openwrt-feeds/upgrade-receipts/1793762676725134723.json`, kernel
+unchanged (sequence 49). Nothing was installed on the router and daed there
+still runs its previous release until it is upgraded.
+
 ## Evidence
 
 `/srv/openwrt-validation/daed-validation-20261101/`: the exact image,
@@ -262,3 +294,5 @@ command and serial logs; the LuCI image and its runs are under `luci/`. The
 default LAN interface build, dry-run and publication logs are under
 `default-lan-20261101/`. The Vision UDP build and publication logs and the
 pre-fix reproduction test are under `vision-udp-20261101/`. Build logs are in `logs/daed/` of the build tree.
+The Vision splice handover build log, Go test output, the scratch end-to-end
+test and its `strace` summaries are under `vision-splice-20261104/`.
