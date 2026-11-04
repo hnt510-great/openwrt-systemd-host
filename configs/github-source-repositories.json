@@ -94,12 +94,14 @@
     },
     {
       "path": "feeds/argon_config",
-      "name": "openwrt-luci-app-argon-config",
-      "branch": "master",
-      "url": "https://github.com/hnt510-great/openwrt-luci-app-argon-config.git",
+      "name": "openwrt-luci-theme-argon",
+      "branch": "retired-argon-config",
+      "url": "https://github.com/hnt510-great/openwrt-luci-theme-argon.git",
       "upstream": "https://github.com/jerrykuku/luci-app-argon-config.git",
       "upstream_branch": "master",
-      "active_feed": false
+      "active_feed": false,
+      "local_branch": "master",
+      "archive": true
     }
   ]
 }

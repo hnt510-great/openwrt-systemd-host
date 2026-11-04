@@ -15,7 +15,9 @@ Weston 桌面、libvirt、普通用户/SSH 支持以及目标配置修改。
 它们保存现有本地提交；`custom` 仍直接链接主树的 `package/custom`。
 主树、主题、各 feed 的地址和分支见
 [`configs/github-source-repositories.json`](../configs/github-source-repositories.json)。
-停用的 `argon_config` 另行保存，但不加入活动 feeds。
+停用的 `argon_config` 保存于主题仓库的 `retired-argon-config` 独立归档分支，
+不加入活动 feeds。清单中的 `local_branch` 仅描述迁移工作区的原分支名；
+新 clone 使用 `branch` 指定的 GitHub 分支。
 
 新机器先登录有权访问这些私有仓库的 GitHub 账号，再执行：
 

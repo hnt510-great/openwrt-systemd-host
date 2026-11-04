@@ -29,6 +29,8 @@ The custom feed lives in the main tree; its updater initializes the Argon
 submodule automatically. This fork's update command also checks upstream
 versions of registered custom packages and can modify recipes. For the saved
 configuration and upstream maintenance workflow, see [local build](docs/local-build.md).
+Repository layout and validation are documented in
+[private GitHub source hosting](docs/github-source-hosting.md).
 
 ## Download
 
