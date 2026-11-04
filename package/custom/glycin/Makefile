@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=glycin
-PKG_VERSION:=2.2.5
+PKG_VERSION:=2.2.6
 PKG_RELEASE:=1
-PKG_SOURCE:=glycin-2.2.5.tar.xz
+PKG_SOURCE:=glycin-2.2.6.tar.xz
 PKG_SOURCE_URL:=https://download.gnome.org/sources/glycin/2.2/
-PKG_HASH:=0766c32b80fcd858258cfd8cbb42783efc835d0e9256fdbfa6bdad034bb0717e
+PKG_HASH:=6a114aa1117ec2d7bd578c8cefd235d993304dedfd1a62575dc31be9a146b791
 PKG_LICENSE:=LGPL-2.1-or-later
 PKG_BUILD_DEPENDS:=rust/host
 GNOME_TITLE:=Sandboxed GNOME image decoders
