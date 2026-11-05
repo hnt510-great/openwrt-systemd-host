@@ -844,6 +844,24 @@ Kernel package definitions also change upstream (AUTOLOAD names without
 and `kmod-serial-sc16is7xx`). kmod payloads change, but their identity
 carries the kernel sequence, so the next reserved generation covers them.
 
+Feeds: the packages merge conflicted only on docker-compose, which takes
+upstream 5.7.0-r1 while keeping the local dependency without `+docker`. The
+`passwall_luci` merge keeps the local independent LuCI revision versioning
+instead of upstream's manual `26.11.3` version. LuCI removed the
+`luci-theme-openwrt` and `-2020` themes (neither selected); their stale
+`package/feeds` links were deleted. On a copy, `make defconfig` changes only
+upstream's new busybox `TRACEROUTE_USE_ICMP` default, the new
+`kmod-serial-sc16is7xx` symbol and the removed themes. The working `.config`
+is unchanged.
+
+The custom updater advances glycin to 2.2.6, libibus to 1.5.35 and
+luci-theme-argon to 3.1.2. Seven entries keep their review branch: flatpak
+1.19, freerdp 3.33, gcr 4, intel-media-driver, GTK 4, the libibus tag noise and
+libvirt 12.9. Both new sources pass hash verification and apply their local
+patches with no fuzz. libubox, procd (with its four systemd patches) and
+dnsmasq-full 2.93-r13 (with the nftset fast path) compile. glycin and libibus
+were prepared but not compiled.
+
 This is source integration, patch application and focused object compilation.
 No full kernel, image or generation was built, nothing was published, and no
 router was contacted. The MAP-E tunnel and DMA-BUF heap findings remain open.
