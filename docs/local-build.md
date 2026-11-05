@@ -24,8 +24,8 @@
 ```sh
 gh auth login --hostname github.com --git-protocol https --web
 gh auth setup-git
-git clone https://github.com/hnt510-great/openwrt.git
-cd openwrt
+git clone https://github.com/hnt510-great/openwrt-systemd-host.git
+cd openwrt-systemd-host
 ./scripts/feeds update -a
 ./scripts/feeds install -a
 cp configs/x86-64-systemd-desktop.config .config

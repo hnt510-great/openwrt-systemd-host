@@ -4,9 +4,9 @@
   "repositories": [
     {
       "path": ".",
-      "name": "openwrt",
+      "name": "openwrt-systemd-host",
       "branch": "main",
-      "url": "https://github.com/hnt510-great/openwrt.git",
+      "url": "https://github.com/hnt510-great/openwrt-systemd-host.git",
       "upstream": "https://github.com/openwrt/openwrt.git",
       "upstream_branch": "main",
       "active_feed": false

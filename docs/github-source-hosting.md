@@ -1,6 +1,6 @@
 # Private GitHub source hosting
 
-The main tree is `https://github.com/hnt510-great/openwrt.git`. It uses ten
+The main tree is `https://github.com/hnt510-great/openwrt-systemd-host.git`. It uses ten
 private repositories: the main tree, eight active feeds, and the Argon theme.
 The complete source, branch and original upstream map is
 [`configs/github-source-repositories.json`](../configs/github-source-repositories.json).
@@ -12,8 +12,8 @@ access to every private repository listed in the map.
 ```sh
 gh auth login --hostname github.com --git-protocol https --web
 gh auth setup-git
-git clone https://github.com/hnt510-great/openwrt.git
-cd openwrt
+git clone https://github.com/hnt510-great/openwrt-systemd-host.git
+cd openwrt-systemd-host
 ./scripts/feeds update -a
 ./scripts/feeds install -a
 ```
