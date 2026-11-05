@@ -16,7 +16,9 @@ Prepare the router's LAN IPv4 address and administrator password first. Use
 HTTPS when entering account credentials. GNOME also needs its normal graphics
 and display prerequisites. Recovery boots do not redirect or configure GNOME.
 
-**Set up later** suppresses future automatic entry. The permanent System menu
+**Skip setup** is available on the Account, Features and Review pages without
+completing any fields. It returns to the overview and suppresses future automatic
+entry without creating an account or applying desktop configuration. The permanent System menu
 and overview link remain available. Completion and deferral are device-wide,
 not per-browser settings. `/etc/desktop-setup/state.json` participates in
 configuration-preserving sysupgrade backups; a clean flash starts fresh.

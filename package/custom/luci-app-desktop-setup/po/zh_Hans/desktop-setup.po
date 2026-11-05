@@ -214,8 +214,8 @@ msgstr "运行中"
 msgid "Set account password"
 msgstr "设置账号密码"
 
-msgid "Set up later"
-msgstr "稍后设置"
+msgid "Skip setup"
+msgstr "跳过设置"
 
 msgid "Setup"
 msgstr "配置"
@@ -264,3 +264,6 @@ msgstr "部分已有用户服务仍使用旧组成员关系。重新登录可刷
 
 msgid "RDP TLS certificate fingerprint (SHA256):"
 msgstr "RDP TLS 证书指纹（SHA256）："
+
+msgid "Setup is optional. Skip setup to stop automatic prompts; you can return at System → Desktop Setup Wizard."
+msgstr "设置是可选的。跳过设置后将不再自动提示；您可以随时从“系统 → 桌面设置向导”返回。"

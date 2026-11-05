@@ -1,5 +1,25 @@
 # Desktop setup wizard validation
 
+## Skip setup update — 2026-11-05
+
+The pre-apply exit is explicitly labeled **Skip setup**, with English and
+Simplified Chinese guidance that setup is optional and can be reopened from
+the System menu. It uses the existing persistent deferral RPC.
+
+- Frontend Node assertions pass for skipping each pre-apply page with empty
+  fields, invoking only `defer`, returning to the overview, keeping the page
+  open on save failure, and disabling skip for read-only users.
+- All 19 backend/helper tests pass, including suppression of automatic entry,
+  reading deferral from a fresh backend instance, and no setup helper calls.
+- All 47 custom package registry tests, `msgfmt --check` and `git diff --check`
+  pass. The app release is bumped to 2.
+- `make -j1 package/custom/luci-app-desktop-setup/compile V=s` exited 0,
+  rebuilding the app and Chinese translation. Build log:
+  `/tmp/desktop-setup-skip-build.log` (temporary, not committed).
+- No guest or physical-device validation was performed for this update.
+
+## Original enrollment validation
+
 Date: 2026-11-04. Scope: host-side source/behavior tests, cross-built APKs,
 strict Kconfig checks and a browser preview with mocked RPC. No complete
 firmware image was built, no guest was provisioned, and no physical device
@@ -52,7 +72,8 @@ build/preview evidence is not committed and may not persist.
    roles, and verify group-cache reporting without stopping existing containers.
 5. Exercise a helper failure, re-entry, interrupted worker and locked-account
    recovery. Reboot and check unattended desktop/remote startup and that the
-   completed wizard no longer redirects. Test Set up later separately.
+   completed wizard no longer redirects. Test Skip setup separately, including
+   rebooting after skipping and reopening it from the permanent System menu.
 6. Repeat appropriate GPU/display/input and actual client checks on separately
    authorized physical hardware. VM or browser results do not establish them.
 

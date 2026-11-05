@@ -35,7 +35,7 @@ function environment(filename) {
 			if (schema.object == 'session') return Promise.resolve(access);
 			if (schema.method == 'status') return Promise.resolve(status);
 			calls.push({ method: schema.method, args });
-			if (schema.method == 'defer') return Promise.resolve({ success: true });
+			if (schema.method == 'defer') return Promise.resolve(fail ? { success: false, error: 'busy' } : { success: true });
 			return Promise.resolve(fail ? { success: false, error: 'helper_failed' } : { success: true, accepted: true });
 		} }
 	});
@@ -47,6 +47,25 @@ function environment(filename) {
 }
 
 (async () => {
+	for (const page of [0, 1, 2]) {
+		const skip = environment('view/system/desktop-setup.js');
+		skip.view.render(skip.status);
+		skip.view.page = page; skip.view.draw();
+		const button = skip.view.root.children.at(-1).children.find(n => n.children.includes('Skip setup'));
+		assert.ok(button);
+		assert.equal(button.disabled, false);
+		await button.click();
+		assert.deepEqual(skip.calls.map(call => call.method), ['defer']);
+		assert.deepEqual(skip.redirects, ['/cgi-bin/luci/admin/status/overview']);
+		// A failed save must leave the wizard visible so skipping can be retried.
+		skip.fail = true;
+		await button.click();
+		assert.equal(skip.redirects.length, 1);
+		assert.equal(skip.notifications.length, 1);
+		skip.permission = false; skip.view.draw();
+		assert.equal(skip.view.root.children.at(-1).children.find(n => n.children.includes('Skip setup')).disabled, true);
+	}
+
 	const env = environment('view/system/desktop-setup.js');
 	const app = env.view;
 	app.render(env.status);

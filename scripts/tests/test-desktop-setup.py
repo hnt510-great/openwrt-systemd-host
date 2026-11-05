@@ -239,6 +239,8 @@ class WizardTests(unittest.TestCase):
         self.assertTrue(self.backend.status()['automatic'])
         self.backend.defer()
         self.assertFalse(self.backend.status()['automatic'])
+        self.assertTrue(M.Backend(self.backend.root).state()['deferred'])
+        self.assertEqual(self.backend.calls, [])
         self.backend.write(self.backend.runtime / 'job.json', {'status': 'running', 'username': 'alice'})
         self.assertEqual(self.backend.status()['job']['status'], 'interrupted')
         self.execute()

@@ -212,7 +212,7 @@ msgstr ""
 msgid "Set account password"
 msgstr ""
 
-msgid "Set up later"
+msgid "Skip setup"
 msgstr ""
 
 msgid "Setup"
@@ -261,4 +261,7 @@ msgid "Some existing user services still have old group memberships. Re-login fo
 msgstr ""
 
 msgid "RDP TLS certificate fingerprint (SHA256):"
+msgstr ""
+
+msgid "Setup is optional. Skip setup to stop automatic prompts; you can return at System → Desktop Setup Wizard."
 msgstr ""

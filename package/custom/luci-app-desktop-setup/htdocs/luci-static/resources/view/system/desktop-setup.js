@@ -196,6 +196,7 @@ return view.extend({
 		var ready = platform.native && platform.lan_address && (platform.available || {}).desktop;
 		if (!ready) body.push(E('div', { 'class': 'alert-message warning' }, [
 			!platform.native ? errors.native_systemd_required : !platform.lan_address ? errors.lan_required : errors.missing_package ]));
+		if (this.page < 3) body.push(E('p', {}, [ _('Setup is optional. Skip setup to stop automatic prompts; you can return at System → Desktop Setup Wizard.') ]));
 		if (this.data.completed && this.page < 3) body.push(E('p', {}, [ _('Setup has already completed. You can enroll additional features or configure another ordinary account.') ]));
 		if (!this.data.running && (this.data.job || {}).status == 'failed' && this.page < 3)
 			body.push(E('div', { 'class': 'alert-message warning' }, [ errorText(this.data.job.error) ]));
@@ -217,7 +218,7 @@ return view.extend({
 				if (!result.success) throw new Error(errorText(result.error));
 				window.location.assign(L.url('admin/status/overview'));
 			}).catch(function(error) { ui.addNotification(null, E('p', {}, [ error.message ]), 'error'); });
-		} }, [ _('Set up later') ]));
+		} }, [ _('Skip setup') ]));
 		if (this.page == 3 && !this.data.running) {
 			buttons.push(E('button', { 'class': 'cbi-button', click: function() {
 				self.page = 0; self.message = ''; self.plan.mode = 'existing';
