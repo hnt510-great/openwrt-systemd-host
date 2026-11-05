@@ -2898,7 +2898,7 @@
         "net/dsa/dsa.c"
       ],
       "status": "rebased",
-      "source_sha256": "592e9cd5636a413ff69e3255055fbfbdc04009a73edb598926d3362c63821703",
+      "source_sha256": "2b317e86aa164e696a9608cb4c39f0d61c7beeb5d134cb77e432260a218c7187",
       "ported": "target/linux/generic/pending-7.3/704-net-dsa-support-EPROBE_DEFER-when-reading-the-port-M.patch",
       "ported_sha256": "d7bd86b25ff30b55217c511f8d295583af1b60fa87c0b7fc7705656917c32352"
     },
@@ -3503,7 +3503,7 @@
         "drivers/net/phy/motorcomm.c"
       ],
       "status": "merged",
-      "source_sha256": "aeb8ac659869f9c4f822332095517d8a25513e38593d3d82fdbf6a830694e0c0",
+      "source_sha256": "1cc073d6c224008cac01a9ff1de49b9b7862fcefa33d2dc4798a8dbe9d03644b",
       "ported": "target/linux/generic/pending-7.3/740-net-phy-motorcomm-Add-missing-include.patch",
       "ported_sha256": "d498ee986f7f28875c9645631b9c7261fcee370d0479d6694d10defcf97c6338"
     },
@@ -3609,7 +3609,7 @@
         "net/dsa/devlink.c"
       ],
       "status": "rebased",
-      "source_sha256": "92f479c1853773569189c266f63bc8cd281fb2cafed8bc8a5f67d261ea1154ba",
+      "source_sha256": "eb86f1ff7c4f544650ff80ad3367c4d38a98095514a6b6723d76878386b5cde9",
       "ported": "target/linux/generic/pending-7.3/760-02-dsa-add-devlink-flash_update-callback-to-dsa.patch",
       "ported_sha256": "2c3d5d41e2ec96ea54ff04f7af30357fa44607696ef73b99a3aed047a4196781"
     },
@@ -3705,7 +3705,7 @@
         "net/dsa/tag_mxl862xx_8021q.c"
       ],
       "status": "merged",
-      "source_sha256": "df67f9db43a9fd335e8b0571fc4a5461da2a05d812f65af1f7266b2eda63cf04",
+      "source_sha256": "18723108074dc4f415d626281e4952f60782127d537da76e0d75f7fbc9f2c2fb",
       "ported": "target/linux/generic/pending-7.3/760-09-net-dsa-add-802.1Q-VLAN-based-tag-driver-for-MxL862x.patch",
       "ported_sha256": "916a60f229ca423f6427200c7bf5cf6bf7977443e8d7c8f53fb9600cefa5dbae"
     },
@@ -4895,7 +4895,7 @@
         "drivers/net/phy/motorcomm.c"
       ],
       "status": "rebased",
-      "source_sha256": "775bd72c2e23749fd104de0462ff7c9b6732e129458fba5339c40274035682a9",
+      "source_sha256": "4d65fe3a40e9ebd63c9ec7e286c738cc061ca06f0a3102fb079302e087a0fc36",
       "ported": "target/linux/generic/hack-7.3/755-net-phy-motorcomm-yt8821-bus-collision-workaround.patch",
       "ported_sha256": "2031fda27c48638b8373ad7876d7d863fccc8fca335527358c054b20ebd8d078"
     },
@@ -5074,7 +5074,7 @@
         "net/Kconfig"
       ],
       "status": "merged",
-      "source_sha256": "1fd34a2739dea69487c23965db729c1d7feddf870dab7e7243f688bdd5003290",
+      "source_sha256": "e99762de8199bda4a2322cbd0c736ba351acf559a663f9c0ef085756fcdec507",
       "ported": "target/linux/generic/hack-7.3/904-debloat_dma_buf.patch",
       "ported_sha256": "b7f5ec75ccf535b8270877901526eb4bff227f7641bdfd8ec652049174751f8f",
       "review_findings": [
@@ -5487,6 +5487,705 @@
       "source_sha256": "a7179837986243d037aac229722a94f2544506c17d3d9420be32bfb44411731a",
       "ported": "target/linux/generic/hack-7.3/791-net-phy-ax88796b-build-the-Rust-driver-next-to-the-C.patch",
       "ported_sha256": "a7179837986243d037aac229722a94f2544506c17d3d9420be32bfb44411731a"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/050-v7.3-nvmem-layouts-u-boot-env-check-earlier-ethaddr.patch",
+      "files": [
+        "drivers/nvmem/layouts/u-boot-env.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "9f7ade394de3209166bdd2b8fc7be5f4c60944f6d74f0bc610906a26e4894bd5"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/200-v7.1-driver-core-kconfig-deferred-probe-timeout.patch",
+      "files": [
+        "drivers/base/Kconfig",
+        "drivers/base/dd.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "9e7147ae24a5ee60345f6de6fd3e67145997b15520121bb79dc45f18264b16cf"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/856-01-v7.3-xhci-include-all-root-port-children-in-recovery-prevention-on-link-error.patch",
+      "files": [
+        "drivers/usb/host/xhci-ring.c",
+        "drivers/usb/host/xhci.c",
+        "drivers/usb/host/xhci.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "27d83ce5cbfbf2b4d1c148dea83839338311185439135374ac0c884fbff090aa"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/856-02-v7.3-xhci-prevent-endpoint-recovery-after-roothub-disconnect.patch",
+      "files": [
+        "drivers/usb/host/xhci-ring.c",
+        "drivers/usb/host/xhci.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "f9c090998b3cb2b09aa686d66a2c9f3d50b2a31eb86c9f30088dfdaefd6d063a"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/856-03-v7.3-xhci-avoid-xhc-endpoint-changes-after-disconnect-or-link-error.patch",
+      "files": [
+        "drivers/usb/host/xhci-ring.c",
+        "drivers/usb/host/xhci.c",
+        "drivers/usb/host/xhci.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; every added line is present in v7.3 (reverse application fails only on later upstream context such as the BIT() endpoint-state conversion)",
+      "source_sha256": "a7116d77a2dc595f247f7ec866c56ab8b53cadffd70fb9b7d66db959acc1f267"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-01-v6.19-net-dsa-introduce-the-dsa-xmit-port-mask-tagging-pro.patch",
+      "files": [
+        "net/dsa/tag.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "a027f9c48b38eac02f72ba74054cb7d7d604d981cc6d104d4af4f6cb4d07f3ef"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-01a-v7.0-flow-offload-add-const-qualifiers-to-function-argume.patch",
+      "files": [
+        "include/net/flow_offload.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "3304d650930f06caad0c98f2e01aecad35083555e2750242182225aec23e56d4"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-02-v6.19-net-dsa-tag-yt921x-add-support-for-Motorcomm-YT921x.patch",
+      "files": [
+        "include/net/dsa.h",
+        "include/uapi/linux/if_ether.h",
+        "net/dsa/Kconfig",
+        "net/dsa/Makefile",
+        "net/dsa/tag_yt921x.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; the YT921x tagger exists in v7.3 and the ordered 967-01..967-35 backport series reverse-applies there except for tag lines that later upstream commits in the same series rewrite",
+      "source_sha256": "4287ef15788fc4bd1eb68e0b762c80ccf7a2b8627b78d95f1a4001ec2aa69ff1"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-03-v6.19-net-dsa-yt921x-Add-support-for-Motorcomm-YT921x.patch",
+      "files": [
+        "drivers/net/dsa/Kconfig",
+        "drivers/net/dsa/Makefile",
+        "drivers/net/dsa/yt921x.c",
+        "drivers/net/dsa/yt921x.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "e91b7307ce7ebb83a8c1a9779f331b530eb72f7e05e5ef3043e285b1fba2854c"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-04-v6.19-net-dsa-yt921x-Fix-spelling-mistake-stucked-stuck.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "674083307568832d21c0d7603d19759f8b78134da3b78dce31f231cd9e5754ff"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-05-v6.19-net-dsa-yt921x-Fix-parsing-MIB-attributes.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "7618db8d3b0780f937b3d9b6ad77a3e11c9be0c78cfb195802b191f153c79803"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-06-v6.19-net-dsa-yt921x-Use-macros-for-MIB-locations.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c",
+        "drivers/net/dsa/yt921x.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "0bc7f915702423492eb6ac72a74d1270ea187885627d4cc5af0e7f6f86ab822e"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-07-v6.19-net-dsa-tag-yt921x-use-the-dsa-xmit-port-mask-helper.patch",
+      "files": [
+        "net/dsa/tag_yt921x.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "fb3acbb3b25d16765981ab2683dbbe8cc5c68d3bd2769c12fda7426106fea6a7"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-08-v6.19-net-dsa-yt921x-Set-ageing-time-min-ageing-time-max.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "2488f375d947887f7d197f3d93361a2d42be489ac968a86a9b7286e7b39adecb"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-09-v6.19-net-dsa-yt921x-Use-ULL-bitfield-macros-for-VLAN-CTRL.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "878e315fbfa40c8624c4c4428583bba11e63cf2c39991ffa5bff09cca3be4ede"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-09a-v6.19-net-dsa-add-simple-HSR-offload-helpers.patch",
+      "files": [
+        "include/net/dsa.h",
+        "net/dsa/dsa.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "bde650a9d4bf4830aa230df18fd29c8c5df9dc5b26e332707396db922392c727"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-10-v6.19-net-dsa-yt921x-Add-STP-MST-support.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c",
+        "drivers/net/dsa/yt921x.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "95c618a323e6eaa6cb98b8ec6b4373cf022ab0ac83ce11352ee424cb29b5a7e2"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-11-v6.19-net-dsa-yt921x-use-simple-HSR-offloading-helpers.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "6c878073c1c60cdb50d6e52cbcb08459dbc75bd993829746b0f8961bc98ada28"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-12-v7.0-net-dsa-yt921x-Add-LAG-offloading-support.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c",
+        "drivers/net/dsa/yt921x.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "5572d6a28d97f740b112685041fce6d5e1eddd940c1c8b47fa111560a249d413"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-13-v6.19-net-dsa-yt921x-Fix-MIB-overflow-wraparound-routine.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "e3838eca43534da95a27c5c3d5763bae0a49a6f4e59e9f70df78fe97badb8cbf"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-14-v7.0-net-dsa-tag-yt921x-clarify-priority-and-code-fields.patch",
+      "files": [
+        "net/dsa/tag_yt921x.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "cfc2c8bbf2986664e6410a93b03bb3ec71685660438181bbb02103d71a17a2ae"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-15-v7.0-net-dsa-tag-yt921x-add-priority-support.patch",
+      "files": [
+        "net/dsa/tag_yt921x.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "c3e88713f515526df3e46cfa54898c07a989962b08d24a157e0234b35dc9d821"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-16-v7.0-net-dsa-yt921x-Refactor-VLAN-awareness-setting.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "bb4b161b448ef75b79f63e47bff2b4e8dfaab60a374bfb90a7b8902eb05ebf4f"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-17-v7.0-net-dsa-yt921x-Refactor-yt921x-chip-setup.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "9e52d2cb47936d661f774ae99f975ae39b9f7a9a2eb00165c01bd0f558535075"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-18-v7.0-net-dsa-yt921x-Add-DCB-QoS-support.patch",
+      "files": [
+        "drivers/net/dsa/Kconfig",
+        "drivers/net/dsa/yt921x.c",
+        "drivers/net/dsa/yt921x.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "e20be78af42e817c36a942754ed6e19eee2b31a348d10062ca15b12d80e6c315"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-19-v7.1-net-dsa-move-dsa-bridge-ports-helper-to-dsa-h.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "bc76aaf416090bdf4e2f8b54f10065ba43a122151ea268291d08c8fb963d97d2"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-20-v7.2-net-dsa-yt921x-Refactor-long-register-helpers.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c",
+        "drivers/net/dsa/yt921x.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "25c0858a1e89be448379bb6b20bb349df0ea12f2fc5301b18df9487a32e680c4"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-21-v7.2-net-dsa-yt921x-Add-port-police-support.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c",
+        "drivers/net/dsa/yt921x.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "8cbe00ba3185b9b3d23e1f32540c6879057fa0fed7c6998b3c0c77424817b374"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-21a-v7.2-net-sched-tbf-add-extack-to-offload-params.patch",
+      "files": [
+        "include/net/pkt_cls.h",
+        "net/sched/sch_tbf.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "625253358df30e8557c97ecf2756553c80b76018ee6af7d987971ee0eb57e42c"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-22-v7.2-net-dsa-yt921x-Add-port-TBF-support.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c",
+        "drivers/net/dsa/yt921x.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "b7b89adfa0dfbb99fe183e85a35f15bc31e6eee8a3b0c2ca506a53db916f7383"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-23-v7.2-net-dsa-tag-yt921x-handle-ACL-tag-code.patch",
+      "files": [
+        "net/dsa/tag_yt921x.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "3759cc1174e5451ebefc815d4b7689ba3ac99732bf821535dce6be29ee3b44cf"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-24-v7.2-net-dsa-yt921x-Add-ACL-support.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c",
+        "drivers/net/dsa/yt921x.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "f935fdae7a625ca1f4eaebc3ad4950c8423828e1db78c1022f25639c1ba8594f"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-25-v7.2-net-dsa-Fix-skb-ownership-in-taggers.patch",
+      "files": [
+        "net/dsa/tag_yt921x.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "dc7c1d3adcd383fb043ffd3b53bedaa05f0e7832938d086d4d09c8fcb436db68"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-26-v7.3-net-dsa-yt921x-Fix-external-port-detection.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "1cb471ac2744104602d5b9711d896bf72bb3d11e72b9cd47648dc5ae5b9f4419"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-28-v6.19-net-phy-motorcomm-Add-support-for-PHY-LEDs-on-YT8531.patch",
+      "files": [
+        "drivers/net/phy/motorcomm.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "4ab33122c863d008746a45d0dcb9facaf17cc41e05f28c4d41775a4be11881db"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-31-v7.2-net-phy-motorcomm-move-mdio-lock-out-from-yt8531-set.patch",
+      "files": [
+        "drivers/net/phy/motorcomm.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "3965ee8df1d24393ca1c8f1af9cb33af7db7c1582a4b5631a05cd812269079c4"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-32-v7.2-net-motorcomm-phy-set-drive-strength-in-YT8531s-RGMI.patch",
+      "files": [
+        "drivers/net/phy/motorcomm.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "7b2dffed21b01cb6e41e60a7a012bc86bb0ed4c3258607e4154569e6935497b6"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-33-v7.2-net-phy-motorcomm-Add-YT8522-100M-RMII-PHY-support.patch",
+      "files": [
+        "drivers/net/phy/motorcomm.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; every added line is present in v7.3 (reverse application fails only on later upstream context such as the BIT() endpoint-state conversion)",
+      "source_sha256": "274ea1d3c1f18195e92247f748202446e23f25859c2a812ee7c020f8059ff440"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-34-v7.3-net-phy-motorcomm-Enable-optional-clock-for-YT8531.patch",
+      "files": [
+        "drivers/net/phy/motorcomm.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; every added line is present in v7.3 (reverse application fails only on later upstream context such as the BIT() endpoint-state conversion)",
+      "source_sha256": "38abdc79b7932476df5ba833124165ceed3985afd143e188c2c0fa06acb47bec"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-35-v7.3-net-phy-motorcomm-enable-the-reference-clock-for-YT8.patch",
+      "files": [
+        "drivers/net/phy/motorcomm.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "9a6f46b48d1c1f5f997bec419c8a97a1151d2a15cc7993167d559b33d3263dba"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/644-net-dsa-pass-bridge-VLAN-protocol-changes-to-drivers.patch",
+      "files": [
+        "include/net/dsa.h",
+        "net/dsa/port.c",
+        "net/dsa/port.h",
+        "net/dsa/user.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "266b67eda8066cc418fdd3b8a40a2226666195f907bf9824668f7dff9509226a",
+      "ported": "target/linux/generic/pending-7.3/644-net-dsa-pass-bridge-VLAN-protocol-changes-to-drivers.patch",
+      "ported_sha256": "266b67eda8066cc418fdd3b8a40a2226666195f907bf9824668f7dff9509226a"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/645-net-dsa-pass-bridge-multicast-snooping-changes-to-drivers.patch",
+      "files": [
+        "include/net/dsa.h",
+        "net/dsa/user.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "cec472cfd971bb87fc0d38ab2c017576bed0120437b9f39227f00dac20905f8e",
+      "ported": "target/linux/generic/pending-7.3/645-net-dsa-pass-bridge-multicast-snooping-changes-to-drivers.patch",
+      "ported_sha256": "cec472cfd971bb87fc0d38ab2c017576bed0120437b9f39227f00dac20905f8e"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/805-01-nvmem-u-boot-env-post-process-ignore-quotes.patch",
+      "files": [
+        "drivers/nvmem/layouts/u-boot-env.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "0df032b42e213e164b696d620aab1680e5569724b3b4a15d4bde3c4c6f9081e7",
+      "ported": "target/linux/generic/pending-7.3/805-01-nvmem-u-boot-env-post-process-ignore-quotes.patch",
+      "ported_sha256": "0df032b42e213e164b696d620aab1680e5569724b3b4a15d4bde3c4c6f9081e7"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/805-02-nvmem-u-boot-env-post-process-more-macaddr-names.patch",
+      "files": [
+        "drivers/nvmem/layouts/u-boot-env.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "b1930d8f360c31a2ca21efee27029e0440f676559bc92a5fa02b27f016505e53",
+      "ported": "target/linux/generic/pending-7.3/805-02-nvmem-u-boot-env-post-process-more-macaddr-names.patch",
+      "ported_sha256": "b1930d8f360c31a2ca21efee27029e0440f676559bc92a5fa02b27f016505e53"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/805-03-nvmem-u-boot-env-post-process-ethaddr-numbered.patch",
+      "files": [
+        "drivers/nvmem/layouts/u-boot-env.c"
+      ],
+      "status": "rebased",
+      "reason": "Added by OpenWrt merge of b455c5b851; context refreshed for the linux/hex.h include already present in Linux 7.3, otherwise unchanged",
+      "source_sha256": "ee0035ee3b00d8b108bd819efd1068eb7af37f775ae60695abe9da5db6876f3e",
+      "ported": "target/linux/generic/pending-7.3/805-03-nvmem-u-boot-env-post-process-ethaddr-numbered.patch",
+      "ported_sha256": "4e975668010d286f769d17843d613800469c6d95a3f691c2dca7ce3f74608144"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/805-04-nvmem-u-boot-env-post-process-radioaddr-numbered.patch",
+      "files": [
+        "drivers/nvmem/layouts/u-boot-env.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "3701b26f4ae2fbf696ad59530f2af69815fef4e6bcd8c0d160f164bc172dbb23",
+      "ported": "target/linux/generic/pending-7.3/805-04-nvmem-u-boot-env-post-process-radioaddr-numbered.patch",
+      "ported_sha256": "3701b26f4ae2fbf696ad59530f2af69815fef4e6bcd8c0d160f164bc172dbb23"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/967-27-net-dsa-yt92xx-Add-support-for-Motorcomm-YT922x.patch",
+      "files": [
+        "drivers/net/dsa/Kconfig",
+        "drivers/net/dsa/Makefile",
+        "drivers/net/dsa/yt921x.c",
+        "drivers/net/dsa/yt921x.h",
+        "include/net/dsa.h",
+        "net/dsa/Kconfig",
+        "net/dsa/Makefile",
+        "net/dsa/tag_yt922x.c"
+      ],
+      "status": "rebased",
+      "reason": "Added by OpenWrt merge of b455c5b851; DSA_TAG_PROTO_YT922X takes the next free Linux 7.3 tag value (37) after MXL862_8021Q, otherwise unchanged",
+      "source_sha256": "2385a1f7414e9e7ac635da0aaba60bf16cffe54cfaf52638e4ac3271ed0ccbac",
+      "ported": "target/linux/generic/pending-7.3/967-27-net-dsa-yt92xx-Add-support-for-Motorcomm-YT922x.patch",
+      "ported_sha256": "4df26218e98e00ad8b82abb8b1d2ba00aa43579342991cfb6bea10a81db45aa9"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/967-36-net-phy-Add-driver-for-Motorcomm-Quad-2.5GbE-phy.patch",
+      "files": [
+        "drivers/net/phy/Kconfig",
+        "drivers/net/phy/motorcomm.c",
+        "drivers/net/phy/phy-c45.c",
+        "include/linux/phy.h",
+        "include/uapi/linux/mdio.h"
+      ],
+      "status": "rebased",
+      "reason": "Added by OpenWrt merge of b455c5b851; motorcomm.c header context refreshed for Linux 7.3, otherwise unchanged",
+      "source_sha256": "99f029628860d1a1b600144e86b67e9035579e6e55efdad0d467285a38950ff5",
+      "ported": "target/linux/generic/pending-7.3/967-36-net-phy-Add-driver-for-Motorcomm-Quad-2.5GbE-phy.patch",
+      "ported_sha256": "1965459d6c7b00c96c3189f781ad531c1be11a3af136eefb3d90bd7b31f977a8"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/967-40-net-dsa-yt922x-add-selectable-four-byte-port-tag.patch",
+      "files": [
+        "Documentation/devicetree/bindings/net/dsa/dsa-port.yaml",
+        "drivers/net/dsa/yt921x.c",
+        "include/linux/dsa/yt922x.h",
+        "include/net/dsa.h",
+        "net/dsa/tag_yt922x.c"
+      ],
+      "status": "rebased",
+      "reason": "Added by OpenWrt merge of b455c5b851; DSA_TAG_PROTO_YT922X_4B takes Linux 7.3 tag value 38, otherwise unchanged",
+      "source_sha256": "87b48205f636fa0b7682921fa03f677630752ad53b6b3b5d6914ea4f036039ff",
+      "ported": "target/linux/generic/pending-7.3/967-40-net-dsa-yt922x-add-selectable-four-byte-port-tag.patch",
+      "ported_sha256": "0caeb397c8b59e193e24193059e89efcf7a64596a80c165e8d13f49a9a9e370f"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/967-41-net-mediatek-ppe-support-yt922x-four-byte-port-tag.patch",
+      "files": [
+        "drivers/net/ethernet/mediatek/mtk_ppe_offload.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "2cfa411e254ec121a0ab397b0a88de95ecbd7de1ff65da10ae1e81006c29209e",
+      "ported": "target/linux/generic/pending-7.3/967-41-net-mediatek-ppe-support-yt922x-four-byte-port-tag.patch",
+      "ported_sha256": "2cfa411e254ec121a0ab397b0a88de95ecbd7de1ff65da10ae1e81006c29209e"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/967-42-net-dsa-yt922x-add-hardware-bridge-offload.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c",
+        "drivers/net/dsa/yt921x.h",
+        "include/linux/dsa/yt922x.h",
+        "net/dsa/tag_yt922x.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "fee343a1b5c3ffdc6262432d0b65ddba1edc925c58bc957bc508618dce719f6c",
+      "ported": "target/linux/generic/pending-7.3/967-42-net-dsa-yt922x-add-hardware-bridge-offload.patch",
+      "ported_sha256": "fee343a1b5c3ffdc6262432d0b65ddba1edc925c58bc957bc508618dce719f6c"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/967-43-net-mediatek-ppe-match-yt922x-bridge-flows.patch",
+      "files": [
+        "drivers/net/ethernet/mediatek/mtk_ppe.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "3e17dcfff72fb3119c44dbc932f853d66980e13c26d951896dfaa5ee067e5b85",
+      "ported": "target/linux/generic/pending-7.3/967-43-net-mediatek-ppe-match-yt922x-bridge-flows.patch",
+      "ported_sha256": "3e17dcfff72fb3119c44dbc932f853d66980e13c26d951896dfaa5ee067e5b85"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/967-44-net-mediatek-ppe-retire-expired-bridge-subflow.patch",
+      "files": [
+        "drivers/net/ethernet/mediatek/mtk_ppe.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "18e18212e553b2a9f77722013a97b1dd351e26e1ce4aa6eefb1604ba0057e7f4",
+      "ported": "target/linux/generic/pending-7.3/967-44-net-mediatek-ppe-retire-expired-bridge-subflow.patch",
+      "ported_sha256": "18e18212e553b2a9f77722013a97b1dd351e26e1ce4aa6eefb1604ba0057e7f4"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/967-45-net-dsa-yt922x-add-unicast-fdb-management.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "b27b007046e92d6fd125136c9f9d106f751ad42a8f96ce36a8dc9842a0dcf74c",
+      "ported": "target/linux/generic/pending-7.3/967-45-net-dsa-yt922x-add-unicast-fdb-management.patch",
+      "ported_sha256": "b27b007046e92d6fd125136c9f9d106f751ad42a8f96ce36a8dc9842a0dcf74c"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/967-46-net-dsa-yt922x-track-default-vid-fdb-aliases.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c",
+        "drivers/net/dsa/yt921x.h"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "38cc8a5be58658ab77063e4e6a09fd57176825a8244bfa7e8982cbf1f769a243",
+      "ported": "target/linux/generic/pending-7.3/967-46-net-dsa-yt922x-track-default-vid-fdb-aliases.patch",
+      "ported_sha256": "38cc8a5be58658ab77063e4e6a09fd57176825a8244bfa7e8982cbf1f769a243"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/967-48-net-dsa-yt922x-complete-clause22-pcs-negotiation.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "6b2ff147d52f5fbb9e2de20371cb362a9c22f896b38607fcfb23a34e85555b9a",
+      "ported": "target/linux/generic/pending-7.3/967-48-net-dsa-yt922x-complete-clause22-pcs-negotiation.patch",
+      "ported_sha256": "6b2ff147d52f5fbb9e2de20371cb362a9c22f896b38607fcfb23a34e85555b9a"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/967-49-net-dsa-yt922x-offload-multicast-database.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c",
+        "drivers/net/dsa/yt921x.h",
+        "net/dsa/tag_yt922x.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "f00ca24ddcc77a9a399b59338e9582576f3a0f04935bc710999a9f6a32c2eb54",
+      "ported": "target/linux/generic/pending-7.3/967-49-net-dsa-yt922x-offload-multicast-database.patch",
+      "ported_sha256": "f00ca24ddcc77a9a399b59338e9582576f3a0f04935bc710999a9f6a32c2eb54"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/967-50-net-dsa-yt922x-add-8021q-vlan-offload.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c",
+        "drivers/net/dsa/yt921x.h",
+        "net/dsa/tag_yt922x.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "5c019b3759bf7213fce4a5d055c1a7f6778e5bb95ced371d188b02cb95c82ddc",
+      "ported": "target/linux/generic/pending-7.3/967-50-net-dsa-yt922x-add-8021q-vlan-offload.patch",
+      "ported_sha256": "5c019b3759bf7213fce4a5d055c1a7f6778e5bb95ced371d188b02cb95c82ddc"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/967-51-net-dsa-yt922x-ignore-auxiliary-vid0-fdb.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "4affabf37f5f4c348d16479d2c55da064303fe358f37182c61f5c74f696ceab0",
+      "ported": "target/linux/generic/pending-7.3/967-51-net-dsa-yt922x-ignore-auxiliary-vid0-fdb.patch",
+      "ported_sha256": "4affabf37f5f4c348d16479d2c55da064303fe358f37182c61f5c74f696ceab0"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/967-52-net-dsa-yt922x-sync-mdb-with-bridge-snooping.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "bc81eb8c367cb5b99c7acfc78a3422f33d6687f8c24fcc5b8d32b01363ef910f",
+      "ported": "target/linux/generic/pending-7.3/967-52-net-dsa-yt922x-sync-mdb-with-bridge-snooping.patch",
+      "ported_sha256": "bc81eb8c367cb5b99c7acfc78a3422f33d6687f8c24fcc5b8d32b01363ef910f"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/967-53-net-ethernet-mediatek-keep-yt922x-vlan-flows-in-software.patch",
+      "files": [
+        "drivers/net/ethernet/mediatek/mtk_ppe.c",
+        "drivers/net/ethernet/mediatek/mtk_ppe_offload.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "a0a1dbae800cbdff8fda51657140f35a04399af464b2a4473955c13e8a7c768b",
+      "ported": "target/linux/generic/pending-7.3/967-53-net-ethernet-mediatek-keep-yt922x-vlan-flows-in-software.patch",
+      "ported_sha256": "a0a1dbae800cbdff8fda51657140f35a04399af464b2a4473955c13e8a7c768b"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/967-54-net-dsa-yt922x-apply-the-board-mdi-swap.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "ae2748cf72132de0865fbdadd9092317ca8ceb8cc58200f7653aa0f75d9f299e",
+      "ported": "target/linux/generic/pending-7.3/967-54-net-dsa-yt922x-apply-the-board-mdi-swap.patch",
+      "ported_sha256": "ae2748cf72132de0865fbdadd9092317ca8ceb8cc58200f7653aa0f75d9f299e"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/967-55-net-dsa-yt922x-expose-mib-statistics.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c",
+        "drivers/net/dsa/yt921x.h"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "79420634937a64c75bafffff47a532df0d8be5ac5d2b4ce48f730b53c676d573",
+      "ported": "target/linux/generic/pending-7.3/967-55-net-dsa-yt922x-expose-mib-statistics.patch",
+      "ported_sha256": "79420634937a64c75bafffff47a532df0d8be5ac5d2b4ce48f730b53c676d573"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/805-nvmem-u-boot-env-probe-defer-on-corrupt-crc.patch",
+      "files": [
+        "drivers/nvmem/layouts/u-boot-env.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "de607a06604eb2d42af3df6209d5ad677e03fef5fc4d89724b3883d6f25b6774",
+      "ported": "target/linux/generic/hack-7.3/805-nvmem-u-boot-env-probe-defer-on-corrupt-crc.patch",
+      "ported_sha256": "de607a06604eb2d42af3df6209d5ad677e03fef5fc4d89724b3883d6f25b6774"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/960-silence-uninitialized-variable-warnings.patch",
+      "files": [
+        "arch/mips/vdso/genvdso.h"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "931df1a0595f5e2f8a245ad4324d8d42f59333fca11f8911a73b3e97daa372b2",
+      "ported": "target/linux/generic/hack-7.3/960-silence-uninitialized-variable-warnings.patch",
+      "ported_sha256": "931df1a0595f5e2f8a245ad4324d8d42f59333fca11f8911a73b3e97daa372b2"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/967-39-fix-mtk-yt922x-tx-checksum-offload.patch",
+      "files": [
+        "drivers/net/ethernet/mediatek/mtk_eth_soc.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "eacdd35fd7eefafd5a0df79e045a36c3c16cc9381f70e847017ae668df9096bf",
+      "ported": "target/linux/generic/hack-7.3/967-39-fix-mtk-yt922x-tx-checksum-offload.patch",
+      "ported_sha256": "eacdd35fd7eefafd5a0df79e045a36c3c16cc9381f70e847017ae668df9096bf"
     }
   ],
   "additions": [

@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=flatpak
 PKG_VERSION:=1.18.4
-PKG_RELEASE:=1
+PKG_RELEASE:=4
 PKG_SOURCE:=flatpak-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=https://github.com/flatpak/flatpak/releases/download/$(PKG_VERSION)
 PKG_HASH:=b899a7a00c48d2c626cb8ec33fe556720b376c25805d7222430c0fdca4c6ac8d
@@ -19,14 +19,14 @@ define Package/flatpak
   SECTION:=libs
   CATEGORY:=Libraries
   TITLE:=flatpak for the native Flatpak desktop
-  DEPENDS:=@TARGET_x86_64 @USE_GLIBC @OPENWRT_SYSTEMD +glib2 +libcap +libarchive +libcurl +libxml2 +libzstd +dconf +libsystemd +libfuse3 +fuse3-utils +@FUSE3_UTILS_SETUID +libostree +json-glib +appstream +libgdk-pixbuf +libseccomp +libgpgme +gnupg2 +gnupg2-utils +bubblewrap +xdg-dbus-proxy +dbus +coreutils-stat +libwayland
+  DEPENDS:=@TARGET_x86_64 @USE_GLIBC @OPENWRT_SYSTEMD +glib2 +libcap +libarchive +libcurl +libxml2 +libzstd +dconf +libsystemd +libfuse3 +fuse3-utils +@FUSE3_UTILS_SETUID +libostree +json-glib +appstream +libgdk-pixbuf +libseccomp +libgpgme +gnupg2 +gnupg2-utils +bubblewrap +xdg-dbus-proxy +dbus +coreutils-stat +libwayland +libXau
 endef
 
 MESON_ARGS += --prefix=/usr --libdir=lib --sysconfdir=/etc --localstatedir=/var \
 	-Ddefault_library=shared --wrap-mode=nodownload -Dsystem_helper=disabled -Dseccomp=enabled \
 	-Dsystemd=enabled -Ddconf=enabled -Dgir=disabled -Dgtkdoc=disabled -Dman=disabled \
 	-Ddocbook_docs=disabled -Dtests=false -Dinstalled_tests=false -Dmalcontent=disabled \
-	-Dselinux_module=disabled -Dxauth=disabled -Dsystem_bubblewrap=/usr/bin/bwrap \
+	-Dselinux_module=disabled -Dxauth=enabled -Dsystem_bubblewrap=/usr/bin/bwrap \
 	-Dsystem_dbus_proxy=/usr/bin/xdg-dbus-proxy -Dsystem_fusermount=/usr/bin/fusermount3 \
 	-Dsystem_install_dir=/srv/flatpak/system -Dsystemduserunitdir=/usr/lib/systemd/user \
 	-Dsystemduserenvgendir=/usr/lib/systemd/user-environment-generators \
