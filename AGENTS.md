@@ -43,3 +43,11 @@ Use the history's `component: imperative description` convention, such as `feeds
 ## Workspace & Security
 
 Preserve unrelated edits, stashes, overlays, feed commits, and the `luci-theme-argon` submodule. Never reset `feeds/`. Stage explicit paths. Exclude credentials, signing keys, personal `files/` overlays, backups, and generated artifacts. Treat feed publication and device deployment as separate, explicitly authorized operations; publication is gated on a reachable router preflight (`configs/lan-apk-feeds.json`). Scheduled host maintenance is disabled; do not reinstall its cron job unless asked.
+
+## Changing router configuration
+
+Over SSH, use `uci-history --json begin --timeout 300 --note 'purpose'` before
+changing UCI configuration, verify connectivity and service behavior, then run
+`uci-history --json confirm`. Use `status`, `log`, and `diff` with `--json` to
+inspect state. Never include `--show-secrets` output in transcripts. Use existing
+authorized root access (`sudo -n`); this feature grants no additional privilege.

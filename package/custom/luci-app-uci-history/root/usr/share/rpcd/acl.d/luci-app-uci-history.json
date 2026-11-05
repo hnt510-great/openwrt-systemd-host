@@ -1,0 +1,7 @@
+{
+	"luci-app-uci-history": {
+		"description": "Read configuration revisions and restore with automatic rollback",
+		"read": { "ubus": { "luci.uci-history": [ "status", "log", "diff" ] } },
+		"write": { "ubus": { "luci.uci-history": [ "restore", "confirm", "abort" ] } }
+	}
+}

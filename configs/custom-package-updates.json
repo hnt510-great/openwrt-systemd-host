@@ -734,6 +734,10 @@
       "provider": "local",
       "reason": "Locally maintained integration package"
     },
+    "luci-app-uci-history": {
+      "provider": "local",
+      "reason": "Locally maintained configuration history integration"
+    },
     "luci-theme-argon": {
       "provider": "git-checkout",
       "url": "https://github.com/jerrykuku/luci-theme-argon.git",
@@ -913,6 +917,10 @@
       "provider": "sourceforge",
       "policy": "series",
       "project": "traceroute"
+    },
+    "uci-history": {
+      "provider": "local",
+      "reason": "Locally maintained configuration history integration"
     },
     "upower": {
       "provider": "gitlab",

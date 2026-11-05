@@ -1,0 +1,15 @@
+[Unit]
+Description=Recover armed configuration transaction and capture boot changes
+After=local-fs.target openwrt-services.service
+Before=uci-history.path uci-history-events.service
+
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=/usr/sbin/uci-history --json boot
+RemainAfterExit=yes
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

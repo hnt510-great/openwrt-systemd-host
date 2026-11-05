@@ -1,0 +1,10 @@
+[Unit]
+Description=Capture extra configuration paths periodically
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+Unit=uci-history-snapshot.service
+
+[Install]
+WantedBy=multi-user.target

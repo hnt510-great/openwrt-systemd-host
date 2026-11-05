@@ -196,3 +196,11 @@ Every non-trivial feature must maintain a documentation pair:
 > 4. **Embedded Submodules**: `package/custom/luci-theme-argon` and `package/luci-app-argon-config` are embedded Git repositories without `.gitmodules`. Do not stage unintended changes inside them.
 > 5. **Immutable Packages**: Never overwrite a published APK release without incrementing `PKG_RELEASE`.
 > 6. **Feeds Working Tree**: Do not hard-reset `feeds/packages` or `feeds/video`; they contain live local branches.
+
+## Changing router configuration
+
+Over SSH, use `uci-history --json begin --timeout 300 --note 'purpose'` before
+changing UCI configuration, verify connectivity and service behavior, then run
+`uci-history --json confirm`. Use `status`, `log`, and `diff` with `--json` to
+inspect state. Never include `--show-secrets` output in transcripts. Use existing
+authorized root access (`sudo -n`); this feature grants no additional privilege.

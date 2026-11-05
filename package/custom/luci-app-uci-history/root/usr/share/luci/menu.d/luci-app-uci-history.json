@@ -1,0 +1,11 @@
+{
+	"admin/system/uci-history": {
+		"title": "Configuration History",
+		"order": 65,
+		"action": { "type": "view", "path": "system/uci-history" },
+		"depends": {
+			"acl": [ "luci-app-uci-history" ],
+			"fs": { "/usr/sbin/uci-history": "executable" }
+		}
+	}
+}

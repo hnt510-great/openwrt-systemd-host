@@ -1,0 +1,159 @@
+Subject: rpcd: broadcast UCI apply, commit, confirm and rollback events
+
+Expose configuration names and session usernames for the root-only
+uci-history listener. Use an independent blob buffer and never expose
+session IDs. Existing UCI mutation, authorization and rollback behavior is
+unchanged.
+
+---
+--- a/include/rpcd/session.h
++++ b/include/rpcd/session.h
+@@ -80,6 +80,8 @@ int rpc_session_pre_invoke(struct ubus_c
+ bool rpc_session_access(const char *sid, const char *scope,
+                         const char *object, const char *function);
+ 
++const char *rpc_session_username(const char *sid);
++
+ const char *rpc_session_dirname(const char *sid);
+ 
+ struct rpc_session_cb {
+--- a/session.c
++++ b/session.c
+@@ -385,6 +385,26 @@ rpc_session_get(const char *id)
+ 	return ses;
+ }
+ 
++const char *
++rpc_session_username(const char *sid)
++{
++	struct rpc_session_data *username;
++	struct rpc_session *ses;
++
++	if (!sid)
++		return "unknown";
++
++	ses = avl_find_element(&sessions, sid, ses, avl);
++	if (!ses)
++		return "unknown";
++
++	username = avl_find_element(&ses->data, "username", username, avl);
++	if (!username || blobmsg_type(username->attr) != BLOBMSG_TYPE_STRING)
++		return "unknown";
++
++	return blobmsg_get_string(username->attr);
++}
++
+ static int
+ rpc_handle_create(struct ubus_context *ctx, struct ubus_object *obj,
+                   struct ubus_request_data *req, const char *method,
+--- a/uci.c
++++ b/uci.c
+@@ -1312,6 +1312,44 @@ rpc_uci_changes(struct ubus_context *ctx
+ 	return 0;
+ }
+ 
++/* Separate buffer: service callbacks may overwrite the RPC reply buffer. */
++static void
++rpc_uci_history_event(struct ubus_context *ctx, const char *event,
++		      const char *sid, glob_t *gl, const char *config,
++		      bool rollback, int timeout, const char *reason)
++{
++	struct blob_buf b = { 0 };
++	void *c;
++	size_t i;
++	struct stat st;
++
++	blob_buf_init(&b, 0);
++	if (sid)
++		blobmsg_add_string(&b, "username", rpc_session_username(sid));
++	if (config) {
++		blobmsg_add_string(&b, "config", config);
++	} else if (gl) {
++		c = blobmsg_open_array(&b, "configs");
++		for (i = 0; i < gl->gl_pathc; i++) {
++			const char *name = strrchr(gl->gl_pathv[i], '/');
++
++			name = name ? name + 1 : gl->gl_pathv[i];
++			if (*name == '.' || stat(gl->gl_pathv[i], &st) || !st.st_size)
++				continue;
++			blobmsg_add_string(&b, NULL, name);
++		}
++		blobmsg_close_array(&b, c);
++	}
++	if (!strcmp(event, "uci.apply")) {
++		blobmsg_add_u8(&b, "rollback", rollback);
++		blobmsg_add_u32(&b, "timeout", timeout);
++	}
++	if (reason)
++		blobmsg_add_string(&b, "reason", reason);
++	ubus_send_event(ctx, event, b.head);
++	blob_buf_free(&b);
++}
++
+ static void
+ rpc_uci_trigger_event(struct ubus_context *ctx, const char *config)
+ {
+@@ -1358,6 +1396,10 @@ rpc_uci_revert_commit(struct ubus_contex
+ 		if (!uci_load(cursor, ptr.package, &p))
+ 		{
+ 			uci_commit(cursor, &p, false);
++			if (!cursor->err)
++				rpc_uci_history_event(ctx, "uci.commit",
++					blobmsg_get_string(tb[RPC_C_SESSION]), NULL,
++					blobmsg_get_string(tb[RPC_C_CONFIG]), false, 0, NULL);
+ 			uci_unload(cursor, p);
+ 			rpc_uci_trigger_event(ctx, blobmsg_get_string(tb[RPC_C_CONFIG]));
+ 		}
+@@ -1517,12 +1559,14 @@ rpc_uci_apply_access(const char *sid, gl
+ }
+ 
+ static void
+-rpc_uci_do_rollback(struct ubus_context *ctx, glob_t *gl)
++rpc_uci_do_rollback(struct ubus_context *ctx, glob_t *gl, const char *reason)
+ {
+ 	int i, deny;
+ 	char tmp[PATH_MAX];
+ 	const char *dirname;
+ 
++	rpc_uci_history_event(ctx, "uci.rollback", NULL, gl, NULL, false, 0, reason);
++
+ 	/* Test apply permission to see if the initiator session still exists.
+ 	 * If it does, restore the delta files as well, else just restore the
+ 	 * main configuration files. */
+@@ -1574,7 +1618,7 @@ rpc_uci_apply_timeout(struct uloop_timeo
+ 	if (glob(tmp, GLOB_PERIOD, NULL, &gl) < 0)
+ 		return;
+ 
+-	rpc_uci_do_rollback(apply_ctx, &gl);
++	rpc_uci_do_rollback(apply_ctx, &gl, "timeout");
+ 
+ 	globfree(&gl);
+ }
+@@ -1636,6 +1680,9 @@ rpc_uci_apply(struct ubus_context *ctx,
+ 			return ret;
+ 		}
+ 
++		rpc_uci_history_event(ctx, "uci.apply", sid, &gl, NULL,
++				rollback, timeout, NULL);
++
+ 		/* copy SID early because rpc_uci_apply_config() will clobber buf */
+ 		if (rollback)
+ 			strncpy(apply_sid, sid, RPC_SID_LEN);
+@@ -1695,6 +1742,8 @@ rpc_uci_confirm(struct ubus_context *ctx
+ 	if (strcmp(apply_sid, sid))
+ 		return UBUS_STATUS_PERMISSION_DENIED;
+ 
++	rpc_uci_history_event(ctx, "uci.confirm", sid, NULL, NULL, false, 0, NULL);
++
+ 	rpc_uci_purge_dir(RPC_SNAPSHOT_FILES);
+ 	rpc_uci_purge_dir(RPC_SNAPSHOT_DELTA);
+ 
+@@ -1733,7 +1782,7 @@ rpc_uci_rollback(struct ubus_context *ct
+ 	if (glob(tmp, GLOB_PERIOD, NULL, &gl) < 0)
+ 		return UBUS_STATUS_NOT_FOUND;
+ 
+-	rpc_uci_do_rollback(ctx, &gl);
++	rpc_uci_do_rollback(ctx, &gl, "request");
+ 
+ 	globfree(&gl);
+ 

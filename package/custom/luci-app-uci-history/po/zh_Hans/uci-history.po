@@ -1,0 +1,121 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: zh_Hans\n"
+
+msgid "Abort / revert"
+msgstr "中止 / 回退"
+
+msgid "Actions"
+msgstr "操作"
+
+msgid "Actor"
+msgstr "操作者"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Captured"
+msgstr "已记录"
+
+msgid "Configuration"
+msgstr "配置"
+
+msgid "Configuration History"
+msgstr "配置历史"
+
+msgid "Configurations"
+msgstr "配置"
+
+msgid "Confirm"
+msgstr "确认"
+
+msgid "Head revision:"
+msgstr "当前版本："
+
+msgid "History request failed"
+msgstr "配置历史请求失败"
+
+msgid "Inspect / restore"
+msgstr "查看 / 恢复"
+
+msgid "Loading…"
+msgstr "正在加载…"
+
+msgid "LuCI apply rollback pending"
+msgstr "LuCI 应用等待确认"
+
+msgid "New"
+msgstr "新值"
+
+msgid "No differences"
+msgstr "没有差异"
+
+msgid "Note"
+msgstr "说明"
+
+msgid "Old"
+msgstr "旧值"
+
+msgid "Operation"
+msgstr "操作"
+
+msgid "Option"
+msgstr "选项"
+
+msgid "Restore"
+msgstr "恢复"
+
+msgid "Restore configuration"
+msgstr "恢复配置"
+
+msgid "Restore did not arm rollback"
+msgstr "恢复未启用自动回退"
+
+msgid "Restore revision"
+msgstr "恢复版本"
+
+msgid "Review restore"
+msgstr "检查恢复"
+
+msgid "Revision"
+msgstr "版本"
+
+msgid "Rollback deadline:"
+msgstr "自动回退时间："
+
+msgid "Secrets are masked. Extra files require manual service reload after CLI restore."
+msgstr "敏感信息已隐藏。通过命令行恢复额外文件后，需要手动重新加载相应服务。"
+
+msgid "Section"
+msgstr "配置段"
+
+msgid "Select at least one configuration"
+msgstr "请至少选择一个配置"
+
+msgid "Selected configurations will be restored and reloaded. The change reverts automatically if this browser cannot reconnect."
+msgstr "选中的配置将被恢复并重新加载。如果浏览器无法重新连接，更改将自动回退。"
+
+msgid "Source"
+msgstr "来源"
+
+msgid "Staged UCI changes pending"
+msgstr "存在暂存的 UCI 更改"
+
+msgid "Structured UCI diff"
+msgstr "UCI 结构化差异"
+
+msgid "Time"
+msgstr "时间"
+
+msgid "Transaction changed"
+msgstr "事务已改变"
+
+msgid "Type"
+msgstr "类型"
+
+msgid "Uncaptured changes"
+msgstr "存在未记录的更改"
+
+msgid "Unified diff"
+msgstr "统一差异"

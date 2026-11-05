@@ -1,0 +1,80 @@
+// SPDX-License-Identifier: GPL-2.0-only
+'use strict';
+import { popen } from 'fs';
+
+const LIMIT = 1048576;
+function failure(code, message) {
+	return { schema_version: 1, ok: false, error: { code, message } };
+}
+function valid(value, regex, max) {
+	if (type(value) != 'string' || length(value) > max) return false;
+	let m = match(value, regex);
+	return m && length(m[0]) == length(value);
+}
+function run(args) {
+	// Only fixed flags and fully validated numbers/config names enter this command.
+	let p = popen('/usr/bin/timeout -k 2 30 /usr/sbin/uci-history --json ' + join(' ', args) + ' 2>/dev/null', 'r');
+	if (!p) return failure(1, 'Unable to run configuration history');
+	let output = p.read(LIMIT + 1) || '';
+	let code = p.close();
+	if (length(output) > LIMIT) return failure(1, 'History output exceeds limit');
+	try {
+		let data = json(output);
+		if (data.schema_version != 1 || type(data.ok) != 'bool')
+			return failure(1, 'Invalid history response');
+		if (code != 0 && data.ok) return failure(1, 'History command failed');
+		return data;
+	} catch (e) { return failure(1, 'Invalid history response'); }
+}
+function config_args(configs) {
+	if (type(configs) != 'array' || length(configs) > 128) return null;
+	let args = [];
+	for (let c in configs) {
+		if (!valid(c, /^[a-z0-9_][a-z0-9_-]*$/, 128)) return null;
+		push(args, '--config', c);
+	}
+	return args;
+}
+return { 'luci.uci-history': {
+	status: { call: function() { return run([ 'status' ]); } },
+	log: { call: function() { return run([ 'log', '--limit', '100' ]); } },
+	diff: {
+		args: { revision: '', format: '', config: '' },
+		call: function(req) {
+			let a = req.args;
+			if (!valid(a.revision, /^[0-9]+$/, 16) || !(a.format in [ 'uci', 'unified' ]) ||
+				(a.config != '' && !valid(a.config, /^[a-z0-9_][a-z0-9_-]*$/, 128)))
+				return failure(2, 'Invalid diff arguments');
+			let args = [ 'diff', a.revision, '--format', a.format ];
+			if (a.config != '') push(args, '--config', a.config);
+			return run(args);
+		}
+	},
+	restore: {
+		args: { revision: '', configs: [], timeout: 0, dry_run: false },
+		call: function(req) {
+			let a = req.args, configs = config_args(a.configs);
+			// Empty selection must never mean restore everything (including extra files).
+			if (!valid(a.revision, /^[0-9]+$/, 16) || configs == null || !length(configs) ||
+				type(a.timeout) != 'int' || a.timeout < 5 || a.timeout > 86400 || type(a.dry_run) != 'bool')
+				return failure(2, 'Invalid restore arguments');
+			let args = [ 'restore', a.revision, ...configs, '--timeout', '' + a.timeout ];
+			if (a.dry_run) push(args, '--dry-run');
+			return run(args);
+		}
+	},
+	confirm: {
+		args: { id: '' },
+		call: function(req) {
+			if (!valid(req.args.id, /^[a-f0-9]{32}$/, 32)) return failure(2, 'Invalid transaction ID');
+			return run([ 'confirm', '--id', req.args.id ]);
+		}
+	},
+	abort: {
+		args: { id: '' },
+		call: function(req) {
+			if (!valid(req.args.id, /^[a-f0-9]{32}$/, 32)) return failure(2, 'Invalid transaction ID');
+			return run([ 'abort', '--id', req.args.id ]);
+		}
+	}
+} };
