@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=libibus
-PKG_VERSION:=1.5.34
+PKG_VERSION:=1.5.35
 PKG_RELEASE:=1
-PKG_SOURCE:=ibus-1.5.34.tar.gz
-PKG_SOURCE_URL:=https://github.com/ibus/ibus/releases/download/1.5.34/
-PKG_HASH:=12a72210ce5250f8a66df562a75e034e67b2bce74c4df2983dc86d1154894943
+PKG_SOURCE:=ibus-1.5.35.tar.gz
+PKG_SOURCE_URL:=https://github.com/ibus/ibus/releases/download/1.5.35/
+PKG_HASH:=a4fe45deae5d751a3587a81deebe59e17962286f71af41675894fa2ab96f59f4
 PKG_BUILD_DIR:=$(BUILD_DIR)/ibus-$(PKG_VERSION)
 PKG_LICENSE:=LGPL-2.1-or-later
 PKG_INSTALL:=1
