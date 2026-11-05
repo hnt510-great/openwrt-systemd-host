@@ -148,3 +148,47 @@ In a disposable VM booted from the g42 image, `systemd-openwrt-services` 4 was
 installed, and both services reported `active (setup action completed; no daemon
 expected)` after a reboot, matching `led`. Evidence:
 `bin/validation/sync-20261031/kernel-adoption/`.
+
+## External instance control guard (2026-11-05)
+
+Scope: source/package checks and a fresh disposable KVM/q35 UEFI VM booted from
+`openwrt-x86-64-generic-squashfs-combined-efi.img.gz`. The final VM used the
+image unchanged, with no replacement bridge binary. It ran systemd `262-r12`,
+`systemd-openwrt-services-6` and kernel `7.3.1-51-openwrt`. The build-only
+wrapper reused generation 51 because kernel inputs were unchanged.
+
+Image SHA256: `903f651a5f1f3cfea84114048de5190f907140198ff6f97583591337dcc58e9e`.
+
+| Check | Result |
+| --- | --- |
+| Bridge selected in the working config and saved desktop profile; native default y | passed; working config differs only in bridge/package selection |
+| Bridge starts automatically in the exact image | active |
+| Host bridge suite with init-name, command-basename and no-match hints | 25 tests passed; discovery executes no scripts |
+| Bridge start/stop and netifd/init-script hints in the VM | passed; original native plain-name failure is preserved |
+| Custom restart handler, direct init controls and UCI triggers | passed; custom restart runs once |
+| Respawn, partial failure, crash-loop failed status and explicit recovery | passed, including completed units whose systemd_state disappears after collection |
+| Root action permission and unprivileged status | passed; unprivileged mutation denied |
+| Shared enablement and bridge disable/enable | passed; daemon and netifd PIDs preserved; no fallback action while bridge unavailable |
+| PID 1 instance refusal guidance and file-backed native exceptions | passed in the paired native supervision suite |
+| Final VM state | running; zero failed units |
+
+The expanded guest regression exposed retained respawn configuration after a
+terminal crash loop. Bridge health now prefers an explicit systemd failure;
+when the unit has been collected, its completed exit code determines failure or
+successful completion instead of assuming a pending respawn. A still-present
+activating unit retains pending-restart handling. No new external-stop state,
+procd method or lifecycle action was introduced.
+
+The paired supervision run also observed a procd stop timeout during restart;
+instance recreation passed, but a clean stop is not claimed. A pre-feature
+systemd 262-r11 image reproduced the same timeout. See
+[the native supervision record](systemd-native-supervision-validation.md#external-instance-control-guard-2026-11-05)
+for this limitation and the unrelated APK next-release check failures.
+
+Scope excludes publication/deployment, physical-router acceptance, the optional
+bridge network/APK/reconnect/reboot/recovery matrix, and desktop client testing.
+
+Evidence: `/srv/openwrt-validation/systemd-external-control-validation-20261105/`,
+particularly `guest-184725/{results.json,versions.log,instance-control.log,native-smoke.log,bridge.log,final-state.log}`,
+`full-build-verified.log` and `bridge-tests-final.log`. The final guest used no
+binary injection; `guest-183649/` is an earlier production-binary diagnostic run.

@@ -29,7 +29,7 @@ main_pid() {
 cleanup() {
 	/etc/init.d/unitprobe stop >/dev/null 2>&1 || true
 	rm -f /etc/init.d/unitprobe /etc/config/unitprobe
-	rm -f /etc/hotplug.d/mem/99-unitprobe /tmp/unitprobe-hotplug
+	rm -f /etc/hotplug.d/mem/99-unitprobe /tmp/unitprobe-hotplug /tmp/unitprobe-error
 	rmdir /etc/hotplug.d/mem 2>/dev/null || true
 }
 trap cleanup EXIT HUP INT TERM
@@ -109,6 +109,86 @@ ubus call service list '{"name":"unitprobe"}' | grep -q "\"systemd_unit\": \"$un
 	fail "service list pid"
 pass "instance parameters map to unit properties"
 
+# All client IPC paths must refuse a direct job without changing the instance.
+pid=$(main_pid)
+restarts=$(systemctl show -P NRestarts "$unit")
+refused() {
+	set +e
+	output=$("$@" 2>&1)
+	code=$?
+	set -e
+	[ "$code" = 4 ] || fail "expected exit 4, got $code: $output"
+	echo "$output" | grep -q '/etc/init.d/unitprobe' || fail "missing init-script advice: $output"
+	[ "$(main_pid)" = "$pid" ] || fail "refusal changed MainPID"
+	[ "$(systemctl show -P NRestarts "$unit")" = "$restarts" ] || fail "refusal changed NRestarts"
+}
+for verb in stop restart start reload try-restart reload-or-restart reload-or-try-restart; do
+	refused systemctl "$verb" "$unit"
+done
+[ "$(systemctl show -P CanStart "$unit")" = no ] || fail "CanStart"
+[ "$(systemctl show -P CanStop "$unit")" = no ] || fail "CanStop"
+[ "$(systemctl show -P RefuseManualStart "$unit")" = no ] || fail "RefuseManualStart"
+[ "$(systemctl show -P RefuseManualStop "$unit")" = no ] || fail "RefuseManualStop"
+# busctl does not map D-Bus errors to systemctl's exit status.
+if busctl call org.freedesktop.systemd1 /org/freedesktop/systemd1 org.freedesktop.systemd1.Manager \
+	StopUnit ss "$unit" replace > /tmp/unitprobe-error 2>&1; then
+	fail "D-Bus StopUnit allowed"
+fi
+grep -q '/etc/init.d/unitprobe' /tmp/unitprobe-error || fail "D-Bus advice"
+unit_path=$(busctl call org.freedesktop.systemd1 /org/freedesktop/systemd1 \
+	org.freedesktop.systemd1.Manager GetUnit s "$unit" | cut -d '"' -f 2)
+if busctl call org.freedesktop.systemd1 "$unit_path" org.freedesktop.systemd1.Unit \
+	Stop s replace > /tmp/unitprobe-error 2>&1; then
+	fail "D-Bus Unit.Stop allowed"
+fi
+grep -q '/etc/init.d/unitprobe' /tmp/unitprobe-error || fail "Unit.Stop advice"
+bridge_pid=$(systemctl show -P MainPID openwrt-service-bridge.service)
+if busctl call org.freedesktop.systemd1 /org/freedesktop/systemd1 org.freedesktop.systemd1.Manager \
+	EnqueueUnitJobMany assst 2 openwrt-service-bridge.service "$unit" stop replace 0 > /tmp/unitprobe-error 2>&1; then
+	fail "batch EnqueueUnitJob allowed"
+fi
+grep -q '/etc/init.d/unitprobe' /tmp/unitprobe-error || fail "batch advice"
+[ "$(systemctl show -P MainPID openwrt-service-bridge.service)" = "$bridge_pid" ] || fail "batch changed another unit"
+systemctl set-property openwrt-service-bridge.service Markers=needs-restart
+systemctl set-property "$unit" Markers=needs-restart
+if systemctl reload-or-restart --marked > /tmp/unitprobe-error 2>&1; then
+	fail "marked instance allowed"
+fi
+if varlinkctl call /run/systemd/io.systemd.Manager io.systemd.Manager.EnqueueMarkedJobs '{}' \
+	> /tmp/unitprobe-error 2>&1; then
+	fail "varlink marked instance allowed"
+fi
+grep -q '/etc/init.d/unitprobe' /tmp/unitprobe-error || fail "varlink advice"
+systemctl set-property "$unit" Markers=
+systemctl set-property openwrt-service-bridge.service Markers=
+[ "$(systemctl show -P MainPID openwrt-service-bridge.service)" = "$bridge_pid" ] || fail "marked jobs changed another unit"
+[ "$(main_pid)" = "$pid" ] || fail "IPC refusal changed MainPID"
+[ "$(systemctl show -P NRestarts "$unit")" = "$restarts" ] || fail "IPC refusal changed NRestarts"
+ubus call service list '{"name":"unitprobe"}' | grep -q '"running": true' || fail "refusal lost procd running state"
+journalctl -b -u "$unit" -o cat | grep -q 'Refused direct .* from PID' || fail "no refusal journal"
+pass "direct jobs refused through systemctl, D-Bus, batch and marked paths"
+/etc/init.d/unitprobe restart
+wait_for "systemctl is-active -q $unit && [ \"\$(systemctl show -P MainPID $unit)\" != $pid ]"
+pid=$(main_pid)
+/etc/init.d/unitprobe stop
+wait_for "! systemctl is-active -q $unit"
+wait_for "[ \"\$(systemctl show -P LoadState $unit)\" = not-found ]"
+set +e
+output=$(systemctl start "$unit" 2>&1)
+code=$?
+set -e
+[ "$code" = 4 ] || fail "missing-unit start exit $code: $output"
+echo "$output" | grep -q 'is not running; procd creates' || fail "missing-unit advice"
+/etc/init.d/unitprobe start
+wait_for "systemctl is-active -q $unit"
+set +e
+output=$(systemctl restart netifd 2>&1)
+code=$?
+set -e
+[ "$code" != 0 ] || fail "plain name unexpectedly succeeded"
+echo "$output" | grep -q 'systemctl restart openwrt@network' || fail "netifd hint: $output"
+pass "init-script controls still work, stopped instance refused, bare name hinted"
+
 pid=$(main_pid)
 /etc/init.d/unitprobe reload
 sleep 2
@@ -129,7 +209,7 @@ wait_for "journalctl -u $unit -o cat | grep -q '^hup$'"
 [ "$(main_pid)" = "$pid" ] || fail "reload_signal instance was restarted"
 pass "config.change trigger sends reload_signal"
 
-kill -9 "$pid"
+systemctl kill -s KILL "$unit"
 wait_for "[ \"\$(systemctl show -P NRestarts $unit)\" -ge 1 ] && systemctl is-active -q $unit"
 [ "$(main_pid)" != "$pid" ] || fail "no respawn"
 wait_for "[ \"\$(ubus call service list '{\"name\":\"unitprobe\"}' | jsonfilter -e '@.unitprobe.instances.main.respawn_count')\" -ge 1 ]"
@@ -153,6 +233,13 @@ pass "UCI change without reload_signal replaces the unit"
 wait_for "! systemctl is-active -q $unit"
 wait_for "[ -z \"\$(ubus call service list '{\"name\":\"unitprobe\"}' | jsonfilter -e '@.unitprobe.instances.main')\" ]"
 pass "stop removes the unit and the instance"
+
+/etc/init.d/unitprobe start
+wait_for "systemctl is-active -q $unit"
+systemctl stop openwrt-unitprobe.slice
+wait_for "! systemctl is-active -q $unit"
+/etc/init.d/unitprobe stop
+pass "whole-service slice stop remains an override"
 
 # Crash loop: retry 2 gives up after three quick failures.
 sed -i "s|procd_set_param command .*|procd_set_param command /bin/sh -c 'exit 3'|; s|respawn 3600 1 3|respawn 3600 0 2|" \

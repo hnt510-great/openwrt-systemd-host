@@ -49,7 +49,7 @@ menu "Global build settings"
 	config OPENWRT_SYSTEMD_SERVICE_BRIDGE
 		bool "Experimental systemctl controls for OpenWrt services"
 		depends on OPENWRT_SYSTEMD
-		default n
+		default y
 		select PACKAGE_systemd-openwrt-services
 		help
 		  Expose OpenWrt init-script actions and live status as openwrt@

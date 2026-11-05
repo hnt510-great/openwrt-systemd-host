@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=systemd-openwrt-services
-PKG_RELEASE:=5
+PKG_RELEASE:=6
 PKG_LICENSE:=GPL-2.0-only
 PKG_BUILD_DEPENDS:=libubus libubox systemd json-c
 
@@ -10,7 +10,7 @@ include $(INCLUDE_DIR)/package.mk
 define Package/systemd-openwrt-services
   SECTION:=base
   CATEGORY:=Base system
-  TITLE:=Opt-in systemctl controls for OpenWrt services
+  TITLE:=systemctl controls for OpenWrt services
   DEPENDS:=@OPENWRT_SYSTEMD +systemd-openwrt +libsystemd +libubus +libubox +libblobmsg-json +libjson-c
 endef
 

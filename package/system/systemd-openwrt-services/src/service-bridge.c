@@ -594,7 +594,14 @@ static json_object *health(const char *name, json_object *snap)
 				total++;
 				if (json_object_get_boolean(field(in, "running")))
 					running++;
-				else if (field(in, "respawn"))
+				else if (!strcmp(string(in, "systemd_state"), "failed"))
+					failed++;
+				else if (*string(in, "systemd_unit") &&
+					 !*string(in, "systemd_state") && field(in, "exit_code")) {
+					/* A collected unit cannot have a pending systemd respawn. */
+					if (json_object_get_int(field(in, "exit_code")))
+						failed++;
+				} else if (field(in, "respawn"))
 					respawning = true;
 				else if (!field(in, "exit_code"))
 					unknown++;
@@ -974,6 +981,53 @@ static bool decode_unit(const char *unit, char name[128])
 	return valid_name(name);
 }
 
+/* Read-only advice; never execute a script or infer a native unit redirect. */
+static int hint(const char *name, const char *verb)
+{
+	json_object *snap;
+
+	if (!valid_name(name) ||
+	    (strcmp(verb, "start") && strcmp(verb, "stop") && strcmp(verb, "restart") &&
+	     strcmp(verb, "reload") && strcmp(verb, "enable") && strcmp(verb, "disable")))
+		return 2;
+	if (installed(name)) {
+		printf("%s is OpenWrt service '%s': systemctl %s openwrt@%s\n",
+		       name, name, verb, name);
+		return 0;
+	}
+	snap = snapshot(NULL);
+	if (!snap)
+		return 0;
+	json_object_object_foreach(snap, service, entry) {
+		json_object *instances = field(entry, "instances");
+
+		if (!installed(service) || !instances ||
+		    !json_object_is_type(instances, json_type_object))
+			continue;
+		json_object_object_foreach(instances, instance, data) {
+			json_object *command = field(data, "command"), *first;
+			const char *executable, *base;
+
+			(void)instance;
+			if (!command || !json_object_is_type(command, json_type_array))
+				continue;
+			first = json_object_array_get_idx(command, 0);
+			if (!first || !json_object_is_type(first, json_type_string))
+				continue;
+			executable = json_object_get_string(first);
+			base = strrchr(executable, '/');
+			if (strcmp(base ? base + 1 : executable, name))
+				continue;
+			printf("%s is supervised by OpenWrt service '%s': systemctl %s openwrt@%s\n",
+			       name, service, verb, service);
+			/* Multiple services may use the same executable. Show each match once. */
+			break;
+		}
+	}
+	json_object_put(snap);
+	return 0;
+}
+
 static int client(int argc, char **argv)
 {
 	const char *action;
@@ -983,6 +1037,8 @@ static int client(int argc, char **argv)
 	if (argc < 2)
 		return 2;
 	action = argv[1];
+	if (!strcmp(action, "hint"))
+		return argc == 3 || argc == 4 ? hint(argv[2], argc == 4 ? argv[3] : "restart") : 2;
 	/* Validate the entire request before the first action has side effects. */
 	for (i = 2; i < argc; i++) {
 		char name[128];

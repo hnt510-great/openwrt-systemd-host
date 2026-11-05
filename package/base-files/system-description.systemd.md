@@ -4,7 +4,8 @@ This custom x86_64 OpenWrt build combines a router with a general-purpose Linux
 host. It uses glibc, APK packages and native systemd as the default PID 1.
 Image-selected capabilities can include an ordinary-user Wayland desktop,
 virtual machines, desktop applications, containers and native development tools.
-OpenWrt's UCI, ubus, netifd and procd continue to manage the router stack.
+OpenWrt's UCI, ubus and netifd manage the router stack; procd remains its
+service API while systemd supervises the daemons.
 Router additions include optional full cone NAT, a faster dnsmasq nftset path
 and the opt-in daed transparent proxy beside the default Passwall.
 
@@ -49,23 +50,47 @@ their `/etc/init.d/<service>` interfaces and `/etc/config/<name>` UCI files.
 Use `uci` and `ubus` to inspect router configuration and state; netifd owns
 network interfaces. This build disables systemd-networkd and systemd-resolved.
 
+systemd supervises router daemons. `openwrt-procd.service` runs
+`procd --systemd=units`: each instance an init script registers becomes the
+transient unit `openwrt-SERVICE@INSTANCE.service` in `openwrt-SERVICE.slice`,
+which owns exec, restart, limits, user/group, logging and stop. procd remains
+the OpenWrt service API (ubus `service`, `system`, `hotplug.*`, triggers and
+validation) and runs `/etc/hotplug.d` and `/etc/rc.button` handlers fed by
+systemd-udevd. Instances using vrf, trace, bundles or descriptor passing stay
+procd children in `openwrt-*.scope`, with a journal warning naming the reason.
+Control services through `/etc/init.d/NAME`, LuCI or `ubus`; stopping a
+transient unit directly bypasses procd's view. Put resource policy on the slice.
+Service output goes to the journal; `logread` and LuCI's System Log read it
+through a compatibility view limited to the UCI log buffer.
+
+The systemd manager owns the hardware watchdog (`RuntimeWatchdogSec=30s`);
+`ubus call system watchdog` reports owner `systemd`. The x86/64 configuration
+selects no watchdog driver, so there is no `/dev/watchdog` unless one is
+installed. Returning to procd supervision is a `procd --systemd -S` drop-in for
+`openwrt-procd.service` together with `RuntimeWatchdogSec=0` and `RebootWatchdogSec=0`; recovery boots
+always run procd as PID 1.
+
 `openwrt-network-wait-online.service` holds `network-online.target` until
 netifd reports its autostart, statically configured local interfaces (such as
 `lan`) up; WAN, PPPoE or VPN outages do not hold it. After 120 seconds it logs
 the interfaces still down and releases the target. Rootless Quadlets depend on
 it; select other interfaces with a drop-in rather than editing the unit.
 
-The optional `systemd-openwrt-services` bridge also accepts controls such as
+The default-on `systemd-openwrt-services` bridge accepts controls such as
 `systemctl status openwrt@dnsmasq.service`. This is a CLI compatibility
-interface: procd still supervises those services, and UCI/init scripts remain
+interface that runs the init script, and UCI/init scripts remain
 authoritative. The reserved `openwrt@NAME.service` spelling is not a native unit
 for D-Bus calls or dependencies. Native SSH and D-Bus use `sshd.service` and
-`dbus.service`. Procd processes use scopes beneath `openwrt-SERVICE.slice`;
-resource policy belongs on the slice. Use both `journalctl` and `logread` as
-appropriate for the service's logging path.
+`dbus.service`. PID 1 refuses direct start/stop/restart/reload jobs on procd
+instance units from other clients, with instructions to use this bridge or the
+init script. Stopping `openwrt-SERVICE.slice` remains a deliberate whole-service
+override that skips init-script hooks. The restriction takes effect after reboot
+or `systemctl daemon-reexec` into the updated systemd.
 
 ```sh
 systemctl --no-pager status openwrt-procd.service openwrt-services.service
+systemctl --no-pager list-units 'openwrt-*@*.service'
+journalctl -u 'openwrt-dnsmasq@*' -n 50 --no-pager
 journalctl -b -n 50 --no-pager
 uci show network
 ubus call network.interface dump
@@ -211,7 +236,11 @@ Podman supports rootful and explicitly enrolled rootless users, with native
 systemd/Quadlet integration. User namespaces, subordinate IDs and persistent
 container storage still need configuration. Distrobox uses the selected engine;
 inspect each environment as its owning user. Flatpak applications use per-user
-portals and permissions; AppImages depend on compatible runtimes/libraries.
+portals and permissions; X11-only Flatpak apps such as Steam receive a filtered
+copy of the session's Xwayland cookie. 32-bit x86 programs need a kernel with
+IA32 emulation; check with `zgrep IA32_EMULATION /proc/config.gz`. An
+`Exec format error` from one means the running kernel predates it. AppImages
+depend on compatible runtimes/libraries.
 Native development packages provide compilers, headers and pkg-config metadata;
 out-of-tree kernel modules build against `kernel-dev-headers`, which follows the
 newest installed kernel (`/usr/lib/modules/<release>/build`).

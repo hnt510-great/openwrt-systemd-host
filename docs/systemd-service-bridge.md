@@ -1,15 +1,16 @@
 # OpenWrt service controls through systemctl
 
-This optional compatibility bridge adds individual systemctl controls while
+This default-on compatibility bridge adds individual systemctl controls while
 retaining procd supervision, UCI, LuCI, init scripts, and OpenWrt boot ordering.
-It does not convert daemons to native systemd supervision.
+It sends lifecycle actions through init scripts and procd, which creates native
+transient systemd instances in units mode.
 
 ## Building and enabling
 
 In make menuconfig, under Global build settings, select Experimental
 systemctl controls for OpenWrt services. This sets
 CONFIG_OPENWRT_SYSTEMD_SERVICE_BRIDGE=y and selects systemd-openwrt-services.
-It requires the native-systemd variant and defaults to off. Installing the
+It requires the native-systemd variant and defaults to on. Installing the
 matching signed package also enables the bridge on a native-systemd
 installation; start openwrt-service-bridge.service after online installation.
 Recovery boots never start the bridge.
@@ -56,6 +57,28 @@ init-script controls continue to work. Status reads current procd data and
 explicit health adapters on demand; action notifications retain setup receipts.
 Package additions are visible immediately without a generator or daemon reload.
 
+## Instance refusal and name hints
+
+PID 1 refuses clients' direct jobs on `openwrt-SERVICE@INSTANCE.service`,
+including D-Bus and varlink calls. Its message directs users to
+`systemctl VERB openwrt@SERVICE` or `/etc/init.d/SERVICE VERB`, preserving
+init-script hooks. Only procd's main PID can request those instance jobs.
+The bridge helper is installed by default in native-systemd images; the
+reserved CLI name is available without creating a file-backed proxy unit.
+
+For a mutating command on a missing bare name, systemctl prints a hint and
+then performs the original native command (which still fails). For example:
+
+```text
+netifd is supervised by OpenWrt service 'network': systemctl restart openwrt@network
+```
+
+`/usr/libexec/openwrt-service-bridge systemctl hint NAME [VERB]` performs the
+same read-only lookup: first an executable `/etc/init.d/NAME`, then procd
+`service list` instance `command[0]` basenames. VERB defaults to `restart`.
+It prints nothing for no match or unavailable ubus and executes no scripts.
+Multiple services sharing a command basename each receive a hint.
+
 ## Status
 
 Status comes from current procd instance data or an explicit adapter:
@@ -68,7 +91,7 @@ Status comes from current procd instance data or an explicit adapter:
 | active, setup completed | A setup action succeeded in this boot; no daemon is expected |
 | inactive, exited successfully | A process exited with status zero without respawn; it is not a failed daemon |
 | inactive | No registered/running service, or an observed stop |
-| failed | Instances stopped without respawn, or the last action failed and the service is down |
+| failed | Terminal systemd failure (including a crash-loop start limit), failed instances without respawn, or a failed last action while down |
 | unknown | Inspection unavailable or no adapter exists |
 
 Setup completion records do not assert that configuration remains healthy

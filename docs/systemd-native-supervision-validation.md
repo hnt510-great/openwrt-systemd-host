@@ -110,3 +110,62 @@ Evidence: `/srv/openwrt-validation/procd-units-validation-20261104/` (`image.img
 `final-guest/` serial logs, `router.commands.log` and `results.json`,
 `network/validation.json`; `vm1`–`vm4` and `debug1` hold the earlier runs on
 the first image, including the two test-expectation fixes).
+
+## External instance control guard (2026-11-05)
+
+Scope: source/package checks and a fresh disposable KVM/q35 UEFI VM booted from
+`openwrt-x86-64-generic-squashfs-combined-efi.img.gz`. The final VM used the
+image unchanged, with no replacement bridge binary. It ran systemd `262-r12`,
+`systemd-openwrt-services-6` and kernel `7.3.1-51-openwrt`. The build-only
+wrapper reused generation 51 because kernel inputs were unchanged.
+
+Image SHA256: `903f651a5f1f3cfea84114048de5190f907140198ff6f97583591337dcc58e9e`.
+
+| Check | Result |
+| --- | --- |
+| Both package builds and `build-and-publish.py build-only -j12 V=s` | passed; no publication |
+| Quilt patches 001/002 against the original systemd 262 tarball | zero fuzz; patched files identical to prepared source |
+| Bridge host suite; procd packaging suite | 25 tests passed; 9 tests passed |
+| Strict `conf --fatalrecursive`, shell syntax, `git diff --check` including the new patch | passed |
+| Direct start/stop/restart/reload, try-restart and reload-or-* on unitprobe | exit 4 with init-script advice; MainPID and NRestarts unchanged; procd still reports running |
+| D-Bus Manager.StopUnit, Unit.Stop and EnqueueUnitJobMany | refused; mixed batch leaves the bridge PID unchanged |
+| D-Bus marked jobs and varlink EnqueueMarkedJobs | refused before changing other marked units; varlink returns the advice in its optional message field |
+| CanStart/CanStop and RefuseManualStart/Stop | no/no and no/no respectively; requester PID/comm refusal lines found in the journal |
+| Init-script restart, stop, start; direct start after collection | owner operations succeed; direct start returns exit 4 with the not-running message |
+| `systemctl restart netifd` | hint names `openwrt@network`; original command still fails |
+| `systemctl kill -s KILL`, crash loop, UCI reload triggers, udev forwarding | passed; respawn counted; slice stop remains allowed |
+| `systemctl restart openwrt-procd` | instances recreated with a new PID; stop phase timed out and required SIGKILL (see below) |
+| Native smoke including explicit stop of file-backed openwrt-smoke@ instances | passed; timer/socket activation, cgroup limits and both log paths work |
+| Final VM state | running; zero failed units |
+
+The restart assertion proves instance recreation, **not a clean procd stop**.
+The final procd journal records a `stop-sigterm` timeout, SIGKILL and inherited
+scope-placement connection timeouts before successful restart. This lifecycle
+observation is retained as a limitation; no procd or cgroup-layout source change
+was made in this feature.
+
+A separate disposable boot of the pre-feature 2026-11-04 image reproduced the
+same stop timeout and inherited scope-placement warnings, followed by `running`
+and zero failed units. That baseline ran systemd `262-r11`, procd
+`2026.11.01~0d3c5dc1-r6` and kernel `7.3.1-49-openwrt`; its image SHA256 is
+`7eb491a82447f4a0cda9e5bf54808d284ff9eb19994147cce5f3a82ba367b90c`. The comparison is recorded in
+`baseline-restart/{results.json,lifecycle.log,router.commands.log}` under the
+same evidence directory. Thus the stop-timeout limitation predates this guard;
+it was not repaired or treated as a clean restart by this feature.
+
+The additional `test-apk-source-versions.py` run has two existing next-release
+simulation errors: nginx-ssl-util `1.7-r8` and native-libs-dev `1-r7` are reserved
+migration identities. Their current recipes were not changed by this feature;
+this is separate from the passing feature suites and full image build.
+
+No feed publication, router installation/reboot, live daemon-reexec, recovery
+boot, physical client network acceptance, or GNOME/Sunshine/libvirt guest-suite
+rerun is claimed.
+
+Evidence outside the repository:
+`/srv/openwrt-validation/systemd-external-control-validation-20261105/`:
+`image.img.gz`, `full-build-verified.log`, `patch-apply.log`, `patch-check.json`,
+`bridge-tests-final.log`, `procd-tests-final.log`, `kconfig.log`,
+`apk-source-versions.log` and `guest-184725/` (results, command log, serial log,
+feature outputs and journal). Earlier guest directories are diagnostic attempts,
+including the bridge crash-loop health failure subsequently fixed.

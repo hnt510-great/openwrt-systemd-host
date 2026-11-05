@@ -13,7 +13,7 @@ include $(INCLUDE_DIR)/feeds.mk
 
 PKG_NAME:=base-files
 PKG_FLAGS:=nonshared
-PKG_RELEASE:=$(COMMITCOUNT).6
+PKG_RELEASE:=$(COMMITCOUNT).7
 
 PKG_FILE_DEPENDS:= \
 	./os-release.systemd ./openwrt-release.systemd ./banner.systemd \

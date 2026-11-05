@@ -79,6 +79,13 @@ class ProcdUnitsTest(unittest.TestCase):
                        'hotplug_units', 'udevadm'):
             self.assertIn(needle, text)
 
+    def test_systemd_instance_guard_packaged(self):
+        systemd = ROOT / 'package/system/systemd'
+        self.assertTrue((systemd / 'patches/002-openwrt-procd-instance-jobs.patch').is_file())
+        release = re.search(r'^PKG_RELEASE:=(\d+)$',
+                            (systemd / 'Makefile').read_text(), re.M)
+        self.assertGreaterEqual(int(release[1]), 12)
+
     def test_units_rules_leave_device_nodes_to_udev(self):
         rules = json.loads((PROCD / 'files/hotplug-systemd.json').read_text())
         used = set(commands(rules))

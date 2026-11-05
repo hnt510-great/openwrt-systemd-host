@@ -181,6 +181,28 @@ before switching the active feed, for every package. The
 publisher does not change package versions, connect to the router, or install
 updates there.
 
+The rejection explains the first eight such packages with
+`scripts/diagnose-apk-rebuild.py`, which can also be run by hand on the paths
+the error names, or on any two APK files:
+
+```sh
+python3 scripts/diagnose-apk-rebuild.py base/daed-2.1.1-r4.apk
+python3 scripts/diagnose-apk-rebuild.py OLD.apk NEW.apk [--brief|--json]
+```
+
+A feed path compares the newest published snapshot copy with the rebuilt APK
+under `bin/systemd`. The tool compares APK metadata, install scripts and the
+file list, then descends into each changed file: ELF sections (including ELF
+objects embedded in a section, such as BPF programs in Go binaries), BTF type
+tables, Go build information, gzip, zip, `.pyc` and text. Each finding is
+`benign` (build nondeterminism with no runtime effect: archive or `.pyc`
+timestamps, BTF types emitted in a different order), `change` (metadata,
+scripts, files or text changed; allocate a new release) or `unknown` (bytes
+differ in code or data it cannot judge). The package verdict is the worst
+finding; exit status is 0 for identical or benign, 1 for unknown and 2 for a
+change. A benign verdict still needs a new release or the published file
+restored, since published identities are immutable.
+
 When a recipe uses `configs/apk-elf-rebuilds.mk`, choose a release newer than
 the allocated outputs as well as the upstream recipe release. Two input
 releases may map to the same historical migration output; an upstream bump

@@ -60,6 +60,8 @@ test -n "$instance"
 cgroup=$(systemctl show "$instance" -p ControlGroup --value)
 test "$(cat /sys/fs/cgroup"$cgroup"/memory.max)" = 33554432
 test "$(cat /sys/fs/cgroup"$cgroup"/pids.max)" = 8
+systemctl stop "$instance"
+! systemctl is-active -q "$instance"
 echo native-journal-check | systemd-cat -t openwrt-systemd-smoke
 journalctl --sync
 journalctl -b -t openwrt-systemd-smoke --no-pager | grep -q native-journal-check

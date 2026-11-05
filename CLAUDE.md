@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this tree is
 
-A personal OpenWrt fork tracking `openwrt/openwrt` `main`, roughly **240 commits ahead** of origin
+A personal OpenWrt fork tracking `openwrt/openwrt` `main`, roughly **300 commits ahead** of origin
 and still growing. It is not vanilla OpenWrt: it is an x86_64 "router plus desktop" firmware built
 on an unusual base combination that everything else depends on:
 
@@ -23,7 +23,7 @@ The fork modifies upstream core files directly — `include/kernel.mk`, `include
 `include/package.mk`, `include/rootfs.mk`, `package/base-files`, `package/system/{apk,procd,systemd}`,
 `package/network/{services/dnsmasq,utils/nftables,config/firewall4}`, `package/libs/libnftnl`,
 `target/linux/x86/image` — so a change in `package/custom/` may interact with build-system surgery
-described below. Read `docs/` (104 files, 49 hand-written validation records at last count) before
+described below. Read `docs/` (115 files, 52 hand-written validation records at last count) before
 non-trivial work; nearly every subsystem has a design doc plus a validation record.
 
 ## Build commands
@@ -106,7 +106,7 @@ stay procd-shaped and UCI/LuCI are unchanged. Rollback to procd supervision is a
 (`--systemd`) plus `RuntimeWatchdogSec=0`. See `docs/systemd.md` and
 `docs/systemd-native-supervision.md`.
 
-An optional compatibility bridge (`CONFIG_OPENWRT_SYSTEMD_SERVICE_BRIDGE`, off by default,
+A compatibility bridge (`CONFIG_OPENWRT_SYSTEMD_SERVICE_BRIDGE`, on by default,
 `package/system/systemd-openwrt-services/`) adds a C daemon that maps
 `systemctl start|stop|restart|reload|enable openwrt@NAME.service` onto the original init scripts.
 It does not convert daemons to native supervision and generates no units; `dbus` and `sshd` are
@@ -249,7 +249,7 @@ review, not overwrite. See `docs/local-build.md` (Chinese).
 ### `package/custom/` layout
 
 Wired in as a local feed by the last line of `feeds.conf.default`:
-`src-link custom ../package/custom` (~390 tracked files). Recurring patterns:
+`src-link custom ../package/custom` (~400 tracked files). Recurring patterns:
 
 - **Prebuilt binary repack** — `cmake-bin`, `node-bin`, `firefox-esr-bin` download upstream x86_64
   tarballs, set `PKGARCH:=x86_64`, leave `Build/Compile` empty, and gate on
@@ -347,7 +347,7 @@ python3 scripts/tests/test-<topic>.py        # host tests, e.g. test-elf-abi, te
                                              # test-build-and-publish, test-kernel-upgrade,
                                              # test-mainline-kernel-updates, test-scheduled-maintenance,
                                              # test-systemd-service-bridge, test-merge-usr, test-needrestart,
-                                             # test-network-wait-online
+                                             # test-network-wait-online, test-diagnose-apk-rebuild
 node scripts/tests/test-luci-<app>.js        # LuCI view logic, e.g. test-luci-daed-view,
                                              # test-luci-firewall-fullcone, test-luci-needrestart
 sh scripts/tests/test-alternatives.sh        # alternative/symlink handling
@@ -372,7 +372,7 @@ router (read-only libvirt API probes; see `docs/libvirt.md`). For package builds
 ## Documentation and commit conventions
 
 Every feature is documented as a pair: a guide `docs/<topic>.md` and a validation record
-`docs/<topic>-validation.md` (49 validation files). Guides give setup commands, UCI option tables
+`docs/<topic>-validation.md` (52 validation files). Guides give setup commands, UCI option tables
 and recovery steps, and link to their validation doc. Validation records are **hand-written, not
 generated**, and contain the image path and SHA256, a `| Check | Result |` table, and an explicit
 scope statement (often "no physical device was flashed") plus an **Evidence** pointer to a dated
@@ -416,7 +416,10 @@ pulling upstream, a `backup/pre-upstream-<date>` branch is cut.
   wrappers for full builds; a plain full `make` with a published number would collide with published
   kmod identities.
 - **Published APK identities are immutable.** Changed bytes require a new `PKG_RELEASE`; the ELF
-  rebuild ledger is not permission to overwrite a released version.
+  rebuild ledger is not permission to overwrite a released version. When the publisher rejects a
+  same-version rebuild it prints `scripts/diagnose-apk-rebuild.py` findings classifying each
+  difference as `benign` nondeterminism (e.g. daed's embedded BPF BTF type order), a real `change`
+  or `unknown`; run it by hand with the `REPOSITORY/FILE.apk` path it names.
 - `package/custom/luci-theme-argon` is a **git submodule** (`.gitmodules`, branch `master`, relative
   sibling repository URL). `./scripts/feeds update` initializes it on a fresh clone and attaches it to that
   branch; commits inside it go to its own repository, and the parent records only the gitlink.
