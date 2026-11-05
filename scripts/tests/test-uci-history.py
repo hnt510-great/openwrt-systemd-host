@@ -375,5 +375,224 @@ class HistoryTest(unittest.TestCase):
         self.assertEqual(self.cli('confirm')[0], 0)
 
 
+
+# Shims that model the mechanism behind the revert bug. Each service keeps the
+# configuration it last applied in run/applied/PKG. It changes only when a
+# config.change event reaches it, or when the test runs an "init script reload".
+# reload_config fires events only for packages whose content differs from its
+# own previous run, as in package/system/procd/files/reload_config.
+RELOAD_CONFIG = r"""#!/usr/bin/env python3
+import hashlib, pathlib, shutil
+root = pathlib.Path(%(root)r)
+md5 = root / 'var/run/config.md5'
+current = {f.name: hashlib.md5(f.read_bytes()).hexdigest()
+           for f in sorted((root / 'etc/config').iterdir())
+           if f.is_file() and not f.name.startswith('.')}
+if md5.exists():
+    for line in md5.read_text().splitlines():
+        checksum, name = line.split(None, 1)
+        name = pathlib.Path(name).name
+        if current.get(name) != checksum:
+            with open(root / 'events', 'a') as log:
+                log.write(name + '\n')
+            applied = root / 'run/applied' / name
+            source = root / 'etc/config' / name
+            if source.exists():
+                shutil.copyfile(source, applied)
+            else:
+                applied.unlink(missing_ok=True)
+md5.parent.mkdir(parents=True, exist_ok=True)
+md5.write_text(''.join('%%s  /var/run/config.check/%%s\n' %% (v, k) for k, v in current.items()))
+"""
+
+UBUS = r"""#!/usr/bin/env python3
+import json, pathlib, shutil, sys
+root = pathlib.Path(%(root)r)
+if pathlib.Path(root / 'ubus-fails').exists():
+    sys.exit(1)
+if sys.argv[1:4] != ['call', 'service', 'event']:
+    sys.exit(0)
+event = json.loads(sys.argv[4])
+assert event['type'] == 'config.change'
+name = event['data']['package']
+with open(root / 'events', 'a') as log:
+    log.write(name + '\n')
+source = root / 'etc/config' / name
+applied = root / 'run/applied' / name
+if source.exists():
+    shutil.copyfile(source, applied)
+else:
+    applied.unlink(missing_ok=True)
+"""
+
+LAN = "config interface 'lan'\n option ipaddr '192.0.2.1'\n"
+BROKEN = "config interface 'lan'\n option ipaddr '192.0.2.9'\n"
+FIREWALL = "config zone 'lan'\n option input 'ACCEPT'\n"
+LOCKED = "config zone 'lan'\n option input 'REJECT'\n"
+
+
+class RunningServiceRevertTest(unittest.TestCase):
+    """Revert must restore what services run, not only the files on disk."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+        for name, text in [('network', LAN), ('firewall', FIREWALL), ('system', "config system\n")]:
+            self.write('etc/config/' + name, text)
+        self.write('etc/nftables.d/10-custom.nft', 'original\n')
+        self.bin = self.root / 'bin'
+        self.bin.mkdir()
+        for name, text in [('reload_config', RELOAD_CONFIG), ('ubus', UBUS),
+                           ('systemd-run', '#!/bin/sh\n'), ('systemctl', '#!/bin/sh\n')]:
+            f = self.bin / name
+            f.write_text(text % dict(root=str(self.root)) if '%(root)' in text else text)
+            f.chmod(0o755)
+        self.env = patch.dict(os.environ, {'PATH': str(self.bin) + ':' + os.environ['PATH'], 'SSH_CONNECTION': ''})
+        self.env.start()
+        self.addCleanup(self.env.stop)
+        # Boot: every service applies its configuration, then /etc/init.d/boot
+        # runs reload_config once to record the baseline.
+        (self.root / 'run/applied').mkdir(parents=True)
+        for name in ('network', 'firewall', 'system'):
+            self.init_reload(name)
+        subprocess.run(['reload_config'], check=True)
+        self.h = H.History(self.root)
+        self.addCleanup(self.h.lock.close)
+        self.h.snapshot()
+
+    def write(self, name, value):
+        f = self.root / name
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(value)
+        return f
+
+    def init_reload(self, name):
+        # /etc/init.d/NAME reload: the service applies the file on disk, but
+        # reload_config's checksum baseline is not updated.
+        (self.root / 'run/applied' / name).write_text((self.root / 'etc/config' / name).read_text())
+
+    def running(self, name):
+        return (self.root / 'run/applied' / name).read_text()
+
+    def events(self):
+        f = self.root / 'events'
+        lines = f.read_text().splitlines() if f.exists() else []
+        f.unlink(missing_ok=True)
+        return sorted(lines)
+
+    def break_lan_with_init_reload(self):
+        self.write('etc/config/network', BROKEN)
+        self.init_reload('network')
+        self.assertEqual(self.running('network'), BROKEN)
+        self.events()
+
+    def test_abort_after_init_script_reload_restores_running_service(self):
+        # The reported bug: the file reverted, the service kept 192.0.2.9.
+        self.h.arm(60)
+        self.break_lan_with_init_reload()
+        self.h.finish('abort')
+        self.assertEqual((self.root / 'etc/config/network').read_text(), LAN)
+        self.assertEqual(self.running('network'), LAN)
+        self.assertEqual(self.events(), ['network'])
+
+    def test_timer_revert_after_init_script_reload(self):
+        tx = self.h.arm(60)['transaction']
+        self.break_lan_with_init_reload()
+        self.h.finish('revert', tx['id'])
+        self.assertEqual(self.running('network'), LAN)
+        self.assertEqual(self.h.revisions()[0]['source'], 'txn-revert')
+
+    def test_boot_revert_after_init_script_reload(self):
+        self.h.arm(60)
+        self.break_lan_with_init_reload()
+        self.h.finish('revert')
+        self.assertEqual(self.running('network'), LAN)
+
+    def test_revert_after_reload_config_signals_once(self):
+        # The path that already worked must not reload the service twice.
+        self.h.arm(60)
+        self.write('etc/config/network', BROKEN)
+        subprocess.run(['reload_config'], check=True)
+        self.assertEqual((self.events(), self.running('network')), (['network'], BROKEN))
+        self.h.finish('abort')
+        self.assertEqual(self.running('network'), LAN)
+        self.assertEqual(self.events(), ['network'])
+
+    def test_mixed_apply_methods_each_signalled_once(self):
+        self.h.arm(60)
+        self.break_lan_with_init_reload()
+        self.write('etc/config/firewall', LOCKED)
+        subprocess.run(['reload_config'], check=True)
+        self.events()
+        self.h.finish('abort')
+        self.assertEqual((self.running('network'), self.running('firewall')), (LAN, FIREWALL))
+        self.assertEqual(self.events(), ['firewall', 'network'])
+
+    def test_unapplied_commit_revert_keeps_service_on_checkpoint(self):
+        # Committed but never applied: an extra event is harmless; the service
+        # must end on the checkpoint either way.
+        self.h.arm(60)
+        self.write('etc/config/network', BROKEN)
+        self.h.finish('abort')
+        self.assertEqual(self.running('network'), LAN)
+        self.assertLessEqual(self.events().count('network'), 1)
+
+    def test_restore_after_init_script_reload(self):
+        self.break_lan_with_init_reload()
+        self.h.snapshot()
+        result = self.h.restore(1, configs=['network'])
+        self.assertEqual(self.running('network'), LAN)
+        self.assertEqual(result['triggered_configs'], ['network'])
+
+    def test_missing_reload_baseline_still_signals(self):
+        (self.root / 'var/run/config.md5').unlink()
+        self.h.arm(60)
+        self.break_lan_with_init_reload()
+        self.h.finish('abort')
+        self.assertEqual(self.running('network'), LAN)
+
+    def test_unchanged_packages_and_extras_are_not_signalled(self):
+        self.h.arm(60)
+        self.write('etc/nftables.d/10-custom.nft', 'changed\n')
+        self.h.finish('abort')
+        self.assertEqual((self.root / 'etc/nftables.d/10-custom.nft').read_text(), 'original\n')
+        self.assertEqual(self.events(), [])
+
+    def test_no_reload_sends_no_events(self):
+        self.break_lan_with_init_reload()
+        self.h.snapshot()
+        self.h.restore(1, configs=['network'], no_reload=True)
+        self.assertEqual(self.events(), [])
+        self.assertEqual(self.running('network'), BROKEN)
+
+    def test_failed_signal_keeps_transaction_for_retry(self):
+        self.h.arm(60)
+        self.break_lan_with_init_reload()
+        (self.root / 'ubus-fails').touch()
+        with self.assertRaises(H.Error):
+            self.h.finish('abort')
+        self.assertIsNotNone(self.h.txn())
+        (self.root / 'ubus-fails').unlink()
+        self.h.finish('abort')
+        self.assertIsNone(self.h.txn())
+        self.assertEqual(self.running('network'), LAN)
+
+    def test_scenario_fails_without_the_fix(self):
+        # Mutation check: the reload code from before the fix leaves the service
+        # broken in this scenario, so the tests above can detect a regression.
+        def old_reload(history, affected=()):
+            before = history.reload_hashes()
+            history.run(['reload_config'])
+            after = history.reload_hashes()
+            return sorted({Path(n).name for n, c in before.items() if after.get(n) != c})
+        self.h.arm(60)
+        self.break_lan_with_init_reload()
+        with patch.object(H.History, 'reload', old_reload):
+            self.h.finish('abort')
+        self.assertEqual((self.root / 'etc/config/network').read_text(), LAN)
+        self.assertEqual(self.running('network'), BROKEN)
+        self.assertEqual(self.events(), [])
+
 if __name__ == '__main__':
     unittest.main()

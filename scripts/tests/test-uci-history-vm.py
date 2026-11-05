@@ -24,6 +24,7 @@ SPEC.loader.exec_module(NET)
 CLI = 'uci-history --json '
 REQUIRED = {'installed', 'cli-change-captured', 'luci-attribution', 'rpcd-timeout-rollback',
             'client-access-lost', 'automatic-revert', 'client-luci-restored', 'restore-diff',
+            'init-reload-scenario', 'init-reload-revert', 'firewall-abort-runtime',
             'boot-revert', 'kept-config-sysupgrade'}
 
 
@@ -240,6 +241,30 @@ def validate(image, work, upgrade=None):
             checks['automatic-revert'] = cli(router, 'status')['transaction'] is None
             wait(client, curl, 45)
             checks['client-luci-restored'] = True
+            # Regression for the reverted-file/running-service split: apply the
+            # change with the init script, which leaves reload_config's checksum
+            # baseline at the checkpoint content.
+            cli(router, 'begin --timeout 60 --actor vm-client --note init-reload-recovery')
+            baseline = router.run('cat /var/run/config.md5')
+            router.run('uci set network.lan.ipaddr=192.0.2.9; uci commit network; /etc/init.d/network reload')
+            wait(client, '! ' + curl, 30)
+            checks['init-reload-scenario'] = (router.run('cat /var/run/config.md5') == baseline and
+                                              '192.0.2.9' in router.run('ubus call network.interface.lan status'))
+            wait(router, CLI + 'status | grep -q \'"transaction": null\'', 90)
+            # Check the running interface, not only the UCI file.
+            wait(router, 'ubus call network.interface.lan status | grep -q \'"address": "192.0.2.1"\'', 45)
+            wait(client, curl, 45)
+            checks['init-reload-revert'] = True
+            # Same split for another service, through an explicit abort.
+            if router.run('uci get firewall.@zone[0].name').strip() != 'lan':
+                raise AssertionError('firewall zone 0 is not lan')
+            cli(router, 'begin --timeout 300 --actor vm-client --note firewall-abort')
+            router.run('uci set firewall.@zone[0].input=REJECT; uci commit firewall; /etc/init.d/firewall reload')
+            wait(client, '! ' + curl, 30)
+            cli(router, 'abort')
+            wait(client, curl, 45)
+            # wait() raises unless the client reaches LuCI through the reloaded firewall.
+            checks['firewall-abort-runtime'] = router.run('uci get firewall.@zone[0].input').strip() == 'ACCEPT'
             checkpoint = cli(router, 'snapshot')['revision']
             router.run("uci set system.@system[0].hostname=history-restore; uci commit system")
             cli(router, f'restore {checkpoint} --config system')

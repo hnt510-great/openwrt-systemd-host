@@ -541,8 +541,18 @@ class History:
             else:
                 self.remove(dest)
         result.update(self.snapshot(source='txn-revert' if internal else 'restore'))
-        if (affected or internal) and not no_reload:
-            result['triggered_configs'] = self.reload(affected)
+        signal = set(affected)
+        if internal:
+            # A service may run any state written during the transaction, and a
+            # retry after a failed reload finds the files already restored.
+            # Signal every package captured since the checkpoint.
+            checkpoint = self.revision(revision)['revision']
+            for rev in self.revisions():
+                if rev['revision'] > checkpoint:
+                    signal.update(rev['configs'])
+            signal = {c for c in signal if 'etc/config/' + c in target or 'etc/config/' + c in current}
+        if (signal or internal) and not no_reload:
+            result['triggered_configs'] = self.reload(signal)
             result['reload'] = True
         return result
 

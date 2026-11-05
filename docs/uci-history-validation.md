@@ -125,7 +125,7 @@ runs remove only the named guest disks created by this harness.
 
 Review after the VM gate changed the CLI, so the tested image's CLI hash above
 no longer matches the packaged source. These changes are covered by host tests
-only (`test-uci-history.py`, now 26 tests, pass); the exact-image VM gate was
+only (`test-uci-history.py`, now 38 tests, pass); the exact-image VM gate was
 not re-run:
 
 - Restore and transaction revert send `ubus call service event config.change`
@@ -134,6 +134,19 @@ not re-run:
   reload_config's checksum baseline at the checkpoint content, so the revert
   restored the file but never reloaded the running service. The VM gate applied
   its LAN change with `reload_config` and could not observe this.
+- A transaction revert signals every UCI package captured since its checkpoint,
+  not only the files it rewrites. Before, a revert whose signal failed was kept
+  for retry, but the retry found the files already restored and signalled
+  nothing, leaving the service on the abandoned state.
+- `RunningServiceRevertTest` in `test-uci-history.py` models each service's
+  applied state and reload_config's checksum baseline. It covers init-script and
+  reload_config applies, abort/timer/boot reverts, mixed packages, a missing
+  baseline, extras, `--no-reload`, signal-failure retry, and a mutation check
+  proving the scenario leaves the service broken with the pre-fix code.
+  The VM gate gained `init-reload-scenario`, `init-reload-revert` (running LAN
+  address and client LuCI access after a timer revert) and
+  `firewall-abort-runtime` (client access after an abort of a firewall change
+  applied with `/etc/init.d/firewall reload`); these VM checks have not run yet.
 - An rpcd attribution hint now labels only one capture; a later unrelated
   write to the same package within thirty seconds is `external`.
 

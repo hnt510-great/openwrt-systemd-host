@@ -72,6 +72,8 @@ not prove service health. Returned `configs` identifies affected UCI packages,
 plus an explicit `config.change` event for every restored package reload_config
 skipped (its baseline is its own last run, so a change applied with an init
 script reload would otherwise never be reverted in the running service),
+a transaction revert signals every package captured since its checkpoint, so a
+retry after a failed reload still reaches the service,
 `paths` identifies extra files, and `reload` reports invocation of the reload
 mechanism. Previously committed drift outside the selection can also trigger
 events through reload_config. A dry run reports the same affected paths without writes.
