@@ -12,7 +12,7 @@ is needed.
 
 ## Behaviour
 
-- **dnsmasq** (`package/network/services/dnsmasq/patches/230-nftset-netlink-address-sets.patch`,
+- **dnsmasq** (`package/network/services/dnsmasq/patches/240-nftset-netlink-address-sets.patch`,
   `2.93-r10`): plain IPv4/IPv6 address sets are updated directly over
   netlink. dnsmasq reads the set's current metadata (never a cached copy, so a
   firewall reload that recreates a set is seen immediately) and commits the
