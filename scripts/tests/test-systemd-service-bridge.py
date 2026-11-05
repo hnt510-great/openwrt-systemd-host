@@ -153,6 +153,22 @@ with open(root / 'fixture.lock', 'a') as lock:
         p = self.root / 'actions'
         return p.read_text().splitlines() if p.exists() else []
 
+    def test_hint(self):
+        result = self.call('hint', 'sample')
+        self.assertEqual(result.returncode, 0)
+        self.assertIn('systemctl restart openwrt@sample', result.stdout)
+        self.make_script('network')
+        self.set_snapshot({'network': {'instances': {'main': {
+            'command': ['/sbin/netifd'], 'running': True}}}})
+        result = self.call('hint', 'netifd', 'stop')
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("supervised by OpenWrt service 'network'", result.stdout)
+        self.assertIn('systemctl stop openwrt@network', result.stdout)
+        self.assertEqual(self.call('hint', 'unmatched').stdout, '')
+        self.assertFalse((self.root / 'actions').exists())
+        self.assertFalse((self.root / 'native-actions').exists())
+        self.assertEqual(self.call('hint', '../network').returncode, 2)
+
     def test_actions_keep_custom_restart_and_do_not_repeat_during_reconcile(self):
         for action in ['start', 'restart', 'reload', 'stop']:
             result = self.call(action, 'openwrt@sample.service')
@@ -176,6 +192,17 @@ with open(root / 'fixture.lock', 'a') as lock:
             ({'a': {'running': True}, 'b': {'running': True}}, 'active', '2/2', 0),
             ({'a': {'running': True}, 'b': {'running': False}}, 'active', '1/2', 0),
             ({'a': {'running': False, 'respawn': {'timeout': 5}}}, 'activating', 'respawn', 3),
+            ({'a': {'running': False, 'respawn': {'timeout': 1},
+                    'systemd_unit': 'openwrt-sample@a.service',
+                    'systemd_state': 'activating', 'exit_code': 137}}, 'activating', 'respawn', 3),
+            ({'a': {'running': False, 'respawn': {'timeout': 1},
+                    'systemd_state': 'failed', 'exit_code': 137}}, 'failed', 'instance failure', 3),
+            ({'a': {'running': False, 'respawn': {'timeout': 1},
+                    'systemd_unit': 'openwrt-sample@a.service',
+                    'exit_code': 137}}, 'failed', 'instance failure', 3),
+            ({'a': {'running': False, 'respawn': {'timeout': 1},
+                    'systemd_unit': 'openwrt-sample@a.service',
+                    'exit_code': 0}}, 'inactive', 'exited successfully', 3),
             ({'a': {'running': False, 'exit_code': 1}}, 'failed', '0/1', 3),
             ({'a': {'running': True}}, 'active', '1/1', 0),
         ]

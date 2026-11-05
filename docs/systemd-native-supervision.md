@@ -34,11 +34,41 @@ systemctl status 'openwrt-dnsmasq@*'
 journalctl -u openwrt-uhttpd@instance1.service
 ```
 
-The `openwrt@NAME.service` spelling of the optional
-[service control bridge](systemd-service-bridge.md) is a different thing: it
-runs the init script. Control services through `/etc/init.d/NAME`, LuCI, or the
-bridge; stopping a transient unit directly bypasses procd's view of the
-service until the next start.
+The default-on [service control bridge](systemd-service-bridge.md) uses
+`openwrt@NAME.service` to run the init script. PID 1 accepts direct instance
+jobs only from the main PID of `openwrt-procd.service`; other processes in its
+cgroup are also refused. An unresolvable requester is refused. File-backed
+services, including `openwrt-console@.service`, are unaffected.
+
+| Action (network/netifd example) | Result |
+| --- | --- |
+| `systemctl start`, `stop`, `restart` or `reload openwrt-network@instance1.service` | Refused (exit 4), suggesting `systemctl VERB openwrt@network` or `/etc/init.d/network VERB`; no hooks skipped |
+| Direct D-Bus, batch or varlink jobs; try/reload-or-* variants | Same PID 1 check; marked batches containing a refused instance queue no jobs |
+| `systemctl show -P CanStart -P CanStop openwrt-network@instance1.service` | Both `no`; `RefuseManualStart/Stop` remain `no` so procd can manage instances |
+| `systemctl kill -s KILL openwrt-network@instance1.service` | Crash/respawn, according to the instance restart policy |
+| `systemctl stop openwrt-network.slice` | Allowed whole-service emergency override; skips init-script hooks |
+| `systemctl restart openwrt-procd.service` | Dependency jobs stop instances; rc scripts recreate them |
+| Stopped or never-started instance with executable init script | Refused with a "not running; procd creates the instances" message |
+
+Example refusal:
+
+```text
+openwrt-network@instance1.service is procd instance 'instance1' of OpenWrt service 'network'; a direct stop would skip /etc/init.d/network. Use 'systemctl stop openwrt@network' or '/etc/init.d/network stop'.
+```
+
+The bridge suggestion is included only when its helper is executable. Each
+refusal logs the requester's PID and comm in the unit journal. Use
+`systemctl restart openwrt@network` for a normal restart with init-script hooks.
+Plain missing names such as `systemctl restart netifd` print a read-only hint
+and retain the native command's failure; they are never redirected.
+
+`kill` with SIGTERM can be a clean exit under `Restart=on-failure`, so it need
+not respawn. `set-property`, `reset-failed`, `clean`, `freeze`, `thaw`, isolate
+and shutdown keep their existing behavior. Fallback `openwrt-<id>.scope`
+children (vrf, trace, bundle, passed descriptors) remain supervised by procd;
+stopping them follows procd's crash/respawn rules. The restriction requires a
+reboot or `systemctl daemon-reexec` into systemd 262-r12; no procd upgrade or
+cgroup-layout change is needed.
 
 `ubus call service list` adds `systemd_unit`, `systemd_placement` (`unit`) and,
 while the unit is loaded, `systemd_state` and `systemd_substate` to each

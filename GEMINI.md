@@ -83,7 +83,9 @@ python3 scripts/update-mainline-kernel.py --check|--update # Check or update mai
 - GRUB default passes `openwrt.init=systemd` to exec systemd as PID 1; fallback or `openwrt.init=procd` boots procd.
 - Bridge units live in `package/system/systemd-openwrt/`:
   - `openwrt-ubusd.service`: Starts ubus daemon.
-  - `openwrt-procd.service`: procd as service supervisor, hotplug, and watchdog.
+  - `openwrt-procd.service`: `procd --systemd=units`, the OpenWrt service API (ubus `service`/`system`/`hotplug.*`, triggers, validation) and `/etc/hotplug.d` handlers fed by udev.
+    Each instance registered through `procd.sh` runs as a transient `openwrt-SERVICE@INSTANCE.service` in `openwrt-SERVICE.slice` (procd patch `130-systemd-transient-units.patch`); vrf/trace/bundle/descriptor-passing instances fall back to procd children in scopes.
+    The systemd manager owns the hardware watchdog. Rollback to procd supervision is a `--systemd` drop-in plus `RuntimeWatchdogSec=0`. See `docs/systemd-native-supervision.md`.
   - `openwrt-services.service`: Runs `/etc/init.d/*` rc scripts in sequence.
   - `openwrt-network-wait-online.service`: Holds `network-online.target` until netifd brings static local interfaces (e.g., `lan`) up.
 - **Merged `/usr`**: `scripts/merge-usr.py` transforms rootfs layout, redirecting `/bin`, `/sbin`, and `/lib` to `/usr/...`. BusyBox conflicts are handled via `ALTERNATIVE_COMMANDS`.

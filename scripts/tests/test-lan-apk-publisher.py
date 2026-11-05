@@ -241,7 +241,10 @@ class PublisherTests(unittest.TestCase):
         old_indexes = {name: digest(self.before / name / 'packages.adb')
                        for name in ('base', 'custom')}
         new = self.make_package('feed-probe', '1.0-r1', 'different payload, same version')
-        self.assert_failed_publication('bump PKG_RELEASE')
+        result = self.assert_failed_publication('bump PKG_RELEASE')
+        output = result.stdout + result.stderr
+        self.assertIn(f'base/{filename}: change: real content change', output)
+        self.assertIn('usr/share/feed-test/feed-probe: text content changed', output)
         for repository in ('base', 'custom'):
             self.assertEqual(digest(self.before / repository / filename), old_apk)
             self.assertEqual(digest(self.before / repository / 'packages.adb'), old_indexes[repository])

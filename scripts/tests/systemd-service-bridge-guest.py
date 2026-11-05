@@ -187,9 +187,20 @@ service_triggers() {
     run('systemctl', 'enable', '--now', 'openwrt@bridge-smoke')
     assert run('systemctl', 'is-enabled', 'openwrt@bridge-smoke').stdout.strip() == 'enabled'
     wait_for(lambda: active().returncode == 0, 'fixture running')
-    wait_for(lambda: service()['main'].get('systemd_placement') == 'managed',
-             'actual daemon placed in its systemd scope')
+    wait_for(lambda: service()['main'].get('systemd_placement') in ('managed', 'unit'),
+             'actual daemon placed in its systemd cgroup')
     assert run('systemctl', 'cat', 'openwrt@bridge-smoke.service', check=False).returncode != 0
+    hint = run('/usr/libexec/openwrt-service-bridge', 'systemctl', 'hint', 'bridge-smoke')
+    assert 'openwrt@bridge-smoke' in hint.stdout
+    hint = run('/usr/libexec/openwrt-service-bridge', 'systemctl', 'hint', 'sleep')
+    assert "OpenWrt service 'bridge-smoke'" in hint.stdout
+    assert run('/usr/libexec/openwrt-service-bridge', 'systemctl', 'hint',
+               'nonexistent-bridge-smoke').stdout == ''
+    run('systemctl', 'stop', 'openwrt@bridge-smoke')
+    wait_for(lambda: not service(), 'bridge stop removes instance')
+    run('systemctl', 'start', 'openwrt@bridge-smoke')
+    wait_for(lambda: active().returncode == 0, 'bridge start restores instance')
+    print('PASS: bridge start, stop and read-only name hints')
     run('systemctl', 'restart', 'openwrt@bridge-smoke')
     actions = Path('/tmp/bridge-smoke-actions')
     assert actions.read_text().splitlines().count('custom-restart') == 1

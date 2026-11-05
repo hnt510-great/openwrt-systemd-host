@@ -1,0 +1,330 @@
+--- a/src/core/dbus-manager.c
++++ b/src/core/dbus-manager.c
+@@ -900,7 +900,7 @@ static int method_enqueue_unit_job_many(
+         if (!jobs)
+                 return -ENOMEM;
+ 
+-        r = manager_add_jobs(m, type, names, reload_if_possible, mode,
++        r = manager_add_jobs(m, message, type, names, reload_if_possible, mode,
+                              /* extra_flags= */ 0, /* affected_jobs= */ NULL, reterr_error, jobs);
+         if (r < 0)
+                 return r;
+@@ -2226,6 +2226,25 @@ static int method_enqueue_marked_jobs(sd
+         if (r == 0)
+                 return 1; /* No authorization for now, but the async polkit stuff will call us again when it has it */
+ 
++        /* Validate procd ownership before changing any unit in this marked batch. */
++        Unit *marked;
++        HASHMAP_FOREACH(marked, m->units) {
++                JobType type;
++
++                if (!marked->markers || !unit_is_openwrt_procd_instance(marked))
++                        continue;
++                type = BIT_SET(marked->markers, UNIT_MARKER_NEEDS_STOP) ? JOB_STOP :
++                        BIT_SET(marked->markers, UNIT_MARKER_NEEDS_START) ? JOB_START : JOB_TRY_RESTART;
++                r = unit_queue_job_check_and_mangle_type(marked, &type,
++                                !BIT_SET(marked->markers, UNIT_MARKER_NEEDS_RESTART), reterr_error);
++                if (r >= 0)
++                        r = unit_check_openwrt_procd_job(marked, type, message, NULL, reterr_error);
++                if (r < 0) {
++                        log_unit_warning(marked, "Refused marked jobs containing a procd instance.");
++                        return r;
++                }
++        }
++
+         log_info("Queuing reload/restart jobs for marked units%s", glyph(GLYPH_ELLIPSIS));
+ 
+         _cleanup_(sd_bus_message_unrefp) sd_bus_message *reply = NULL;
+--- a/src/core/dbus-unit.c
++++ b/src/core/dbus-unit.c
+@@ -2002,6 +2002,10 @@ int bus_unit_queue_job_one(
+         if (r < 0)
+                 return r;
+ 
++        r = unit_check_openwrt_procd_job(u, type, message, NULL, reterr_error);
++        if (r < 0)
++                return r;
++
+         if (FLAGS_SET(flags, BUS_UNIT_QUEUE_VERBOSE_REPLY)) {
+                 affected = set_new(NULL);
+                 if (!affected)
+--- a/src/core/manager.c
++++ b/src/core/manager.c
+@@ -2310,6 +2310,7 @@ int manager_startup(Manager *m, FILE *se
+ 
+ int manager_add_jobs(
+                 Manager *m,
++                sd_bus_message *message,
+                 JobType type,
+                 char * const *names,
+                 bool reload_if_possible,
+@@ -2371,6 +2372,10 @@ int manager_add_jobs(
+                 if (r < 0)
+                         return r;
+ 
++                r = unit_check_openwrt_procd_job(u, t, message, NULL, reterr_error);
++                if (r < 0)
++                        return r;
++
+                 merged_type = job_type_collapse(t, u);
+ 
+                 log_unit_debug(u, "Trying to enqueue job %s/%s/%s",
+--- a/src/core/manager.h
++++ b/src/core/manager.h
+@@ -605,6 +605,7 @@ int manager_load_unit_from_dbus_path(Man
+ 
+ int manager_add_jobs(
+                 Manager *m,
++                sd_bus_message *message,
+                 JobType type,
+                 char * const *names,
+                 bool reload_if_possible,
+--- a/src/core/unit.c
++++ b/src/core/unit.c
+@@ -67,6 +67,7 @@
+ #include "unit-name.h"
+ #include "user-util.h"
+ #include "varlink.h"
++#include "varlink-util.h"
+ 
+ /* Thresholds for logging at INFO level about resource consumption */
+ #define MENTIONWORTHY_CPU_NSEC     (1 * NSEC_PER_SEC)
+@@ -6510,12 +6511,102 @@ int unit_can_clean(Unit *u, ExecCleanMas
+         return UNIT_VTABLE(u)->can_clean(u, ret);
+ }
+ 
++/* procd escapes service/instance bytes with \\xNN rather than systemd's path escaping. */
++static int unit_openwrt_procd_names(Unit *u, char **ret_service, char **ret_instance) {
++        _cleanup_free_ char *escaped = NULL, *service = NULL, *instance = NULL;
++        const char *at;
++        int r;
++
++        if (!MANAGER_IS_SYSTEM(u->manager) || u->type != UNIT_SERVICE || !u->id ||
++            !unit_name_is_valid(u->id, UNIT_NAME_INSTANCE) || !startswith(u->id, "openwrt-"))
++                return 0;
++        at = strchr(u->id, '@');
++        escaped = strndup(u->id + STRLEN("openwrt-"), at - u->id - STRLEN("openwrt-"));
++        if (!escaped)
++                return -ENOMEM;
++        r = cunescape(escaped, 0, &service);
++        if (r < 0)
++                return r;
++        escaped = mfree(escaped);
++        escaped = strndup(at + 1, strlen(at + 1) - STRLEN(".service"));
++        if (!escaped)
++                return -ENOMEM;
++        r = cunescape(escaped, 0, &instance);
++        if (r < 0)
++                return r;
++        /* The decoded service is used as an init-script path, never as a shell command. */
++        if (!filename_is_valid(service) || isempty(instance))
++                return 0;
++        if (!u->transient) {
++                _cleanup_free_ char *script = NULL;
++
++                if (u->load_state != UNIT_NOT_FOUND)
++                        return 0;
++                script = strjoin("/etc/init.d/", service);
++                if (!script)
++                        return -ENOMEM;
++                if (access(script, X_OK) < 0)
++                        return 0;
++        }
++        if (ret_service)
++                *ret_service = TAKE_PTR(service);
++        if (ret_instance)
++                *ret_instance = TAKE_PTR(instance);
++        return 1;
++}
++
++bool unit_is_openwrt_procd_instance(Unit *u) {
++        return unit_openwrt_procd_names(u, NULL, NULL) > 0;
++}
++
++int unit_check_openwrt_procd_job(Unit *u, JobType type, sd_bus_message *message, sd_varlink *link,
++                               sd_bus_error *reterr_error) {
++        _cleanup_(pidref_done) PidRef peer = PIDREF_NULL;
++        _cleanup_free_ char *service = NULL, *instance = NULL, *comm = NULL, *bridge = NULL;
++        const char *verb;
++        Unit *procd;
++        int r;
++
++        r = unit_openwrt_procd_names(u, &service, &instance);
++        if (r <= 0)
++                return r;
++
++        /* Only the main process is trusted, not other processes in procd's cgroup. */
++        r = message ? bus_query_sender_pidref(message, &peer) :
++                link ? varlink_get_peer_pidref(link, &peer) : -ESRCH;
++        procd = manager_get_unit(u->manager, "openwrt-procd.service");
++        if (r >= 0 && procd && procd->type == UNIT_SERVICE &&
++            pidref_is_set(&SERVICE(procd)->main_pid) && pidref_equal(&peer, &SERVICE(procd)->main_pid))
++                return 0;
++
++        verb = IN_SET(type, JOB_RELOAD, JOB_TRY_RELOAD, JOB_RELOAD_OR_START) ? "reload" :
++                IN_SET(type, JOB_RESTART, JOB_TRY_RESTART) ? "restart" :
++                type == JOB_STOP ? "stop" : "start";
++        if (access("/usr/libexec/openwrt-service-bridge", X_OK) >= 0) {
++                bridge = strjoin("'systemctl ", verb, " openwrt@", service, "' or ");
++                if (!bridge)
++                        return -ENOMEM;
++        }
++        (void) pidref_get_comm(&peer, &comm);
++        log_unit_info(u, "Refused direct %s from PID "PID_FMT" (%s); use /etc/init.d/%s %s.",
++                      verb, peer.pid, strna(comm), service, verb);
++        if (u->load_state == UNIT_NOT_FOUND)
++                return sd_bus_error_setf(reterr_error, BUS_ERROR_ONLY_BY_DEPENDENCY,
++                                        "%s is not running; procd creates the instances of OpenWrt service '%s'. "
++                                        "Use %s'/etc/init.d/%s %s'.",
++                                        u->id, service, strempty(bridge), service, verb);
++        return sd_bus_error_setf(reterr_error, BUS_ERROR_ONLY_BY_DEPENDENCY,
++                                "%s is procd instance '%s' of OpenWrt service '%s'; a direct %s would skip /etc/init.d/%s. "
++                                "Use %s'/etc/init.d/%s %s'.",
++                                u->id, instance, service, verb, service, strempty(bridge), service, verb);
++}
++
+ bool unit_can_start_refuse_manual(Unit *u) {
+-        return unit_can_start(u) && !u->refuse_manual_start;
++        return unit_can_start(u) && !u->refuse_manual_start && !unit_is_openwrt_procd_instance(u);
+ }
+ 
+ bool unit_can_stop_refuse_manual(Unit *u) {
+-        return unit_can_stop(u) && !u->refuse_manual_stop;
++        return unit_can_stop(u) && !u->refuse_manual_stop && !unit_is_openwrt_procd_instance(u);
+ }
+ 
+ bool unit_can_isolate_refuse_manual(Unit *u) {
+@@ -7198,7 +7289,8 @@ int unit_queue_job_check_and_mangle_type
+ 
+         /* Our transaction logic allows units not properly loaded to be stopped. But if already dead
+          * let's return clear error to caller. */
+-        if (t == JOB_STOP && UNIT_IS_LOAD_ERROR(u->load_state) && unit_active_state(u) == UNIT_INACTIVE)
++        if (t == JOB_STOP && UNIT_IS_LOAD_ERROR(u->load_state) && unit_active_state(u) == UNIT_INACTIVE &&
++            !unit_is_openwrt_procd_instance(u))
+                 return sd_bus_error_setf(reterr_error, BUS_ERROR_NO_SUCH_UNIT, "Unit %s not loaded.", u->id);
+ 
+         if ((t == JOB_START && u->refuse_manual_start) ||
+--- a/src/core/unit.h
++++ b/src/core/unit.h
+@@ -1073,6 +1073,8 @@ void unit_destroy_runtime_data(Unit *u,
+ int unit_clean(Unit *u, ExecCleanMask mask);
+ int unit_can_clean(Unit *u, ExecCleanMask *ret_mask);
+ 
++bool unit_is_openwrt_procd_instance(Unit *u);
++int unit_check_openwrt_procd_job(Unit *u, JobType type, sd_bus_message *message, sd_varlink *link, sd_bus_error *reterr_error);
+ bool unit_can_start_refuse_manual(Unit *u);
+ bool unit_can_stop_refuse_manual(Unit *u);
+ bool unit_can_isolate_refuse_manual(Unit *u);
+--- a/src/core/varlink-manager.c
++++ b/src/core/varlink-manager.c
+@@ -354,6 +354,26 @@ int vl_method_enqueue_marked_jobs_manage
+         if (r < 0)
+                 return r;
+ 
++        /* Validate procd ownership before changing any unit in this marked batch. */
++        Unit *marked;
++        HASHMAP_FOREACH(marked, manager->units) {
++                _cleanup_(sd_bus_error_free) sd_bus_error error = SD_BUS_ERROR_NULL;
++                JobType type;
++
++                if (!marked->markers || !unit_is_openwrt_procd_instance(marked))
++                        continue;
++                type = BIT_SET(marked->markers, UNIT_MARKER_NEEDS_STOP) ? JOB_STOP :
++                        BIT_SET(marked->markers, UNIT_MARKER_NEEDS_START) ? JOB_START : JOB_TRY_RESTART;
++                r = unit_queue_job_check_and_mangle_type(marked, &type,
++                                !BIT_SET(marked->markers, UNIT_MARKER_NEEDS_RESTART), &error);
++                if (r >= 0)
++                        r = unit_check_openwrt_procd_job(marked, type, NULL, link, &error);
++                if (r < 0) {
++                        log_unit_warning(marked, "Refused marked jobs containing a procd instance.");
++                        return varlink_reply_bus_error(link, r, &error);
++                }
++        }
++
+         log_info("Queuing reload/restart jobs for marked units%s", glyph(GLYPH_ELLIPSIS));
+ 
+         Unit *u;
+@@ -384,6 +404,7 @@ int vl_method_enqueue_marked_jobs_manage
+                 else
+                         r = varlink_unit_queue_job_one(
+                                         u,
++                                        link,
+                                         job,
+                                         JOB_FAIL,
+                                         /* reload_if_possible= */ !BIT_SET(u->markers, UNIT_MARKER_NEEDS_RESTART),
+--- a/src/core/varlink-unit.c
++++ b/src/core/varlink-unit.c
+@@ -574,6 +574,7 @@ int vl_method_list_units(sd_varlink *lin
+ 
+ int varlink_unit_queue_job_one(
+                 Unit *u,
++                sd_varlink *link,
+                 JobType type,
+                 JobMode mode,
+                 bool reload_if_possible,
+@@ -589,6 +590,10 @@ int varlink_unit_queue_job_one(
+         if (r < 0)
+                 return r;
+ 
++        r = unit_check_openwrt_procd_job(u, type, NULL, link, reterr_bus_error);
++        if (r < 0)
++                return r;
++
+         Job *j;
+         r = manager_add_job(u->manager, type, u, mode, reterr_bus_error, &j);
+         if (r < 0)
+@@ -1748,6 +1753,7 @@ int vl_method_start_transient_unit(sd_va
+         Job *j;
+         r = varlink_unit_queue_job_one(
+                         u,
++                        link,
+                         JOB_START,
+                         p.mode,
+                         /* reload_if_possible= */ false,
+--- a/src/core/varlink-unit.h
++++ b/src/core/varlink-unit.h
+@@ -14,6 +14,7 @@ int vl_method_list_units(sd_varlink *lin
+ 
+ int varlink_unit_queue_job_one(
+                 Unit *u,
++                sd_varlink *link,
+                 JobType type,
+                 JobMode mode,
+                 bool reload_if_possible,
+--- a/src/systemctl/systemctl-start-unit.c
++++ b/src/systemctl/systemctl-start-unit.c
+@@ -181,7 +181,8 @@ fail:
+ 
+         if (!sd_bus_error_has_names(error, BUS_ERROR_NO_SUCH_UNIT,
+                                            BUS_ERROR_UNIT_MASKED,
+-                                           BUS_ERROR_JOB_TYPE_NOT_APPLICABLE))
++                                           BUS_ERROR_JOB_TYPE_NOT_APPLICABLE,
++                                           BUS_ERROR_ONLY_BY_DEPENDENCY))
+                 log_error("See %s logs and 'systemctl%s status%s %s' for details.",
+                           runtime_scope_to_string(arg_runtime_scope),
+                           arg_runtime_scope == RUNTIME_SCOPE_SYSTEM ? "" : " --user",
+--- a/src/core/varlink-common.c
++++ b/src/core/varlink-common.c
+@@ -37,6 +37,9 @@ const char* varlink_error_id_from_bus_er
+ 
+ int varlink_reply_bus_error(sd_varlink *link, int r, const sd_bus_error *e) {
+         const char *error_id = varlink_error_id_from_bus_error(e);
++        if (sd_bus_error_has_name(e, BUS_ERROR_ONLY_BY_DEPENDENCY))
++                return sd_varlink_errorbo(link, VARLINK_ERROR_UNIT_ONLY_BY_DEPENDENCY,
++                                          JSON_BUILD_PAIR_STRING_NON_EMPTY("message", e->message));
+         if (error_id)
+                 return sd_varlink_error(link, error_id, NULL);
+         return sd_varlink_error_errno(link, r);
+--- a/src/shared/varlink-io.systemd.Unit.c
++++ b/src/shared/varlink-io.systemd.Unit.c
+@@ -1945,7 +1945,9 @@ static SD_VARLINK_DEFINE_ERROR(
+                 NoSuchUnit,
+                 SD_VARLINK_DEFINE_FIELD(parameter, SD_VARLINK_STRING, SD_VARLINK_NULLABLE));
+ 
+-static SD_VARLINK_DEFINE_ERROR(OnlyByDependency);
++static SD_VARLINK_DEFINE_ERROR(
++                OnlyByDependency,
++                SD_VARLINK_DEFINE_FIELD(message, SD_VARLINK_STRING, SD_VARLINK_NULLABLE));
+ static SD_VARLINK_DEFINE_ERROR(DBusShuttingDown);
+ static SD_VARLINK_DEFINE_ERROR(UnitMasked);
+ static SD_VARLINK_DEFINE_ERROR(UnitError);

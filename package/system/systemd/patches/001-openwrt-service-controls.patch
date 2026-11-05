@@ -6,7 +6,24 @@ restoring the removed generic SysV compatibility or changing native units.
 
 --- a/src/systemctl/systemctl.c
 +++ b/src/systemctl/systemctl.c
-@@ -1092,7 +1092,52 @@
+@@ -1,6 +1,7 @@
+ /* SPDX-License-Identifier: LGPL-2.1-or-later */
+ 
+ #include <signal.h>
++#include <sys/wait.h>
+ #include <unistd.h>
+ 
+ #include "sd-json.h"
+@@ -27,6 +28,8 @@
+ #include "systemctl-compat-halt.h"
+ #include "systemctl-compat-shutdown.h"
+ #include "systemctl-logind.h"
++#include "systemctl-util.h"
++#include "bus-unit-util.h"
+ #include "time-util.h"
+ #include "verbs.h"
+ 
+@@ -1092,7 +1095,80 @@ VERB_SCOPE(, verb_start,             "co
  VERB_SCOPE(, verb_start,             "condrestart",      NULL, 2,      VERB_ANY, VERB_ONLINE_ONLY, /* help= */ NULL); /* RH */
  VERB_SCOPE(, verb_is_active,         "check",            NULL, 2,      VERB_ANY, VERB_ONLINE_ONLY, /* help= */ NULL); /* deprecated alias of is-active */
  
@@ -25,8 +42,36 @@ restoring the removed generic SysV compatibility or changing native units.
 +        STRV_FOREACH(name, args + 1)
 +                if (startswith(*name, "openwrt@"))
 +                        bridge = true;
-+        if (!bridge)
++        if (!bridge) {
++                sd_bus *bus;
++
++                if (arg_runtime_scope != RUNTIME_SCOPE_SYSTEM || arg_transport != BUS_TRANSPORT_LOCAL ||
++                    arg_root || arg_image || arg_dry_run ||
++                    !STR_IN_SET(args[0], "start", "stop", "restart", "reload", "enable", "disable"))
++                        return 0;
++                if (acquire_bus(BUS_MANAGER, &bus) < 0)
++                        return 0;
++                STRV_FOREACH(name, args + 1) {
++                        _cleanup_free_ char *unit = NULL, *state = NULL;
++                        pid_t pid;
++
++                        if (strpbrk(*name, ".@/*?[]") || **name == '-')
++                                continue;
++                        unit = strjoin(*name, ".service");
++                        if (!unit || unit_load_state(bus, unit, &state) < 0 || !streq(state, "not-found"))
++                                continue;
++                        pid = fork();
++                        if (pid == 0) {
++                                execl("/usr/libexec/openwrt-service-bridge", "openwrt-service-bridge",
++                                      "systemctl", "hint", *name, args[0], NULL);
++                                _exit(EXIT_FAILURE);
++                        }
++                        if (pid > 0)
++                                while (waitpid(pid, NULL, 0) < 0 && errno == EINTR)
++                                        ;
++                }
 +                return 0;
++        }
 +        if (arg_runtime_scope != RUNTIME_SCOPE_SYSTEM || arg_transport != BUS_TRANSPORT_LOCAL ||
 +            arg_root || arg_image || arg_runtime || arg_dry_run || arg_no_block || arg_wait)
 +                return log_error_errno(SYNTHETIC_ERRNO(EOPNOTSUPP),

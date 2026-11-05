@@ -32,6 +32,11 @@ _guard_spec = importlib.util.spec_from_file_location(
     'lan_upgrade_preflight', Path(__file__).with_name('apk-upgrade-preflight.py'))
 GUARD = importlib.util.module_from_spec(_guard_spec)
 _guard_spec.loader.exec_module(GUARD)
+_diagnose_spec = importlib.util.spec_from_file_location(
+    'publish_diagnose_rebuild', Path(__file__).with_name('diagnose-apk-rebuild.py'))
+DIAGNOSE = importlib.util.module_from_spec(_diagnose_spec)
+_diagnose_spec.loader.exec_module(DIAGNOSE)
+DIAGNOSE_LIMIT = 8
 
 
 def sha256(path):
@@ -79,6 +84,21 @@ def dump_indexes(apk, paths):
             batches = [paths[i:i + 32] for i in range(start, min(start + 128, len(paths)), 32)]
             for results in workers.map(read, batches):
                 yield from results
+
+
+def same_version_rebuild_error(apk, previous, payload, paths):
+    """Name every same-version rebuild and explain the first few differences."""
+    lines = ['Published APK changed without a new version; bump PKG_RELEASE: ' + ', '.join(paths)]
+    for path in paths[:DIAGNOSE_LIMIT]:
+        try:
+            report = DIAGNOSE.diagnose(previous / path, payload / path, apk)
+            lines.append(DIAGNOSE.format_report(report, label=path))
+        except Exception as error:  # Diagnosis must never hide the publication error.
+            lines.append(f'{path}: diagnosis failed: {error}')
+    if len(paths) > DIAGNOSE_LIMIT:
+        lines.append(f'{len(paths) - DIAGNOSE_LIMIT} more not diagnosed; run '
+                     'scripts/diagnose-apk-rebuild.py REPOSITORY/FILE.apk')
+    return '\n'.join(lines)
 
 
 def verify(apk, keys, files):
@@ -623,8 +643,8 @@ def publish(args):
             manifest['ucode_abi'] = validate_ucode_abi(apk, keys, payload, indexes, work)
             manifest['elf_abi'] = validate_elf_abi(apk, keys, payload, indexes, work)
             if same_version_rebuilds:
-                raise ValueError('Published APK changed without a new version; bump PKG_RELEASE: ' +
-                                 ', '.join(same_version_rebuilds))
+                raise ValueError(same_version_rebuild_error(apk, previous, payload,
+                                                            same_version_rebuilds))
             urls = [f'{origin}/abi/{args.kernel}/{name}/packages.adb' for name in indexes]
             (payload / 'repositories.list').write_text(
                 '# Local native-systemd/glibc feeds; kernel packages are in kernel-upgrades.\n' +
