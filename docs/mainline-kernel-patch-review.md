@@ -782,3 +782,68 @@ This is source integration and patch-application validation only. Nothing was
 compiled or booted, the optional blk-nvmem driver and the mac80211 changes were
 not built against Linux 7.3, nothing was published, and no router was
 contacted. The three optional-feature findings above remain open.
+
+## Upstream synchronization review, 2026-11-05
+
+Merged OpenWrt through `b455c5b851` (122 incoming main-tree commits) as
+`2ed386013b`, plus 29 packages-feed, 4 LuCI and 2 `passwall_luci` commits.
+Video, telephony, routing, taskplan and `passwall_packages` had nothing
+incoming. Backup branches are `backup/pre-upstream-20261105T025341Z` in the
+main tree, each feed and the argon theme submodule.
+
+Main-tree conflicts and release identities:
+
+- `crypto-ghash/arm-ce`: upstream now appends only the module name to the
+  inherited AUTOLOAD list. The local `@lt7.3` version gate is kept by
+  appending `$(call version_filter,ghash-arm-ce@lt7.3)`.
+- dnsmasq (local r11 published, upstream r12) is r13. Upstream's new
+  `230-Quieten-the-PID-file-chown-failure...` patch took the number of the
+  local nftset patch, which is renamed `240-nftset-netlink-address-sets.patch`
+  (still applied last). busybox (local r8, upstream r4) is r9.
+- procd moves to the 2026-11-03 snapshot; the four local procd patches and all
+  dnsmasq patches apply under quilt with no fuzz.
+
+### Kernel patches: 66 new and 6 changed 6.18 sources
+
+All 574 current generic/x86 6.18 patches were compared with the registry by
+SHA-256. Classification was by application against a fresh, hash-verified
+Linux 7.3.1 extraction carrying the full 7.3 stack, not by filename.
+
+| Group | Count | Disposition |
+| --- | ---: | --- |
+| Backports `050`, `200`, `856-01..03`, `967-01..35` (YT921x DSA/tagger, Motorcomm PHY, xhci recovery, deferred-probe Kconfig, u-boot-env) | 40 | **Upstream in 7.3.** The ordered `967` and `856` series reverse-apply as a whole. Where a single patch's reverse fails (`856-03`, `967-02`, `967-33`, `967-34`), its added lines are present in 7.3 and only later upstream context differs, e.g. the `BIT()` endpoint-state conversion for `EP_DROP_PENDING`. |
+| Pending/hack patches that apply unchanged | 22 | **Carried** unchanged into `pending-7.3`/`hack-7.3`: DSA bridge VLAN-protocol and multicast-snooping hooks (`644`, `645`), u-boot-env post-processing (`805-01/02/04`) and probe-defer hack, the YT922x DSA/PPE series, the MediaTek YT922x checksum hack and the MIPS `genvdso` warning hack. |
+| `805-03`, `967-27`, `967-36`, `967-40` | 4 | **Rebased.** `805-03`: `linux/hex.h` context. `967-27`/`967-40`: Linux 7.3 already uses DSA tag values through 36, so `YT922X` and `YT922X_4B` take 37 and 38 (6.18 uses 33/34). Tag values are kernel-internal, not ABI shared with 6.18. `967-36`: `motorcomm.c` header context. |
+| Changed `704`, `740`, `755`, `760-02`, `760-09`, `904` | 6 | **Context only.** The added and removed lines are unchanged, and the existing 7.3 ports still apply, so only their source hashes were refreshed. |
+
+`config-7.3` gains `# CONFIG_NET_DSA_TAG_YT921X/YT922X` and
+`# CONFIG_NET_DSA_YT92XX is not set`, matching config-6.18.
+`CONFIG_DRIVER_DEFERRED_PROBE_TIMEOUT=10` was already present. The x86
+configuration enables none of DSA, YT92xx, the Motorcomm PHY or u-boot-env
+layouts, so the selected kernel's enabled options and ABI do not change.
+
+Validation:
+
+- The full 7.3 stack, now **349 patches**, applies to a fresh 7.3.1
+  extraction (SHA256 `fa595aad...de231`, matching `kernel-7.3`) with
+  `--fuzz=0`. The mainline updater reports 7.3.1 as current.
+- Using the existing x86/64 7.3.1 kernel config with `COMPILE_TEST`, DSA,
+  `NET_DSA_YT92XX`, `MOTORCOMM_PHY`, `NET_MEDIATEK_SOC` and the u-boot-env layout
+  enabled in a scratch copy, OpenWrt GCC 14.4.0 compiles `yt921x.o`,
+  `tag_yt921x.o`, `tag_yt922x.o`, DSA `port.o`/`user.o`/`dsa.o`, `motorcomm.o`,
+  `phy-c45.o`, `u-boot-env.o` and MediaTek `mtk_ppe.o`, `mtk_ppe_offload.o`
+  and `mtk_eth_soc.o` with zero warnings. The MIPS `genvdso` hack was not
+  compiled.
+- The registry covers all 574 present sources plus 5 removed entries. There
+  are no missing or stale sources, and every one of the 349 7.3 patches is
+  registered with a matching hash. The mainline-updater and kernel-input tests
+  pass.
+
+Kernel package definitions also change upstream (AUTOLOAD names without
+`.ko`, dropped non-existent modules, new `kmod-can-mcp251xfd`, `kmod-can-vxcan`
+and `kmod-serial-sc16is7xx`). kmod payloads change, but their identity
+carries the kernel sequence, so the next reserved generation covers them.
+
+This is source integration, patch application and focused object compilation.
+No full kernel, image or generation was built, nothing was published, and no
+router was contacted. The MAP-E tunnel and DMA-BUF heap findings remain open.
