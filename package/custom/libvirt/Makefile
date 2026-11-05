@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=libvirt
-PKG_VERSION:=12.8.0
-PKG_RELEASE:=10
+PKG_VERSION:=12.9.0
+PKG_RELEASE:=1
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=https://download.libvirt.org/
-PKG_HASH:=0cd46a8f3a2b9b63c35c6e6f42a6c2989183ef3b3d1499ee92b4876db35e6fe9
+PKG_HASH:=dcf579d8a949f4cbf56820529d48f200382a48ea12855ffded7c16a189353cd7
 PKG_LICENSE:=LGPL-2.1-or-later
 PKG_LICENSE_FILES:=COPYING.LESSER
 PKG_CPE_ID:=cpe:/a:libvirt:libvirt
@@ -77,8 +77,8 @@ MESON_ARGS += \
 	-Dauto_features=disabled -Ddefault_library=shared \
 	-Ddriver_libvirtd=enabled -Dlibvirtd=disabled \
 	-Ddriver_remote=enabled -Dremote_default_mode=direct \
-	-Ddriver_qemu=enabled -Ddriver_secrets=enabled -Dstorage_dir=enabled \
-	-Ddriver_network=disabled -Ddriver_interface=disabled \
+	-Ddriver_qemu=enabled -Ddriver_secret=enabled -Ddriver_storage=enabled -Dstorage_dir=enabled \
+	-Ddriver_network=disabled -Ddriver_nwfilter=disabled -Ddriver_interface=disabled \
 	-Djson_c=enabled -Dlibnl=enabled -Dcapng=enabled -Dreadline=enabled \
 	-Dqemu_user=libvirt-qemu -Dqemu_group=libvirt-qemu \
 	-Dqemu_datadir=/usr/share/qemu -Dqemu_moddir=/usr/lib/qemu \
