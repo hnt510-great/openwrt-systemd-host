@@ -2,6 +2,8 @@
 
 **简体中文** | [English](README.en.md)
 
+<img width="1931" height="1085" alt="Screenshot From 2026-11-05 22-06-51" src="https://github.com/user-attachments/assets/5694540a-657b-4a43-9fa8-368ae20a1a75" />
+
 面向 x86_64 的 OpenWrt 分支：一台机器同时做路由器、GNOME 桌面、容器与虚拟机主机。
 保留 UCI、LuCI 和 procd 服务接口，底层改为 glibc、签名 APK 和原生 systemd，
 内核跟踪 Linux 7.3 主线。
