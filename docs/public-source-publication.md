@@ -23,10 +23,10 @@ validated on hardware.
 ## Theme repository prerequisite
 
 `.gitmodules` points to `../openwrt-luci-theme-argon.git`, a sibling repository
-under the same hosting account or organization as the main project. The private
+under the same hosting account or organization as the main project. The public
 GitHub hosting layout uses `hnt510-great/openwrt-luci-theme-argon`, including
-recorded commit `9e263d988b7be4d6319442f297f4105871e12808`. Authentication is required
-for the main tree and each private source repository. See
+recorded commit `9e263d988b7be4d6319442f297f4105871e12808`. The main tree, feeds and theme
+can be cloned over HTTPS without GitHub authentication. See
 [local build](local-build.md) and the
 [repository map](../configs/github-source-repositories.json).
 
@@ -43,7 +43,7 @@ Git history and commit author metadata were deliberately left unchanged.
 Removing personal references from the current tree does not remove them from
 older commits. This audit does not certify historical credential safety.
 The cleanup itself created no GitHub repository and pushed nothing. The later
-private GitHub migration is separate from that audit; its settings and checks
+GitHub migration and subsequent public visibility are separate from that audit; their settings and checks
 are recorded in [GitHub hosting validation](github-source-hosting-validation.md).
 
 See [validation](public-source-publication-validation.md) for audit coverage,

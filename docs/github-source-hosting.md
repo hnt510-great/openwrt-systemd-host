@@ -1,17 +1,16 @@
-# Private GitHub source hosting
+# GitHub source hosting
 
 The main tree is `https://github.com/hnt510-great/openwrt-systemd-host.git`. It uses ten
-private repositories: the main tree, eight active feeds, and the Argon theme.
+public repositories: the main tree, eight active feeds, and the Argon theme.
 The complete source, branch and original upstream map is
 [`configs/github-source-repositories.json`](../configs/github-source-repositories.json).
-These are independent private repositories containing the local Git histories.
+These are independent public repositories containing the local Git histories.
 
-Authenticate on each build machine before cloning. The account must have read
-access to every private repository listed in the map.
+The main tree, all eight active feeds and the Argon theme can be cloned over
+HTTPS without signing in to GitHub. Authentication and write access are needed
+only when pushing changes.
 
 ```sh
-gh auth login --hostname github.com --git-protocol https --web
-gh auth setup-git
 git clone https://github.com/hnt510-great/openwrt-systemd-host.git
 cd openwrt-systemd-host
 ./scripts/feeds update -a
@@ -19,7 +18,7 @@ cd openwrt-systemd-host
 ```
 
 The `custom` feed links to `package/custom` in the main tree. The feed updater
-initializes its Argon Git submodule from the sibling private theme repository.
+initializes its Argon Git submodule from the sibling public theme repository.
 It also checks registered custom package versions against their original
 upstreams and may edit recipes. To reproduce only saved source recipes, clone
 the eight Git feeds by their names, initialize the theme submodule, link the
@@ -30,14 +29,15 @@ The retired `argon_config` feed is saved on the theme repository's separate
 manifest field describes the original migration checkout; use `branch` when
 cloning the archived feed.
 
-`origin` points to private GitHub in the migrated workspace, while `upstream`
-points to the original project. Earlier remote URLs remain under separate
-names. New clones receive only `origin`; maintainers can add `upstream` from
-the map. Merge and test upstream changes in the appropriate repository, then
-push them to its private branch. Other machines obtain those reviewed changes
-through `scripts/feeds update`; that command does not merge original feed
-upstreams automatically. See [local build](local-build.md) for an example and
-configuration setup.
+The main tree's authoritative source is the private GitLab instance; GitHub
+`origin` is the public publishing destination. The official OpenWrt URL in the
+map records code ancestry, not this checkout's synchronization upstream.
+Each feed has its own history and original project listed in the map. Maintainers
+can add an `upstream` remote in the appropriate feed, merge and test its changes,
+then publish reviewed changes with explicit authorization. Other machines obtain
+those changes through `scripts/feeds update`; that command does not merge
+original feed upstreams automatically. See [local build](local-build.md) for an
+example and configuration setup.
 
 Inherited GitHub Actions are disabled on all ten repositories. This source
 migration does not enable host scheduled maintenance, publish APK feeds or

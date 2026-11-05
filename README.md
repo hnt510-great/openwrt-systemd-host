@@ -20,11 +20,9 @@
 ## 构建
 
 需要一台装好 [OpenWrt 构建依赖](https://openwrt.org/docs/guide-developer/build-system/install-buildsystem)
-的 Linux 主机。主树与 feeds 是私有 GitHub 仓库，构建账号需有读取权限：
+的 Linux 主机。主树、feeds 与 Argon 主题仓库均已公开，可直接通过 HTTPS 克隆，无需登录 GitHub：
 
 ```sh
-gh auth login --hostname github.com --git-protocol https --web
-gh auth setup-git
 git clone https://github.com/hnt510-great/openwrt-systemd-host.git
 cd openwrt-systemd-host
 ./scripts/feeds update -a     # 同时会检查并更新 package/custom 配方版本
@@ -121,7 +119,7 @@ apk upgrade
 - 桌面：[GNOME](docs/gnome-desktop.md)、[中文输入](docs/desktop-ime.md)、[音频](docs/desktop-audio.md)、[硬件支持](docs/desktop-kernel.md)
 - 应用：[Flatpak](docs/flatpak.md)、[AppImage](docs/appimage.md)、[Podman](docs/podman-rootless.md)、[Distrobox](docs/distrobox.md)、[Libvirt](docs/libvirt.md)、[原生开发](docs/native-development.md)
 - 网络：[Full cone NAT](docs/fullcone-nat.md)、[DNS 快路径](docs/dnsmasq-nftset.md)、[daed](docs/daed.md)
-- 源码：[Feeds 仓库清单](configs/github-source-repositories.json)、[私有 GitHub 托管](docs/github-source-hosting.md)
+- 源码：[Feeds 仓库清单](configs/github-source-repositories.json)、[GitHub 源码托管](docs/github-source-hosting.md)
 
 每个功能都有对应的 `docs/*-validation.md` 验证记录。
 

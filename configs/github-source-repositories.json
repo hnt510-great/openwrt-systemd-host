@@ -1,6 +1,6 @@
 {
   "owner": "hnt510-great",
-  "visibility": "private",
+  "visibility": "public",
   "repositories": [
     {
       "path": ".",

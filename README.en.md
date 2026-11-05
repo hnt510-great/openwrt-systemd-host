@@ -19,11 +19,9 @@ signed APK packages and native systemd underneath, and tracks the Linux 7.3 main
 
 You need a Linux host with the
 [OpenWrt build prerequisites](https://openwrt.org/docs/guide-developer/build-system/install-buildsystem).
-The main tree and feeds are private GitHub repositories, so the build account needs read access:
+The main tree, feeds and Argon theme are public GitHub repositories. Clone over HTTPS without signing in:
 
 ```sh
-gh auth login --hostname github.com --git-protocol https --web
-gh auth setup-git
 git clone https://github.com/hnt510-great/openwrt-systemd-host.git
 cd openwrt-systemd-host
 ./scripts/feeds update -a     # also checks and bumps package/custom recipe versions
@@ -126,7 +124,7 @@ volumes and VM disks before upgrading. See [kernel upgrade](docs/kernel-upgrade.
 - Desktop: [GNOME](docs/gnome-desktop.md), [input methods](docs/desktop-ime.md), [audio](docs/desktop-audio.md), [hardware support](docs/desktop-kernel.md)
 - Apps: [Flatpak](docs/flatpak.md), [AppImage](docs/appimage.md), [Podman](docs/podman-rootless.md), [Distrobox](docs/distrobox.md), [libvirt](docs/libvirt.md), [native development](docs/native-development.md)
 - Networking: [full cone NAT](docs/fullcone-nat.md), [DNS fast path](docs/dnsmasq-nftset.md), [daed](docs/daed.md)
-- Sources: [feed repository list](configs/github-source-repositories.json), [private GitHub hosting](docs/github-source-hosting.md)
+- Sources: [feed repository list](configs/github-source-repositories.json), [GitHub source hosting](docs/github-source-hosting.md)
 
 Each feature has a matching `docs/*-validation.md` validation record.
 

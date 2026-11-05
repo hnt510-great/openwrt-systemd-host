@@ -11,7 +11,7 @@
 
 ## Feed 来源
 
-`feeds.conf.default` 指向 `hnt510-great` 账号下的 8 个私有 GitHub feed 仓库。
+`feeds.conf.default` 指向 `hnt510-great` 账号下的 8 个公开 GitHub feed 仓库。
 它们保存现有本地提交；`custom` 仍直接链接主树的 `package/custom`。
 主树、主题、各 feed 的地址和分支见
 [`configs/github-source-repositories.json`](../configs/github-source-repositories.json)。
@@ -19,11 +19,9 @@
 不加入活动 feeds。清单中的 `local_branch` 仅描述迁移工作区的原分支名；
 新 clone 使用 `branch` 指定的 GitHub 分支。
 
-新机器先登录有权访问这些私有仓库的 GitHub 账号，再执行：
+主树、feeds 和 Argon 主题均已公开，新机器无需登录 GitHub 即可通过 HTTPS 克隆：
 
 ```sh
-gh auth login --hostname github.com --git-protocol https --web
-gh auth setup-git
 git clone https://github.com/hnt510-great/openwrt-systemd-host.git
 cd openwrt-systemd-host
 ./scripts/feeds update -a
@@ -33,13 +31,13 @@ make defconfig
 ```
 
 只在新 checkout 中复制配置；保留已有工作区的 `.config`。`update -a` 除拉取
-私有 feed 分支外，还会检查并更新注册的 custom 配方，可能产生工作区修改。
-它不会自动将 OpenWrt 官方或 Passwall 上游合并进你的私有 feed。
+公开 feed 分支外，还会检查并更新注册的 custom 配方，可能产生工作区修改。
+它不会自动将 OpenWrt 官方或 Passwall 上游合并进你的公开 feed。
 签名密钥 `private-key.pem`/`public-key.pem` 不在仓库中，需单独管理。
 
-维护者在各仓库保留 `origin` 指向私有 GitHub，`upstream` 指向清单中的原始
-项目。新 clone 如需同步上游，先按清单添加 `upstream`，然后审阅、合并、测试并
-推送，例如：
+主树以私有 GitLab 为权威来源，GitHub `origin` 是公开发布目标；清单中的官方
+OpenWrt 地址仅说明代码来源。各 feed 独立维护提交历史；维护者如需同步某个 feed
+的原始上游，可在对应 feed 中添加 `upstream`，审阅、合并、测试后再按授权发布，例如：
 
 ```sh
 git -C feeds/packages remote add upstream https://github.com/openwrt/packages.git
@@ -49,8 +47,8 @@ git -C feeds/packages merge upstream/master
 git -C feeds/packages push origin master
 ```
 
-其他机器再执行 `./scripts/feeds update -a`，即可快进到已推送的私有 feed。
-`patches/feeds/` 和旧功能清单保留为历史备份；从这些私有仓库获取源码时，
+其他机器再执行 `./scripts/feeds update -a`，即可快进到已推送的公开 feed。
+`patches/feeds/` 和旧功能清单保留为历史备份；从这些公开仓库获取源码时，
 不要重复应用已有补丁。旧工作区的 GitLab 远程保留在其他 remote 名称下。
 
 `scripts/feeds` 在 feed 地址改变时会删除并重新克隆该 feed；已有工作区更换
@@ -133,7 +131,7 @@ SHA256，允许跨次版本升级，保留本地 CMake 裁剪选项。
 
 Argon 保留独立 Git 仓库，追踪 `jerrykuku/luci-theme-argon` 的 `master`
 （包括稳定版发布后的修复）。新 checkout 中 `./scripts/feeds update`
-会自动执行 `git submodule update --init` 从私有 GitHub 主题仓库初始化已保存的历史，
+会自动执行 `git submodule update --init` 从公开 GitHub 主题仓库初始化已保存的历史，
 并切换到 `master` 分支。更新器合并上游并保留本地提交；合并前先检测
 冲突，有已跟踪文件改动、隐藏索引标记或未完成 Git 操作时停止，不覆盖
 未跟踪文件。更新前的 HEAD 保存在嵌套仓库的

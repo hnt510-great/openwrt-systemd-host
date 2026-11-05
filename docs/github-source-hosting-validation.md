@@ -1,4 +1,22 @@
-# Private GitHub source hosting validation
+# GitHub source hosting validation
+
+## Public visibility check, 2026-11-05
+
+Unauthenticated GitHub REST API requests to `/repos/hnt510-great/<name>`
+succeeded for all ten distinct repositories in
+[`configs/github-source-repositories.json`](../configs/github-source-repositories.json).
+Every response reported `visibility: public`; every default branch matched the
+manifest. This covers the main tree, eight active feeds and the Argon theme.
+The archived `argon_config` feed shares the theme repository.
+
+The README, build and hosting instructions now describe anonymous HTTPS cloning,
+and the repository manifest records public visibility. `git diff --check` passed.
+This check did not repeat feed cloning, builds, VM tests or physical-device tests.
+
+## Original private migration, 2026-11-04
+
+The results below describe the repositories at migration time, before they were
+made public; their privacy and authentication requirements are historical.
 
 Date: 2026-11-04. Scope: source hosting, authentication and fresh-checkout feed
 reconstruction. No firmware build, VM test, physical-device test, APK feed
