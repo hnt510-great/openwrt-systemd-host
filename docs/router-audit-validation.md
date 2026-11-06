@@ -205,3 +205,20 @@ No reboot was performed for r2. Baselines need 24 hours of
 pulled history before verdicts appear. The fixtures are synthetic and small; they test that faults are
 named and nothing is invented, not diagnosis quality on unusual real incidents. Model throughput was
 measured on one GPU with one llama.cpp build. Periodic beaconing detection is not implemented.
+
+# r4: connection events and conntrack snapshot — 2026-11-06
+
+| Check | Result |
+| --- | --- |
+| `scripts/tests/test-router-audit-connections.py` | 8 tests passed (conntrack parsing incl. expanded IPv6 and accounting fields, directions, DNAT, limits, event validation, flow grouping, root-only receiver) |
+| `test-router-audit.py`, `test-custom-package-updates.py` | 29 and 47 tests passed |
+| daed r7 build | patch `009-connection-audit-events.patch` refreshed with quilt (older patches' formatting-only refresh changes restored); binary contains the `conn.sock` path; gofmt clean |
+| Pre-install dry run on the router | temporary copy of the r4 collector: 224 conntrack lines → 50 groups, accounting on, not truncated |
+| Publication | dry run and preflight passed; snapshot `20261106T064602.832657Z` with daed, daed-geoip, daed-geosite 2.1.1-r7 and router-audit 1.0.0-r4; no same-version rebuilds |
+| Router install | `apk add -u --simulate` showed exactly those four upgrades; installed 14:46; daed and the collector restarted (new PIDs, NRestarts 0); daed environment has `ROUTER_AUDIT_DNS=1` and `ROUTER_AUDIT_CONN=1`; `/run/router-audit/conn.sock` present; the stale `/usr/libexec/__pycache__` is gone |
+| First live minute | `conn_flows`: 80 events, 60 flows (TCP/UDP via `proxy`, TCP `direct`), 49 with a sniffed domain, 21 with a MAC, receiver and producer drops 0. `connections`: 82 groups (51 lan_out, 19 router_out, 6 lan_local, 6 inbound), not truncated |
+| Traffic after the daed restart | LAN DNS answered; HTTPS through the router returned 200 in 0.55 s |
+
+Scope: the analyzer does not read the new modules yet. No reboot, UCI or firewall change; the
+APK uci-history hook reported no configuration change. Proxied connections were interrupted once
+while daed restarted.

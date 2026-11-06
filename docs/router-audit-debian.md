@@ -12,12 +12,11 @@ model guidance), `router-audit-llm-plan.md` (design rationale and the 2026 model
 
 | Component | Version | Where |
 | --- | --- | --- |
-| Collector (`router-audit-collect.service`, schema 1.1) | 1.0.0-r2 installed | physical router `192.0.2.1` |
-| Published package | 1.0.0-r3 (analyzer-only change) | LAN feed snapshot `20261106T052212.303924Z`; router not upgraded, nothing on the router uses the r3 change |
+| Collector (`router-audit-collect.service`, schema 1.1 + `connections`/`conn_flows`) | 1.0.0-r4 installed 2026-11-06 14:46 | physical router `192.0.2.1` |
+| daed with DNS and connection audit hooks | 2.1.1-r7 installed (geoip/geosite r7) | physical router; snapshot `20261106T064602.832657Z` |
 | Debian scripts | r3, commit `b7cb955d13` | `/srv/openwrt-validation/router-audit/` (copies, see below) |
 
-The router still has two published but uninstalled upgrades (`daed-geoip`, `daed-geosite` r5 → r6)
-unrelated to this work. Router changes, publication and installation need the user's explicit
+Router changes, publication and installation need the user's explicit
 authorization each time (see `CLAUDE.md`).
 
 ## New data for the analyzer (r4, daed r7)
