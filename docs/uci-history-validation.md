@@ -2,8 +2,9 @@
 
 Implementation and host validation: 2026-11-06, in this checkout. Evidence is
 under `build_dir/uci-history-validation-20261106/` (generated, not committed).
-No physical device was flashed. Nothing was published or installed on the
-physical router; host service state and sudoers were not changed.
+No physical device was flashed. r1 and r2 were later published, and the
+packages were installed on the physical router at the user's request (see
+"Physical router install"); sudoers was not changed.
 
 ## Host checks
 
@@ -123,10 +124,10 @@ runs remove only the named guest disks created by this harness.
 
 ## Post-gate review changes (2026-11-06)
 
-Review after the VM gate changed the CLI, so the tested image's CLI hash above
-no longer matches the packaged source. These changes are covered by host tests
-only (`test-uci-history.py`, now 38 tests, pass); the exact-image VM gate was
-not re-run:
+Review after the first VM gate changed the CLI (r2), so the `vm-8` image's CLI
+hash above no longer matches the packaged source. The changes pass the host
+tests (`test-uci-history.py`, now 38 tests) and a second exact-image VM gate
+(`vm-9`, below):
 
 - Restore and transaction revert send `ubus call service event config.change`
   for each restored package that `reload_config` did not trigger. Previously a
@@ -146,9 +147,33 @@ not re-run:
   The VM gate gained `init-reload-scenario`, `init-reload-revert` (running LAN
   address and client LuCI access after a timer revert) and
   `firewall-abort-runtime` (client access after an abort of a firewall change
-  applied with `/etc/init.d/firewall reload`); these VM checks have not run yet.
+  applied with `/etc/init.d/firewall reload`); all three pass in `vm-9`.
+  Signal-failure retry is covered by host tests only.
 - An rpcd attribution hint now labels only one capture; a later unrelated
   write to the same package within thirty seconds is `external`.
+
+### r2 exact-image VM gate
+
+| Check | Result |
+| --- | --- |
+| Complete build-only image | Pass; kernel inputs unchanged, generation 51 reused (`uci-history-r2-image-build.log`) |
+| Image SHA-256 | `6d66e423f3494b35adc0af76bf8363b3905ba8df81f28066b45748c2ffc0963d` (copied read-only to `image-r2/`) |
+| Installed CLI SHA-256 | `c66dd6f4b00ddd917af46597768537393d4c4acd0fdafac1b688fd6ba6b9bdbd`, matching the r2 source |
+| Exact-image router/client VM | All 13 checks pass in `vm-9/validation.json`, in one run without resume; guest kernel `7.3.1-51-openwrt`; kept-config sysupgrade via procd recovery, checkpoint revision 18 retained |
+
+### Physical router install
+
+At the user's request, `uci-history` r2, `luci-app-uci-history` r1 and rpcd r7
+(with its `file`, `iwinfo`, `rpcsys` and `ucode` modules) were installed with APK
+on the physical router from the LAN feeds, after a simulated transaction showed
+no other changes. The APK hook recorded revision 1. rpcd was not restarted by
+the upgrade and was restarted by hand to load r7 and the LuCI plugin. A
+smoke test opened a 120-second transaction, committed one unused `luci` option
+through rpcd's ubus `uci` API (recorded as source `ubus`, actor `operator`), and
+aborted it: the option was removed, revision 3 recorded `txn-revert`, and no
+transaction or revert unit remained. The abort's `reload_config` also reloaded
+`firewall`, whose saved configuration already differed from procd's last-applied
+baseline.
 
 ## Deliberate differences from the plan
 
