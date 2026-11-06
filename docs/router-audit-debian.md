@@ -20,6 +20,19 @@ The router still has two published but uninstalled upgrades (`daed-geoip`, `daed
 unrelated to this work. Router changes, publication and installation need the user's explicit
 authorization each time (see `CLAUDE.md`).
 
+## New data for the analyzer (r4, daed r7)
+
+The collector adds two modules that `analyze.py` does not read yet (left to the analyzer work):
+`conn_flows` (daed: device → real destination IP/port, sniffed domain, outbound, failures, per
+minute) and `connections` (conntrack snapshot: direct and NAT-ed flows by direction, client,
+destination and port). The data contract is in `router-audit.md` ("Connections"). Suggested use:
+join `conn_flows`/`connections` with the same client's `dns_queries` answers to name IP-only
+destinations, resolve clients with the existing identity mapping, and treat the result as private
+per-device browsing data. Fixture coverage exists only for the collector side
+(`scripts/tests/test-router-audit-connections.py`); `router-audit-fixtures.py` does not generate
+these modules yet. The Debian script copies in `/srv/openwrt-validation/router-audit/` are unaffected:
+`pull.py` stores the new records like any other module.
+
 ## Permanent Debian state (the only permanent change)
 
 The user approved a minute puller so that baselines can accumulate. Everything is user-level; no

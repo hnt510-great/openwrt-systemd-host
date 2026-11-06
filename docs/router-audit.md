@@ -4,7 +4,7 @@
 
 ## Build and installation
 
-Enable `CONFIG_PACKAGE_router-audit=y` (selected in the desktop snapshot). Build `package/custom/router-audit/compile`, `package/custom/daed/compile` and `package/network/services/dnsmasq/compile`. The daemon releases are bumped for the audit hooks. The init scripts enable hooks only while `/usr/libexec/router-audit` is installed. dnsmasq mounts the audit runtime directory into ujail. No query/debug file logging is enabled.
+Enable `CONFIG_PACKAGE_router-audit=y` (selected in the desktop snapshot). Build `package/custom/router-audit/compile`, `package/custom/daed/compile` and `package/network/services/dnsmasq/compile`. The daemon releases are bumped for the audit hooks. The init scripts enable hooks only while `/usr/libexec/router-audit` is installed (daed gets `ROUTER_AUDIT_DNS=1` and, from daed r7, `ROUTER_AUDIT_CONN=1`). dnsmasq mounts the audit runtime directory into ujail. No query/debug file logging is enabled.
 
 The package supplies `/usr/sbin/router-audit-export`, `/usr/libexec/router-audit*` (including the shared parser module `router-audit-normalize.py`), `router-audit-collect.service` and Debian companion scripts and prompts under `/usr/share/router-audit/`. Collector activation is intentional for this image. Package removal stops it; DNS forwarding tolerates absent collectors.
 
@@ -18,6 +18,7 @@ sudo router-audit-export services
 sudo router-audit-export network
 sudo router-audit-export identity
 sudo router-audit-export firewall
+sudo router-audit-export connections
 sudo router-audit-export inventory
 sudo router-audit-export virtualization
 sudo router-audit-export changes --since 24h
@@ -58,6 +59,53 @@ Client DoH/DoT/DoQ, application caches, uninstrumented namespaces and remote pro
 | timestamps | ISO with `Z`, ISO with `+00:00`, epoch, epoch µs | ISO-8601 UTC with `Z` everywhere |
 
 The DNS receiver thread also survives socket errors now instead of silently stopping.
+
+### Connections: which device talks to which destination (r4, daed r7)
+
+Two additive minute modules answer "which LAN device connects to which site". Both are
+point-in-time or per-minute views and contain a per-device record of destinations; the privacy
+rules for DNS data apply.
+
+**`conn_flows`** — proxied and userspace-routed traffic, from daed patch
+`009-connection-audit-events.patch`. daed sends one nonblocking datagram per TCP dial (including
+failed dials) and per new UDP endpoint to `/run/router-audit/conn.sock`; the collector accepts only
+root (`SCM_CREDENTIALS`), validates every field, caps its queue at 10,000 events and groups one
+minute into flows:
+
+| Field | Meaning |
+| --- | --- |
+| `network` | `tcp` or `udp` |
+| `client`, `mac`, `process` | LAN source address (IPv4-mapped reduced to IPv4), MAC when known, local process name for router-originated traffic |
+| `dst`, `dst_port` | the original destination the client asked for (the real IP, not the proxy) |
+| `domain` | daed's TLS SNI / HTTP Host sniff; absent with ECH, QUIC without SNI or non-HTTP/TLS traffic |
+| `dial_target` | what daed actually dialled (`domain:port` or `ip:port`) |
+| `outbound`, `dialer` | daed outbound group (e.g. `direct`, a proxy group) and the chosen node |
+| `failed` | dial failed (no alive dialer, refused, timeout) |
+| `count`, `first`, `last` | events in the minute and their first/last time |
+
+Also `events`, `producer_dropped` (per daed process epoch) and `receiver` (`received`, `dropped`).
+Limits: only flows daed handles in userspace appear (TCP is dialled per connection; kernel-routed
+direct traffic that daed's eBPF datapath never hands to userspace does not); a reused UDP endpoint
+(QUIC, BitTorrent) reports its first destination only; no byte counts.
+
+**`connections`** — kernel-tracked traffic, from a conntrack snapshot of `/proc/net/nf_conntrack`
+taken every minute (and by `router-audit-export connections`). Entries are grouped by
+`(direction, client, proto, dst, dst_port, dnat_to)`:
+
+| `direction` | Meaning |
+| --- | --- |
+| `lan_out` | LAN-side source (prefixes of non-WAN interfaces: `br-lan`, `WIREGUARD`, …) to a remote destination |
+| `lan_local` | LAN source to another LAN or router address (not DNS) |
+| `router_out` | router-owned source address to anywhere |
+| `inbound` | remote source to the router or a LAN host; `dnat_to` names the internal host of a port forward |
+
+Each group has `entries`, `states` (TCP states), `assured`, `unreplied`, `offloaded`, `packets`
+and `bytes` (summed over both directions; zero unless `nf_conntrack_acct` is on, which `accounting`
+reports). DNS to the router and loopback are skipped (`skipped` counts them); at most 20,000 lines
+and 5,000 groups are read (`truncated`). Limits: short flows between snapshots are missed;
+flow-offloaded, notrack and daed eBPF traffic can be absent; proxied flows show the proxy server.
+Use `conn_flows` for those, and match destination IPs with the same client's recent DNS answers
+to name sites that only appear as an IP.
 
 ## Storage and resources
 
