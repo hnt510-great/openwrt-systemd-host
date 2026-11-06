@@ -263,9 +263,9 @@ class Derived:
     def __init__(self, source, path=None, since=None):
         source_uri = pathlib.Path(source).resolve().as_uri() + '?mode=ro'
         if path is None:
-            self.db = sqlite3.connect(':memory:')
+            self.db = sqlite3.connect(':memory:', uri=True)
         else:
-            self.db = sqlite3.connect(str(path))
+            self.db = sqlite3.connect(str(path), uri=True)
         self.db.execute('ATTACH DATABASE ? AS src', (source_uri,))
         self.db.executescript(self.SCHEMA)
         version = self.db.execute("SELECT value FROM meta WHERE key='version'").fetchone()
