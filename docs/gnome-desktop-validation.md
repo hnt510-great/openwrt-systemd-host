@@ -5,6 +5,34 @@ Physical-router deployment and hardware acceptance remain separate.
 The subsequent [physical deployment report](gnome-desktop-deployment-20261028.md)
 records signed publication, installation and hardware checks.
 
+## Mesa provider build repair: 2026-11-06
+
+A verbose build reproduced the failure after successful kernel bundling:
+APK rootfs installation rejected `libmesa-softpipe` together with `libglvnd`
+and `libmesa-virtualization`. The standalone softpipe variant and GLVND
+provide conflicting EGL/GLES libraries, and the two Mesa variants also
+provide conflicting GBM/Gallium libraries.
+
+The GNOME fragment, full desktop snapshot and active local configuration now
+select `libmesa-virtualization` and disable `libmesa-softpipe`. This keeps the
+combined Intel/VirtIO/software rendering provider with GLVND support.
+
+Host validation:
+
+- `make defconfig` preserved the corrected selection.
+- `python3 scripts/build-and-publish.py build-only -j12 V=s` reused reserved
+  kernel generation `7.3.1-5-openwrt`, built its image/header/metapackages and
+  passed APK rootfs installation: 1,331 packages, including
+  `libmesa-virtualization` 26.2.2-r9 and `libglvnd` 1.7.0-r4.
+- The complete firmware build exited successfully with `status: built` and
+  sequence 5; images and checksums are in
+  `bin/systemd/targets/x86/64-glibc/`.
+- `git diff --check` passed.
+
+Logs are local artifacts at `/tmp/openwrt-build-only-diagnose.log` (failure)
+and `/tmp/openwrt-build-only-fixed.log` (corrected build). No feed publication,
+VM checks or physical-device validation were performed for this repair.
+
 ## Recorded run: 2026-10-28
 
 Private artifacts are under

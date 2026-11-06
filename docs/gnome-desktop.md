@@ -17,6 +17,12 @@ Preserve `.config` before merging `configs/gnome-desktop.config`, then run
 be absent from the resulting profile. Keep GTK-VNC if virt-manager needs it;
 that library does not provide a desktop VNC listener.
 
+Select `libmesa-virtualization` as the Mesa provider and leave
+`libmesa-softpipe` disabled. The virtualization variant includes Intel,
+VirtIO and software rendering with GLVND support. The standalone softpipe
+variant supplies EGL/GLES libraries that conflict with `libglvnd`, which
+Xwayland requires; selecting both prevents APK rootfs installation.
+
 GNOME Shell/Mutter/session/settings use the 51 series. GTK4, libadwaita, GJS
 and SpiderMonkey are built from pinned upstream archives. Build tools are
 staged separately; Cargo dependencies are locked and compilation runs offline
