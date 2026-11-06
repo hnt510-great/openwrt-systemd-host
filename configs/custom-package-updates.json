@@ -734,6 +734,10 @@
       "provider": "local",
       "reason": "Locally maintained integration package"
     },
+    "luci-app-uci-history": {
+      "provider": "local",
+      "reason": "Locally maintained configuration history integration"
+    },
     "luci-theme-argon": {
       "provider": "git-checkout",
       "url": "https://github.com/jerrykuku/luci-theme-argon.git",
@@ -880,6 +884,10 @@
       "recipe": "package/libs/libxml2/Makefile",
       "same_source": true
     },
+    "router-audit": {
+      "provider": "local",
+      "reason": "Locally maintained read-only router audit export and DNS event collection"
+    },
     "spice-gtk": {
       "provider": "directory",
       "policy": "series",
@@ -913,6 +921,10 @@
       "provider": "sourceforge",
       "policy": "series",
       "project": "traceroute"
+    },
+    "uci-history": {
+      "provider": "local",
+      "reason": "Locally maintained configuration history integration"
     },
     "upower": {
       "provider": "gitlab",

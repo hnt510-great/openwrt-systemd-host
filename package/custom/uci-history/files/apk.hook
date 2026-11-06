@@ -1,0 +1,7 @@
+#!/bin/sh
+[ -z "$IPKG_INSTROOT" ] || exit 0
+case "$1" in
+	pre-commit) /usr/sbin/uci-history --json hint --event apk ;;
+	post-commit) /usr/sbin/uci-history --json snapshot --source apk ;;
+esac
+exit 0

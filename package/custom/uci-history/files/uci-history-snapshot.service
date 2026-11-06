@@ -1,0 +1,9 @@
+[Unit]
+Description=Capture configuration history
+After=uci-history-boot.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=/usr/sbin/uci-history --json snapshot --auto

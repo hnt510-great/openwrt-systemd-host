@@ -1,0 +1,15 @@
+[Unit]
+Description=Watch UCI configuration changes
+# Path units normally precede paths.target/basic.target. This watcher must wait
+# for rcS and boot recovery, which run after basic.target.
+DefaultDependencies=no
+After=local-fs.target uci-history-boot.service
+Conflicts=shutdown.target
+Before=shutdown.target
+
+[Path]
+PathChanged=/etc/config
+Unit=uci-history-snapshot.service
+
+[Install]
+WantedBy=multi-user.target

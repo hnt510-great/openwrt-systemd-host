@@ -458,3 +458,11 @@ pulling upstream, a `backup/pre-upstream-<date>` branch is cut.
 - OpenWrt Developer Guide: https://openwrt.org/docs/guide-developer/start
 - Build System Setup: https://openwrt.org/docs/guide-developer/build-system/install-buildsystem
 - Upstream repository: https://github.com/openwrt/openwrt.git
+
+## Changing router configuration
+
+Over SSH, use `uci-history --json begin --timeout 300 --note 'purpose'` before
+changing UCI configuration, verify connectivity and service behavior, then run
+`uci-history --json confirm`. Use `status`, `log`, and `diff` with `--json` to
+inspect state. Never include `--show-secrets` output in transcripts. Use existing
+authorized root access (`sudo -n`); this feature grants no additional privilege.

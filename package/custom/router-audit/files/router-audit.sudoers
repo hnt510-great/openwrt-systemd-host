@@ -1,0 +1,1 @@
+router-audit ALL=(root) NOPASSWD: /usr/libexec/router-audit-read

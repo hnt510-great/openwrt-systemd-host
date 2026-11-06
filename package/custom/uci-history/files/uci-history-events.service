@@ -1,0 +1,13 @@
+[Unit]
+Description=Collect UCI history attribution hints
+After=openwrt-ubusd.service uci-history-boot.service
+Requires=openwrt-ubusd.service
+
+[Service]
+UMask=0077
+ExecStart=/usr/sbin/uci-history --json listen
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

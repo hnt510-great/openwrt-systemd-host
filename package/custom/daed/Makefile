@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=daed
 PKG_VERSION:=2.1.1
-PKG_RELEASE:=5
+PKG_RELEASE:=6
 
 # daed v2.1.1 bundles a dae core from 2026-04-22 (85a1fc3, before dae
 # v2.0.0rc1). This build re-pins the core to the dae v2.1.1 release instead,

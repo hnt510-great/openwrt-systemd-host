@@ -1,0 +1,791 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-2.0-only
+"""Root-only configuration journal. --root confines filesystem and command tests."""
+import argparse
+import difflib
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+import uuid
+
+SOURCES = ('cli', 'luci', 'ubus', 'rpcd-rollback', 'apk', 'boot', 'external', 'restore', 'txn-revert')
+SECRET = re.compile(r'(?:^|_)(?:key|psk|password|passwd|secret|token|private_key|preshared_key|auth_secret|pin)$', re.I)
+CONFIG = re.compile(r'^[a-zA-Z0-9_][a-zA-Z0-9_-]*$')
+RISKY = {'network', 'firewall', 'dhcp', 'wireless', 'dropbear', 'sshd'}
+DEFAULT_EXTRAS = ['/etc/sysupgrade.conf', '/etc/nftables.d', '/etc/crontabs']
+SCHEMA = 1
+
+
+class Error(Exception):
+    def __init__(self, code, message):
+        self.code, self.message = code, message
+        super().__init__(message)
+
+
+def config_name(name):
+    parts = name.split('/')
+    if len(parts) == 3 and parts[:2] == ['etc', 'config'] and CONFIG.fullmatch(parts[2]):
+        return parts[2]
+    return None
+
+
+def statements(text):
+    # A character scanner splits logical lines without breaking quoted values.
+    lines, current, quote, escape, comment = [], '', None, False, False
+    for char in text + '\n':
+        if comment:
+            if char != '\n':
+                continue
+            comment = False
+        if escape:
+            current += char
+            escape = False
+            continue
+        if char == '\\' and quote != "'":
+            current += char
+            escape = True
+            continue
+        if quote:
+            current += char
+            if char == quote:
+                quote = None
+        elif char in ("'", '"'):
+            current += char
+            quote = char
+        elif char == '#':
+            comment = True
+        elif char == '\n':
+            try:
+                words = shlex.split(current, comments=False)
+            except ValueError as e:
+                raise Error(1, 'Invalid UCI quoting') from e
+            if words:
+                lines.append(words)
+            current = ''
+        else:
+            current += char
+    if quote or escape:
+        raise Error(1, 'Invalid UCI quoting')
+    return lines
+
+
+def parse_uci(text):
+    sections, counts, current = {}, {}, None
+    for words in statements(text):
+        if words[0] == 'config' and len(words) in (2, 3):
+            kind = words[1]
+            index = counts.get(kind, 0)
+            counts[kind] = index + 1
+            name = words[2] if len(words) == 3 else '@%s[%d]' % (kind, index)
+            current = {'type': kind, 'options': {}}
+            sections[name] = current
+        elif words[0] in ('option', 'list') and len(words) == 3 and current is not None:
+            if words[0] == 'list':
+                old = current['options'].get(words[1], [])
+                current['options'][words[1]] = (old if isinstance(old, list) else [old]) + [words[2]]
+            else:
+                current['options'][words[1]] = words[2]
+        else:
+            raise Error(1, 'Invalid UCI statement')
+    return sections
+
+
+def masked(text, show=False):
+    if show:
+        return text
+    try:
+        lines = statements(text)
+    except Error:
+        return '# [unparseable configuration redacted]\n'
+    result = []
+    for words in lines:
+        if len(words) == 3 and words[0] in ('option', 'list'):
+            if SECRET.search(words[1]):
+                words[2] = '[redacted]'
+        elif words[0] != 'config' or len(words) not in (2, 3):
+            result.append('# [unrecognized statement redacted]\n')
+            continue
+        result.append(' '.join(shlex.quote(w) for w in words) + '\n')
+    return ''.join(result)
+
+
+def structured(a, b, show=False):
+    rows = []
+    for config in sorted(set(a) | set(b)):
+        old, new = parse_uci(a.get(config, '')), parse_uci(b.get(config, ''))
+        for section in sorted(set(old) | set(new)):
+            left, right = old.get(section, {}), new.get(section, {})
+            if left.get('type') != right.get('type'):
+                rows.append(dict(config=config, section=section, type=right.get('type', left.get('type')),
+                                 option=None, op='add' if not left else 'delete' if not right else 'change',
+                                 old=left.get('type'), new=right.get('type')))
+            x, y = left.get('options', {}), right.get('options', {})
+            for option in sorted(set(x) | set(y)):
+                if x.get(option) == y.get(option):
+                    continue
+                secret = SECRET.search(option) and not show
+                rows.append(dict(config=config, section=section, type=right.get('type', left.get('type')),
+                                 option=option, op='add' if option not in x else 'delete' if option not in y else 'change',
+                                 old='changed' if secret else x.get(option),
+                                 new='changed' if secret else y.get(option)))
+    return rows
+
+
+class History:
+    def __init__(self, root='/'):
+        self.root = Path(root).resolve()
+        self.base = self.path('/etc/uci-history')
+        self.repo = self.base / 'repo'
+        self.txfile = self.base / 'txn.json'
+        self.base.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(self.base, 0o700)
+        lock = self.path('/run/uci-history.lock')
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        self.lock = open(lock, 'a')
+        os.chmod(lock, 0o600)
+        fcntl.flock(self.lock, fcntl.LOCK_EX)
+        if not self.repo.exists():
+            self.run(['git', 'init', '--bare', '-q', str(self.repo)])
+            self.git('config', 'core.fsync', 'all')
+        self.refresh_settings()
+
+    def refresh_settings(self):
+        tx = self.txn()
+        self.settings = tx['settings'] if tx and 'settings' in tx else self.read_settings()
+        for extra in self.settings['extras']:
+            self.validate_path(extra)
+
+    def path(self, name):
+        return self.root / name.lstrip('/')
+
+    def run(self, argv, **kwargs):
+        p = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
+        if p.returncode:
+            # stderr may contain secrets/paths: never return it through the public API.
+            raise Error(1, 'Command failed: ' + Path(argv[0]).name)
+        return p.stdout.decode('utf-8', errors='replace')
+
+    def git(self, *args, **kwargs):
+        return self.run(['git', '--git-dir=' + str(self.repo), *args], **kwargs)
+
+    def read_settings(self):
+        file = self.path('/etc/config/uci-history')
+        parsed = parse_uci(file.read_text()) if file.exists() else {}
+        opts = next(iter(parsed.values()), {}).get('options', {})
+        extras = opts.get('extra_path', [] if file.exists() else DEFAULT_EXTRAS)
+        if isinstance(extras, str):
+            extras = [extras]
+        for extra in extras:
+            self.validate_path(extra)
+        return dict(extras=extras, enabled=opts.get('enabled', '1') == '1',
+                    timeout=int(opts.get('default_timeout', '300')))
+
+    def validate_path(self, value):
+        p = Path(value)
+        denied = ['/etc/shadow', '/etc/gshadow', '/etc/uci-history', '/etc/apk/keys',
+                  '/etc/dropbear', '/etc/ssh', '/etc/ssl/private']
+        if (not p.is_absolute() or '..' in p.parts or str(p) == '/etc' or
+                not str(p).startswith('/etc/') or
+                any(str(p) == d or str(p).startswith(d + '/') or d.startswith(str(p) + '/') for d in denied) or
+                re.search(r'(?:private[-_]?key|signing[-_]?key|\.key$)', str(p), re.I)):
+            raise Error(2, 'Extra path is not allowed')
+        # Never traverse symlink parents or capture symlinks, even under a test root.
+        cur = self.root
+        for part in p.parts[1:]:
+            cur /= part
+            if cur.is_symlink():
+                raise Error(2, 'Symlink paths are not allowed')
+        return p.as_posix().lstrip('/')
+
+    def collect(self):
+        files = {}
+        for name in ['/etc/config'] + self.settings['extras']:
+            start = self.path(name)
+            if start.is_symlink():
+                raise Error(2, 'Symlink paths are not allowed')
+            candidates = sorted(start.rglob('*')) if start.is_dir() else [start]
+            for file in candidates:
+                rel = file.relative_to(self.root).as_posix()
+                if rel.startswith('etc/config/') and any(p.startswith('.') for p in Path(rel).parts[2:]):
+                    continue
+                if not rel.startswith('etc/config/'):
+                    self.validate_path('/' + rel)
+                if file.is_symlink():
+                    raise Error(2, 'Symlink paths are not allowed')
+                if not file.exists() or file.is_dir():
+                    continue
+                st = file.stat()
+                if not stat.S_ISREG(st.st_mode):
+                    raise Error(2, 'Only regular configuration files are supported')
+                data = file.read_bytes()
+                files[rel] = dict(data=data, mode=stat.S_IMODE(st.st_mode), uid=st.st_uid, gid=st.st_gid)
+        return files
+
+    def tree(self, files):
+        fd, index = tempfile.mkstemp(dir=self.base)
+        os.close(fd)
+        os.unlink(index)
+        env = dict(os.environ, GIT_INDEX_FILE=index)
+        try:
+            self.git('read-tree', '--empty', env=env)
+            meta = {k: {x: v[x] for x in ('mode', 'uid', 'gid')} for k, v in files.items()}
+            blobs = {k: v['data'] for k, v in files.items()}
+            blobs['.meta.json'] = json.dumps(meta, sort_keys=True).encode()
+            for name, data in sorted(blobs.items()):
+                oid = self.git('hash-object', '-w', '--stdin', input=data).strip()
+                self.git('update-index', '--add', '--cacheinfo', '100644', oid, name, env=env)
+            return self.git('write-tree', env=env).strip()
+        finally:
+            Path(index).unlink(missing_ok=True)
+
+    def revisions(self):
+        if not self.git('for-each-ref', '--format=%(objectname)', 'refs/heads/history').strip():
+            return []
+        data = self.git('log', '--format=%H%x00%ct%x00%B%x00', 'refs/heads/history')
+        parts, result = data.split('\0'), []
+        for i in range(0, len(parts) - 2, 3):
+            oid, stamp, body = parts[i].strip(), parts[i+1], parts[i+2]
+            trailers = dict(line.split(': ', 1) for line in body.splitlines() if ': ' in line)
+            result.append(dict(revision=int(trailers['Revision']), time=int(stamp), oid=oid,
+                               source=trailers.get('Source', ''), actor=trailers.get('Actor', ''),
+                               note=trailers.get('Note', ''), transaction=trailers.get('Transaction', ''),
+                               configs=trailers.get('Configs', '').split()))
+        return result
+
+    def revision(self, value):
+        revisions = self.revisions()
+        if value in (None, 'HEAD') and revisions:
+            return revisions[0]
+        for rev in revisions:
+            if str(rev['revision']) == str(value):
+                return rev
+        raise Error(4, 'Revision not found')
+
+    def files_at(self, value):
+        oid = self.revision(value)['oid']
+        meta = json.loads(self.git('show', oid + ':.meta.json'))
+        result = {}
+        for name, attrs in meta.items():
+            if not name.startswith('etc/config/'):
+                self.validate_path('/' + name)
+            else:
+                self.validate_path('/' + name)
+                if any(p.startswith('.') for p in Path(name).parts):
+                    raise Error(2, 'Unsafe configuration path in history')
+            p = subprocess.run(['git', '--git-dir=' + str(self.repo), 'show', oid + ':' + name],
+                               capture_output=True, check=True)
+            result[name] = dict(attrs, data=p.stdout)
+        return result
+
+    def atomic(self, file, data, mode=0o600, uid=None, gid=None):
+        file.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        fd, name = tempfile.mkstemp(prefix='.' + file.name + '.', dir=file.parent)
+        try:
+            with os.fdopen(fd, 'wb') as out:
+                out.write(data)
+                out.flush()
+                os.fsync(out.fileno())
+                if uid is not None:
+                    os.fchown(out.fileno(), uid, gid)
+                os.fchmod(out.fileno(), mode)
+            os.replace(name, file)
+            dfd = os.open(file.parent, os.O_DIRECTORY)
+            try:
+                os.fsync(dfd)
+            finally:
+                os.close(dfd)
+        finally:
+            Path(name).unlink(missing_ok=True)
+
+    def remove(self, file):
+        file.unlink(missing_ok=True)
+        dfd = os.open(file.parent, os.O_DIRECTORY)
+        try:
+            os.fsync(dfd)
+        finally:
+            os.close(dfd)
+
+    def save(self, file, value):
+        self.atomic(file, json.dumps(value, sort_keys=True).encode())
+
+    def txn(self):
+        return json.loads(self.txfile.read_text()) if self.txfile.exists() else None
+
+    def pending_rpcd(self):
+        return any(self.path(p).exists() and any(self.path(p).iterdir())
+                   for p in ('/var/run/rpcd/snapshot-files', '/run/rpcd/snapshot-files'))
+
+    def staged(self):
+        result = {}
+        dirs = [self.path('/tmp/.uci')]
+        dirs += list(self.path('/tmp').glob('rpcd/uci-*'))
+        dirs += list(self.path('/var/run/rpcd').glob('uci-*'))
+        for directory in dirs:
+            if directory.is_dir():
+                for file in directory.iterdir():
+                    if file.is_file() and not file.is_symlink() and file.stat().st_size:
+                        result.setdefault(file.name, []).append(str(file.relative_to(self.root)))
+        return result
+
+    def hint(self, event, data):
+        source = {'uci.apply': 'luci', 'uci.commit': 'ubus', 'uci.rollback': 'rpcd-rollback', 'apk': 'apk'}.get(event)
+        if not source:
+            return
+        configs = data.get('configs', [data['config']] if 'config' in data else [])
+        self.save(self.path('/run/uci-history/hints/' + uuid.uuid4().hex),
+                  dict(time=time.time(), source=source, actor=data.get('username', 'root'), configs=configs))
+
+    def attribution(self, configs):
+        directory = self.path('/run/uci-history/hints')
+        hints = []
+        if directory.exists():
+            for path in directory.iterdir():
+                h = json.loads(path.read_text())
+                if not 0 <= time.time() - h['time'] <= 30:
+                    path.unlink()
+                elif (h['source'] == 'apk' or set(configs) == set(h['configs'])):
+                    hints.append((h['time'], h, path))
+        if not hints:
+            return {}
+        _, hint, path = max(hints, key=lambda x: x[0])
+        # One rpcd event describes one write. An APK hint covers its whole
+        # transaction, which may produce several captures.
+        if hint['source'] != 'apk':
+            path.unlink(missing_ok=True)
+        return hint
+
+    def snapshot(self, source='cli', actor='', note='', auto=False):
+        if auto and not self.settings['enabled']:
+            return dict(changed=False, disabled=True)
+        files = self.collect()
+        tree = self.tree(files)
+        revs = self.revisions()
+        if revs and tree == self.git('rev-parse', revs[0]['oid'] + '^{tree}').strip():
+            return dict(changed=False, revision=revs[0]['revision'])
+        old = self.files_at('HEAD') if revs else {}
+        changed = sorted(k for k in set(old) | set(files) if old.get(k) != files.get(k))
+        configs = sorted({config_name(k) for k in changed if config_name(k)})
+        tx = self.txn() or {}
+        hint = self.attribution(configs) if auto and source != 'boot' else {}
+        actor = actor or tx.get('actor') or hint.get('actor') or os.environ.get('SUDO_USER') or 'root'
+        note = note or tx.get('note', '')
+        source = hint.get('source', source)
+        revision = revs[0]['revision'] + 1 if revs else 1
+        clean = lambda s: str(s).replace('\n', ' ').replace('\r', ' ')
+        body = '\n'.join('%s: %s' % (k, clean(v)) for k, v in [
+            ('Revision', revision), ('Source', source), ('Actor', actor), ('Note', note),
+            ('Transaction', tx.get('id', '')), ('Configs', ' '.join(configs))]) + '\n'
+        env = dict(os.environ, GIT_AUTHOR_NAME='uci-history', GIT_AUTHOR_EMAIL='root@localhost',
+                   GIT_COMMITTER_NAME='uci-history', GIT_COMMITTER_EMAIL='root@localhost')
+        args = ['commit-tree', tree]
+        if revs:
+            args += ['-p', revs[0]['oid']]
+        oid = self.git(*args, input=body.encode(), env=env).strip()
+        self.git('update-ref', 'refs/heads/history', oid)
+        return dict(changed=True, revision=revision, configs=configs, source=source)
+
+    def status(self):
+        revs = self.revisions()
+        drift = not revs or self.tree(self.collect()) != self.git('rev-parse', revs[0]['oid'] + '^{tree}').strip()
+        return dict(head=revs[0]['revision'] if revs else None, drift=drift,
+                    configs=sorted(self.texts(self.collect())),
+                    staged=self.staged(), transaction=self.txn(), rpcd_rollback=self.pending_rpcd())
+
+    def texts(self, files, config=None):
+        return {config_name(k): v['data'].decode('utf-8', errors='replace') for k, v in files.items()
+                if config_name(k) and (not config or config_name(k) == config)}
+
+    def diff(self, a=None, b=None, config=None, format='uci', show=False):
+        left = self.files_at(a or 'HEAD')
+        right = self.files_at(b) if b else self.collect()
+        x, y = self.texts(left, config), self.texts(right, config)
+        if config and config not in x and config not in y:
+            raise Error(4, 'Configuration not found')
+        if format == 'uci':
+            return dict(changes=structured(x, y, show))
+        output = []
+        for name in sorted(set(left) | set(right)):
+            if config and name != 'etc/config/' + config:
+                continue
+            # Extra files can contain arbitrary secrets. Hide entire contents by default.
+            def content(files):
+                data = files.get(name, {}).get('data', b'').decode('utf-8', errors='replace')
+                if config_name(name):
+                    return masked(data, show)
+                return data if show else ('[redacted extra file]\n' if data else '')
+            if left.get(name) != right.get(name):
+                lines = list(difflib.unified_diff(content(left).splitlines(True), content(right).splitlines(True),
+                                                  'a/' + name, 'b/' + name))
+                output.extend(lines or [name + ': changed (masked contents or metadata)\n'])
+        return dict(diff=''.join(output))
+
+    def arm(self, timeout, actor='', note=''):
+        if self.txn() or self.pending_rpcd():
+            raise Error(3, 'A transaction or rpcd rollback is pending')
+        if not 5 <= timeout <= 86400:
+            raise Error(2, 'Timeout must be between 5 and 86400 seconds')
+        checkpoint = self.snapshot(actor=actor, note=note)['revision']
+        ident = uuid.uuid4().hex
+        tx = dict(id=ident, checkpoint=checkpoint, deadline=time.time() + timeout,
+                  actor=actor or os.environ.get('SUDO_USER', 'root'), note=note,
+                  unit='uci-history-revert-' + ident, state='armed', settings=self.settings)
+        self.save(self.txfile, tx)
+        try:
+            argv = ['systemd-run', '--quiet', '--unit=' + tx['unit'], '--on-active=' + str(timeout),
+                    '--timer-property=AccuracySec=1s', '/usr/sbin/uci-history', '--json']
+            if self.root != Path('/'):
+                argv += ['--root', str(self.root)]
+            self.run(argv + ['revert', '--id', ident])
+        except Exception:
+            self.remove(self.txfile)
+            raise
+        return dict(transaction=tx)
+
+    def disarm(self, tx):
+        unit = tx['unit'] + '.timer'
+        result = subprocess.run(['systemctl', 'stop', unit], capture_output=True)
+        if result.returncode:
+            # Transient timers disappear at reboot. A missing timer is already disarmed.
+            state = subprocess.run(['systemctl', 'show', unit, '--property=LoadState', '--value'],
+                                   capture_output=True, text=True)
+            if state.stdout.strip() != 'not-found':
+                raise Error(1, 'Unable to stop rollback timer')
+
+    def reload_hashes(self):
+        file = self.path('/var/run/config.md5')
+        if not file.exists():
+            return {}
+        result = {}
+        for line in file.read_text().splitlines():
+            fields = line.split(None, 1)
+            if len(fields) == 2 and re.fullmatch(r'[0-9a-f]{32}', fields[0]):
+                result[fields[1]] = fields[0]
+        return result
+
+    def reload(self, affected=()):
+        before = self.reload_hashes()
+        self.run(['/sbin/reload_config' if self.root == Path('/') else 'reload_config'])
+        after = self.reload_hashes()
+        # Match reload_config's check of the previous checksum list. Unrelated
+        # committed drift can trigger events too; do not claim only selected files.
+        triggered = {Path(name).name for name, checksum in before.items() if after.get(name) != checksum}
+        # reload_config compares against its last run, not the running service.
+        # A change applied with an init script reload leaves that baseline at
+        # the restored content, so restoring it fires nothing. Signal every
+        # restored package that reload_config skipped.
+        for config in sorted(set(affected) - triggered):
+            self.run(['ubus', 'call', 'service', 'event',
+                      json.dumps(dict(type='config.change', data=dict(package=config)))])
+            triggered.add(config)
+        return sorted(triggered)
+
+    def restore(self, revision, configs=None, paths=None, dry=False, timeout=None,
+                no_reload=False, no_safety=False, discard=False, internal=False):
+        if not internal and (self.txn() or self.pending_rpcd()):
+            raise Error(3, 'A transaction or rpcd rollback is pending')
+        if timeout is not None and not 5 <= timeout <= 86400:
+            raise Error(2, 'Timeout must be between 5 and 86400 seconds')
+        target, current = self.files_at(revision), self.collect()
+        configs, paths = configs or [], paths or []
+        for c in configs:
+            if not CONFIG.fullmatch(c):
+                raise Error(2, 'Invalid configuration name')
+            if 'etc/config/' + c not in target and 'etc/config/' + c not in current:
+                raise Error(4, 'Configuration not found')
+        paths = [self.validate_path(p) for p in paths]
+        for p in paths:
+            if not any(p == x.lstrip('/') or p.startswith(x.lstrip('/') + '/') for x in self.settings['extras']):
+                raise Error(2, 'Restore path is not configured')
+        names = sorted(k for k in set(target) | set(current)
+                       if (not configs and not paths) or any(k == 'etc/config/' + c for c in configs)
+                       or any(k == p or k.startswith(p + '/') for p in paths))
+        names = [k for k in names if target.get(k) != current.get(k)]
+        affected = sorted({config_name(k) for k in names if config_name(k)})
+        staged = self.staged()
+        if any(c in staged for c in affected) and not discard:
+            raise Error(3, 'Affected configurations have staged UCI changes')
+        if not internal and os.environ.get('SSH_CONNECTION') and set(affected) & RISKY and not (timeout or no_safety):
+            raise Error(3, 'SSH restore requires --timeout or --no-safety')
+        result = dict(restored_revision=self.revision(revision)['revision'], configs=affected, paths=['/' + k for k in names if not config_name(k)],
+                      dry_run=dry, reload=False, triggered_configs=[])
+        if dry:
+            return result
+        # Validate every destination before writing anything.
+        for name in names:
+            cur = self.root
+            for part in Path(name).parts:
+                cur /= part
+                if cur.is_symlink():
+                    raise Error(2, 'Symlink restore destination is not allowed')
+        if timeout and not internal:
+            result.update(self.arm(timeout))
+        else:
+            self.snapshot(note='Before transaction revert' if internal else 'Before restore')
+        if discard:
+            for c in affected:
+                for saved in staged.get(c, []):
+                    self.path(saved).unlink()
+        for name in names:
+            dest = self.path(name)
+            if name in target:
+                self.atomic(dest, **target[name])
+            else:
+                self.remove(dest)
+        result.update(self.snapshot(source='txn-revert' if internal else 'restore'))
+        signal = set(affected)
+        if internal:
+            # A service may run any state written during the transaction, and a
+            # retry after a failed reload finds the files already restored.
+            # Signal every package captured since the checkpoint.
+            checkpoint = self.revision(revision)['revision']
+            for rev in self.revisions():
+                if rev['revision'] > checkpoint:
+                    signal.update(rev['configs'])
+            signal = {c for c in signal if 'etc/config/' + c in target or 'etc/config/' + c in current}
+        if (signal or internal) and not no_reload:
+            result['triggered_configs'] = self.reload(signal)
+            result['reload'] = True
+        return result
+
+    def finish(self, action, ident=None):
+        tx = self.txn()
+        if not tx:
+            last = self.base / 'last-transaction.json'
+            if action == 'confirm' and last.exists() and json.loads(last.read_text())['state'] == 'reverted':
+                raise Error(10, 'Transaction already reverted')
+            if action == 'revert':
+                return dict(changed=False)
+            raise Error(3, 'No active transaction')
+        if ident and ident != tx['id']:
+            if action != 'revert':
+                raise Error(3, 'Transaction ID does not match')
+            return dict(changed=False)
+        if action == 'confirm' and time.time() >= tx['deadline']:
+            self.finish('revert', tx['id'])
+            raise Error(10, 'Transaction already reverted')
+        if action == 'confirm':
+            result = self.snapshot(note=tx['note'])
+            self.disarm(tx)
+            tx['state'] = 'confirmed'
+        else:
+            # Keep the persistent marker until restore + reload completes. Boot retries failures.
+            result = self.restore(tx['checkpoint'], discard=True, internal=True)
+            self.disarm(tx)
+            tx['state'] = 'reverted'
+        self.save(self.base / 'last-transaction.json', tx)
+        self.remove(self.txfile)
+        return dict(result, transaction=tx)
+
+    def prune(self, keep):
+        if self.txn() or self.pending_rpcd():
+            raise Error(3, 'Cannot prune during pending rollback')
+        if keep < 1:
+            raise Error(2, 'keep must be positive')
+        revs = self.revisions()
+        parent = None
+        for rev in reversed(revs[:keep]):
+            tree = self.git('rev-parse', rev['oid'] + '^{tree}').strip()
+            body = self.git('show', '-s', '--format=%B', rev['oid'])
+            stamp = str(rev['time']) + ' +0000'
+            env = dict(os.environ, GIT_AUTHOR_NAME='uci-history', GIT_AUTHOR_EMAIL='root@localhost',
+                       GIT_COMMITTER_NAME='uci-history', GIT_COMMITTER_EMAIL='root@localhost',
+                       GIT_AUTHOR_DATE=stamp, GIT_COMMITTER_DATE=stamp)
+            args = ['commit-tree', tree] + (['-p', parent] if parent else [])
+            parent = self.git(*args, input=body.encode(), env=env).strip()
+        if parent:
+            self.git('update-ref', 'refs/heads/history', parent)
+        self.git('reflog', 'expire', '--expire=now', '--all')
+        self.git('gc', '--prune=now')
+        return dict(kept=min(keep, len(revs)))
+
+
+def parser():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--json', action='store_true', default=os.environ.get('UCI_HISTORY_JSON') == '1')
+    p.add_argument('--show-secrets', action='store_true')
+    p.add_argument('--root', default='/')
+    sub = p.add_subparsers(dest='command', required=True)
+    for name in ('status', 'confirm', 'abort', 'boot', 'listen', 'commands', 'guide'):
+        child = sub.add_parser(name)
+        if name in ('confirm', 'abort'):
+            child.add_argument('--id')
+    log = sub.add_parser('log')
+    log.add_argument('--limit', type=int, default=50)
+    log.add_argument('--config')
+    log.add_argument('--since', type=float, default=0, help='Unix timestamp')
+    show = sub.add_parser('show')
+    show.add_argument('revision')
+    show.add_argument('--config')
+    diff = sub.add_parser('diff')
+    diff.add_argument('a', nargs='?')
+    diff.add_argument('b', nargs='?')
+    diff.add_argument('--config')
+    diff.add_argument('--format', choices=['uci', 'unified'], default='uci')
+    snap = sub.add_parser('snapshot')
+    snap.add_argument('--auto', action='store_true')
+    snap.add_argument('--source', choices=SOURCES, default='cli')
+    for cmd in (snap, sub.add_parser('begin')):
+        cmd.add_argument('--actor', default='')
+        cmd.add_argument('--note', default='')
+    sub.choices['begin'].add_argument('--timeout', type=int)
+    restore = sub.add_parser('restore')
+    restore.add_argument('revision')
+    restore.add_argument('--config', action='append')
+    restore.add_argument('--path', action='append')
+    restore.add_argument('--dry-run', action='store_true')
+    restore.add_argument('--timeout', type=int)
+    for flag in ('no-reload', 'no-safety', 'discard-staged'):
+        restore.add_argument('--' + flag, action='store_true')
+    prune = sub.add_parser('prune')
+    prune.add_argument('--keep', type=int, required=True)
+    revert = sub.add_parser('revert')
+    revert.add_argument('--id', required=True)
+    hint = sub.add_parser('hint')
+    hint.add_argument('--event', choices=['apk', 'uci.apply', 'uci.commit', 'uci.rollback'], required=True)
+    hint.add_argument('--data', default='{}')
+    return p
+
+
+def command_schema(p):
+    commands = {}
+    for action in p._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            for name, child in action.choices.items():
+                commands[name] = [dict(name=a.dest, flags=a.option_strings, required=a.required,
+                                       choices=list(a.choices) if a.choices is not None else None,
+                                       default=a.default, nargs=a.nargs,
+                                       type='integer' if a.type == int else 'number' if a.type == float else
+                                       'boolean' if isinstance(a, argparse._StoreTrueAction) else 'string',
+                                       repeatable=isinstance(a, argparse._AppendAction))
+                                  for a in child._actions if a.dest != 'help']
+    return dict(commands=commands, global_flags=['--json', '--show-secrets', '--root'],
+                exit_codes={'0': 'ok', '1': 'runtime', '2': 'usage', '3': 'conflict',
+                            '4': 'not found', '10': 'already reverted', '77': 'not root'})
+
+
+def settle(h):
+    start, quiet, previous = time.monotonic(), time.monotonic(), None
+    while time.monotonic() - start < 10:
+        fingerprint = [(k, hashlib.sha256(v['data']).hexdigest()) for k, v in h.collect().items()]
+        if fingerprint != previous:
+            previous, quiet = fingerprint, time.monotonic()
+        if time.monotonic() - quiet >= 1:
+            return
+        time.sleep(0.2)
+
+
+def listen(root):
+    # Do not retain the writer lock while waiting for events.
+    with subprocess.Popen(['ubus', 'listen', 'uci.apply', 'uci.commit', 'uci.confirm', 'uci.rollback'],
+                          stdout=subprocess.PIPE, text=True) as proc:
+        buffer = ''
+        for line in proc.stdout:
+            buffer += line
+            if len(buffer) > 65536:
+                buffer = ''
+                continue
+            try:
+                event = json.loads(buffer)
+            except ValueError:
+                continue
+            buffer = ''
+            h = History(root)
+            try:
+                for name, data in event.items():
+                    h.hint(name, data)
+            finally:
+                h.lock.close()
+        if proc.wait():
+            raise Error(1, 'ubus listener exited')
+    return dict(stopped=True)
+
+
+def main(argv=None):
+    os.umask(0o077)
+    p = parser()
+    raw = sys.argv[1:] if argv is None else argv
+    want_json = '--json' in raw or os.environ.get('UCI_HISTORY_JSON') == '1'
+    h = None
+    try:
+        if os.geteuid() != 0:
+            raise Error(77, 'Root access required')
+        try:
+            a = p.parse_args(raw)
+        except SystemExit as e:
+            if e.code == 0:
+                return 0
+            raise Error(2, 'Invalid arguments') from e
+        if a.command == 'commands':
+            result = command_schema(p)
+        elif a.command == 'guide':
+            file = Path(__file__).with_name('AGENT-GUIDE.md')
+            if not file.exists():
+                file = Path('/usr/share/doc/uci-history/AGENT-GUIDE.md')
+            result = dict(guide=file.read_text())
+        elif a.command == 'listen':
+            result = listen(a.root)
+        else:
+            h = History(a.root)
+            cmd = a.command
+            if cmd == 'status':
+                result = h.status()
+            elif cmd == 'log':
+                if a.limit < 1:
+                    raise Error(2, 'limit must be positive')
+                result = dict(revisions=[r for r in h.revisions() if r['time'] >= a.since and
+                                         (not a.config or a.config in r['configs'])][:a.limit])
+            elif cmd == 'show':
+                files = h.files_at(a.revision)
+                if a.config and 'etc/config/' + a.config not in files:
+                    raise Error(4, 'Configuration not found')
+                result = dict(files={k: masked(v['data'].decode(errors='replace'), a.show_secrets)
+                                     if config_name(k) else
+                                     (v['data'].decode(errors='replace') if a.show_secrets else '[redacted extra file]')
+                                     for k, v in files.items() if not a.config or k == 'etc/config/' + a.config})
+            elif cmd == 'diff':
+                result = h.diff(a.a, a.b, a.config, a.format, a.show_secrets)
+            elif cmd == 'snapshot':
+                if a.auto:
+                    fcntl.flock(h.lock, fcntl.LOCK_UN)
+                    settle(h)
+                    fcntl.flock(h.lock, fcntl.LOCK_EX)
+                    h.refresh_settings()
+                result = h.snapshot(a.source if not a.auto or a.source != 'cli' else 'external', a.actor, a.note, a.auto)
+            elif cmd == 'begin':
+                result = h.arm(a.timeout if a.timeout is not None else h.settings['timeout'], a.actor, a.note)
+            elif cmd == 'restore':
+                result = h.restore(a.revision, a.config, a.path, a.dry_run, a.timeout,
+                                   a.no_reload, a.no_safety, a.discard_staged)
+            elif cmd in ('confirm', 'abort', 'revert'):
+                result = h.finish(cmd, getattr(a, 'id', None))
+            elif cmd == 'boot':
+                result = h.finish('revert') if h.txn() else h.snapshot('boot', auto=True)
+            elif cmd == 'hint':
+                h.hint(a.event, json.loads(a.data))
+                result = dict(recorded=True)
+            elif cmd == 'prune':
+                result = h.prune(a.keep)
+        envelope = dict(schema_version=SCHEMA, ok=True, error=None, **result)
+        print(json.dumps(envelope, ensure_ascii=True, indent=None if want_json else 2))
+        return 0
+    except Exception as e:
+        code = e.code if isinstance(e, Error) else 1
+        message = e.message if isinstance(e, Error) else 'Configuration history operation failed'
+        print(json.dumps(dict(schema_version=SCHEMA, ok=False, error=dict(code=code, message=message))))
+        return code
+    finally:
+        if h:
+            h.lock.close()
+
+
+if __name__ == '__main__':
+    sys.exit(main())

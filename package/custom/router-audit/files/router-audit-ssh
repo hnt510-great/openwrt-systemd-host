@@ -1,0 +1,9 @@
+#!/usr/bin/python3
+import os,shlex,sys
+try:
+    a=shlex.split(os.environ.get('SSH_ORIGINAL_COMMAND',''))
+    if not a or a[0]!='router-audit-export' or len(a)>12 or any(len(x)>2048 for x in a):raise ValueError()
+    if '--collect' in a:raise ValueError()
+except ValueError:
+    print('Unsupported audit command',file=sys.stderr);sys.exit(2)
+os.execv('/usr/bin/sudo',['sudo','-n','/usr/libexec/router-audit-read',*a[1:]])

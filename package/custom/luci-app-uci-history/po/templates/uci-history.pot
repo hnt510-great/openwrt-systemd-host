@@ -1,0 +1,120 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "Abort / revert"
+msgstr ""
+
+msgid "Actions"
+msgstr ""
+
+msgid "Actor"
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
+
+msgid "Captured"
+msgstr ""
+
+msgid "Configuration"
+msgstr ""
+
+msgid "Configuration History"
+msgstr ""
+
+msgid "Configurations"
+msgstr ""
+
+msgid "Confirm"
+msgstr ""
+
+msgid "Head revision:"
+msgstr ""
+
+msgid "History request failed"
+msgstr ""
+
+msgid "Inspect / restore"
+msgstr ""
+
+msgid "Loading…"
+msgstr ""
+
+msgid "LuCI apply rollback pending"
+msgstr ""
+
+msgid "New"
+msgstr ""
+
+msgid "No differences"
+msgstr ""
+
+msgid "Note"
+msgstr ""
+
+msgid "Old"
+msgstr ""
+
+msgid "Operation"
+msgstr ""
+
+msgid "Option"
+msgstr ""
+
+msgid "Restore"
+msgstr ""
+
+msgid "Restore configuration"
+msgstr ""
+
+msgid "Restore did not arm rollback"
+msgstr ""
+
+msgid "Restore revision"
+msgstr ""
+
+msgid "Review restore"
+msgstr ""
+
+msgid "Revision"
+msgstr ""
+
+msgid "Rollback deadline:"
+msgstr ""
+
+msgid "Secrets are masked. Extra files require manual service reload after CLI restore."
+msgstr ""
+
+msgid "Section"
+msgstr ""
+
+msgid "Select at least one configuration"
+msgstr ""
+
+msgid "Selected configurations will be restored and reloaded. The change reverts automatically if this browser cannot reconnect."
+msgstr ""
+
+msgid "Source"
+msgstr ""
+
+msgid "Staged UCI changes pending"
+msgstr ""
+
+msgid "Structured UCI diff"
+msgstr ""
+
+msgid "Time"
+msgstr ""
+
+msgid "Transaction changed"
+msgstr ""
+
+msgid "Type"
+msgstr ""
+
+msgid "Uncaptured changes"
+msgstr ""
+
+msgid "Unified diff"
+msgstr ""

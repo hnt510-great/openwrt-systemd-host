@@ -1,0 +1,25 @@
+[Unit]
+Description=Router audit minute collection
+After=openwrt-services.service
+
+[Service]
+ExecStart=/usr/libexec/router-audit --collect
+Restart=on-failure
+RestartSec=15
+Nice=19
+CPUWeight=10
+IOWeight=10
+MemoryMax=128M
+UMask=0077
+RuntimeDirectory=router-audit
+RuntimeDirectoryPreserve=yes
+RuntimeDirectoryMode=0755
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/srv/router-audit
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+
+[Install]
+WantedBy=multi-user.target
