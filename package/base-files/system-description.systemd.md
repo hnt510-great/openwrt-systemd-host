@@ -96,6 +96,36 @@ uci show network
 ubus call network.interface dump
 ```
 
+## Configuration history and safe changes
+
+When `uci-history` is installed (`command -v uci-history`), `/etc/config` and
+the extra paths listed in `/etc/config/uci-history` are journaled as numbered
+revisions with masked secrets. LuCI shows them under *System → Configuration
+History*. Its agent instructions are in
+`/usr/share/doc/uci-history/AGENT-GUIDE.md`; `uci-history --json commands`
+prints the command schema and exit codes, and `uci-history guide` prints the
+instructions. All commands need root: use existing access such as `sudo -n`
+and never change sudoers or prompt for passwords.
+
+Wrap configuration changes, especially remote ones touching `network`,
+`firewall`, `dhcp`, `wireless`, `dropbear` or `sshd`, in a timed transaction:
+**begin → change → verify → confirm**. An unconfirmed transaction is reverted
+when its timer expires or at the next boot, so a lost SSH session recovers on
+its own. Confirm only after verifying connectivity and service behavior
+yourself, not because a command succeeded; on failure run `abort` or let the
+timer expire. Start with `status`, and do not run a LuCI apply while a CLI
+transaction is armed. Never include `--show-secrets` output in transcripts.
+
+```sh
+sudo -n uci-history --json status
+sudo -n uci-history --json begin --timeout 300 --actor agent --note 'purpose'
+# make, commit and reload the authorized UCI changes, then verify them
+sudo -n uci-history --json diff
+sudo -n uci-history --json confirm      # or: abort
+sudo -n uci-history --json log --limit 20 --config network
+sudo -n uci-history --json restore REV --config network --timeout 300 --dry-run
+```
+
 ## Router additions
 
 These are off by default or transparent; inspect UCI and the running kernel
