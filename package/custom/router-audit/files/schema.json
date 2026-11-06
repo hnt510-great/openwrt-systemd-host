@@ -1,19 +1,84 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Router audit v1 envelope",
+  "title": "Router audit v1 envelope (schema 1.0 and 1.1)",
   "type": "object",
-  "required": ["schema_version", "status"],
+  "required": [
+    "schema_version",
+    "status"
+  ],
   "properties": {
-    "schema_version": {"const": "1.0"},
-    "host_id": {"type": "string"},
-    "boot_id": {"type": "string"},
-    "collected_at": {"type": "string", "format": "date-time"},
-    "module": {"type": "string"},
-    "status": {"enum": ["ok", "partial", "unavailable", "error"]},
-    "window": {"type": ["object", "null"]},
-    "data": {"type": "object"},
-    "errors": {"type": "array"},
-    "next_cursor": {"type": ["string", "null"], "maxLength": 2048}
+    "schema_version": {
+      "enum": [
+        "1.0",
+        "1.1"
+      ]
+    },
+    "host_id": {
+      "type": "string"
+    },
+    "boot_id": {
+      "type": "string"
+    },
+    "collected_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "module": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "ok",
+        "partial",
+        "unavailable",
+        "error"
+      ]
+    },
+    "window": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "data": {
+      "type": "object"
+    },
+    "errors": {
+      "type": "array"
+    },
+    "next_cursor": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 2048
+    },
+    "upgraded_from": {
+      "const": "1.0",
+      "description": "set by normalize.upgrade() when a 1.0 record was converted on the analysis host"
+    }
   },
-  "allOf": [{"if": {"properties": {"status": {"enum": ["ok", "partial"]}}}, "then": {"required": ["host_id", "collected_at", "module", "data", "errors"]}}]
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": [
+              "ok",
+              "partial"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "host_id",
+          "collected_at",
+          "module",
+          "data",
+          "errors"
+        ]
+      }
+    }
+  ]
 }

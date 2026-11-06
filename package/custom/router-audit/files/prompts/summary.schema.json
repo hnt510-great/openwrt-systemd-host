@@ -1,0 +1,45 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "overall",
+    "summary",
+    "top_issues"
+  ],
+  "properties": {
+    "overall": {
+      "type": "string",
+      "enum": [
+        "ok",
+        "attention",
+        "problem"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "top_issues": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "why"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 8
+          },
+          "why": {
+            "type": "string",
+            "maxLength": 250
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "severity",
+    "category",
+    "explanation",
+    "likely_causes",
+    "next_checks",
+    "confidence"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "maxLength": 8
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "info",
+        "warning",
+        "critical"
+      ]
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "system",
+        "memory",
+        "wan",
+        "network",
+        "dns",
+        "conntrack",
+        "services",
+        "firewall",
+        "security",
+        "coverage"
+      ]
+    },
+    "explanation": {
+      "type": "string",
+      "maxLength": 400
+    },
+    "likely_causes": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "string",
+        "maxLength": 200
+      }
+    },
+    "next_checks": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "string",
+        "maxLength": 200
+      }
+    },
+    "confidence": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    }
+  }
+}

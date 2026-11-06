@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=router-audit
 PKG_VERSION:=1.0.0
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 PKG_LICENSE:=GPL-2.0-only
 PKG_FILE_DEPENDS:=$(TOPDIR)/docs/router-audit.md
 
@@ -23,8 +23,11 @@ define Package/router-audit/install
 	$(INSTALL_DIR) $(1)/usr/libexec $(1)/usr/sbin $(1)/usr/share/router-audit $(1)/usr/share/doc/router-audit
 	$(INSTALL_BIN) ./files/router-audit ./files/router-audit-read ./files/router-audit-ssh $(1)/usr/libexec/
 	$(LN) /usr/libexec/router-audit-read $(1)/usr/sbin/router-audit-export
-	$(INSTALL_BIN) ./files/pull.py ./files/analyze.py $(1)/usr/share/router-audit/
-	$(INSTALL_DATA) ./files/schema.json $(1)/usr/share/router-audit/
+	$(INSTALL_DATA) ./files/normalize.py $(1)/usr/libexec/router-audit-normalize.py
+	$(INSTALL_BIN) ./files/pull.py ./files/analyze.py ./files/explain.py ./files/mcp_server.py $(1)/usr/share/router-audit/
+	$(INSTALL_DATA) ./files/normalize.py ./files/schema.json $(1)/usr/share/router-audit/
+	$(INSTALL_DIR) $(1)/usr/share/router-audit/prompts
+	$(INSTALL_DATA) ./files/prompts/*.txt ./files/prompts/*.json $(1)/usr/share/router-audit/prompts/
 	$(INSTALL_DATA) $(TOPDIR)/docs/router-audit.md $(1)/usr/share/doc/router-audit/README.md
 	$(INSTALL_DIR) $(1)/usr/lib/systemd/system $(1)/etc/systemd/system/multi-user.target.wants
 	$(INSTALL_DATA) ./files/router-audit-collect.service $(1)/usr/lib/systemd/system/

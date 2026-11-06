@@ -80,3 +80,117 @@ Also matched byte-for-byte against tracked source: audit collector, read wrapper
 This is an initial working interface, not comprehensive monitoring. Learned DNS baselines, periodic C2 detection, direct per-upstream DNS latency, full per-client active connections and Podman runtime health are not implemented. dnsmasq events describe sent responses, not all received queries. Client encrypted DNS and other uninstrumented paths remain invisible. Journal scan and DNS queue limits can lose coverage; output exposes partial/truncation/drop information. No automatic external-LLM anonymization is claimed. See `router-audit.md` for retention, privilege boundaries and rollback.
 
 Personal SSH public keys, credentials, databases, generated APKs and local backups are intentionally excluded from Git. Pre-existing unrelated working-tree changes are left untouched. No Git push was performed.
+
+# r2: LLM-ready output and local model evaluation — 2026-11-06
+
+Design and model research: `docs/router-audit-llm-plan.md`. Guide: `docs/router-audit.md`.
+Evidence workspace (outside the repository): `/srv/openwrt-validation/router-audit-llm-test-20261106/`
+(`runs/` holds every report, eval result, server log and power sample).
+
+## Scope
+
+router-audit 1.0.0-r2 was built and tested on Debian only. It was **not published and not installed
+on the router**; the router still runs r1 (schema 1.0), whose data the r2 analyzer reads through
+`normalize.upgrade()`. daed and dnsmasq were not changed. The model runtime ran temporarily from the
+evidence workspace and was stopped; no package, unit, autostart, PATH change or MCP registration was
+added on Debian. A GRUB drop-in enabling GPU overdrive was added for a planned clock test and removed
+again before any reboot (the test was dropped); `/etc/default/grub` was never edited.
+
+## Source and build checks
+
+| Check | Result |
+| --- | --- |
+| `python3 scripts/tests/test-router-audit.py` | 28 tests passed (collector, normalize/upgrade, fixtures, renderers, derived cache, explain against a fake endpoint incl. retry/fallback/time budget/pinned fields, MCP over stdio) |
+| `python3 scripts/tests/test-custom-package-updates.py` | 47 tests passed |
+| `make package/custom/router-audit/compile V=s` | passed; `router-audit-1.0.0-r2.apk` SHA-256 `5759dcc44bbe9c9d253259b6208a0ce30d2ed2c73eaf3a39649615bfc9597a4c` |
+| Package payload | collector, `router-audit-normalize.py`, wrappers, unit, sudoers, `analyze.py`, `explain.py`, `mcp_server.py`, `normalize.py`, `pull.py`, `schema.json`, six prompt files |
+| Installed layout | extracted payload: collector `capabilities` returns schema 1.1 with `Z` timestamps; `analyze.py` and `mcp_server.py` load `normalize.py` from their own directory |
+| `git diff --check` | passed |
+
+## Real router data (read-only)
+
+The restricted `router-audit` SSH entry was used with `pull.py` into the workspace. The first pull
+returned only 15 minutes, which exposed a puller gap (first run inherited the export default); after
+the fix the first run backfilled the whole router buffer: 1,039 records, 107 minute samples. The r2
+analyzer read the r1 data through the 1.0 upgrade path.
+
+The first analysis produced six warnings that inspection showed were false positives, all fixed and
+covered by fixtures/tests: three one-shot procd instances (`urandom_seed`, `acme`, `sysstat`:
+`inactive`, exit status 0), two DNS error ratios driven by PTR (`ip6.arpa`) NXDOMAIN, and `eth1`
+receive drops (46k of 12M frames, typical unhandled-protocol counting) reported as a warning.
+Baselines also accepted 40 minutes of history; a verdict now needs 24 hours. After the fixes the
+window yields one `info` finding (eth1 receive drops) and all baselines report `no baseline yet`.
+
+## Model evaluation
+
+Runtime: llama.cpp b12143 (commit `2bc46baa9`) prebuilt Vulkan x64, archive SHA-256
+`dd983d8eaa85e1e71fba4458441b6a507f86bb50db6b5675d1e6aa788ecccbfc`, on the Radeon RX 6600 XT
+(RADV NAVI23, 8 GB; desktop baseline 778 MiB). Server: `-np 1 -ngl 99 -fa on`, q8_0 KV cache,
+`--jinja`, 127.0.0.1 only. All GGUF files matched their Hugging Face SHA-256:
+
+| Model | Source | SHA-256 | Context |
+| --- | --- | --- | --- |
+| Qwen3.5-4B Q6_K | `unsloth/Qwen3.5-4B-GGUF` | `fdedd781c9ce676ab66b018ca247ff78e8a33c98098a822c1e2d5075e7718f66` | 32k |
+| Granite 4.2 8B Q4_K_M | `ibm-granite/granite-4.2-8b-GGUF` | `16a9369d0805f80b7377d25d87f937a90c05dc04ad79173a52001e42c9aab311` | 16k |
+| Qwen3.5-9B Q4_K_M | `unsloth/Qwen3.5-9B-GGUF` | `03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8` | 32k |
+
+Fixtures: `scripts/tests/router-audit-fixtures.py` (7 days baseline, first 3 days schema 1.0, one test
+hour): quiet, WAN flap, conntrack 90 %, NXDOMAIN storm, random-looking names, failed unit, memory
+pressure with OOM. Scores from `scripts/tests/router-audit-llm-eval.py`.
+
+### Final comparison (identical code, default settings: budget 4000, `llm` text, thinking off, pipeline)
+
+| Check | Qwen3.5-4B Q6_K | Granite 4.2 8B Q4_K_M | Qwen3.5-9B Q4_K_M |
+| --- | --- | --- | --- |
+| Valid JSON | 100% | 100% | 100% |
+| Category / severity within one level | 100% / 100% | 100% / 100% | 100% / 100% |
+| Expected issue named in summary (6 faults) | 6/6 | 6/6 | 6/6 |
+| Overall verdict right (incl. quiet = `ok`, no issues) | 7/7 | 7/7 | 7/7 |
+| Invented finding IDs | 0 | 0 | 0 |
+| Tool choice (10 questions) | 9/10 | 8/10 | 8/10 |
+| Real data: overall | `ok` | `attention` (only an `info` finding; prompt says `ok`) | `ok` |
+| Time for 7 fixtures | 64 s | 93 s | 90 s |
+| Generation / prompt processing | 56 / 580–960 tok/s | 42 / 490–620 tok/s | 41 / 550–650 tok/s |
+| VRAM incl. desktop | 4.8 GB | 7.1 GB | 6.4 GB |
+
+**Default: Qwen3.5-4B Q6_K, thinking off.** Equal accuracy, fastest, most VRAM headroom, best tool choice.
+
+### Setting sweep (one factor at a time, before the last two schema fixes)
+
+| Setting | 4B | Granite 8B | 9B |
+| --- | --- | --- | --- |
+| budget 3k / 8k / 16k | same as 4k (8k/16k fixed one relabel) | all 100% | same as 4k |
+| `llm-json` input | one overall verdict wrong | 100% | more category relabels |
+| thinking on | 6 fixtures in 1,492 s, 2 answers never valid JSON (ran out of tokens) | 6 fixtures in 803 s, all valid | not run |
+| agent mode (MCP tools) | same verdicts, 85 s, 3–8× input tokens | same verdicts, 146 s | same verdicts, 145 s |
+
+Thinking runs were stopped after six fixtures and removed from the standard sweep; `explain.py`
+has a per-request timeout, a whole-run time budget and a reasoning-token cap. Two defects found by
+the eval were fixed in code: summaries padded `top_issues` with a filler `"none"` ID, and models
+relabelled the copied `category` field (`conntrack` → `network`). The summary schema is now built
+per window (IDs limited to real findings, list no longer than the findings) and each finding's schema
+pins `id` and `category`. Tool descriptions were reworded after the first tool run (4B: 7/10 → 9/10).
+
+### GPU power (Qwen3.5-4B, fixed 4-report workload)
+
+| State | Time | Energy | Avg / peak power | Peak junction | Generation |
+| --- | --- | --- | --- | --- | --- |
+| default (auto, BOOTUP_DEFAULT, 130 W) | 44.4 s | 5,224 J | 118 / 130 W | 102 °C | 56.1 tok/s |
+| POWER_SAVING profile | 44.4 s | 5,257 J | 119 / 126 W | 104 °C | 56.1 tok/s |
+| COMPUTE profile | 44.0 s | 5,272 J | 120 / 130 W | 107 °C | 56.2 tok/s |
+| 122 W cap (driver minimum) | 44.4 s | 5,126 J | 115 / 123 W | 104 °C | 56.1 tok/s |
+| manual core clock level (2655 / 500 MHz) | 44.4 s | ~5,280 J | 119 / 130 W | 105 °C | 56.2 tok/s (level did not hold) |
+| memory clock 675 MHz | 60.6 s | 5,941 J | 98 / 130 W | 102 °C | 39.9 tok/s |
+
+Answers were byte-identical in every state. The card is power-limited during generation; without
+overdrive no state saves more than 2%, and a lower memory clock costs more energy than it saves.
+GPU idle was 4.9 W with and without the model loaded. A finer core-clock cap needs the overdrive boot
+option; it was prepared, judged not worth a permanent host change for a few Wh per day, and removed
+unused. The GPU was returned to `auto` / 130 W.
+
+## Known limits
+
+No physical router change, publication or reboot was performed for r2. Baselines need 24 hours of
+pulled history before verdicts appear. The fixtures are synthetic and small; they test that faults are
+named and nothing is invented, not diagnosis quality on unusual real incidents. Model throughput was
+measured on one GPU with one llama.cpp build. Periodic beaconing detection is not implemented.

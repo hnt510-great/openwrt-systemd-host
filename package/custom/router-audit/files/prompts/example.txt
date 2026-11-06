@@ -1,0 +1,11 @@
+FINDING F1 (warning, network): Packet errors on eth1
+window: 14:00 to 15:00, last 1h, times UTC+08:00
+rule: interface errors average 5/min or more and 100+ in window
+facts:
+- 2,310 errors in window (average 38.5/min), first at 14:02 (58 min ago)
+context:
+- journal 14:01: kernel_warning kernel (NETDEV WATCHDOG)
+- config change 13:40: revision 57 by luci, configs network
+not measured: Flow offload, notrack and transparent-proxy paths can bypass counters.
+=== ANSWER ===
+{"id": "F1", "severity": "warning", "category": "network", "explanation": "eth1 has been receiving or sending damaged frames at about 38 per minute since 14:02, right after a NIC watchdog warning; sustained errors usually mean a physical or driver problem and cause retransmits.", "likely_causes": ["Faulty or loose Ethernet cable or port on eth1", "NIC driver or firmware reset after the watchdog event", "Duplex or speed mismatch introduced by the 13:40 network change"], "next_checks": ["ip -s link show eth1", "ethtool eth1 and ethtool -S eth1", "uci-history --json diff 57"], "confidence": "medium"}

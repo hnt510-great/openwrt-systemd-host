@@ -2,6 +2,19 @@
 """Read-only router export and bounded local collection. No third-party modules."""
 import struct, ssl, runpy, threading, collections, pwd
 import argparse, datetime as dt, hashlib, json, os, pathlib as P, re, shlex, socket, subprocess as S, sys, time, uuid
+import importlib.machinery, importlib.util
+def _load_normalize():
+    # Root-controlled sibling only: /usr/libexec/router-audit-normalize.py when installed,
+    # files/normalize.py in the source tree. No environment override.
+    here=P.Path(__file__).resolve()
+    for candidate in [here.with_name('router-audit-normalize.py'),here.with_name('normalize.py')]:
+        if candidate.is_file():
+            loader=importlib.machinery.SourceFileLoader('router_audit_normalize',str(candidate))
+            spec=importlib.util.spec_from_loader(loader.name,loader);module=importlib.util.module_from_spec(spec);loader.exec_module(module)
+            return module
+    raise ImportError('router-audit-normalize.py not found')
+N=_load_normalize()
+SCHEMA=N.SCHEMA
 STORE=P.Path('/srv/router-audit')
 SAFE=re.compile(r'^[A-Za-z0-9_.@:-]+$')
 ERR=[]
@@ -18,7 +31,7 @@ def read(path):
     try:return P.Path(path).read_text()
     except OSError:return None
 
-def now():return dt.datetime.now(dt.timezone.utc).isoformat().replace('+00:00','Z')
+def now():return N.iso(dt.datetime.now(dt.timezone.utc))
 def boot():return (read('/proc/sys/kernel/random/boot_id') or '').strip()
 def host():return hashlib.sha256((read('/etc/machine-id') or socket.gethostname()).encode()).hexdigest()[:20]
 def eventid(source, value):return hashlib.sha256((source+str(value)).encode()).hexdigest()[:32]
@@ -31,18 +44,18 @@ def system():
     disks=[]
     for path in ['/','/srv','/run']:
         s=os.statvfs(path);disks.append({'path':path,'total':s.f_blocks*s.f_frsize,'available':s.f_bavail*s.f_frsize})
-    return {'memory_bytes':mem,'load':list(map(float,read('/proc/loadavg').split()[:3])), 'cpu_ticks':read('/proc/stat').splitlines()[0], 'uptime_seconds':float(read('/proc/uptime').split()[0]),'temperature':temps,'disks':disks,'pressure':{n:read('/proc/pressure/'+n) for n in ['cpu','memory','io']},'kernel':os.uname().release}
+    return {'memory':N.select_memory(mem),'load':list(map(float,read('/proc/loadavg').split()[:3])),'cpu_count':os.cpu_count(),'cpu':N.parse_cpu(read('/proc/stat').splitlines()[0]),'uptime_seconds':float(read('/proc/uptime').split()[0]),'temperature':temps,'disks':disks,'pressure':{n:N.parse_pressure(read('/proc/pressure/'+n)) for n in ['cpu','memory','io']},'kernel':os.uname().release}
 def identity():
     leases=[]
     for line in (read('/tmp/dhcp.leases') or '').splitlines():
         a=line.split()
-        if len(a)>=4:leases.append({'expires_epoch':a[0],'mac':a[1],'ip':a[2],'hostname':a[3]})
+        if len(a)>=4:leases.append({'expires':N.iso(a[0]) if a[0].isdigit() and int(a[0])>0 else None,'mac':a[1],'ip':a[2],'hostname':a[3]})
     return {'dhcp4':leases,'dhcp6':command(['ubus','call','dhcp','ipv6leases'],structured=True),'neighbors':command(['ip','-j','neigh','show'],structured=True),'coverage':'Snapshot bindings only; SLAAC privacy addresses and downstream NAT may remain unidentified'}
 
 def virtualization():
-    state=command(['systemctl','show','virtqemud.service','-p','ActiveState','--value'])
-    domains=command(['virsh','--readonly','-c','qemu:///system','list','--all']) if state and state.strip()=='active' else None
-    return {'libvirt_state':state,'domains':domains,'kvm_device_present':P.Path('/dev/kvm').exists(),'container_monitors':command(['ps','-C','conmon','-o','uid,pid,comm','--no-headers']),'podman_health':'Runtime API not queried; monitor process presence is not a container health check'}
+    state=(command(['systemctl','show','virtqemud.service','-p','ActiveState','--value']) or '').strip() or None
+    domains=N.parse_virsh_list(command(['virsh','--readonly','-c','qemu:///system','list','--all'])) if state=='active' else None
+    return {'libvirt_state':state,'domains':domains,'kvm_device_present':P.Path('/dev/kvm').exists(),'container_monitors':N.parse_ps(command(['ps','-C','conmon','-o','uid,pid,comm','--no-headers'])),'podman_health':'Runtime API not queried; monitor process presence is not a container health check'}
 
 def inventory():
     packages=[];current={}
@@ -67,7 +80,7 @@ def services():
     props=['Id','ActiveState','SubState','NRestarts','ExecMainCode','ExecMainStatus','InvocationID']
     units=[i['systemd_unit'] for i in out if i.get('systemd_unit')]+['sshd.service','virtqemud.service']
     details=command(['systemctl','show',*units,'--no-pager',*sum((['-p',p] for p in props),[])])
-    return {'procd':out,'systemd':details,'failed':command(['systemctl','list-units','--failed','--no-legend','--plain','--no-pager'])}
+    return {'procd':out,'systemd':N.parse_systemctl_show(details),'failed':N.parse_failed_units(command(['systemctl','list-units','--failed','--no-legend','--plain','--no-pager']))}
 def probes():
     results=[]
     for address in ['1.1.1.1','2606:4700:4700::1111']:
@@ -92,14 +105,9 @@ def network():
     state=command(['ubus','call','network.interface','dump'],structured=True) or {}
     # Never export opaque protocol data (which can acquire credentials).
     fields=['interface','up','pending','available','uptime','l3_device','device','proto','ipv4-address','ipv6-address','ipv6-prefix','ipv6-prefix-assignment','route','dns-server']
-    return {'interfaces':[{k:i[k] for k in fields if k in i} for i in state.get('interface',[])], 'links':command(['ip','-j','-s','link','show'],structured=True),'routes':{f:command(['ip','-j',f,'route','show','table','all'],structured=True) for f in ['-4','-6']},'probes':probes(),'rules':{f:command(['ip','-j',f,'rule','show'],structured=True) for f in ['-4','-6']}}
+    return {'interfaces':[{k:i[k] for k in fields if k in i} for i in state.get('interface',[])], 'links':N.trim_links(command(['ip','-j','-s','link','show'],structured=True)),'routes':{f:command(['ip','-j',f,'route','show','table','all'],structured=True) for f in ['-4','-6']},'probes':probes(),'rules':{f:command(['ip','-j',f,'rule','show'],structured=True) for f in ['-4','-6']}}
 def firewall():
-    raw=command(['nft','-j','list','ruleset'],structured=True) or {};rules=[]
-    for item in raw.get('nftables',[]):
-        r=item.get('rule')
-        if r:
-            counters=[x['counter'] for x in r.get('expr',[]) if 'counter' in x]
-            rules.append({k:r.get(k) for k in ['family','table','chain','handle']}|{'counters':counters})
+    rules=N.firewall_rules(command(['nft','-j','list','ruleset'],structured=True))
     wg={}
     for name in (command(['wg','show','interfaces']) or '').split():
         if SAFE.fullmatch(name):
@@ -109,14 +117,14 @@ def firewall():
                 for line in (command(['wg','show',name,field]) or '').splitlines():
                     a=line.split();rows.append({'peer':eventid('wg',a[0]),'values':a[1:]})
                 wg[name][field]=rows
-    return {'rules':rules,'conntrack':{n:read('/proc/sys/net/netfilter/nf_conntrack_'+n) for n in ['count','max','acct']},'conntrack_stats':read('/proc/net/stat/nf_conntrack'),'wireguard':wg,'nlbwmon':command(['/usr/sbin/nlbw','-c','json','-g','family,mac,ip'],structured=True),'coverage':'Counters cover observed paths; nlbwmon conns are cumulative, not active connections. Proxy/offload/notrack paths may be missing.'}
+    return {'rules':rules,'conntrack':N.parse_conntrack({n:read('/proc/sys/net/netfilter/nf_conntrack_'+n) for n in ['count','max','acct']}),'conntrack_stats':N.parse_conntrack_stats(read('/proc/net/stat/nf_conntrack')),'wireguard':wg,'nlbwmon':command(['/usr/sbin/nlbw','-c','json','-g','family,mac,ip'],structured=True),'coverage':'Counters cover observed paths; nlbwmon conns are cumulative, not active connections. Proxy/offload/notrack paths may be missing.'}
 def changes(since):
     # Fixed repository; read-only plumbing, no History constructor or index writes.
     raw=command(['git','--git-dir=/etc/uci-history/repo','log','refs/heads/history','--since=@'+str(int(since)),'-100','--format=%H%x00%ct%x00%B%x00']) or ''
     a=raw.split('\0');rows=[]
     for i in range(0,len(a)-2,3):
         meta=dict(l.split(': ',1) for l in a[i+2].splitlines() if ': ' in l)
-        rows.append({'event_id':a[i].strip(),'event_time':int(a[i+1]),'revision':meta.get('Revision'),'source':meta.get('Source'),'configs':meta.get('Configs','').split(),'diff_available':True})
+        rows.append({'event_id':a[i].strip(),'event_time':N.iso(int(a[i+1])),'revision':meta.get('Revision'),'source':meta.get('Source'),'configs':meta.get('Configs','').split(),'diff_available':True})
     parser=runpy.run_path('/usr/sbin/uci-history')['parse_uci']
     allowed={'network':{'proto','device','ifname','ipaddr','netmask','gateway','mtu','metric','ip6assign','ip6hint'},'dhcp':{'port','cachesize','logqueries','noresolv','interface','ra','dhcpv6'},'firewall':{'enabled','input','output','forward','masq','flow_offloading'}}
     for row in rows:
@@ -149,11 +157,13 @@ def journal(since,limit):
         msg=d.get('MESSAGE','')
         if not isinstance(msg,str):continue
         for kind,pat in PATTERNS:
-            if re.search(pat,msg,re.I):
+            match=re.search(pat,msg,re.I)
+            if match:
                 ip=re.search(r'\bfrom ([0-9a-fA-F:.]+)',msg)
-                rows.append({'event_id':eventid('journal',d.get('__CURSOR')),'event_time_us':d.get('__REALTIME_TIMESTAMP'),'time_quality':'journal_ingest','kind':kind,'unit':d.get('_SYSTEMD_UNIT'),'source':d.get('SYSLOG_IDENTIFIER'),'source_address':ip.group(1) if ip else None});break
+                # detail is only the matched signature text, never the surrounding MESSAGE.
+                rows.append({'event_id':eventid('journal',d.get('__CURSOR')),'event_time':N.iso_us(d.get('__REALTIME_TIMESTAMP')),'time_quality':'journal_ingest','kind':kind,'detail':match.group(0)[:120],'unit':d.get('_SYSTEMD_UNIT'),'source':d.get('SYSLOG_IDENTIFIER'),'source_address':ip.group(1) if ip else None});break
     return {'events':rows,'coverage':'Bounded journal scan of typed signatures; raw logs not exported.','scan_limit':limit,'possible_truncation':len(raw.splitlines())>=limit}
-def capabilities():return {'implemented':['system','services','network','firewall','changes','incidents','events','snapshot','samples','inventory','virtualization','identity'],'dns':{'global_metrics':True,'query_events':'ROUTER_AUDIT_DNS' in (read('/etc/init.d/daed') or ''),'reason':'Partial resolver coverage; see DNS data and source fields'},'missing':['long-term DNS baselines','per-client active connection count','container runtime health'],'schema_version':'1.0'}
+def capabilities():return {'implemented':['system','services','network','firewall','changes','incidents','events','snapshot','samples','inventory','virtualization','identity'],'dns':{'global_metrics':True,'query_events':'ROUTER_AUDIT_DNS' in (read('/etc/init.d/daed') or ''),'reason':'Partial resolver coverage; see DNS data and source fields'},'missing':['per-client active connection count','container runtime health'],'baselines':'computed off-router by analyze.py','schema_version':SCHEMA}
 MODULES={'system':system,'network':network,'services':services,'firewall':firewall,'capabilities':capabilities,'inventory':inventory,'virtualization':virtualization,'identity':identity}
 def envelope(module,since,limit):
     ERR.clear()
@@ -163,8 +173,8 @@ def envelope(module,since,limit):
         elif module=='changes':data=changes(since)
         elif module in ['incidents','events']:data=journal(since,limit)
         else:raise ValueError('unsupported module')
-        return {'schema_version':'1.0','host_id':host(),'boot_id':boot(),'collected_at':now(),'module':module,'status':'partial' if ERR or module in ['dns','changes','events','incidents'] else 'ok','window':{'start':dt.datetime.fromtimestamp(since,dt.timezone.utc).isoformat(),'end':now()},'data':data,'errors':list(ERR),'next_cursor':None}
-    except Exception as e:return {'schema_version':'1.0','host_id':host(),'boot_id':boot(),'collected_at':now(),'module':module,'status':'error','data':{},'errors':[{'code':type(e).__name__}]}
+        return {'schema_version':SCHEMA,'host_id':host(),'boot_id':boot(),'collected_at':now(),'module':module,'status':'partial' if ERR or module in ['dns','changes','events','incidents'] else 'ok','window':{'start':N.iso(since),'end':now()},'data':data,'errors':list(ERR),'next_cursor':None}
+    except Exception as e:return {'schema_version':SCHEMA,'host_id':host(),'boot_id':boot(),'collected_at':now(),'module':module,'status':'error','data':{},'errors':[{'code':type(e).__name__}]}
 def parse_since(v):
     m=re.fullmatch(r'([1-9][0-9]{0,4})([mhd])',v)
     if not m:raise argparse.ArgumentTypeError('expected duration, e.g. 15m')
@@ -182,27 +192,31 @@ def dns_receive():
     with socket.socket(socket.AF_UNIX,socket.SOCK_DGRAM) as sock:
         sock.setsockopt(socket.SOL_SOCKET,socket.SO_PASSCRED,1)
         sock.bind(path);os.chmod(path,0o666)
-        allowed_uids={0,pwd.getpwnam('dnsmasq').pw_uid}
+        allowed_uids={0}
+        try:allowed_uids.add(pwd.getpwnam('dnsmasq').pw_uid)
+        except KeyError:pass
         while True:
             try:
                 raw,ancillary,flags,addr=sock.recvmsg(4096,socket.CMSG_SPACE(12))
                 credentials=[struct.unpack('3i',v) for level,kind,v in ancillary if level==socket.SOL_SOCKET and kind==socket.SCM_CREDENTIALS]
                 if not credentials or credentials[0][1] not in allowed_uids:continue
                 event=json.loads(raw)
-                if 'event_time_epoch' in event:event['event_time']=dt.datetime.fromtimestamp(event['event_time_epoch'],dt.timezone.utc).isoformat()
+                if 'event_time_epoch' in event:event['event_time']=N.iso(event['event_time_epoch'])
                 if event.get('source') not in ['daed','dnsmasq'] or not isinstance(event.get('qname'),str) or len(event['qname'])>255:continue
-                allowed=['source','source_epoch','source_seq','event_time','client','qname','qtype','rcode','cache','duration_ms','failed','producer_dropped']
-                event={k:event.get(k) for k in allowed}
+                allowed=['source','source_epoch','source_seq','event_time','client','client_port','qname','qtype','rcode','cache','duration_ms','failed','producer_dropped']
+                # daed reports IP:port; the per-query source port must not identify a client.
+                event=N.normalize_dns_event({k:event.get(k) for k in allowed})
                 with DNS_LOCK:
                     DNS_STATS['received']+=1
                     if len(DNS_QUEUE)==DNS_QUEUE.maxlen:DNS_STATS['dropped']+=1
                     DNS_QUEUE.append(event)
-            except (ValueError,TypeError):continue
+            except (ValueError,TypeError,KeyError,AttributeError):continue
+            except OSError:time.sleep(1)
 
 def dns_summary(events):
     groups={}
     for e in events:
-        client=e.get('client','unknown');internal=client in ['127.0.0.1','::1'] or client.startswith('127.0.0.1:') or client.startswith('[::1]:')
+        client=N.client_addr(e.get('client'))[0];internal=N.is_internal(client)
         key=(e['source'],client)
         if key not in groups:groups[key]={'source':key[0],'client':key[1],'internal':internal,'queries':0,'rcodes':collections.Counter(),'qtypes':collections.Counter(),'domains':set(),'length_max':0}
         g=groups[key];g['queries']+=1;g['rcodes'][str(e.get('rcode'))]+=1;g['qtypes'][str(e.get('qtype'))]+=1;g['domains'].add(e['qname'].lower().rstrip('.'));g['length_max']=max(g['length_max'],len(e['qname']))
@@ -242,9 +256,9 @@ def collect():
             out.append(envelope('inventory',time.time()-3600,1000));last_inventory=time.monotonic()
         with DNS_LOCK:
             events=list(DNS_QUEUE);DNS_QUEUE.clear();stats=dict(DNS_STATS)
-        out.append({'schema_version':'1.0','host_id':host(),'boot_id':boot(),'collected_at':now(),'module':'dns_minute','status':'partial','data':{**dns_summary(events),'receiver':stats},'errors':[]})
+        out.append({'schema_version':SCHEMA,'host_id':host(),'boot_id':boot(),'collected_at':now(),'module':'dns_minute','status':'partial','data':{**dns_summary(events),'receiver':stats},'errors':[]})
         for offset in range(0,len(events),500):
-            out.append({'schema_version':'1.0','host_id':host(),'boot_id':boot(),'collected_at':now(),'module':'dns_queries','status':'partial','data':{'events':events[offset:offset+500],'receiver':stats,'coverage':'instrumented resolver events; loopback dnsmasq events are internal' },'errors':[]})
+            out.append({'schema_version':SCHEMA,'host_id':host(),'boot_id':boot(),'collected_at':now(),'module':'dns_queries','status':'partial','data':{'events':events[offset:offset+500],'receiver':stats,'coverage':'instrumented resolver events; loopback dnsmasq events are internal' },'errors':[]})
         name=str(time.time_ns())+'.jsonl';tmp=STORE/(name+'.tmp')
         tmp.write_text(''.join(json.dumps(x,separators=(',',':'))+'\n' for x in out));tmp.chmod(0o600);tmp.replace(STORE/name)
         files=sorted(STORE.glob('*.jsonl'));total=sum(p.stat().st_size for p in files)
@@ -273,13 +287,13 @@ def main():
                 if len(records)>=a.limit or size+len(line)>900000:truncated=True;break
                 records.append(json.loads(line));size+=len(line);next_cursor=str(fid)+':'+str(idx+1)
             if truncated:break
-        result={'schema_version':'1.0','host_id':host(),'collected_at':now(),'module':'samples','status':'partial' if truncated or expired else 'ok','data':{'records':records,'truncated':truncated,'cursor_expired':expired},'next_cursor':next_cursor,'errors':[]}
+        result={'schema_version':SCHEMA,'host_id':host(),'collected_at':now(),'module':'samples','status':'partial' if truncated or expired else 'ok','data':{'records':records,'truncated':truncated,'cursor_expired':expired},'next_cursor':next_cursor,'errors':[]}
     elif a.module=='dns' and P.Path('/run/router-audit/dns.sock').exists():
         result=envelope('dns',time.time()-a.since,a.limit);result['data']=dns_data(time.time()-a.since,a.view,a.limit)
-    elif a.module=='snapshot':result={'schema_version':'1.0','host_id':host(),'collected_at':now(),'module':'snapshot','status':'ok','data':{m:envelope(m,time.time()-a.since,a.limit) for m in ['system','network','services','firewall','dns','changes','incidents','identity','virtualization']},'errors':[]}
+    elif a.module=='snapshot':result={'schema_version':SCHEMA,'host_id':host(),'collected_at':now(),'module':'snapshot','status':'ok','data':{m:envelope(m,time.time()-a.since,a.limit) for m in ['system','network','services','firewall','dns','changes','incidents','identity','virtualization']},'errors':[]}
     else:result=envelope(a.module,time.time()-a.since,a.limit)
     if a.module=='snapshot' and any(x['status']!='ok' for x in result['data'].values()):result['status']='partial'
     encoded=json.dumps(result,separators=(',',':'))
-    if len(encoded)>1048576:encoded=json.dumps({'schema_version':'1.0','status':'error','errors':[{'code':'output_limit'}]})
+    if len(encoded)>1048576:encoded=json.dumps({'schema_version':SCHEMA,'status':'error','errors':[{'code':'output_limit'}]})
     print(encoded)
 if __name__=='__main__':main()
