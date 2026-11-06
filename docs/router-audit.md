@@ -87,7 +87,7 @@ python3 analyze.py router-audit.sqlite > evidence.json
 python3 analyze.py router-audit.sqlite --format llm --window 1h
 ```
 
-Run the puller once a minute using an administrator-managed timer. Its first run backfills the router's whole 24-hour buffer; later runs continue from the stored cursor. It commits samples and cursor together, deduplicates batch IDs, and deletes records older than 30 days. SQLite free pages are reused, not automatically vacuumed. No hard Debian disk cap is implemented; monitor storage and adjust retention. The source repository is synchronized to Debian, but no analysis timer, database, model runtime or MCP client is installed there automatically.
+Run the puller once a minute using an administrator-managed timer. Its first run backfills the router's whole 24-hour buffer; later runs continue from the stored cursor. It commits samples and cursor together, deduplicates batch IDs, and deletes records older than 30 days. SQLite free pages are reused, not automatically vacuumed. No hard Debian disk cap is implemented; monitor storage and adjust retention. The source repository is synchronized to Debian, but no analysis timer, database, model runtime or MCP client is installed there automatically. The current state of this Debian host (a user-level minute puller and its database, the model test workspace) and the handover notes for building the local analyzer are in `router-audit-debian.md`.
 
 ### Deterministic analysis (`analyze.py`)
 

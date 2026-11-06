@@ -188,9 +188,20 @@ GPU idle was 4.9 W with and without the model loaded. A finer core-clock cap nee
 option; it was prepared, judged not worth a permanent host change for a few Wh per day, and removed
 unused. The GPU was returned to `auto` / 130 W.
 
+## Deployment after validation
+
+At the user's request r2 was then published (snapshot `20261106T051640.011628Z`, preflight passed,
+only `router-audit-1.0.0-r2.apk` changed) and installed on the router with `apk add -u router-audit`
+(simulation showed only that upgrade), followed by `systemctl restart router-audit-collect.service`.
+The first r2 batch was schema 1.1 for every module, all 65 firewall rules carried their comment, no
+DNS client kept a port, an incremental restricted-SSH pull succeeded and LAN DNS answered over IPv4
+and IPv6. r3 (conntrack loss rated per hour; analyzer only) was published as snapshot
+`20261106T052212.303924Z` and not installed on the router. A user-level minute puller was then set
+up on Debian; see `router-audit-debian.md`.
+
 ## Known limits
 
-No physical router change, publication or reboot was performed for r2. Baselines need 24 hours of
+No reboot was performed for r2. Baselines need 24 hours of
 pulled history before verdicts appear. The fixtures are synthetic and small; they test that faults are
 named and nothing is invented, not diagnosis quality on unusual real incidents. Model throughput was
 measured on one GPU with one llama.cpp build. Periodic beaconing detection is not implemented.

@@ -1,8 +1,9 @@
 # Plan: make router-audit output usable by a local 4–8B LLM
 
-Status: implemented 2026-11-06 as router-audit 1.0.0-r2 (built and tested, not yet published or
-installed on the router). The guide is `docs/router-audit.md`; the validation record
-`docs/router-audit-validation.md` has the checks and the measured model comparison.
+Status: implemented 2026-11-06 as router-audit 1.0.0-r2 (installed on the router) and r3
+(analyzer-only, published). The guide is `docs/router-audit.md`; the validation record
+`docs/router-audit-validation.md` has the checks and the measured model comparison;
+`docs/router-audit-debian.md` records the Debian host state and the handover for the analyzer build.
 
 Changes beyond this plan, found by running the analyzer on real router data:
 
