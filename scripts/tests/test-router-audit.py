@@ -199,6 +199,13 @@ class Fixtures(FixtureBase):
         self.assertEqual(b['verdict'], 'no baseline')
         self.assertIn('needs 24h', early.baseline_text(b))
 
+    def test_conntrack_drop_severity(self):
+        self.assertEqual(AN.conntrack_drop_severity({'insert_failed': 8, 'drop': 8, 'early_drop': 0}, 1)[0], 'info')
+        self.assertEqual(AN.conntrack_drop_severity({'insert_failed': 150, 'drop': 150, 'early_drop': 0}, 1)[0], 'warning')
+        self.assertEqual(AN.conntrack_drop_severity({'insert_failed': 600, 'drop': 600, 'early_drop': 0}, 24)[0], 'info')
+        self.assertEqual(AN.conntrack_drop_severity({'insert_failed': 0, 'drop': 0, 'early_drop': 1}, 1)[0], 'warning')
+        self.assertEqual(AN.conntrack_drop_severity({'insert_failed': 8, 'drop': 8, 'early_drop': 0}, 1)[1], 8)
+
     def test_names_and_domains(self):
         an = self.analysis('nxdomain_storm')
         finding = an.findings()[0]

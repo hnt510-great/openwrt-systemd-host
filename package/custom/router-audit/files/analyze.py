@@ -73,6 +73,18 @@ BASELINE_METRICS = {
 }
 
 
+CONNTRACK_DROP_WARN_PER_HOUR = 100
+
+
+def conntrack_drop_severity(lost, hours):
+    """Severity for conntrack loss counters. Any early_drop (table full) is a warning; otherwise
+    insert failures and their packet drops (the same events) warn only at a sustained rate."""
+    per_hour = max(lost.get('insert_failed', 0), lost.get('drop', 0), lost.get('early_drop', 0)) / max(hours, 1 / 60)
+    if lost.get('early_drop', 0) > 0 or per_hour >= CONNTRACK_DROP_WARN_PER_HOUR:
+        return 'warning', per_hour
+    return 'info', per_hour
+
+
 # ---------------------------------------------------------------- small helpers
 
 def epoch(value):
@@ -695,10 +707,15 @@ class Analysis:
         if any(lost.values()):
             rows = self.counter_rate('ct.insert_failed', 60) + self.counter_rate('ct.drop', 60)
             t = min((t for t, v in rows if v > 0), default=None)
-            out.append(self._finding('conntrack_drops', 'conntrack', 'warning', 'Connections dropped by conntrack',
-                                     'conntrack insert_failed, drop or early_drop increased',
-                                     ['increase in window: insert_failed %s, drop %s, early_drop %s' % (
-                                         num(lost['insert_failed']), num(lost['drop']), num(lost['early_drop']))], t))
+            severity, per_hour = conntrack_drop_severity(lost, self.hours)
+            out.append(self._finding('conntrack_drops', 'conntrack', severity, 'Connections dropped by conntrack',
+                                     'conntrack insert failures, packet drops or early drops increased '
+                                     '(warning at %d or more per hour)' % CONNTRACK_DROP_WARN_PER_HOUR,
+                                     ['%s insert failures, %s packets dropped, %s early drops in window (about %s per hour)' % (
+                                         num(lost['insert_failed']), num(lost['drop']), num(lost['early_drop']), num(per_hour)),
+                                      'drop counts the packets lost to insert failures, so the two figures describe the same events, not a sum',
+                                      'a few insert failures per hour are usual on busy UDP traffic (for example parallel DNS queries racing '
+                                      'for the same tuple); early drops mean the table was full'], t))
         return out
 
     def _rule_interfaces(self):
