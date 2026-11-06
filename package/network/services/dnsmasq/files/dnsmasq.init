@@ -1280,6 +1280,10 @@ dnsmasq_start()
 	config_list_foreach "$cfg" addnmount append_extramount
 
 	procd_open_instance $cfg
+	if [ -x /usr/libexec/router-audit ]; then
+		mkdir -p -m 0755 /run/router-audit
+		procd_set_param env ROUTER_AUDIT_DNS=1
+	fi
 	procd_set_param command $PROG -C $CONFIGFILE -k -x /var/run/dnsmasq/dnsmasq."${cfg}".pid
 	procd_set_param file $CONFIGFILE
 	[ -n "$user_dhcpscript" ] && procd_set_param env USER_DHCPSCRIPT="$user_dhcpscript"
@@ -1297,6 +1301,7 @@ dnsmasq_start()
 	procd_add_jail_mount $CONFIGFILE $DHCPBOGUSHOSTNAMEFILE $DHCPSCRIPT $DHCPSCRIPT_DEPENDS
 	procd_add_jail_mount $EXTRA_MOUNT $RFC6761FILE $TRUSTANCHORSFILE
 	procd_add_jail_mount $dnsmasqconffile $dnsmasqconfdir $resolvdir $user_dhcpscript
+	[ ! -x /usr/libexec/router-audit ] || procd_add_jail_mount /run/router-audit
 	procd_add_jail_mount /etc/passwd /etc/group /etc/TZ /etc/hosts /etc/ethers
 	procd_add_jail_mount_rw /var/run/dnsmasq/ $leasefile
 	case "$logfacility" in */*)

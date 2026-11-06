@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Router audit v1 envelope",
+  "type": "object",
+  "required": ["schema_version", "status"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "host_id": {"type": "string"},
+    "boot_id": {"type": "string"},
+    "collected_at": {"type": "string", "format": "date-time"},
+    "module": {"type": "string"},
+    "status": {"enum": ["ok", "partial", "unavailable", "error"]},
+    "window": {"type": ["object", "null"]},
+    "data": {"type": "object"},
+    "errors": {"type": "array"},
+    "next_cursor": {"type": ["string", "null"], "maxLength": 2048}
+  },
+  "allOf": [{"if": {"properties": {"status": {"enum": ["ok", "partial"]}}}, "then": {"required": ["host_id", "collected_at", "module", "data", "errors"]}}]
+}

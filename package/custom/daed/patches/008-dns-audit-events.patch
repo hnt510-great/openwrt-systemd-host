@@ -1,0 +1,157 @@
+--- a/dae-core/control/dns_controller_handle.go
++++ b/dae-core/control/dns_controller_handle.go
+@@ -24,6 +24,7 @@ import (
+ )
+ 
+ type udpRequest struct {
++ audit *routerAuditEvent
+ 	realSrc        netip.AddrPort
+ 	realDst        netip.AddrPort
+ 	src            netip.AddrPort
+@@ -271,6 +272,12 @@ func (c *DnsController) Handle_(ctx cont
+ }
+ 
+ func (c *DnsController) HandleWithResponseWriter_(ctx context.Context, dnsMessage *dnsmessage.Msg, req *udpRequest, responseWriter dnsmessage.ResponseWriter) (err error) {
++ if routerAuditEnabled && req != nil && dnsMessage != nil && len(dnsMessage.Question)>0 {
++   req.audit = newRouterAuditEvent(dnsMessage,req,responseWriter)
++   defer func(){ req.audit.finish(err) }()
++   if responseWriter != nil { responseWriter = &routerAuditWriter{ResponseWriter:responseWriter, event:req.audit} }
++ }
++
+ 	c.requireStore()
+ 	if responseWriter != nil && !dnsResponseWriterUsesTCP(responseWriter) {
+ 		responseWriter = &dnsUDPResponseWriter{ResponseWriter: responseWriter, limit: dnsUDPResponseSizeLimit(dnsMessage)}
+@@ -328,6 +335,7 @@ func (c *DnsController) HandleWithRespon
+ 		// immediately without singleflight; stale entries background-refresh.
+ 		if handled, herr := c.serveFromRespCacheWithRefresh_(dnsMessage, req, responseWriter,
+ 			responseCacheKey, upstreamIndex, upstream); handled {
++            if req != nil && req.audit != nil { req.audit.Cache=true }
+ 			return herr
+ 		}
+ 
+@@ -397,6 +405,7 @@ func (c *DnsController) HandleWithRespon
+ 		if req == nil || req.lConn == nil {
+ 			return fmt.Errorf("dns request connection is nil for singleflight response")
+ 		}
++		routerAuditReply(req, data)
+ 		if err = sendRuntimeTrackedPkt(c.log, data, req.realDst, req.realSrc, req.replySoMark(), req.downloadRecorder()); err != nil {
+ 			return err
+ 		}
+--- a/dae-core/control/dns_controller_response.go
++++ b/dae-core/control/dns_controller_response.go
+@@ -226,6 +226,7 @@ func (c *DnsController) writeCachedRespo
+ 		// Transparent DNS replies must preserve the original DNS server tuple.
+ 		// sendPkt also carries the DNS port-conflict raw fallback for host-local
+ 		// clients where binding the source address may fail transiently.
++		routerAuditReply(req, patchedResp)
+ 		if err := sendRuntimeTrackedPkt(c.log, patchedResp, req.realDst, req.realSrc, req.replySoMark(), req.downloadRecorder()); err != nil {
+ 			return fmt.Errorf("failed to write cached DNS resp: %w", err)
+ 		}
+@@ -247,6 +248,8 @@ func (c *DnsController) writeCachedRespo
+ 	}
+ 	patchedResp = truncateDNSResponse(patchedResp, limit)
+ 
++	routerAuditReply(req, patchedResp)
++
+ 	if err := sendRuntimeTrackedPkt(c.log, patchedResp, req.realDst, req.realSrc, req.replySoMark(), req.downloadRecorder()); err != nil {
+ 		return fmt.Errorf("failed to write oversized cached DNS resp: %w", err)
+ 	}
+@@ -289,6 +292,7 @@ func (c *DnsController) sendDnsErrorResp
+ 		return fmt.Errorf("pack DNS packet: %w", err)
+ 	}
+ 	data = truncateDNSResponse(data, dnsUDPResponseSizeLimit(dnsMessage))
++	routerAuditReply(req, data)
+ 	if err = sendRuntimeTrackedPkt(c.log, data, req.realDst, req.realSrc, req.replySoMark(), req.downloadRecorder()); err != nil {
+ 		return err
+ 	}
+--- /dev/null
++++ b/dae-core/control/router_audit.go
+@@ -0,0 +1,88 @@
++// SPDX-License-Identifier: AGPL-3.0-only
++package control
++
++import (
++	"encoding/json"
++	dnsmessage "github.com/miekg/dns"
++	"golang.org/x/sys/unix"
++	"os"
++	"strconv"
++	"sync/atomic"
++	"time"
++)
++
++var routerAuditEnabled = os.Getenv("ROUTER_AUDIT_DNS") == "1"
++var routerAuditFD = func() int {
++	if !routerAuditEnabled {
++		return -1
++	}
++	f, e := unix.Socket(unix.AF_UNIX, unix.SOCK_DGRAM|unix.SOCK_NONBLOCK|unix.SOCK_CLOEXEC, 0)
++	if e != nil {
++		return -1
++	}
++	return f
++}()
++var routerAuditSeq atomic.Uint64
++var routerAuditDropped atomic.Uint64
++var routerAuditEpoch = strconv.Itoa(os.Getpid()) + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
++
++type routerAuditEvent struct {
++	Source   string  `json:"source"`
++	Epoch    string  `json:"source_epoch"`
++	Seq      uint64  `json:"source_seq"`
++	Time     string  `json:"event_time"`
++	Client   string  `json:"client"`
++	QName    string  `json:"qname"`
++	QType    uint16  `json:"qtype"`
++	Rcode    *int    `json:"rcode"`
++	Cache    bool    `json:"cache"`
++	Duration float64 `json:"duration_ms"`
++	Failed   bool    `json:"failed"`
++	Dropped  uint64  `json:"producer_dropped"`
++	start    time.Time
++}
++
++func newRouterAuditEvent(m *dnsmessage.Msg, r *udpRequest, w dnsmessage.ResponseWriter) *routerAuditEvent {
++	t := time.Now()
++	client := r.realSrc.String()
++	if w != nil && w.RemoteAddr() != nil {
++		client = w.RemoteAddr().String()
++	}
++	return &routerAuditEvent{Source: "daed", Epoch: routerAuditEpoch, Seq: routerAuditSeq.Add(1), Time: t.UTC().Format(time.RFC3339Nano), Client: client, QName: m.Question[0].Name, QType: m.Question[0].Qtype, start: t}
++}
++func routerAuditReply(r *udpRequest, data []byte) {
++	if r != nil && r.audit != nil && len(data) >= 4 {
++		code := int(data[3] & 15)
++		r.audit.Rcode = &code
++	}
++}
++func (e *routerAuditEvent) finish(err error) {
++	e.Duration = float64(time.Since(e.start).Microseconds()) / 1000
++	e.Failed = err != nil
++	e.Dropped = routerAuditDropped.Load()
++	b, er := json.Marshal(e)
++	if er != nil {
++		return
++	}
++	if routerAuditFD < 0 || unix.Sendto(routerAuditFD, b, unix.MSG_DONTWAIT, &unix.SockaddrUnix{Name: "/run/router-audit/dns.sock"}) != nil {
++		routerAuditDropped.Add(1)
++	}
++}
++
++type routerAuditWriter struct {
++	dnsmessage.ResponseWriter
++	event *routerAuditEvent
++}
++
++func (w *routerAuditWriter) WriteMsg(m *dnsmessage.Msg) error {
++	code := m.Rcode
++	w.event.Rcode = &code
++	return w.ResponseWriter.WriteMsg(m)
++}
++func (w *routerAuditWriter) Write(b []byte) (int, error) {
++	if len(b) >= 4 {
++		code := int(b[3] & 15)
++		w.event.Rcode = &code
++	}
++	return w.ResponseWriter.Write(b)
++}

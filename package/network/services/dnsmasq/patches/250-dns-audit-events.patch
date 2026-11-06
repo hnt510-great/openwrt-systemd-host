@@ -1,0 +1,95 @@
+--- a/src/forward.c
++++ b/src/forward.c
+@@ -16,6 +16,76 @@
+ 
+ #include "dnsmasq.h"
+ 
++#include <sys/un.h>
++static void
++router_audit_reply (char *packet, size_t len, union mysockaddr *to)
++{
++  static int audit_fd = -1;
++  static unsigned long seq, dropped;
++  static time_t epoch;
++  char name[MAXDNAME], escaped[MAXDNAME * 6], client[INET6_ADDRSTRLEN],
++      output[MAXDNAME * 6 + 512];
++  unsigned char *ptr = (unsigned char *)packet + sizeof (struct dns_header);
++  struct dns_header *header = (struct dns_header *)packet;
++  struct sockaddr_un dest;
++  unsigned int qtype;
++  size_t j = 0, i;
++  struct timespec stamp;
++  int n;
++  if (len < sizeof (struct dns_header) || !(header->hb3 & HB3_QR)
++      || !ntohs (header->qdcount))
++    return;
++  if (audit_fd == -1)
++    {
++      if (!getenv ("ROUTER_AUDIT_DNS"))
++        return;
++      audit_fd
++          = socket (AF_UNIX, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
++      epoch = time (NULL);
++    }
++  if (audit_fd < 0
++      || !extract_name (header, len, &ptr, name, EXTR_NAME_EXTRACT, 4))
++    return;
++  if (ptr + 4 > (unsigned char *)packet + len)
++    return;
++  qtype = ((unsigned int)ptr[0] << 8) | ptr[1];
++  for (i = 0; name[i] && j + 7 < sizeof (escaped); i++)
++    {
++      unsigned char c = name[i];
++      if (c >= 32 && c < 127 && c != '"' && c != '\\')
++        escaped[j++] = c;
++      else
++        {
++          snprintf (escaped + j, 7, "\\u%04x", c);
++          j += 6;
++        }
++    }
++  escaped[j] = 0;
++  if (to->sa.sa_family == AF_INET)
++    inet_ntop (AF_INET, &to->in.sin_addr, client, sizeof (client));
++  else if (to->sa.sa_family == AF_INET6)
++    inet_ntop (AF_INET6, &to->in6.sin6_addr, client, sizeof (client));
++  else
++    return;
++  clock_gettime (CLOCK_REALTIME, &stamp);
++  n = snprintf (output, sizeof (output),
++                "{\"source\":\"dnsmasq\",\"source_epoch\":\"%ld-%ld\","
++                "\"source_seq\":%lu,\"event_time_epoch\":%ld.%09ld,\"client\":"
++                "\"%s\",\"qname\":\"%s\",\"qtype\":%u,\"rcode\":%u,\"duration_"
++                "ms\":null,\"cache\":null,\"producer_dropped\":%lu}",
++                (long)epoch, (long)getpid (), ++seq, (long)stamp.tv_sec,
++                stamp.tv_nsec, client, escaped, qtype, header->hb4 & 15,
++                dropped);
++  memset (&dest, 0, sizeof (dest));
++  dest.sun_family = AF_UNIX;
++  strcpy (dest.sun_path, "/run/router-audit/dns.sock");
++  if (n > 0 && n < (int)sizeof (output)
++      && sendto (audit_fd, output, n, MSG_DONTWAIT, (struct sockaddr *)&dest,
++                 sizeof (dest))
++             < 0)
++    dropped++;
++}
++
+ static struct frec *get_new_frec(time_t now, struct server *serv, int force);
+ static struct frec *lookup_frec(time_t now, char *target, int class, int rrtype, int id, int flags, int flagmask);
+ #ifdef HAVE_DNSSEC
+@@ -105,6 +175,7 @@ int send_from(int fd, int nowild, char *
+       return 0;
+     }
+   
++  router_audit_reply(packet, len, to);
+   return 1;
+ }
+           
+@@ -2770,6 +2841,7 @@ void tcp_request(int confd, time_t now,
+       out_iov[1].iov_base = bigbuff->iov_base;
+       if (!read_writev(confd, out_iov, 2, RW_WRITE))
+ 	break;
++      router_audit_reply(bigbuff->iov_base, m, &peer_addr);
+       
+       /* If we answered with stale data, this process will now try and get fresh data into
+ 	 the cache and cannot therefore accept new queries. Close the incoming

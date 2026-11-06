@@ -1,0 +1,4 @@
+#!/usr/bin/python3
+import os,sys
+if '--collect' in sys.argv[1:]:sys.exit(2)
+os.execv('/usr/bin/python3',['python3','-I','/usr/libexec/router-audit',*sys.argv[1:]])

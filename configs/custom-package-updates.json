@@ -884,6 +884,10 @@
       "recipe": "package/libs/libxml2/Makefile",
       "same_source": true
     },
+    "router-audit": {
+      "provider": "local",
+      "reason": "Locally maintained read-only router audit export and DNS event collection"
+    },
     "spice-gtk": {
       "provider": "directory",
       "policy": "series",
