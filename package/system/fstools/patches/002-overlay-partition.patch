@@ -1,0 +1,199 @@
+Subject: [PATCH] Mount separate overlay partitions and support ephemeral installer roots
+
+Resolve PARTUUID roots to their own disk, recognize btrfs and xfs before
+formatting, and honor an explicit tmpfs overlay for live USB installation.
+
+---
+--- a/libfstools/common.c
++++ b/libfstools/common.c
+@@ -90,12 +90,17 @@ char *get_var_from_file(const char *file
+ int block_file_identify(FILE *f, uint64_t offset)
+ {
+ 	uint32_t magic = 0;
++	char btrfs_magic[8];
+ 	size_t n;
+ 
+ 	if (fseeko(f, offset, SEEK_SET) < 0)
+ 		return -1;
+ 
+ 	n = fread(&magic, sizeof(magic), 1, f);
++	if (n != 1)
++		return -1;
++	if (magic == cpu_to_be32(0x58465342))
++		return FS_XFS;
+ 	if (magic == cpu_to_le32(0x88b1f))
+ 		return FS_TARGZ;
+ 
+@@ -123,6 +128,11 @@ int block_file_identify(FILE *f, uint64_
+ 	if ((le32_to_cpu(magic) & 0xffff) == 0xef53)
+ 		return FS_EXT4;
+ 
++	if (!fseeko(f, offset + 0x10040, SEEK_SET) &&
++	    fread(btrfs_magic, sizeof(btrfs_magic), 1, f) == 1 &&
++	    !memcmp(btrfs_magic, "_BHRfS_M", sizeof(btrfs_magic)))
++		return FS_BTRFS;
++
+ 	return FS_NONE;
+ }
+ 
+--- a/libfstools/libfstools.h
++++ b/libfstools/libfstools.h
+@@ -30,6 +30,8 @@ enum {
+ 	FS_F2FS,
+ 	FS_EXT4,
+ 	FS_TARGZ,
++	FS_BTRFS,
++	FS_XFS,
+ };
+ 
+ enum fs_state {
+--- a/libfstools/overlay.c
++++ b/libfstools/overlay.c
+@@ -273,15 +273,19 @@ handle_whiteout(const char *dir)
+ static char *overlay_fs_name(int type)
+ {
+ 	switch (type) {
+-		case FS_EXT4:
+-			return "ext4";
+-		case FS_F2FS:
+-			return "f2fs";
+-		case FS_UBIFS:
+-			return "ubifs";
+-		case FS_JFFS2:
+-		default:
+-			return "jffs2";
++	case FS_BTRFS:
++		return "btrfs";
++	case FS_XFS:
++		return "xfs";
++	case FS_EXT4:
++		return "ext4";
++	case FS_F2FS:
++		return "f2fs";
++	case FS_UBIFS:
++		return "ubifs";
++	case FS_JFFS2:
++	default:
++		return "jffs2";
+ 	}
+ }
+ 
+@@ -348,6 +352,8 @@ jffs2_switch(struct volume *v)
+ 			ULOG_ERR("failed to sync jffs2 overlay\n");
+ 		break;
+ 
++	case FS_BTRFS:
++	case FS_XFS:
+ 	case FS_EXT4:
+ 	case FS_F2FS:
+ 	case FS_UBIFS:
+--- a/libfstools/partname.c
++++ b/libfstools/partname.c
+@@ -1,6 +1,8 @@
+ // SPDX-License-Identifier: GPL-2.0-or-later
+ 
+ #include "common.h"
++#include <limits.h>
++#include <sys/sysmacros.h>
+ 
+ #define BUFLEN 64
+ 
+@@ -76,12 +78,42 @@ static char *rootdevname(char *devpath)
+ 	return basename(devpath);
+ }
+ 
++/* Resolve the mounted root to its own disk; never scan unrelated disks. */
++static char *mounted_root_disk(char *buf, size_t len)
++{
++	struct stat st;
++	char link[64], path[PATH_MAX], partition[PATH_MAX + 16];
++	static const char * const roots[] = { "/", "/rom" };
++	size_t i;
++	char *slash;
++
++	for (i = 0; i < ARRAY_SIZE(roots); i++) {
++		if (stat(roots[i], &st))
++			continue;
++		snprintf(link, sizeof(link), "/sys/dev/block/%u:%u",
++			 major(st.st_dev), minor(st.st_dev));
++		if (!realpath(link, path))
++			continue;
++		snprintf(partition, sizeof(partition), "%s/partition", path);
++		if (!access(partition, F_OK)) {
++			slash = strrchr(path, '/');
++			if (!slash)
++				continue;
++			*slash = '\0';
++		}
++		snprintf(buf, len, "%s", basename(path));
++		return buf;
++	}
++	return NULL;
++}
++
+ static struct volume *partname_volume_find(char *name)
+ {
+ 	struct partname_volume *p;
+ 	char ueventgstr[BUFLEN];
+ 	char namebuf[BUFLEN];
+ 	char rootparam[BUFLEN];
++	char mounted_disk[BUFLEN];
+ 	char *rootdev = NULL, *devname, *tmp;
+ 	int j;
+ 	bool found = false;
+@@ -109,8 +141,12 @@ static struct volume *partname_volume_fi
+ 	if (get_var_from_file("/proc/cmdline", "root", rootparam, sizeof(rootparam)))
+ 		has_root = true;
+ 
+-	if (has_root && rootparam[0] == '/') {
++	if (has_root && rootparam[0] == '/')
+ 		rootdev = rootdevname(rootparam);
++	else if (has_root && !allow_fallback)
++		rootdev = mounted_root_disk(mounted_disk, sizeof(mounted_disk));
++
++	if (rootdev) {
+ 		/* find partition on same device as rootfs */
+ 		snprintf(ueventgstr, sizeof(ueventgstr), "%s/%s/*/uevent", block_dir_name, rootdev);
+ 	} else {
+--- a/mount_root.c
++++ b/mount_root.c
+@@ -39,6 +39,10 @@ start(int argc, char *argv[3])
+ 	struct volume *data;
+ 	struct stat s;
+ 
++	if (get_var_from_file("/proc/cmdline", "fstools_overlay", dataparam, sizeof(dataparam)) &&
++	    !strcmp(dataparam, "tmpfs"))
++		return ramoverlay();
++
+ 	if (get_var_from_file("/proc/cmdline", "fstools_overlay_name", dataparam, sizeof(dataparam)))
+ 		dataname = dataparam;
+ 
+@@ -85,6 +89,8 @@ start(int argc, char *argv[3])
+ 		ULOG_NOTE("jffs2 not ready yet, using temporary tmpfs overlay\n");
+ 		return ramoverlay();
+ 
++	case FS_BTRFS:
++	case FS_XFS:
+ 	case FS_EXT4:
+ 	case FS_F2FS:
+ 	case FS_JFFS2:
+@@ -119,6 +125,10 @@ done(int argc, char *argv[1])
+ 	char *dataname = "rootfs_data";
+ 	struct volume *v;
+ 
++	if (get_var_from_file("/proc/cmdline", "fstools_overlay", dataparam, sizeof(dataparam)) &&
++	    !strcmp(dataparam, "tmpfs"))
++		return 0;
++
+ 	if (get_var_from_file("/proc/cmdline", "fstools_overlay_name", dataparam, sizeof(dataparam)))
+ 		dataname = dataparam;
+ 
+@@ -132,6 +142,8 @@ done(int argc, char *argv[1])
+ 	case FS_DEADCODE:
+ 		return jffs2_switch(v);
+ 
++	case FS_BTRFS:
++	case FS_XFS:
+ 	case FS_EXT4:
+ 	case FS_F2FS:
+ 	case FS_JFFS2:
