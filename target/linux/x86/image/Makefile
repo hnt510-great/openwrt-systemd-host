@@ -41,7 +41,7 @@ define Build/systemd-pad-to
 		truncate -s $$(( ($$size + $(1) - 1) / $(1) * $(1) )) $@
 endef
 
-define Build/combined
+define Build/efi-boot-files
 	$(CP) $(KDIR)/$(KERNEL_NAME) $@.boot/boot/vmlinuz
 	-$(CP) $(STAGING_DIR_ROOT)/boot/. $@.boot/boot/
 	$(CP) $(STAGING_DIR_IMAGE)/grub2/boot.img $@.boot/boot/grub/
@@ -51,6 +51,10 @@ define Build/combined
 		$(INSTALL_DIR) $@.boot/efi/boot
 		$(CP) $(STAGING_DIR_IMAGE)/grub2/boot$(if $(CONFIG_x86_64),x64,ia32).efi $@.boot/efi/boot/
 	)
+endef
+
+define Build/combined
+	$(call Build/efi-boot-files,$(1))
 	PADDING="$(if $(CONFIG_OPENWRT_SYSTEMD),sparse,1)" SIGNATURE="$(IMG_PART_SIGNATURE)" \
 		$(if $(filter $(1),efi),GUID="$(IMG_PART_DISKGUID)") $(SCRIPT_DIR)/gen_image_generic.sh \
 		$@ \
@@ -134,8 +138,36 @@ define Build/iso
 		-o $@ $@.boot $(TARGET_DIR)
 endef
 
+# The pristine package tree is copied separately so personal files/ never enter the ISO.
+define Build/installer-iso
+	rm -rf $@.root $@.files
+	$(INSTALL_DIR) $@.files
+	$(CP) $(TARGET_DIR_ORIG) $@.root
+	if git -C $(TOPDIR) rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
+		git -C $(TOPDIR) ls-files -z files | (cd $(TOPDIR) && tar --null -T - -cf -) | tar -C $@.files -xf -; \
+	fi
+	if [ -d $@.files/files ]; then python3 $(SCRIPT_DIR)/merge-usr.py $@.files/files; fi
+	$(call prepare_rootfs,$@.root,$@.files/files)
+	$(STAGING_DIR_HOST)/bin/mksquashfs4 $@.root $@.squashfs -nopad -noappend -root-owned -comp $(SQUASHFSCOMP) $(SQUASHFSOPT)
+	python3 $(SCRIPT_DIR)/build-installer-initramfs.py --root $@.root \
+		--init $(TOPDIR)/package/custom/openwrt-installer/files/live-init \
+		--kernel-config $(LINUX_DIR)/.config --output $@.initramfs.gz
+	rm -rf $@.root
+	$(call Build/efi-boot-files,efi)
+	PATH="$(STAGING_DIR_HOST)/bin:$$PATH" python3 $(SCRIPT_DIR)/build-installer-iso.py \
+		--output $@ --squashfs $@.squashfs --esp-tree $@.boot --initramfs $@.initramfs.gz \
+		--grub-dir $(STAGING_DIR_IMAGE)/grub2 --kernel $(KDIR)/$(KERNEL_NAME) \
+		--template ./grub-installer.cfg --epoch $(SOURCE_DATE_EPOCH) \
+		--signature $$(echo installer$(SOURCE_DATE_EPOCH)$(LINUX_VERMAGIC) | $(MKHASH) md5 | cut -b1-8) \
+		--root-partuuid '$(GPT_ROOTPART)' --release '$(LINUX_UNAME_VERSION)' --version '$(VERSION_NUMBER)' \
+		--serial '$(strip $(GRUB_SERIAL_CONFIG))' --terminal '$(strip $(GRUB_TERMINAL_CONFIG))' \
+		--cmdline '$(BOOTOPTS) $(GRUB_CONSOLE_CMDLINE)' --title '$(GRUB_TITLE)' --timeout '$(GRUB_TIMEOUT)'
+endef
+
 DEVICE_VARS += GRUB2_VARIANT
 define Device/Default
+  ARTIFACT/installer.iso := grub-config efi | installer-iso
+  ARTIFACTS-$$(CONFIG_INSTALLER_ISO_IMAGES) += installer.iso
   ARTIFACT/image.iso := grub-config iso | iso
   IMAGE/combined.img := grub-config pc | combined | grub-install | append-metadata
   IMAGE/combined.img.gz := grub-config pc | combined | grub-install | $(IMAGE_COMPRESS) | append-metadata

@@ -1,0 +1,16 @@
+#!/usr/bin/python3
+import json
+from pathlib import Path
+import subprocess
+
+path = Path('/etc/openwrt-installer/firstboot.json')
+a = json.loads(path.read_text())
+# Retrying after a desktop setup failure must not recreate an existing user.
+exists = subprocess.run(['id', a['name']], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+if not exists:
+    subprocess.run(['useradd', '-m', '-G', 'sudo', a['name']], check=True)
+if subprocess.run(['usermod', '-p', a['password_hash'], a['name']]).returncode:
+    raise RuntimeError('Unable to set user password')
+if a['gnome_autostart']:
+    subprocess.run(['desktop-setup', a['name']], check=True)
+path.unlink()

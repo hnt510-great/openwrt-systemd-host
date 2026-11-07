@@ -1,0 +1,6 @@
+[Unit]
+Description=OpenWrt serial installer
+Requires=sysinit.target
+After=sysinit.target
+Wants=openwrt-installer@ttyS0.service openwrt-console@tty2.service
+AllowIsolate=yes
