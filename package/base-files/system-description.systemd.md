@@ -381,3 +381,14 @@ Run `systemctl --user`, `wpctl`, Flatpak and desktop application commands in
 the intended ordinary user's session. Root's user manager is a different
 context. Check RDP/Sunshine listener addresses with `ss -lntup` and preserve
 LAN-only bindings when repairing remote access.
+
+## Whole-disk USB installation
+
+An optional clean hybrid installer boots with native systemd into a dedicated
+console target, using a tmpfs overlay and skipping the normal x86 boot-partition
+restore hook. The English installer creates a fresh GPT with a FAT ESP, read-only
+system partition and separate ext4, btrfs or xfs overlay, configures LAN/WAN and
+firewall policy, and sets account password hashes. Optional regular-user and
+GNOME setup runs after OpenWrt first-boot defaults under systemd. The installed
+boot tree supports kernelctl and retains BIOS, UEFI and procd recovery paths.
+Personal untracked image overlays are excluded from the installer payload.
