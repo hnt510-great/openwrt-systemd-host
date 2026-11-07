@@ -326,3 +326,47 @@ Evidence for the rebuild and VM runs is in
 - `rebuild-attempt2-block-mount-r5-reserved.log`;
 - `fstools-r6-compile.log`, `rebuild-fstools-r6.log`;
 - `r6/{cdrom-vm,usb-vm,usb-boot-vm}/receipt.json`, with their logs.
+
+### Production publication
+
+The second attempt stopped at the same stage on
+`base/daed-2.1.1-r7.apk`. `diagnose-apk-rebuild.py` classified the
+difference as **benign**: two of 1,143 BTF type slots in the embedded BPF
+object moved, which is compiler nondeterminism. The guidance in
+[lan-apk-feeds.md](lan-apk-feeds.md) allows either a new release or restoring
+the published file. The published snapshot copy was restored into
+`bin/systemd`, and the diagnostic tool then reported identical bytes. The
+rebuilt copy is kept as evidence.
+
+The third attempt published through the normal production path
+(`publish-changed-feeds.sh`).
+
+| Stage | Result |
+| --- | --- |
+| Router baseline (`example-user@192.0.2.1`, running `7.3.1-51-openwrt`) | Read under APK's database lock |
+| Userspace and kernel upgrade simulation (full mode) | Passed |
+| Recheck before promotion | Passed |
+| Userspace feed | Published: `public/snapshots/20261107T032645.349697Z` |
+| Kernel feed | Published generation `7.3.1-54-openwrt`: `public/kernel-snapshots/1794022019991495650` |
+| Receipt | `/srv/openwrt-feeds/upgrade-receipts/1794022027657139168.json` |
+
+Published identities from this change set:
+
+- `fstools`, `block-mount`, `blockd` `2026.10.18~907cf449-r6`;
+- `openwrt-installer 1-r2`;
+- `openwrt-desktop 26`;
+- `router-audit 1.0.0-r5`;
+- `btrfs-progs 6.11-r4`;
+- `whiptail 0.52.25-r1`;
+- `linux-image-7.3.1-54-openwrt`.
+
+The ISO is a build artifact, not a feed package, so it was not published. It
+stays at the `bin/systemd` path listed above.
+
+Publication does not install anything on the router: the router was only read
+and simulated, and none of its packages, kernel or configuration changed.
+Physical USB/optical media, real PC firmware and real NIC/PPPoE behaviour remain
+untested; see [Remaining hardware acceptance](#remaining-hardware-acceptance).
+
+Evidence (same directory): `publish-rejected-daed-benign.log`,
+`daed-2.1.1-r7.rebuilt-benign.apk`, `publish.log`.
