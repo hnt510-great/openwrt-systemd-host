@@ -1,0 +1,372 @@
+# Installer ISO validation — 2026-11-07
+
+The current artifact is the fstools-r6 rebuild recorded under
+[Publication](#publication). The optical-compatible design and its checks are
+in [Optical compatibility](#optical-compatibility--sequence-54). The original
+USB-only sequence-53 results are retained here as the baseline.
+
+Implementation, full build and disposable-VM acceptance completed. The guide is
+[installer-iso.md](installer-iso.md); the approved design is
+[installer-iso-plan.md](installer-iso-plan.md).
+
+## Artifacts and scope
+
+Original USB-only artifact, now preserved outside the build output:
+`/srv/openwrt-validation/installer-optical-validation-20261107/usb-only.iso`.
+SHA-256: `123a03d4de55f6c285a45cc42e53c3ab43aaed8e80e86618d905dd414ad4e74f`.
+The final image passed the complete fresh installation matrix.
+The current kernel reservation is `7.3.1-53-openwrt`.
+
+All disk writes, service restarts and account creation in this validation are
+inside disposable QEMU guests. No physical router was modified or flashed;
+there was no feed publication, Git push, or host desktop restart. Original local
+edits, untracked overlays, feed histories and the submodule were retained.
+
+## Build and source checks
+
+| Check | Result |
+| --- | --- |
+| Installer host suite, with an actual host-built UCI | 9 tests passed; 64 WAN/IPv6/firewall combinations applied |
+| Custom-package registry suite | 47 tests passed |
+| GPU coldplug shell tests | 4 tests passed |
+| fstools package compile | Passed. The release recorded here was wrong: `PKG_RELEASE:=3` mapped through the rebuild ledger to the already published r4; see [Publication](#publication) |
+| Installer and desktop package compiles | Passed; final source/package payload hashes match |
+| Strict Kconfig, without writing the working config | Passed |
+| checkpatch, without requiring a local patch sign-off | 0 errors, 0 warnings |
+| Shared ESP macro versus original recipe | Byte-identical combined EFI disk images, including BIOS setup; same inputs and fixed FAT directory clock |
+| Real sparse-file GPT with p1/p2/p3/p128 | Passed; BIOS region starts at sector 34 |
+| USB boot spike: OVMF/NVMe, SeaBIOS/SATA, OVMF/virtio | All passed; source p3 root, tmpfs overlay, installer target and physical NICs |
+| Full build-only | Sequence 53 completed, including the IPv6 first-boot fix; the reserved kernel was reused |
+| Serial TUI walkthrough | Reached all screens and default-No confirmation; then completed an ext4 install on the virtual disk |
+| Installed ext4 overlay, ESP and kernelctl | Passed on the disk booted alone |
+| User creation and sudo group | Passed |
+| GNOME coldplug integration | Bound bochs DRM exposed an unnecessary modprobe failure; source fix passed in the VM, with seat0/tty7 session and no failed units |
+| Final fresh ISO matrix and client acceptance | See matrix below |
+
+## Final image VM matrix
+
+Every installation attaches the exact ISO as a USB storage device and a new
+16 GiB target. Each installed system is then booted with the USB absent.
+
+| Case | Firmware / target / overlay | Settings | Result |
+| --- | --- | --- | --- |
+| a | OVMF / NVMe / ext4 | WAN DHCP, IPv6 on, regular user and GNOME | Passed, including rendered GNOME screenshot and kernelctl bootstrap modules |
+| b | SeaBIOS / SATA / btrfs | Static WAN, IPv6 off | Passed, including IPv6 policy after stock first-boot defaults |
+| c | OVMF / virtio / xfs | PPPoE configuration, full-cone NAT | Passed; actual full-cone NAT rules verified |
+
+All three cases have p3 overlays, p1 `/boot`, working `kernelctl`, no failed
+units, no personal account or proxy nodes, and no remaining firstboot request.
+Their separate LAN clients obtain leases inside the requested pool, log into
+LuCI over HTTPS with status 200, and authenticate over SSH with the chosen root
+password. PPPoE acceptance is configuration-only; no PPPoE server is provided.
+
+The final image also passed an extroot regression: a cloned installation booted
+with an independent ext4 `/dev/vda1` overlay, retained a preservation marker,
+and kept its NVMe boot partition. The same build's normal combined image also booted successfully with its internal F2FS overlay.
+
+The full configuration snapshot was refreshed from the accepted build's
+`.config`, preserving its pre-existing local selections. Changes against the
+original working configuration are limited to the installer selections and
+kernel reservation; the committed snapshot was already older than that working
+configuration.
+
+## Findings incorporated into the implementation
+
+- sfdisk needs `first-lba: 34` and an explicit numeric `128 :` entry to create
+  the BIOS partition while retaining boot/rom/overlay as partitions 1/2/3.
+- Tracked defaults must be normalized with `merge-usr.py` before copying them
+  into the pristine package root, whose `/lib` is already a symlink.
+- Mount ISO9660 from media partition 1; opening the whole disk conflicts with
+  its already mounted p3 root. A VM confirmed p1 exposes `install/esp` and the
+  manifest correctly.
+- PCI driver coldplug comes from udev. The installer only falls back to
+  kmodloader if physical NICs are absent, and optional hardware probe failures
+  are nonfatal. Zero-capacity block devices are excluded from disk selection.
+- Stock whiptail does not bind Escape. A terminal relay adds Escape cancellation
+  while preserving CSI/SS3 arrow keys, without changing feed packages. A real
+  terminal test exercises both navigation and Escape.
+- The confirmation is a readable list of actual partition sizes and selected
+  settings. Passwords and hashes are omitted; PPPoE configuration is mode 0600.
+- Preseed the stock odhcpd global section so its first-boot defaults do not
+  overwrite the selected IPv6 policy. A host regression runs the actual
+  `odhcpd.defaults` with IPv6 and DHCP independently enabled/disabled.
+- Desktop coldplug skips PCI GPUs that already have a driver, avoiding a fatal
+  alias lookup for built-in bochs DRM while retaining probes for unbound GPUs.
+
+## Evidence
+
+Private evidence directory outside the repository:
+`/srv/openwrt-validation/installer-validation-20261107/`.
+
+`ipv6-build.log` is the successful final build-only receipt for sequence 53.
+The earlier full-build logs retain the diagnosed usr-merge failure and its
+successful repair. `installer-host-tests.log`, `desktop-coldplug-tests.log`,
+`custom-package-tests.log`, `fstools-checkpatch.log` and `strict-final.log`
+record source checks. `final-source-hashes.txt` confirms that the source
+installer payload and GPU coldplug script match the final package root;
+`kernel-image-hashes.txt` records the identical bzImage, package and ESP kernels.
+
+`verified-vm/receipt.json` and its per-case command/serial logs are the final ISO
+matrix evidence; `verified-vm/a/gnome.png` records the rendered GNOME desktop.
+`esp-regression-release/result.txt` and `esp-release-reproduce.py` reproduce the
+same-input combined EFI byte comparison after the final rebuild.
+
+`boot-spike/` and `spike-vm-3/receipt.json` record the separate sequence-52 USB
+boot proof. `manual-tui/serial.raw` records a full interactive installation.
+`final-manual-tui/serial.raw` records every serial-console TUI screen, Escape
+navigation and the default-No confirmation leaving the target unpartitioned;
+that walkthrough preceded the final backend-only odhcpd fix, with unchanged TUI
+payload. `manual-installed-diagnostic.log` and `manual-gnome-check.log` retain
+the original GPU alias diagnosis and its successful VM repair.
+
+## Remaining hardware acceptance
+
+Physical USB media, firmware compatibility and networking on the actual PC have
+not been tested. PPPoE was validated as configuration only. All completed boot,
+desktop and client checks above are disposable-VM results.
+
+## linux2024 virtual-machine follow-up — 2026-11-07
+
+The user's local `qemu:///system` VM used the exact final ISO (SHA-256 matched),
+but attached it as a SATA CD-ROM with the target disk first in boot order. Its
+VirtIO 3D display also returned `no surface` to a QEMU screenshot request.
+The original optical-media configuration cannot expose the appended p3 as the
+PARTUUID-addressable live-root disk required by this USB-only image.
+
+After explicit authorization, the VM was shut down and restarted with the ISO
+as a read-only raw USB disk first in boot order and standard VGA with SPICE GL
+disabled. The installer welcome screen rendered, and a Down key moved the
+selection from Install to Open shell; Up returned it to Install. No installation
+or formatting was invoked. The two changes were applied together, so this check
+does not isolate a separate VirtIO 3D display defect. Other VMs were untouched.
+
+Original/proposed XML and rendered screenshots are retained under the private
+evidence directory's `linux2024/` subdirectory. The guide now includes explicit
+virt-manager/libvirt USB attachment instructions. Optical ISO boot was unsupported by that original implementation; the amendment
+below adds it.
+
+## Optical compatibility — sequence 54
+
+Current artifact:
+`bin/systemd/targets/x86/64-glibc/openwrt-x86-64-generic-installer.iso`.
+SHA-256: `916a75b77b997aa3e1631f6012f2e872f8a43cf3b7e1bb3f5e2a97e2d1fc4628`.
+Kernel: `7.3.1-54-openwrt`; installer package: `1-r2`.
+
+The installer now loads a small external initramfs from both GRUB entries. It
+keeps the USB PARTUUID/p3 root path. For SATA optical media it checks the image
+MBR signature, p3 type/offset and squashfs magic, maps the same appended payload
+read-only as `/dev/loop0`, and switches into normal preinit with the tmpfs overlay.
+The installer accepts that optical source only if the loop and its backing
+optical device are read-only. The manifest/ESP mount uses the whole CD rather
+than a fictitious CD partition. The payload is not duplicated.
+
+The bootstrap builder resolves absolute target symlinks inside the target tree,
+recursively freezes ELF dependencies without executing target code on the host,
+and reuses kernelctl's deterministic newc writer. It checks required built-in
+kernel features and fails the build if they are absent. It does not change the
+installed system's boot flow.
+
+| Check | Result |
+| --- | --- |
+| Installer host suite | 9 passed, including actual odhcpd defaults |
+| Optical source safety and bootstrap execution | 2 passed; actual archive extracted, tools executed under target loader/libraries, deterministic bytes checked |
+| Custom-package registry | 47 passed |
+| Full build-only | Passed; reserved sequence 54 |
+| bzImage / packaged kernel / installer ESP kernel | Identical SHA-256 |
+| Early optical bootstrap probe | Passed; read-only `/rom` on loop0 backed by sr0 |
+| Final GRUB optical installation matrix | Passed: all three cases below |
+| Final extroot regression | Passed; cloned installation uses separate ext4 overlay and retains marker |
+| Final USB/XFS installation and combined F2FS regression | Passed, including DHCP, HTTPS login, SSH password and full-cone rules |
+| Additional USB boot matrix | Passed: OVMF/NVMe, SeaBIOS/SATA, OVMF/virtio |
+
+The final ISO was attached as a read-only **SATA CD-ROM**, booted through its
+actual GRUB entries, and installed to new 16 GiB targets:
+
+| Firmware / target / overlay | Configuration and result |
+| --- | --- |
+| OVMF / NVMe / ext4 | Passed: WAN DHCP, IPv6 on, sudo user, rendered GNOME session, kernelctl bootstrap modules |
+| SeaBIOS / SATA / btrfs | Passed: static WAN, IPv6 off retained after first boot |
+| OVMF / virtio / xfs | Passed: PPPoE settings and full-cone rules; PPPoE server not supplied |
+
+Every case then booted its target disk **without the ISO**, checked p3 overlay,
+p1 `/boot`, kernel version/kernelctl, no failed units, completed firstboot and
+absence of personal accounts/proxy nodes. Separate LAN clients obtained DHCP
+leases in the requested pool, authenticated to LuCI over HTTPS (200) and to SSH
+using the selected root password. Installer screenshots are retained in each
+case's `installer.png`; the ext4 user's rendered desktop is `a/gnome.png`.
+
+The same ISO passed all three USB boot combinations and a complete USB/XFS
+installation with client acceptance. The same build's normal combined image
+retained its internal F2FS overlay. A clone of the optical/ext4 installation
+retained its marker while booting from an independent ext4 extroot. The full
+configuration snapshot now matches the accepted build; only kernel sequence
+53 -> 54 changed against the working config preserved before this amendment.
+
+Evidence is private and outside the repository:
+`/srv/openwrt-validation/installer-optical-validation-20261107/`.
+The final build is `build.log`; host checks are `installer-tests.log`,
+`final-optical-tests.log` and `registry-tests.log`; `kernel-hashes.txt` records
+the kernel equality check. `bootstrap-probe/` is an early direct-kernel probe
+against the original sequence-53 payload, distinct from the final ISO tests.
+Final receipts and serial/command logs are in `cdrom-vm/`, `usb-vm/` and
+`usb-boot-vm/`.
+
+The user's running linux2024 VM and its currently attached original ISO were
+left unchanged during this amendment. There was no feed publication, push or
+physical-device deployment. Physical optical drives and Ventoy are untested.
+
+## Review and commit — 2026-11-07
+
+An independent review re-read the full change set against the approved plan.
+The reviewed areas were:
+
+- the fstools patch;
+- the GRUB images;
+- the image recipe and ISO builder;
+- the optical bootstrap;
+- the installer core, backend and TUI;
+- the firstboot unit and the desktop coldplug fix.
+
+Before committing, the review re-ran the host suites on the final sources and
+re-checked the evidence.
+
+| Check | Result |
+| --- | --- |
+| Current ISO SHA-256 vs. `cdrom-vm`, `usb-vm` and `usb-boot-vm` receipts | Match: `916a75b7…4628` |
+| `test-openwrt-installer.py` | 9 passed; the host-UCI case skipped because no host `uci` is staged now. It ran unskipped in `installer-tests.log` |
+| `test-installer-optical.py` | 2 passed; the frozen-tools case needs a prepared root and ran unskipped in `final-optical-tests.log` |
+| `test-desktop-gpu-coldplug.py` | 4 passed |
+| `git diff --check` | Clean |
+
+Review findings: no blocking defects.
+
+- **Rejecting btrfs/xfs as unformatted.** The fstools identification now
+  rejects short reads and recognizes both before formatting.
+- **Root-disk scan.** It is limited to the mounted root's own disk. After the
+  pivot, `/` resolves through `/rom`, and an optical `loop0` root has no named
+  partitions.
+- **Destructive steps.** Answers, layout and every UCI batch are generated before
+  the first destructive command. The source payload is hashed before writing and
+  again after `dd`. Secrets never appear in argv or logs.
+- **Changed after review.** The `INSTALLER_ISO_IMAGES` Kconfig prompt now names
+  optical media. This affects menu text only, not build output.
+- **Left unchanged.** The package title and the completion message still say
+  "USB". They are cosmetic, and changing packaged text would require a new
+  `PKG_RELEASE` and rebuild.
+- **Left unchanged: TUI error flow.** A port selection that leaves LAN empty
+  (for example, the only NIC chosen as WAN) is rejected at the summary step.
+  The installer then returns to the accounts step rather than the ports
+  step. This is a usability gap, not a safety issue, because no write occurs.
+
+Commits, in order:
+
+1. `fstools: mount btrfs and xfs overlay partitions`
+2. `grub2: build hybrid installer boot images`
+3. `desktop: skip already bound GPUs during coldplug`
+4. `x86: add a whole-disk USB and optical installer ISO`
+5. `base-files: describe the installer in the system description`
+
+The already validated `router-audit` r5 README change was in the same built
+package set. It was committed separately so that publication does not ship
+uncommitted source.
+
+## Publication
+
+The first production publication attempt stopped in userspace preparation and
+exposed nothing. The publisher compared the candidate
+`fstools-2026.10.18~907cf449-r4.apk` with the published r4 and rejected it:
+`libfstools.so` and `mount_root` had changed without a new version. The cause
+was a release-numbering defect, not a build fault.
+`configs/apk-elf-rebuilds.mk` maps fstools r2 **and** r3 to the effective
+release r4. Raising `PKG_RELEASE` from 2 to 3 therefore gave the overlay patch
+the identity of the unpatched, already published r4.
+
+Release 5 was tried first. It failed at build time, because the same
+source's `block-mount` and `blockd` are reserved and published up to r5. The
+fix is `PKG_RELEASE:=6`, above every reservation, committed as
+`fstools: skip ledger-reserved releases for the overlay patch`. Every artifact
+listed above carries the mislabelled r4 in its rom, including the
+`916a75b7…4628` ISO. All of them are superseded.
+
+An unrelated, transient parallel-build failure also occurred once: `elf-abi.py`
+read an empty JSON while packaging `acl`. `acl` rebuilt cleanly on its own,
+and the next run passed.
+
+### Rebuilt artifact
+
+`bin/systemd/targets/x86/64-glibc/openwrt-x86-64-generic-installer.iso`.
+
+| Property | Value |
+| --- | --- |
+| ISO SHA-256 | `e29535bb3bda145c5ea218b341779aaa1bad1ad92796a7ecf7f3a30d529f2d54` |
+| p3 payload SHA-256 | `43ab947b…a2a2` |
+| MBR signature | `bd54ba1d` |
+| Kernel | `7.3.1-54-openwrt`; the reserved sequence 54 was reused |
+| Manifest | `fstools`, `block-mount` and `blockd` 2026.10.18~907cf449-r6; `openwrt-installer` 1-r2 |
+
+The same test runner and cases as the sequence-54 matrix were re-run on the
+rebuilt ISO:
+
+| Run | Result |
+| --- | --- |
+| SATA CD-ROM, cases a/b/c: ext4, btrfs, xfs (OVMF/NVMe, SeaBIOS/SATA, OVMF/virtio) | Passed: install, installed boot without media, DHCP lease in pool, LuCI HTTPS 200, SSH root password; case a GNOME seat0 session and kernelctl bootstrap modules |
+| Extroot regression (clone of case a) | Passed |
+| USB, case c (xfs, PPPoE configuration, full-cone) | Passed, with the same client checks |
+| Same build's combined EFI image (`5b07846e…8cc4`) | Passed; internal F2FS overlay |
+| USB boot-only, all three firmware/disk combinations | Passed |
+
+Every receipt also reports the static checks passing: hybrid boot, clean rootfs
+and kernel release.
+
+Evidence for the rebuild and VM runs is in
+`/srv/openwrt-validation/installer-optical-validation-20261107/`:
+
+- `publish-rejected-fstools-r4.log`;
+- `rebuild-fstools-r5-attempt1-acl-race.log`;
+- `rebuild-attempt2-block-mount-r5-reserved.log`;
+- `fstools-r6-compile.log`, `rebuild-fstools-r6.log`;
+- `r6/{cdrom-vm,usb-vm,usb-boot-vm}/receipt.json`, with their logs.
+
+### Production publication
+
+The second attempt stopped at the same stage on
+`base/daed-2.1.1-r7.apk`. `diagnose-apk-rebuild.py` classified the
+difference as **benign**: two of 1,143 BTF type slots in the embedded BPF
+object moved, which is compiler nondeterminism. The guidance in
+[lan-apk-feeds.md](lan-apk-feeds.md) allows either a new release or restoring
+the published file. The published snapshot copy was restored into
+`bin/systemd`, and the diagnostic tool then reported identical bytes. The
+rebuilt copy is kept as evidence.
+
+The third attempt published through the normal production path
+(`publish-changed-feeds.sh`).
+
+| Stage | Result |
+| --- | --- |
+| Router baseline (`example-user@192.0.2.1`, running `7.3.1-51-openwrt`) | Read under APK's database lock |
+| Userspace and kernel upgrade simulation (full mode) | Passed |
+| Recheck before promotion | Passed |
+| Userspace feed | Published: `public/snapshots/20261107T032645.349697Z` |
+| Kernel feed | Published generation `7.3.1-54-openwrt`: `public/kernel-snapshots/1794022019991495650` |
+| Receipt | `/srv/openwrt-feeds/upgrade-receipts/1794022027657139168.json` |
+
+Published identities from this change set:
+
+- `fstools`, `block-mount`, `blockd` `2026.10.18~907cf449-r6`;
+- `openwrt-installer 1-r2`;
+- `openwrt-desktop 26`;
+- `router-audit 1.0.0-r5`;
+- `btrfs-progs 6.11-r4`;
+- `whiptail 0.52.25-r1`;
+- `linux-image-7.3.1-54-openwrt`.
+
+The ISO is a build artifact, not a feed package, so it was not published. It
+stays at the `bin/systemd` path listed above.
+
+Publication does not install anything on the router: the router was only read
+and simulated, and none of its packages, kernel or configuration changed.
+Physical USB/optical media, real PC firmware and real NIC/PPPoE behaviour remain
+untested; see [Remaining hardware acceptance](#remaining-hardware-acceptance).
+
+Evidence (same directory): `publish-rejected-daed-benign.log`,
+`daed-2.1.1-r7.rebuilt-benign.apk`, `publish.log`.

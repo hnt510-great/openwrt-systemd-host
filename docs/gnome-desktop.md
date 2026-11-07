@@ -83,7 +83,9 @@ renaming, firmware or module-loading rules. udevd is the only receiver of
 device events; it forwards events with `/etc/hotplug.d` handlers to procd (see
 [systemd supervision](systemd-native-supervision.md)). netifd, firewall and
 router service configuration are unchanged. A coldplug unit identifies
-DRM/input/audio devices before starting the desktop.
+DRM/input/audio devices before starting the desktop. PCI GPUs with an already
+bound driver are left alone, including built-in bochs DRM in installer VMs;
+only unbound display controllers need a module probe.
 The native library also provides the legacy `libudev-zero` virtual name and
 excludes the old implementation. An existing unpinned `libudev-zero` world
 selection therefore migrates to native libudev in one APK transaction.

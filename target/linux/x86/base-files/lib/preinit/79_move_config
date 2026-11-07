@@ -1,6 +1,7 @@
 # Copyright (C) 2012-2015 OpenWrt.org
 
 move_config() {
+	grep -qw openwrt.installer=1 /proc/cmdline && return 0
 	local partdev parttype=ext4
 
 	. /lib/upgrade/common.sh

@@ -1,0 +1,126 @@
+--- /dev/null
++++ b/dae-core/control/router_audit_conn.go
+@@ -0,0 +1,91 @@
++// SPDX-License-Identifier: AGPL-3.0-only
++package control
++
++import (
++	"encoding/json"
++	"net/netip"
++	"os"
++	"sync/atomic"
++	"time"
++
++	"golang.org/x/sys/unix"
++)
++
++// Router audit connection events. One nonblocking datagram per userspace-routed TCP dial and per
++// new UDP endpoint, sent to the router-audit collector. A missing or busy receiver only increments
++// a drop counter; relaying never waits on it. Enabled by ROUTER_AUDIT_CONN=1 (set by the init
++// script only while router-audit is installed).
++var routerAuditConnEnabled = os.Getenv("ROUTER_AUDIT_CONN") == "1"
++var routerAuditConnFD = func() int {
++	if !routerAuditConnEnabled {
++		return -1
++	}
++	f, e := unix.Socket(unix.AF_UNIX, unix.SOCK_DGRAM|unix.SOCK_NONBLOCK|unix.SOCK_CLOEXEC, 0)
++	if e != nil {
++		return -1
++	}
++	return f
++}()
++var routerAuditConnSeq atomic.Uint64
++var routerAuditConnDropped atomic.Uint64
++var routerAuditConnAddr = &unix.SockaddrUnix{Name: "/run/router-audit/conn.sock"}
++
++type routerAuditConnEvent struct {
++	Source     string `json:"source"`
++	Epoch      string `json:"source_epoch"`
++	Seq        uint64 `json:"source_seq"`
++	Time       string `json:"event_time"`
++	Network    string `json:"network"`
++	Client     string `json:"client"`
++	ClientPort uint16 `json:"client_port"`
++	Mac        string `json:"mac,omitempty"`
++	Process    string `json:"process,omitempty"`
++	Dst        string `json:"dst"`
++	DstPort    uint16 `json:"dst_port"`
++	Domain     string `json:"domain,omitempty"`
++	DialTarget string `json:"dial_target,omitempty"`
++	Outbound   string `json:"outbound,omitempty"`
++	Dialer     string `json:"dialer,omitempty"`
++	Failed     bool   `json:"failed"`
++	Dropped    uint64 `json:"producer_dropped"`
++}
++
++func routerAuditConn(network string, src, dst netip.AddrPort, mac, process, domain, dialTarget, outbound, dialerName string, failed bool) {
++	if routerAuditConnFD < 0 {
++		return
++	}
++	if mac == "00:00:00:00:00:00" {
++		mac = ""
++	}
++	e := routerAuditConnEvent{
++		Source: "daed", Epoch: routerAuditEpoch, Seq: routerAuditConnSeq.Add(1),
++		Time: time.Now().UTC().Format(time.RFC3339Nano), Network: network,
++		Client: src.Addr().Unmap().String(), ClientPort: src.Port(), Mac: mac, Process: process,
++		Dst: dst.Addr().Unmap().String(), DstPort: dst.Port(), Domain: domain, DialTarget: dialTarget,
++		Outbound: outbound, Dialer: dialerName, Failed: failed, Dropped: routerAuditConnDropped.Load(),
++	}
++	b, err := json.Marshal(&e)
++	if err != nil || unix.Sendto(routerAuditConnFD, b, unix.MSG_DONTWAIT, routerAuditConnAddr) != nil {
++		routerAuditConnDropped.Add(1)
++	}
++}
++
++func routerAuditTcp(p *proxyDialParam, res *proxyDialResult, src, dst netip.AddrPort, domain string, failed bool) {
++	if routerAuditConnFD < 0 {
++		return
++	}
++	var mac, process, target, outbound, dialerName string
++	if p != nil {
++		mac, process = Mac2String(p.Mac[:]), ProcessName2String(p.ProcessName[:])
++	}
++	if res != nil {
++		target = res.DialTarget
++		if res.Outbound != nil {
++			outbound = res.Outbound.Name
++		}
++		if res.Dialer != nil {
++			dialerName = res.Dialer.Property().Name
++		}
++	}
++	routerAuditConn("tcp", src, dst, mac, process, domain, target, outbound, dialerName, failed)
++}
+--- a/dae-core/control/tcp.go
++++ b/dae-core/control/tcp.go
+@@ -274,6 +274,7 @@ func (c *ControlPlane) handleConnWithRou
+ 	// Dial and relay.
+ 	rConn, res, err := c.routeDial(ctx, dialParam)
+ 	if err != nil {
++		routerAuditTcp(dialParam, res, src, dst, domain, true)
+ 		if res != nil && res.Outbound != nil && stderrors.Is(err, ob.ErrNoAliveDialer) {
+ 			res.Outbound.HandleNoAliveDialer(
+ 				res.OrigNetworkType,
+@@ -290,6 +291,7 @@ func (c *ControlPlane) handleConnWithRou
+ 		}
+ 		return fmt.Errorf("failed to dial %v: %w", dst, err)
+ 	}
++	routerAuditTcp(dialParam, res, src, dst, domain, false)
+ 	if ownership != nil {
+ 		ownership.storePendingEgress(rConn)
+ 	}
+--- a/dae-core/control/udp.go
++++ b/dae-core/control/udp.go
+@@ -1203,6 +1203,11 @@ getNew:
+ 		}
+ 	}
+ 
++	if isNew && routerAuditConnFD >= 0 {
++		routerAuditConn("udp", realSrc, realDst, Mac2String(routingResult.Mac[:]), ProcessName2String(routingResult.Pname[:]),
++			domain, dialTarget, ue.Outbound.Name, ue.Dialer.Property().Name, false)
++	}
++
+ 	// Per-flow routing traces are Debug, and only for new endpoints.
+ 	// Reused endpoints (QUIC/BT) stay silent even at Debug to avoid
+ 	// exploding logs. Raise log_level to debug to restore new-flow traces.

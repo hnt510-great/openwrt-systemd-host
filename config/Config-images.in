@@ -291,6 +291,11 @@ menu "Target Images"
 		depends on TARGET_x86
 		depends on GRUB_IMAGES || GRUB_EFI_IMAGES
 
+	config INSTALLER_ISO_IMAGES
+		bool "Build installer ISO (USB or optical, UEFI + BIOS)"
+		depends on TARGET_x86 && TARGET_x86_64 && GRUB_EFI_IMAGES && TARGET_ROOTFS_SQUASHFS && OPENWRT_SYSTEMD
+		select PACKAGE_openwrt-installer
+
 	config VDI_IMAGES
 		bool "Build VirtualBox image files (VDI)"
 		depends on USES_VDI

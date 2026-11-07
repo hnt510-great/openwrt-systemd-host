@@ -126,6 +126,34 @@ sudo -n uci-history --json log --limit 20 --config network
 sudo -n uci-history --json restore REV --config network --timeout 300 --dry-run
 ```
 
+## Router audit data
+
+When `router-audit` is installed, `router-audit-collect.service` collects
+read-only JSON snapshots and minute samples: system, services, network,
+firewall and conntrack counters, client identity, journal signatures and UCI
+changes. It also records DNS query metadata from dnsmasq and daed, and
+per-device connection destinations from daed and conntrack. It changes no UCI,
+firewall, route or credential state. Its fixed probes (TCP 443 and one UDP DNS
+query per minute) generate a small amount of traffic. The spool is root-only
+under `/srv/router-audit` and holds at most 256 MiB or 24 hours. Missing
+observations and `status=partial` are coverage gaps, not zeros. Proxied, offloaded
+and notrack traffic limit how complete per-client accounting can be.
+Rules, baselines and any language-model analysis run off the router. The
+companion scripts are in `/usr/share/router-audit/`, and the full guide is
+`/usr/share/doc/router-audit/README.md`.
+
+```sh
+sudo -n router-audit-export capabilities
+sudo -n router-audit-export snapshot
+sudo -n router-audit-export incidents --since 1h
+sudo -n router-audit-export dns --since 15m
+systemctl --no-pager status router-audit-collect.service
+```
+
+The data names LAN clients and the domains they resolve and connect to. Keep it
+inside the local environment. Remote readers use a restricted SSH key that can
+run only `router-audit-read`; enrolling a key grants access to the audit data.
+
 ## Router additions
 
 These are off by default or transparent; inspect UCI and the running kernel
@@ -353,3 +381,14 @@ Run `systemctl --user`, `wpctl`, Flatpak and desktop application commands in
 the intended ordinary user's session. Root's user manager is a different
 context. Check RDP/Sunshine listener addresses with `ss -lntup` and preserve
 LAN-only bindings when repairing remote access.
+
+## Whole-disk USB installation
+
+An optional clean hybrid installer boots with native systemd into a dedicated
+console target, using a tmpfs overlay and skipping the normal x86 boot-partition
+restore hook. The English installer creates a fresh GPT with a FAT ESP, read-only
+system partition and separate ext4, btrfs or xfs overlay, configures LAN/WAN and
+firewall policy, and sets account password hashes. Optional regular-user and
+GNOME setup runs after OpenWrt first-boot defaults under systemd. The installed
+boot tree supports kernelctl and retains BIOS, UEFI and procd recovery paths.
+Personal untracked image overlays are excluded from the installer payload.

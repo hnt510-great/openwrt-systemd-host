@@ -188,9 +188,61 @@ GPU idle was 4.9 W with and without the model loaded. A finer core-clock cap nee
 option; it was prepared, judged not worth a permanent host change for a few Wh per day, and removed
 unused. The GPU was returned to `auto` / 130 W.
 
+## Deployment after validation
+
+At the user's request r2 was then published (snapshot `20261106T051640.011628Z`, preflight passed,
+only `router-audit-1.0.0-r2.apk` changed) and installed on the router with `apk add -u router-audit`
+(simulation showed only that upgrade), followed by `systemctl restart router-audit-collect.service`.
+The first r2 batch was schema 1.1 for every module, all 65 firewall rules carried their comment, no
+DNS client kept a port, an incremental restricted-SSH pull succeeded and LAN DNS answered over IPv4
+and IPv6. r3 (conntrack loss rated per hour; analyzer only) was published as snapshot
+`20261106T052212.303924Z` and not installed on the router. A user-level minute puller was then set
+up on Debian; see `router-audit-debian.md`.
+
 ## Known limits
 
-No physical router change, publication or reboot was performed for r2. Baselines need 24 hours of
+No reboot was performed for r2. Baselines need 24 hours of
 pulled history before verdicts appear. The fixtures are synthetic and small; they test that faults are
 named and nothing is invented, not diagnosis quality on unusual real incidents. Model throughput was
 measured on one GPU with one llama.cpp build. Periodic beaconing detection is not implemented.
+
+# r4: connection events and conntrack snapshot — 2026-11-06
+
+| Check | Result |
+| --- | --- |
+| `scripts/tests/test-router-audit-connections.py` | 8 tests passed (conntrack parsing incl. expanded IPv6 and accounting fields, directions, DNAT, limits, event validation, flow grouping, root-only receiver) |
+| `test-router-audit.py`, `test-custom-package-updates.py` | 29 and 47 tests passed |
+| daed r7 build | patch `009-connection-audit-events.patch` refreshed with quilt (older patches' formatting-only refresh changes restored); binary contains the `conn.sock` path; gofmt clean |
+| Pre-install dry run on the router | temporary copy of the r4 collector: 224 conntrack lines → 50 groups, accounting on, not truncated |
+| Publication | dry run and preflight passed; snapshot `20261106T064602.832657Z` with daed, daed-geoip, daed-geosite 2.1.1-r7 and router-audit 1.0.0-r4; no same-version rebuilds |
+| Router install | `apk add -u --simulate` showed exactly those four upgrades; installed 14:46; daed and the collector restarted (new PIDs, NRestarts 0); daed environment has `ROUTER_AUDIT_DNS=1` and `ROUTER_AUDIT_CONN=1`; `/run/router-audit/conn.sock` present; the stale `/usr/libexec/__pycache__` is gone |
+| First live minute | `conn_flows`: 80 events, 60 flows (TCP/UDP via `proxy`, TCP `direct`), 49 with a sniffed domain, 21 with a MAC, receiver and producer drops 0. `connections`: 82 groups (51 lan_out, 19 router_out, 6 lan_local, 6 inbound), not truncated |
+| Traffic after the daed restart | LAN DNS answered; HTTPS through the router returned 200 in 0.55 s |
+
+Scope: the analyzer does not read the new modules yet. No reboot, UCI or firewall change; the
+APK uci-history hook reported no configuration change. Proxied connections were interrupted once
+while daed restarted.
+
+
+## Audit SSH account Podman masks — 2026-11-06
+
+Repeated failures belonged to UID 999 (`router-audit`), not Hermes. Each minute
+SSH pull created a fresh user manager and started globally enabled Podman units;
+Podman failed with `stat /home/router-audit/.config: no such file or directory`.
+Root-owned per-account masks for `podman-restart.service`,
+`podman-auto-update.timer`, `podman-auto-update.service`, `podman.socket`, and
+`podman.service` were installed in `/home/router-audit/.config/systemd/user` on
+the physical router at 19:43:47 +08. The 19:44 login read the next sample cursor
+successfully without starting Podman or logging its previous failure. Existing
+Example user containers (ubuntu, ariang, searxng) remained running. No UCI change,
+container restart or reboot was needed. Enrollment instructions now preserve
+this account-specific configuration; the package release is reserved as r5
+because its installed README changes. No feed publication or APK upgrade is
+part of this fix.
+
+Validation: `git diff --check` passed;
+`make package/custom/router-audit/compile V=s` completed successfully and built
+`router-audit 1.0.0-r5`. The 19:45 audit SSH pull also succeeded with an advanced
+sample cursor and no Podman startup/failure. Build log:
+`/tmp/router-audit-podman-mask-build.log` on Debian. The masks are an enrollment
+configuration step, not an automatically applied package post-install action.

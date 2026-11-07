@@ -1,0 +1,17 @@
+[Unit]
+Description=OpenWrt installer on %I
+After=systemd-udev-trigger.service
+ConditionKernelCommandLine=openwrt.installer=1
+Conflicts=openwrt-console@%i.service
+
+[Service]
+ExecStart=/usr/sbin/openwrt-installer
+StandardInput=tty
+StandardOutput=tty
+StandardError=tty
+TTYPath=/dev/%I
+TTYReset=yes
+TTYVHangup=yes
+Environment=TERM=linux
+Restart=always
+RestartSec=2

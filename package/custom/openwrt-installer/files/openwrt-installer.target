@@ -1,0 +1,6 @@
+[Unit]
+Description=OpenWrt installer
+Requires=sysinit.target
+After=sysinit.target
+Wants=openwrt-installer@tty1.service openwrt-console@tty2.service openwrt-console@ttyS0.service
+AllowIsolate=yes

@@ -1,0 +1,61 @@
+#!/bin/sh
+# Keep the USB p3 root; optical media exposes the same payload through a loop.
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+fail() {
+	echo "installer bootstrap: $*" >/dev/console
+	exec sh
+}
+mount -t devtmpfs devtmpfs /dev || fail devtmpfs
+mount -t proc proc /proc || fail proc
+mount -t sysfs sysfs /sys || fail sysfs
+mkdir -p /run /newroot
+mount -t tmpfs tmpfs /run || fail run
+rootpart=
+signature=
+for arg in $(cat /proc/cmdline); do
+	case "$arg" in
+		root=PARTUUID=*) rootpart=${arg#root=} ;;
+		openwrt.installer.signature=*) signature=${arg#*=} ;;
+	esac
+done
+[ -n "$rootpart" ] && [ -n "$signature" ] || fail 'missing media identity'
+attempt=0
+rootdev=
+while [ "$attempt" -lt 30 ]; do
+	# Preserve the existing USB root and device-discovery path.
+	rootdev=$(blkid -t "$rootpart" -o device 2>/dev/null | head -n 1)
+	if [ -b "$rootdev" ] && mount -t squashfs -o ro "$rootdev" /newroot; then
+		break
+	fi
+	rootdev=
+	for block in /sys/class/block/sr*; do
+		[ -e "$block/device/type" ] || continue
+		[ "$(cat "$block/device/type")" = 5 ] || continue
+		media=/dev/${block##*/}
+		[ "$(hexdump -s 440 -n 4 -e '1/4 "%08x"' "$media" 2>/dev/null)" = "$signature" ] || continue
+		[ "$(hexdump -s 482 -n 1 -e '1/1 "%02x"' "$media")" = 83 ] || continue
+		start=$(hexdump -s 486 -n 4 -e '1/4 "%u"' "$media")
+		[ "$start" -gt 0 ] 2>/dev/null || continue
+		offset=$((start * 512))
+		[ "$(hexdump -s "$offset" -n 4 -e '1/4 "%08x"' "$media")" = 73717368 ] || continue
+		if losetup -r -o "$offset" /dev/loop0 "$media"; then
+			if mount -t squashfs -o ro /dev/loop0 /newroot; then
+				rootdev=/dev/loop0
+				break
+			fi
+			losetup -d /dev/loop0
+		fi
+	done
+	[ -n "$rootdev" ] && break
+	attempt=$((attempt + 1))
+	sleep 1
+done
+[ -n "$rootdev" ] || fail 'installation media unavailable'
+ln -s "$rootdev" /dev/root
+mount --move /dev /newroot/dev || fail 'move dev'
+mount --move /proc /newroot/proc || fail 'move proc'
+mount --move /sys /newroot/sys || fail 'move sys'
+umount /run
+unset INITRAMFS
+exec switch_root /newroot /sbin/init
+fail 'switch_root failed'

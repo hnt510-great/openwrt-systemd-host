@@ -865,3 +865,80 @@ were prepared but not compiled.
 This is source integration, patch application and focused object compilation.
 No full kernel, image or generation was built, nothing was published, and no
 router was contacted. The MAP-E tunnel and DMA-BUF heap findings remain open.
+
+## Upstream synchronization review and Linux 7.3.3, 2026-11-07
+
+Merged OpenWrt through `7e8bfcfe76` (45 incoming main-tree commits) as
+`aa58ff474f`, plus 20 packages-feed, 3 LuCI, 5 video and 6 `passwall_luci`
+commits. Telephony, routing, taskplan and `passwall_packages` had nothing
+incoming. Backup branches are `backup/pre-upstream-20261107T033226Z` in the
+main tree, each feed and the argon theme submodule.
+
+Main-tree conflicts and release identities (checked against the published
+feed and the ELF rebuild ledger):
+
+- procd (2026.11.03 published at r6, upstream r2) is r7; busybox (r10 and r11
+  published, upstream r5 for the new shell-history controls) is r12.
+- Upstream adds `/dev/dma_heap/*` to the video group in `30-video.json`.
+  systemd 262 has no `dma_heap` rule, so `60-openwrt-video.rules` gains the
+  same policy for native systemd, and hardware-support moves to r4 past the
+  published video-support 3.
+
+Feed conflicts: openssh takes upstream 10.6p2-r1 and fuse3 3.18.3-r1 (both
+new versions), keeping local recipe changes. Mesa takes upstream's
+`LIBMESA_PROVIDERS` conflict chain; the local `libmesa-virtualization` variant
+joins it (evaluated before `libmesa-softpipe`, which stays last) and keeps the
+local `+accel-support`. Mesa (26.2.2-r8 published, upstream r4) is r9. The
+packages feed drops libpbc, libuwsc, libstrophe, libsocketcan, libroxml,
+libpqxx, libopen62541 and libnopoll; none is selected or depended upon, and
+their stale `package/feeds` links were deleted. On a copy, `make defconfig`
+changes only upstream's busybox history defaults, the new DW HDMI audio
+symbols, the dropped packages and udp-broadcast-relay-redux;
+`conf --fatalrecursive` reports no cycle. The working `.config` is unchanged.
+
+The custom updater advances fastfetch to 2.71.0 and luci-theme-argon to 3.1.3.
+gtk-vnc 1.6 is a new review branch beside flatpak 1.19, gcr 4,
+intel-media-driver, GTK 4 and the libibus tag noise. procd, busybox, fastfetch,
+openssh, fuse3 and mesa prepare with all local patches and no fuzz.
+
+### Kernel patches: one changed 6.18 source, DMA-BUF heap finding resolved
+
+All 574 generic/x86 6.18 sources were compared with the registry by SHA-256:
+none was added or removed and exactly one changed.
+`hack-6.18/904-debloat_dma_buf.patch` (upstream `b12b44bfdf`) is the fix for
+the open `dmabuf-heaps-kbuild` finding: the heap objects are listed by path in
+`drivers/dma-buf/Makefile` and linked into `dma-shared-buffer`, and the
+unread `heaps/Makefile` rewrite is dropped. `hack-7.3/904` is ported the same
+way, with the `heaps/` descent removed so the objects are not built twice.
+`DMABUF_HEAPS` is a bool that selects `DMA_SHARED_BUFFER`, so the composite is
+built in whenever heaps are enabled and its several initcalls cannot collide in
+a module. With `DMABUF_HEAPS_SYSTEM` and `DMABUF_HEAPS_CMA` enabled in a scratch
+copy of the x86 configuration, `system_heap.o` and `cma_heap.o` are now in
+`drivers/dma-buf/built-in.a`. x86 leaves `DMABUF_HEAPS` unset, so its enabled
+options and ABI are unchanged. The finding is marked resolved in the registry.
+
+Other kernel-side changes are board-specific (realtek, qualcommax, mpc85xx,
+rockchip, airoha) or kmod package definitions (Panfrost, DW HDMI I2S/AHB audio,
+early Marvell PHY autoload), and mac80211 gains ath11k/ath12k backports
+(r13).
+
+### Linux 7.3.1 to 7.3.3
+
+`update-mainline-kernel.py --update` verified the 7.3.3 archive (SHA256
+`79c66dde...4f3d1`) and applied the full 349-patch stack with `--fuzz=0`
+before rewriting `kernel-7.3`. 456 files changed between 7.3.1 and 7.3.3; no
+Kconfig file is among them, and `listnewconfig` against the x86 7.3.1
+configuration reports nothing, so `olddefconfig` changes only the version
+banner. Ten stable-changed files are also touched by local patches
+(`drivers/base/core.c`, `drivers/nvmem/core.c`, `io_uring/zcrx.c`,
+`kernel/fork.c`, `lib/kobject_uevent.c`, `net/8021q/vlan_dev.c`,
+`net/core/{dev,rtnetlink,skbuff}.c` and the top Makefile). With OpenWrt
+GCC 14.4.0 and the x86 configuration (plus NVMEM and the DMA-BUF heaps, which
+x86 does not enable), all nine objects and `drivers/dma-buf/` compile with no
+warnings. All registry source and ported hashes match and the 20 updater
+tests pass.
+
+This is source integration, patch application and focused object compilation.
+No full kernel, image or generation was built, nothing was published, and no
+router was contacted. The kernel version change requires a new reserved
+generation. The MAP-E tunnel finding remains open.

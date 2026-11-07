@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=router-audit
 PKG_VERSION:=1.0.0
-PKG_RELEASE:=4
+PKG_RELEASE:=5
 PKG_LICENSE:=GPL-2.0-only
 PKG_FILE_DEPENDS:=$(TOPDIR)/docs/router-audit.md
 
@@ -43,9 +43,14 @@ define Package/router-audit/postinst
 [ -z "$$IPKG_INSTROOT" ] || exit 0
 mkdir -p /srv/router-audit
 chmod 0700 /srv/router-audit
+# r2/r3 wrote a bytecode cache beside the shared parser module; it is not package-owned.
+rm -f /usr/libexec/__pycache__/router-audit-normalize.*.pyc
+rmdir /usr/libexec/__pycache__ 2>/dev/null || true
 [ -d /run/systemd/system ] || exit 0
 systemctl daemon-reload
-systemctl enable --now router-audit-collect.service
+systemctl enable router-audit-collect.service
+# restart (not only start) so an upgrade runs the new collector
+systemctl restart router-audit-collect.service
 exit 0
 endef
 

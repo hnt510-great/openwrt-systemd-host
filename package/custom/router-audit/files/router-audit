@@ -1,12 +1,14 @@
 #!/usr/bin/python3
 """Read-only router export and bounded local collection. No third-party modules."""
-import struct, ssl, runpy, threading, collections, pwd
+import struct, ssl, runpy, threading, collections, pwd, ipaddress
 import argparse, datetime as dt, hashlib, json, os, pathlib as P, re, shlex, socket, subprocess as S, sys, time, uuid
 import importlib.machinery, importlib.util
 def _load_normalize():
     # Root-controlled sibling only: /usr/libexec/router-audit-normalize.py when installed,
     # files/normalize.py in the source tree. No environment override.
     here=P.Path(__file__).resolve()
+    # No __pycache__ beside root-owned code: /usr/libexec is package-owned.
+    sys.dont_write_bytecode=True
     for candidate in [here.with_name('router-audit-normalize.py'),here.with_name('normalize.py')]:
         if candidate.is_file():
             loader=importlib.machinery.SourceFileLoader('router_audit_normalize',str(candidate))
@@ -163,8 +165,148 @@ def journal(since,limit):
                 # detail is only the matched signature text, never the surrounding MESSAGE.
                 rows.append({'event_id':eventid('journal',d.get('__CURSOR')),'event_time':N.iso_us(d.get('__REALTIME_TIMESTAMP')),'time_quality':'journal_ingest','kind':kind,'detail':match.group(0)[:120],'unit':d.get('_SYSTEMD_UNIT'),'source':d.get('SYSLOG_IDENTIFIER'),'source_address':ip.group(1) if ip else None});break
     return {'events':rows,'coverage':'Bounded journal scan of typed signatures; raw logs not exported.','scan_limit':limit,'possible_truncation':len(raw.splitlines())>=limit}
-def capabilities():return {'implemented':['system','services','network','firewall','changes','incidents','events','snapshot','samples','inventory','virtualization','identity'],'dns':{'global_metrics':True,'query_events':'ROUTER_AUDIT_DNS' in (read('/etc/init.d/daed') or ''),'reason':'Partial resolver coverage; see DNS data and source fields'},'missing':['per-client active connection count','container runtime health'],'baselines':'computed off-router by analyze.py','schema_version':SCHEMA}
-MODULES={'system':system,'network':network,'services':services,'firewall':firewall,'capabilities':capabilities,'inventory':inventory,'virtualization':virtualization,'identity':identity}
+CONNTRACK_MAX_LINES=20000
+CONNTRACK_MAX_GROUPS=5000
+def address_scopes():
+    """Router-owned addresses and LAN-side prefixes. WAN devices come from netifd's wan* interfaces;
+    daed's own dae* devices and loopback are neither LAN nor WAN."""
+    wan=set()
+    for i in (command(['ubus','call','network.interface','dump'],structured=True) or {}).get('interface',[]):
+        if (i.get('interface') or '').startswith('wan'):wan.update(x for x in [i.get('l3_device'),i.get('device')] if x)
+    own,lan=set(),[]
+    for link in command(['ip','-j','addr','show'],structured=True) or []:
+        name=link.get('ifname') or ''
+        for a in link.get('addr_info',[]):
+            try:net=ipaddress.ip_interface('%s/%s'%(a['local'],a['prefixlen']))
+            except (KeyError,ValueError):continue
+            own.add(net.ip)
+            if name not in wan and name!='lo' and not name.startswith('dae') and not net.ip.is_link_local:lan.append(net.network)
+    return own,lan
+def parse_conntrack_line(line):
+    """One /proc/net/nf_conntrack line -> dict, or None. Original tuple first, reply tuple second."""
+    words=line.split()
+    if len(words)<6 or words[0] not in ('ipv4','ipv6'):return None
+    entry={'family':words[0],'proto':words[2],'timeout':int(words[4]) if words[4].isdigit() else None,'state':None,'flags':[],'orig':{},'reply':{}}
+    tuple_=entry['orig']
+    for word in words[5:]:
+        if word.startswith('[') and word.endswith(']'):entry['flags'].append(word[1:-1]);continue
+        key,sep,value=word.partition('=')
+        if not sep:
+            if entry['state'] is None and not tuple_:entry['state']=word
+            continue
+        if key=='src' and 'src' in tuple_:tuple_=entry['reply']
+        if key in ('src','dst'):
+            try:value=str(ipaddress.ip_address(value))
+            except ValueError:return None
+        elif key in ('sport','dport','packets','bytes','mark','zone','type','code','id'):
+            value=int(value) if value.isdigit() else None
+        tuple_[key]=value
+    return entry if entry['orig'].get('src') and entry['orig'].get('dst') else None
+def connections(text=None,scopes=None):
+    """Conntrack snapshot grouped by (direction, client, protocol, destination, port). Covers traffic the
+    kernel tracks: direct and NAT-ed flows. daed's eBPF datapath largely bypasses conntrack, and proxied
+    flows show the proxy server here; their real destinations come from daed connection events."""
+    if text is None:text=read('/proc/net/nf_conntrack')
+    if text is None:raise RuntimeError('conntrack_unavailable')
+    own,lan=scopes or address_scopes()
+    def side(addr):
+        ip=ipaddress.ip_address(addr)
+        if ip.is_loopback:return 'loopback'
+        if ip in own:return 'router'
+        return 'lan' if any(ip in net for net in lan) else 'remote'
+    groups,lines,skipped={},0,collections.Counter()
+    for line in text.splitlines():
+        lines+=1
+        if lines>CONNTRACK_MAX_LINES:break
+        e=parse_conntrack_line(line)
+        if not e:skipped['unparsed']+=1;continue
+        o,r=e['orig'],e['reply'];src,dst=side(o['src']),side(o['dst'])
+        if 'loopback' in (src,dst):skipped['loopback']+=1;continue
+        if dst=='router' and o.get('dport')==53:skipped['dns_to_router']+=1;continue
+        direction={'lan':'lan_out','router':'router_out'}.get(src,'inbound')
+        if direction=='lan_out' and dst!='remote':direction='lan_local'
+        # DNAT (port forward): the reply comes from the real internal host.
+        dnat=r.get('src') if r.get('src') and r.get('src')!=o['dst'] else None
+        key=(direction,o['src'],e['proto'],o['dst'],o.get('dport'),dnat)
+        g=groups.get(key)
+        if g is None:
+            if len(groups)>=CONNTRACK_MAX_GROUPS:skipped['group_limit']+=1;continue
+            g=groups[key]={'direction':direction,'client':o['src'],'proto':e['proto'],'dst':o['dst'],'dst_port':o.get('dport'),
+                           'dnat_to':dnat,'entries':0,'states':collections.Counter(),'assured':0,'unreplied':0,'offloaded':0,'packets':0,'bytes':0}
+        g['entries']+=1
+        if e['state']:g['states'][e['state']]+=1
+        g['assured']+='ASSURED' in e['flags'];g['unreplied']+='UNREPLIED' in e['flags']
+        g['offloaded']+=any('OFFLOAD' in f for f in e['flags'])
+        g['packets']+=(o.get('packets') or 0)+(r.get('packets') or 0);g['bytes']+=(o.get('bytes') or 0)+(r.get('bytes') or 0)
+    rows=[dict(g,states=dict(g['states'])) for g in groups.values()]
+    return {'groups':rows,'lines':min(lines,CONNTRACK_MAX_LINES),'truncated':lines>CONNTRACK_MAX_LINES or skipped['group_limit']>0,'skipped':dict(skipped),
+            'accounting':read('/proc/sys/net/netfilter/nf_conntrack_acct') not in (None,'0\n','0'),
+            'coverage':'Point-in-time conntrack snapshot. Short flows between snapshots, flow-offloaded and notrack traffic and '
+                       "daed's eBPF datapath can be missing; proxied flows appear with the proxy server as destination. "
+                       'Byte/packet counters are zero unless nf_conntrack_acct is enabled. DNS to the router is excluded (see dns_queries).'}
+
+CONN_QUEUE=collections.deque(maxlen=10000)
+CONN_LOCK=threading.Lock()
+CONN_STATS={'received':0,'dropped':0}
+CONN_SOCK='/run/router-audit/conn.sock'
+CONN_UIDS={0}  # daed runs as root; nothing else may inject connection records
+CONN_FIELDS={'source':str,'source_epoch':str,'source_seq':int,'event_time':str,'network':str,'client':str,'client_port':int,'mac':str,'process':str,
+             'dst':str,'dst_port':int,'domain':str,'dial_target':str,'outbound':str,'dialer':str,'failed':bool,'producer_dropped':int}
+def conn_event(raw):
+    """Validate one daed connection datagram; return the cleaned event or None."""
+    event=json.loads(raw)
+    if not isinstance(event,dict) or event.get('source')!='daed' or event.get('network') not in ('tcp','udp'):return None
+    clean={}
+    for key,kind in CONN_FIELDS.items():
+        value=event.get(key)
+        if value is None or value=='':continue
+        if not isinstance(value,kind) or (kind is str and len(value)>300):return None
+        clean[key]=value
+    for key in ('client','dst'):
+        try:ip=ipaddress.ip_address(clean.get(key,''))
+        except ValueError:return None
+        clean[key]=str(ip.ipv4_mapped or ip) if ip.version==6 else str(ip)
+    if clean.get('event_time'):clean['event_time']=N.iso_text(clean['event_time']) or clean['event_time']
+    return clean
+def conn_receive():
+    path=CONN_SOCK
+    try:os.unlink(path)
+    except FileNotFoundError:pass
+    with socket.socket(socket.AF_UNIX,socket.SOCK_DGRAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET,socket.SO_PASSCRED,1)
+        sock.bind(path);os.chmod(path,0o666)
+        while True:
+            try:
+                raw,ancillary,flags,addr=sock.recvmsg(4096,socket.CMSG_SPACE(12))
+                credentials=[struct.unpack('3i',v) for level,kind,v in ancillary if level==socket.SOL_SOCKET and kind==socket.SCM_CREDENTIALS]
+                if not credentials or credentials[0][1] not in CONN_UIDS:continue
+                event=conn_event(raw)
+                if event is None:continue
+                with CONN_LOCK:
+                    CONN_STATS['received']+=1
+                    if len(CONN_QUEUE)==CONN_QUEUE.maxlen:CONN_STATS['dropped']+=1
+                    CONN_QUEUE.append(event)
+            except (ValueError,TypeError,KeyError,AttributeError):continue
+            except OSError:time.sleep(1)
+def conn_flows(events):
+    """Group one minute of daed connection events by device and real destination."""
+    groups={};producer={}
+    for e in events:
+        key=(e.get('network'),e.get('client'),e.get('mac'),e.get('process'),e.get('dst'),e.get('dst_port'),e.get('domain'),e.get('dial_target'),e.get('outbound'),e.get('dialer'),bool(e.get('failed')))
+        g=groups.get(key)
+        if g is None:
+            if len(groups)>=CONNTRACK_MAX_GROUPS:continue
+            g=groups[key]={k:v for k,v in zip(['network','client','mac','process','dst','dst_port','domain','dial_target','outbound','dialer','failed'],key) if v not in (None,'')}
+            g.update(count=0,first=e.get('event_time'),last=e.get('event_time'))
+        g['count']+=1;g['last']=e.get('event_time') or g['last']
+        epoch=e.get('source_epoch')
+        if epoch is not None:producer[epoch]=max(producer.get(epoch,0),e.get('producer_dropped') or 0)
+    return {'flows':list(groups.values()),'events':len(events),'producer_dropped':producer,
+            'coverage':"daed userspace-routed flows: TCP dials (including failed ones) and new UDP endpoints. domain is daed's TLS/HTTP "
+                       'sniff and can be empty (ECH, QUIC without SNI, IP-only clients); dial_target is what daed actually dialled. '
+                       'Reused UDP endpoints (QUIC, BitTorrent) report only their first destination. Kernel-routed direct traffic is in connections.'}
+def capabilities():return {'implemented':['system','services','network','firewall','connections','changes','incidents','events','snapshot','samples','inventory','virtualization','identity'],'dns':{'global_metrics':True,'query_events':'ROUTER_AUDIT_DNS' in (read('/etc/init.d/daed') or ''),'reason':'Partial resolver coverage; see DNS data and source fields'},'conn_events':'ROUTER_AUDIT_CONN' in (read('/etc/init.d/daed') or ''),'missing':['per-client active connection count','container runtime health'],'baselines':'computed off-router by analyze.py','schema_version':SCHEMA}
+MODULES={'system':system,'network':network,'services':services,'firewall':firewall,'connections':connections,'capabilities':capabilities,'inventory':inventory,'virtualization':virtualization,'identity':identity}
 def envelope(module,since,limit):
     ERR.clear()
     try:
@@ -244,11 +386,12 @@ def dns_data(since,view,limit):
 def collect():
     STORE.mkdir(mode=0o700,parents=True,exist_ok=True)
     threading.Thread(target=dns_receive,daemon=True).start()
+    threading.Thread(target=conn_receive,daemon=True).start()
     last_inventory=0
     last_virtualization=0
     while True:
         start=time.monotonic();out=[]
-        for m in ['system','network','services','firewall','dns','events','changes','identity']:
+        for m in ['system','network','services','firewall','connections','dns','events','changes','identity']:
             out.append(envelope(m,time.time()-120,1000))
         if time.monotonic()-last_virtualization>900:
             out.append(envelope('virtualization',time.time()-900,1000));last_virtualization=time.monotonic()
@@ -259,6 +402,9 @@ def collect():
         out.append({'schema_version':SCHEMA,'host_id':host(),'boot_id':boot(),'collected_at':now(),'module':'dns_minute','status':'partial','data':{**dns_summary(events),'receiver':stats},'errors':[]})
         for offset in range(0,len(events),500):
             out.append({'schema_version':SCHEMA,'host_id':host(),'boot_id':boot(),'collected_at':now(),'module':'dns_queries','status':'partial','data':{'events':events[offset:offset+500],'receiver':stats,'coverage':'instrumented resolver events; loopback dnsmasq events are internal' },'errors':[]})
+        with CONN_LOCK:
+            conns=list(CONN_QUEUE);CONN_QUEUE.clear();conn_stats=dict(CONN_STATS)
+        out.append({'schema_version':SCHEMA,'host_id':host(),'boot_id':boot(),'collected_at':now(),'module':'conn_flows','status':'partial','data':{**conn_flows(conns),'receiver':conn_stats},'errors':[]})
         name=str(time.time_ns())+'.jsonl';tmp=STORE/(name+'.tmp')
         tmp.write_text(''.join(json.dumps(x,separators=(',',':'))+'\n' for x in out));tmp.chmod(0o600);tmp.replace(STORE/name)
         files=sorted(STORE.glob('*.jsonl'));total=sum(p.stat().st_size for p in files)
@@ -290,7 +436,7 @@ def main():
         result={'schema_version':SCHEMA,'host_id':host(),'collected_at':now(),'module':'samples','status':'partial' if truncated or expired else 'ok','data':{'records':records,'truncated':truncated,'cursor_expired':expired},'next_cursor':next_cursor,'errors':[]}
     elif a.module=='dns' and P.Path('/run/router-audit/dns.sock').exists():
         result=envelope('dns',time.time()-a.since,a.limit);result['data']=dns_data(time.time()-a.since,a.view,a.limit)
-    elif a.module=='snapshot':result={'schema_version':SCHEMA,'host_id':host(),'collected_at':now(),'module':'snapshot','status':'ok','data':{m:envelope(m,time.time()-a.since,a.limit) for m in ['system','network','services','firewall','dns','changes','incidents','identity','virtualization']},'errors':[]}
+    elif a.module=='snapshot':result={'schema_version':SCHEMA,'host_id':host(),'collected_at':now(),'module':'snapshot','status':'ok','data':{m:envelope(m,time.time()-a.since,a.limit) for m in ['system','network','services','firewall','connections','dns','changes','incidents','identity','virtualization']},'errors':[]}
     else:result=envelope(a.module,time.time()-a.since,a.limit)
     if a.module=='snapshot' and any(x['status']!='ok' for x in result['data'].values()):result['status']='partial'
     encoded=json.dumps(result,separators=(',',':'))

@@ -231,3 +231,21 @@ presentation latency unless the test includes the client display.
 Physical target measurements remain separate: GPU driver/encoder stability,
 headless behavior, RAM budget, image growth and streaming performance must be
 measured on the actual hardware before deployment acceptance.
+
+## Installer VM coldplug regression — 2026-11-07
+
+The installer VM exposed a PCI probe failure with standard QEMU VGA: bochs DRM
+was built in and already bound, and `/dev/dri/card0` existed, but modprobe could
+not resolve its PCI alias. `desktop-gpu-coldplug` now skips already bound PCI
+devices and still probes unbound display controllers. Four host shell tests
+cover bound built-in drivers, unbound GPUs, unsupported GPUs and non-GPU devices.
+
+Applying that exact change inside the disposable installed VM allowed
+`openwrt-desktop-coldplug.service` to finish and produced the configured user's
+seat0 session on tty7, with no failed units. Final ISO and fresh firstboot matrix
+results are recorded in [installer validation](installer-iso-validation.md).
+This involved no physical desktop restart or router deployment.
+
+Evidence: `/srv/openwrt-validation/installer-validation-20261107/`, especially
+`manual-installed-diagnostic.log`, `manual-gnome-check.log` and
+`desktop-coldplug-tests.log`.

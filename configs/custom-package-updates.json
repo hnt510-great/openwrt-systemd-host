@@ -824,6 +824,10 @@
       "provider": "local",
       "reason": "Locally maintained integration package"
     },
+    "openwrt-installer": {
+      "provider": "local",
+      "reason": "Locally maintained whole-disk USB installer"
+    },
     "openwrt-kernel-upgrade": {
       "provider": "local",
       "reason": "Locally maintained integration package"

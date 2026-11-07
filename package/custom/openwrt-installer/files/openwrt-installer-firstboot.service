@@ -1,0 +1,11 @@
+[Unit]
+Description=Complete installer account and desktop setup
+After=openwrt-services.service dbus.service systemd-logind.service
+ConditionPathExists=/etc/openwrt-installer/firstboot.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/openwrt-installer/firstboot
+
+[Install]
+WantedBy=multi-user.target
