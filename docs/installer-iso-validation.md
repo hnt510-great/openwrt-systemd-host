@@ -1,7 +1,8 @@
 # Installer ISO validation — 2026-11-07
 
-The latest optical-compatible artifact and checks are recorded in
-[Optical compatibility](#optical-compatibility--sequence-54) below. The original
+The current artifact is the fstools-r6 rebuild recorded under
+[Publication](#publication). The optical-compatible design and its checks are
+in [Optical compatibility](#optical-compatibility--sequence-54). The original
 USB-only sequence-53 results are retained here as the baseline.
 
 Implementation, full build and disposable-VM acceptance completed. The guide is
@@ -28,7 +29,7 @@ edits, untracked overlays, feed histories and the submodule were retained.
 | Installer host suite, with an actual host-built UCI | 9 tests passed; 64 WAN/IPv6/firewall combinations applied |
 | Custom-package registry suite | 47 tests passed |
 | GPU coldplug shell tests | 4 tests passed |
-| fstools package compile | Passed; effective APK release r5 after the existing rebuild ledger |
+| fstools package compile | Passed. The release recorded here was wrong: `PKG_RELEASE:=3` mapped through the rebuild ledger to the already published r4; see [Publication](#publication) |
 | Installer and desktop package compiles | Passed; final source/package payload hashes match |
 | Strict Kconfig, without writing the working config | Passed |
 | checkpatch, without requiring a local patch sign-off | 0 errors, 0 warnings |
@@ -213,3 +214,115 @@ Final receipts and serial/command logs are in `cdrom-vm/`, `usb-vm/` and
 The user's running linux2024 VM and its currently attached original ISO were
 left unchanged during this amendment. There was no feed publication, push or
 physical-device deployment. Physical optical drives and Ventoy are untested.
+
+## Review and commit — 2026-11-07
+
+An independent review re-read the full change set against the approved plan.
+The reviewed areas were:
+
+- the fstools patch;
+- the GRUB images;
+- the image recipe and ISO builder;
+- the optical bootstrap;
+- the installer core, backend and TUI;
+- the firstboot unit and the desktop coldplug fix.
+
+Before committing, the review re-ran the host suites on the final sources and
+re-checked the evidence.
+
+| Check | Result |
+| --- | --- |
+| Current ISO SHA-256 vs. `cdrom-vm`, `usb-vm` and `usb-boot-vm` receipts | Match: `916a75b7…4628` |
+| `test-openwrt-installer.py` | 9 passed; the host-UCI case skipped because no host `uci` is staged now. It ran unskipped in `installer-tests.log` |
+| `test-installer-optical.py` | 2 passed; the frozen-tools case needs a prepared root and ran unskipped in `final-optical-tests.log` |
+| `test-desktop-gpu-coldplug.py` | 4 passed |
+| `git diff --check` | Clean |
+
+Review findings: no blocking defects.
+
+- **Rejecting btrfs/xfs as unformatted.** The fstools identification now
+  rejects short reads and recognizes both before formatting.
+- **Root-disk scan.** It is limited to the mounted root's own disk. After the
+  pivot, `/` resolves through `/rom`, and an optical `loop0` root has no named
+  partitions.
+- **Destructive steps.** Answers, layout and every UCI batch are generated before
+  the first destructive command. The source payload is hashed before writing and
+  again after `dd`. Secrets never appear in argv or logs.
+- **Changed after review.** The `INSTALLER_ISO_IMAGES` Kconfig prompt now names
+  optical media. This affects menu text only, not build output.
+- **Left unchanged.** The package title and the completion message still say
+  "USB". They are cosmetic, and changing packaged text would require a new
+  `PKG_RELEASE` and rebuild.
+- **Left unchanged: TUI error flow.** A port selection that leaves LAN empty
+  (for example, the only NIC chosen as WAN) is rejected at the summary step.
+  The installer then returns to the accounts step rather than the ports
+  step. This is a usability gap, not a safety issue, because no write occurs.
+
+Commits, in order:
+
+1. `fstools: mount btrfs and xfs overlay partitions`
+2. `grub2: build hybrid installer boot images`
+3. `desktop: skip already bound GPUs during coldplug`
+4. `x86: add a whole-disk USB and optical installer ISO`
+5. `base-files: describe the installer in the system description`
+
+The already validated `router-audit` r5 README change was in the same built
+package set. It was committed separately so that publication does not ship
+uncommitted source.
+
+## Publication
+
+The first production publication attempt stopped in userspace preparation and
+exposed nothing. The publisher compared the candidate
+`fstools-2026.10.18~907cf449-r4.apk` with the published r4 and rejected it:
+`libfstools.so` and `mount_root` had changed without a new version. The cause
+was a release-numbering defect, not a build fault.
+`configs/apk-elf-rebuilds.mk` maps fstools r2 **and** r3 to the effective
+release r4. Raising `PKG_RELEASE` from 2 to 3 therefore gave the overlay patch
+the identity of the unpatched, already published r4.
+
+Release 5 was tried first. It failed at build time, because the same
+source's `block-mount` and `blockd` are reserved and published up to r5. The
+fix is `PKG_RELEASE:=6`, above every reservation, committed as
+`fstools: skip ledger-reserved releases for the overlay patch`. Every artifact
+listed above carries the mislabelled r4 in its rom, including the
+`916a75b7…4628` ISO. All of them are superseded.
+
+An unrelated, transient parallel-build failure also occurred once: `elf-abi.py`
+read an empty JSON while packaging `acl`. `acl` rebuilt cleanly on its own,
+and the next run passed.
+
+### Rebuilt artifact
+
+`bin/systemd/targets/x86/64-glibc/openwrt-x86-64-generic-installer.iso`.
+
+| Property | Value |
+| --- | --- |
+| ISO SHA-256 | `e29535bb3bda145c5ea218b341779aaa1bad1ad92796a7ecf7f3a30d529f2d54` |
+| p3 payload SHA-256 | `43ab947b…a2a2` |
+| MBR signature | `bd54ba1d` |
+| Kernel | `7.3.1-54-openwrt`; the reserved sequence 54 was reused |
+| Manifest | `fstools`, `block-mount` and `blockd` 2026.10.18~907cf449-r6; `openwrt-installer` 1-r2 |
+
+The same test runner and cases as the sequence-54 matrix were re-run on the
+rebuilt ISO:
+
+| Run | Result |
+| --- | --- |
+| SATA CD-ROM, cases a/b/c: ext4, btrfs, xfs (OVMF/NVMe, SeaBIOS/SATA, OVMF/virtio) | Passed: install, installed boot without media, DHCP lease in pool, LuCI HTTPS 200, SSH root password; case a GNOME seat0 session and kernelctl bootstrap modules |
+| Extroot regression (clone of case a) | Passed |
+| USB, case c (xfs, PPPoE configuration, full-cone) | Passed, with the same client checks |
+| Same build's combined EFI image (`5b07846e…8cc4`) | Passed; internal F2FS overlay |
+| USB boot-only, all three firmware/disk combinations | Passed |
+
+Every receipt also reports the static checks passing: hybrid boot, clean rootfs
+and kernel release.
+
+Evidence for the rebuild and VM runs is in
+`/srv/openwrt-validation/installer-optical-validation-20261107/`:
+
+- `publish-rejected-fstools-r4.log`;
+- `rebuild-fstools-r5-attempt1-acl-race.log`;
+- `rebuild-attempt2-block-mount-r5-reserved.log`;
+- `fstools-r6-compile.log`, `rebuild-fstools-r6.log`;
+- `r6/{cdrom-vm,usb-vm,usb-boot-vm}/receipt.json`, with their logs.
