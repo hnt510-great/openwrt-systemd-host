@@ -1,0 +1,78 @@
+{
+  "date": "2026-11-07",
+  "source": "configured private GitLab mirrors",
+  "feeds": [
+    {
+      "feed": "passwall_luci",
+      "branch": "main",
+      "before": "b2775ff492a34c77f740d00bc5a981f5a4b1f3bb",
+      "source": "413ced21a1d4fb8cce228570ee76c812c4aeb735",
+      "base": "c601ee89cf6c30c5b9e4b0b765be2ca73e242c90",
+      "after": "aa01308d2f6fc01166685cf0aa6295177ef69686",
+      "incoming_commits": 10
+    },
+    {
+      "feed": "passwall_packages",
+      "branch": "main",
+      "before": "0cdf1699b0d26c24c4d1a7220555f7eb17aa0218",
+      "source": "e82d172a29bb867c1d3990cccd929b889e307869",
+      "base": "e82d172a29bb867c1d3990cccd929b889e307869",
+      "after": "0cdf1699b0d26c24c4d1a7220555f7eb17aa0218",
+      "incoming_commits": 0
+    },
+    {
+      "feed": "packages",
+      "branch": "master",
+      "before": "abb5746ced011df5604c0fb904f2b4f28140fe98",
+      "source": "de187c72ed66f553b12563a77648f54dce1c7461",
+      "base": "651352dd355d96b23ccde654ad05cae330e597c6",
+      "after": "2337e60dad21514c6f33f29469de038ff410bd4f",
+      "incoming_commits": 52
+    },
+    {
+      "feed": "luci",
+      "branch": "master",
+      "before": "e45073f8461514420d61e43aba5cc281a372e86a",
+      "source": "fabacf2812d9da224fad057be1df2c19d5e9da7e",
+      "base": "e7cd60f8a93fb95e34a354cf6d7506cf7f6fc7c7",
+      "after": "680d278057af20a80ebace384412b2a4f33ae6bf",
+      "incoming_commits": 9
+    },
+    {
+      "feed": "telephony",
+      "branch": "master",
+      "before": "bb55bb952aab12624d9638bb223729921a694a28",
+      "source": "6a25f76d3b51d31c6a06db681dcce46f2b7f3869",
+      "base": "6a25f76d3b51d31c6a06db681dcce46f2b7f3869",
+      "after": "bb55bb952aab12624d9638bb223729921a694a28",
+      "incoming_commits": 0
+    },
+    {
+      "feed": "video",
+      "branch": "master",
+      "before": "339ae78df5920b7abb3613548875501b77c54ab0",
+      "source": "4d38439ca63323e297a637399a0d3f3a31c0e22b",
+      "base": "aebfa11f3733949bfaaf1ac4c9e9436030d80d23",
+      "after": "d255a21dc90fd0f68f02bd55b0cc23eaf7013c8d",
+      "incoming_commits": 8
+    },
+    {
+      "feed": "routing",
+      "branch": "master",
+      "before": "2ae1f6df7b8ffd2f7159748741592750485fdc3b",
+      "source": "ea8633da9c461a9bdc62a0323439d31180762e03",
+      "base": "ea8633da9c461a9bdc62a0323439d31180762e03",
+      "after": "2ae1f6df7b8ffd2f7159748741592750485fdc3b",
+      "incoming_commits": 0
+    },
+    {
+      "feed": "taskplan",
+      "branch": "main",
+      "before": "063b5fe5c9ebe53218d3ac6bb8bb1a95c9ba63a7",
+      "source": "7092e6de6ad9fe3f7d327f70468dfd19e00d6f0e",
+      "base": "7092e6de6ad9fe3f7d327f70468dfd19e00d6f0e",
+      "after": "063b5fe5c9ebe53218d3ac6bb8bb1a95c9ba63a7",
+      "incoming_commits": 0
+    }
+  ]
+}
