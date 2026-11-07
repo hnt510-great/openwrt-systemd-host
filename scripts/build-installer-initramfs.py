@@ -3,6 +3,7 @@
 import argparse
 import gzip
 import importlib.machinery
+import importlib.util
 import os
 from pathlib import Path
 import shutil
@@ -10,12 +11,22 @@ import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def load(name, path):
+    loader = importlib.machinery.SourceFileLoader(name, str(path))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
 # Import the shared helpers without dirtying tracked/generated source caches.
 _bytecode = sys.dont_write_bytecode
 try:
     sys.dont_write_bytecode = True
-    elf = importlib.machinery.SourceFileLoader('installer_elf', str(ROOT / 'scripts/elf-abi.py')).load_module()
-    cpio = importlib.machinery.SourceFileLoader('installer_cpio', str(ROOT / 'package/custom/openwrt-kernel-upgrade/files/kernelctl')).load_module()
+    elf = load('installer_elf', ROOT / 'scripts/elf-abi.py')
+    cpio = load('installer_cpio', ROOT / 'package/custom/openwrt-kernel-upgrade/files/kernelctl')
 finally:
     sys.dont_write_bytecode = _bytecode
 

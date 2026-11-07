@@ -2,6 +2,7 @@
 """Optical source safety and execution of the frozen target bootstrap tools."""
 import gzip
 import importlib.machinery
+import importlib.util
 import os
 from pathlib import Path
 import subprocess
@@ -13,7 +14,10 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'package/custom/openwrt-installer/files'))
 import apply
-builder = importlib.machinery.SourceFileLoader('installer_bootstrap', str(ROOT / 'scripts/build-installer-initramfs.py')).load_module()
+loader = importlib.machinery.SourceFileLoader('installer_bootstrap', str(ROOT / 'scripts/build-installer-initramfs.py'))
+spec = importlib.util.spec_from_loader(loader.name, loader)
+builder = importlib.util.module_from_spec(spec)
+loader.exec_module(builder)
 
 
 class Optical(unittest.TestCase):
