@@ -125,6 +125,26 @@ restrict,command="/usr/libexec/router-audit-ssh" ssh-ed25519 PUBLIC_KEY
 
 Use `.ssh/authorized_keys` in that home. The package's sudoers rule permits only `/usr/libexec/router-audit-read`; the wrapper refuses collector mode and the parser limits commands. No interactive shell, arbitrary sudo command, forwarding or raw configuration export is offered. Keep the SSH key file and installed wrappers root-owned. Enrolling a public key grants router audit data access and is an administrative step.
 
+
+The audit SSH account does not run containers. This image enables Podman user units
+for all user managers, so each short audit login would otherwise start Podman and
+fail when the restricted account has no container configuration. As root on the
+router, mask those units for this account during enrollment:
+
+```sh
+install -d -o root -g root -m 0755 /home/router-audit/.config \
+    /home/router-audit/.config/systemd /home/router-audit/.config/systemd/user
+for unit in podman-restart.service podman-auto-update.timer podman-auto-update.service podman.socket podman.service; do
+    ln -s /dev/null "/home/router-audit/.config/systemd/user/$unit"
+done
+```
+
+Already masked links can be left in place. Inspect any existing non-mask unit before
+replacing it. Keep this configuration root-owned like the account home. The masks
+apply on the next fresh login; allow an existing short audit session to finish.
+Do not mask Podman globally: other users run production containers. Keep this home
+configuration in the device configuration backup when reinstalling the router.
+
 ## Debian companion (manual deployment)
 
 Copy the scripts and `prompts/` from the package's `/usr/share/router-audit/` to the intended analysis directory (they load `normalize.py` and each other from their own directory). For the currently enrolled key:

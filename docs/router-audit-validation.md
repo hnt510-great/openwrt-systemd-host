@@ -222,3 +222,27 @@ measured on one GPU with one llama.cpp build. Periodic beaconing detection is no
 Scope: the analyzer does not read the new modules yet. No reboot, UCI or firewall change; the
 APK uci-history hook reported no configuration change. Proxied connections were interrupted once
 while daed restarted.
+
+
+## Audit SSH account Podman masks — 2026-11-06
+
+Repeated failures belonged to UID 999 (`router-audit`), not Hermes. Each minute
+SSH pull created a fresh user manager and started globally enabled Podman units;
+Podman failed with `stat /home/router-audit/.config: no such file or directory`.
+Root-owned per-account masks for `podman-restart.service`,
+`podman-auto-update.timer`, `podman-auto-update.service`, `podman.socket`, and
+`podman.service` were installed in `/home/router-audit/.config/systemd/user` on
+the physical router at 19:43:47 +08. The 19:44 login read the next sample cursor
+successfully without starting Podman or logging its previous failure. Existing
+Example user containers (ubuntu, ariang, searxng) remained running. No UCI change,
+container restart or reboot was needed. Enrollment instructions now preserve
+this account-specific configuration; the package release is reserved as r5
+because its installed README changes. No feed publication or APK upgrade is
+part of this fix.
+
+Validation: `git diff --check` passed;
+`make package/custom/router-audit/compile V=s` completed successfully and built
+`router-audit 1.0.0-r5`. The 19:45 audit SSH pull also succeeded with an advanced
+sample cursor and no Podman startup/failure. Build log:
+`/tmp/router-audit-podman-mask-build.log` on Debian. The masks are an enrollment
+configuration step, not an automatically applied package post-install action.
