@@ -45,3 +45,17 @@ PPPoE, physical NICs and physical-router acceptance were not exercised.
 
 Evidence: `bin/validation/sync-20261107/` (build and publication logs, image,
 VM receipt).
+
+## Follow-up: mesa r10
+
+After publication, GitLab's `feeds/video` `master` (libXrandr for
+`libmesa-virtualization`, the meson machine-file python patch and conditional
+GIR build dependencies) was merged into the local feed. mesa moved to r10
+because r9 was already published without those changes; the GIR-only recipes
+produce unchanged packages. Only mesa was rebuilt (`build-and-publish.py build
+package/feeds/video/mesa/compile`); it was not booted in a VM.
+
+- Userspace: `/srv/openwrt-feeds/public/snapshots/20261107T051504.120954Z`,
+  1530 packages; kernel feed unchanged (generation 55).
+- Router upgrade preflight passed; receipt
+  `upgrade-receipts/1794028526158869762.json`. Nothing was installed on the router.
