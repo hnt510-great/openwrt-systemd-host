@@ -6,7 +6,7 @@
 
 面向 x86_64 的 OpenWrt 分支：一台机器同时做路由器、GNOME 桌面、容器与虚拟机主机。
 保留 UCI、LuCI 和 procd 服务接口，底层改为 glibc、签名 APK 和原生 systemd，
-内核跟踪 Linux 7.3 主线。
+内核跟踪 Linux 主线。
 
 ## 主要特性
 
@@ -20,7 +20,8 @@
 ## 构建
 
 需要一台装好 [OpenWrt 构建依赖](https://openwrt.org/docs/guide-developer/build-system/install-buildsystem)
-的 Linux 主机。主树、feeds 与 Argon 主题仓库均已公开，可直接通过 HTTPS 克隆，无需登录 GitHub：
+的 Linux 主机；构建安装 ISO 还需要 `xorriso`。主树、feeds 与 Argon 主题仓库均已公开，
+可直接通过 HTTPS 克隆，无需登录 GitHub：
 
 ```sh
 git clone https://github.com/hnt510-great/openwrt-systemd-host.git
@@ -45,31 +46,69 @@ python3 scripts/build-and-publish.py build-only -j12 V=s
 make package/custom/openwrt-desktop/compile V=s
 ```
 
-产物位于 `bin/systemd/`。更多说明见 [本地构建](docs/local-build.md)。
-
-## 刷写
-
-镜像仅支持 **UEFI** 启动，根分区约 8 GiB，目标盘建议 16 GB 以上：
-
-```
-bin/systemd/targets/x86/64-glibc/openwrt-x86-64-generic-squashfs-combined-efi.img.gz
-```
-
-**全新安装**：在其他系统（或 Live U 盘）中写入目标盘，`/dev/sdX` 换成实际磁盘，会清空整盘：
+完整桌面配置已启用安装 ISO，产物位于 `bin/systemd/`。已有配置如需启用安装器，
+在构建前合并配置片段：
 
 ```sh
-gunzip -c openwrt-x86-64-generic-squashfs-combined-efi.img.gz | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress
+./scripts/kconfig.pl + .config configs/installer-iso.config > .config.new
+mv .config.new .config
+make defconfig
 ```
+
+更多说明见 [本地构建](docs/local-build.md)。
+
+## 安装
+
+### 使用安装 ISO
+
+安装器支持 **UEFI 和传统 BIOS** 启动，目标盘建议 16 GB 以上。
+准备一个安装 U 盘和一块独立目标盘，将 ISO 原始写入整个 U 盘。
+可用 Etcher、Rufus 的 **DD 模式**，或下面的命令；先确认设备名，
+将 `/dev/REPLACE_USB` 换成实际 U 盘设备，写入会清空该 U 盘：
+
+```sh
+sudo dd if=bin/systemd/targets/x86/64-glibc/openwrt-x86-64-generic-installer.iso of=/dev/REPLACE_USB bs=4M conv=fsync status=progress
+sync
+```
+
+1. 从 U 盘启动，选择 **Install OpenWrt**；串口终端选择 **Install OpenWrt (serial console)**。
+2. 在英文文本向导中选择目标盘与分区方案。引导分区使用 FAT32，系统使用只读 squashfs，
+   可写分区默认 ext4，也可选择 btrfs 或 xfs。
+3. 根据 MAC 地址、驱动和链路状态选择 WAN/LAN 网口，设置网络、防火墙和 root 密码。
+   默认 LAN 为 `192.168.1.1/24`；WAN 支持 DHCP、PPPoE、静态地址或不配置。
+4. 可选创建普通用户并启用 GNOME 自动启动。确认摘要后执行安装：
+   **所选目标盘会重新分区，原有数据全部清除，不保留原分区或双系统。**
+5. 安装完成后移除 U 盘并重启，从目标盘启动；UEFI 安装无需修改 NVRAM 启动项。
+
+虚拟机可将同一个 ISO 挂载为 **SATA CD-ROM**，设置光驱优先启动，并添加独立可写磁盘；
+virt-manager 中已验证的安装器显示型号为 **Standard VGA**。
+安装后弹出 ISO。Rufus ISO 模式和 Ventoy 暂不支持。
+详细操作、分区说明和故障日志见 [USB／光盘安装器](docs/installer-iso.md)。
+
+### 直接写入磁盘镜像
+
+也可在其他系统或 Live 环境中，将 `combined-efi` 镜像直接写入目标盘，再以 **UEFI** 启动。
+将 `/dev/REPLACE_DISK` 换成实际目标磁盘，写入会清空目标盘：
+
+```sh
+gunzip -c bin/systemd/targets/x86/64-glibc/openwrt-x86-64-generic-squashfs-combined-efi.img.gz | sudo dd of=/dev/REPLACE_DISK bs=4M conv=fsync status=progress
+sync
+```
+
+直接写盘使用镜像预设的分区和配置；安装 ISO 则通过向导生成配置，并排除未跟踪的个人 overlay。
 
 **已运行本固件**：systemd 模式下拒绝 `sysupgrade` 刷写。重启进入 GRUB 的
 `procd recovery` 项，再执行 `sysupgrade <镜像>`。日常升级通常无需重刷，见下文“升级”。
 
 ## 首次使用
 
-1. 从 GRUB 默认项启动，在控制台以 root 设置密码并确认 `cat /proc/1/comm` 输出 `systemd`。
-2. 浏览器打开 `http://LAN-IP/` 登录 LuCI，配置 WAN/LAN、DNS 和时区。
+1. 从 GRUB 默认项启动，确认 `cat /proc/1/comm` 输出 `systemd`。
+   通过安装器安装时，使用向导设置的 root 密码；直接写盘后应先在控制台设置 root 密码。
+2. 浏览器打开 `http://LAN-IP/` 登录 LuCI。安装器默认 LAN 地址为 `192.168.1.1`，
+   如在向导中修改过则使用修改后的地址；按需调整 WAN/LAN、DNS 和时区。
 3. 首次进入 LuCI 会自动打开**桌面设置向导**（之后可在 **系统 → 桌面设置向导** 打开），
-   创建普通用户并勾选 GNOME/RDP、Moonlight、容器、Flatpak、虚拟机等功能。
+   创建或选择普通用户，并勾选 GNOME/RDP、Moonlight、容器、Flatpak、虚拟机等功能。
+   安装器已创建用户并启用 GNOME 时，可直接使用该用户，按需补充远程桌面等设置。
    详见 [桌面设置向导](docs/desktop-setup.md)。
 
 也可以在 root shell 中手动完成（`alice` 换成自己的用户名）：
