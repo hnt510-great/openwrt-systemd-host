@@ -155,6 +155,9 @@ define Package/grub2/install
 		-c ./files/grub-early.cfg \
 		-o $(STAGING_DIR_IMAGE)/grub2/legacy-core.img \
 		biosdisk boot chain configfile ext2 linux ls part_msdos reboot search serial vga
+	$(CP) $(PKG_BUILD_DIR)/grub-core/boot_hybrid.img $(STAGING_DIR_IMAGE)/grub2/
+	$(STAGING_DIR_HOST)/bin/grub-mkimage -d $(PKG_BUILD_DIR)/grub-core -p /boot/grub -O i386-pc-eltorito -o $(STAGING_DIR_IMAGE)/grub2/installer-eltorito.img biosdisk iso9660 part_msdos part_gpt configfile linux normal search search_fs_uuid search_fs_file serial terminal test echo boot ls reboot vga at_keyboard
+
 endef
 
 define Package/grub2-efi/install
@@ -174,6 +177,8 @@ define Package/grub2-efi/install
 		-c ./files/grub-early.cfg \
 		-o $(STAGING_DIR_IMAGE)/grub2/iso-boot$(if $(CONFIG_x86_64),x64,ia32).efi \
 		boot chain configfile fat iso9660 linux ls part_msdos part_gpt reboot serial test efi_gop efi_uga
+	$(if $(CONFIG_x86_64),$(STAGING_DIR_HOST)/bin/grub-mkimage -d $(PKG_BUILD_DIR)/grub-core -p /boot/grub -O x86_64-efi -o $(STAGING_DIR_IMAGE)/grub2/installer-bootx64.efi fat iso9660 part_msdos part_gpt configfile linux normal search search_fs_uuid search_fs_file serial terminal test echo boot ls reboot efi_gop efi_uga at_keyboard)
+
 endef
 
 define Package/grub2-efi-arm/install
