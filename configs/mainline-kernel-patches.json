@@ -5066,7 +5066,6 @@
       "source": "target/linux/generic/hack-6.18/904-debloat_dma_buf.patch",
       "files": [
         "drivers/base/Kconfig",
-        "drivers/dma-buf/heaps/Makefile",
         "drivers/dma-buf/Makefile",
         "drivers/dma-buf/dma-buf.c",
         "kernel/sched/core.c",
@@ -5074,9 +5073,9 @@
         "net/Kconfig"
       ],
       "status": "merged",
-      "source_sha256": "e99762de8199bda4a2322cbd0c736ba351acf559a663f9c0ef085756fcdec507",
+      "source_sha256": "3085f828f595d11bb59c1661fc9accd495b90a421a612d75d02529e5b220a465",
       "ported": "target/linux/generic/hack-7.3/904-debloat_dma_buf.patch",
-      "ported_sha256": "b7f5ec75ccf535b8270877901526eb4bff227f7641bdfd8ec652049174751f8f",
+      "ported_sha256": "9d36f08081f2d1199666efc467f0d787ea1ca685dea04293d5b5a901b1098e2a",
       "review_findings": [
         "dmabuf-heaps-kbuild"
       ]
@@ -6241,7 +6240,8 @@
         "id": "dmabuf-heaps-kbuild",
         "severity": "P2",
         "disabled_in_generation_30": "CONFIG_DMABUF_HEAPS",
-        "result": "Inherited Makefile uses unconsumed dma-buf-objs variables; real Kbuild dry run produces an empty heap archive"
+        "result": "Inherited Makefile uses unconsumed dma-buf-objs variables; real Kbuild dry run produces an empty heap archive",
+        "resolved": "2026-11-07: upstream b12b44bfdf links the heap objects into dma-shared-buffer from drivers/dma-buf/Makefile; hack-7.3/904 ported the same way, and with DMABUF_HEAPS_SYSTEM/CMA enabled the 7.3.1 build links system_heap.o and cma_heap.o into drivers/dma-buf/built-in.a"
       }
     ]
   }
