@@ -28,6 +28,10 @@ LAN = load('build_lan_publisher', 'publish-lan-apk-feeds.py')
 KERNEL = load('build_kernel_publisher', 'publish-kernel-upgrade-feed.py')
 INPUTS = load('kernel_build_inputs', 'kernel-build-inputs.py')
 GUARD = load('build_upgrade_preflight', 'apk-upgrade-preflight.py')
+ALLOCATE = LAN.ALLOCATE
+# Each round may change exact-version dependents (ELF_DEP_*), so allow a short
+# cascade, but never loop on a rebuild that keeps producing new bytes.
+ALLOCATION_ROUNDS = 3
 
 
 class Progress:
@@ -552,13 +556,43 @@ def publish_locked(tree, data, apk, dry_run, progress=None, artifacts=None):
                     shutil.rmtree(path, ignore_errors=True)
 
 
+def make_options(make_args):
+    """Keep job and verbosity options for a targeted rebuild."""
+    options = []
+    for index, argument in enumerate(make_args):
+        if (argument.startswith(('-j', '--jobs', 'V=')) or
+                (argument.isdigit() and index and make_args[index - 1] in ('-j', '--jobs'))):
+            options.append(argument)
+    if not any(option.startswith(('-j', '--jobs')) for option in options):
+        options.insert(0, f'-j{os.cpu_count() or 1}')
+    return options
+
+
+def publish_allocating(tree, data, publish_once, make_args=(), allocate=False):
+    """Publish; on same-version rebuilds optionally allocate releases, rebuild, retry."""
+    for round_number in range(ALLOCATION_ROUNDS + 1):
+        try:
+            return publish_once()
+        except LAN.SameVersionRebuildError as error:
+            if not allocate or round_number == ALLOCATION_ROUNDS:
+                raise
+            allocations = ALLOCATE.plan(tree, data['destination'], error.entries)
+            print('Allocating new releases for same-version rebuilds:\n' +
+                  ALLOCATE.describe(allocations), file=sys.stderr)
+            ALLOCATE.apply(tree, allocations)
+            targets = ALLOCATE.rebuild_targets(allocations)
+            print('Rebuilding: ' + ' '.join(targets), file=sys.stderr)
+            run_make(tree, [*make_options(list(make_args)), *targets])
+
+
 def run_make(tree, arguments):
     # Package scripts/lists and temporary roots inherit the build's umask.
     # Keep their recorded ACLs stable across shells and validation checkouts.
     subprocess.run(['make', *arguments], cwd=tree, check=True, umask=0o022)
 
 
-def build(tree, make_args, publish_after=True, artifact_directory=None, lock_fd=None):
+def build(tree, make_args, publish_after=True, artifact_directory=None, lock_fd=None,
+          allocate_rebuilds=False):
     for argument in make_args:
         if argument in ('-n', '--just-print', '--dry-run', '--recon', '-q', '--question', '-t', '--touch'):
             raise ValueError('A make preview/touch cannot be used for build-and-publish')
@@ -611,14 +645,17 @@ def build(tree, make_args, publish_after=True, artifact_directory=None, lock_fd=
         if artifact_directory is not None:
             capture_artifacts(tree, artifact_directory)
         if publish_after:
-            return publish(tree, data)
+            return publish_allocating(tree, data, lambda: publish(tree, data), make_args,
+                                      allocate_rebuilds)
         return {'status': 'built', 'tree': str(tree),
                 'sequence': plan['sequence'] if plan else None}
 
 
 def main():
     if len(sys.argv) > 1 and sys.argv[1] in ('build', 'build-only'):
-        result = build(TREE, sys.argv[2:], publish_after=sys.argv[1] == 'build')
+        make_args = [arg for arg in sys.argv[2:] if arg != '--allocate-rebuilds']
+        result = build(TREE, make_args, publish_after=sys.argv[1] == 'build',
+                       allocate_rebuilds='--allocate-rebuilds' in sys.argv[2:])
     else:
         parser = argparse.ArgumentParser(description=__doc__)
         parser.add_argument('--config', type=Path, default=TREE / 'configs/lan-apk-feeds.json')
@@ -629,6 +666,9 @@ def main():
         parser.add_argument('--incremental', action='store_true', help='Compatibility; always incremental')
         parser.add_argument('--dry-run', action='store_true')
         parser.add_argument('--no-progress', action='store_true', help='Disable progress on stderr')
+        parser.add_argument('--allocate-rebuilds', action='store_true',
+                            help='Allocate ELF rebuild ledger releases for same-version rebuilds, '
+                                 'rebuild those packages and retry')
         args = parser.parse_args()
         data = json.loads(args.config.read_text())
         data.update({k: v for k, v in vars(args).items()
@@ -641,7 +681,8 @@ def main():
                 (lockdir / '.build-and-publish.lock').open('a') as lock:
             progress(0, 'Wait for build/publication lock')
             fcntl.flock(lock, fcntl.LOCK_EX)
-            result = publish(tree, data, args.dry_run, progress)
+            result = publish_allocating(tree, data,
+                lambda: publish(tree, data, args.dry_run, progress), allocate=args.allocate_rebuilds)
     print(json.dumps(result, indent=2))
 
 
