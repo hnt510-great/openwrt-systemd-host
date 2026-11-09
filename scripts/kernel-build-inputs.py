@@ -200,8 +200,31 @@ def fingerprint(tree, config, make_args=()):
         for path in sorted((tree / 'staging_dir/host/lib').glob(pattern)):
             if path.is_file():
                 tools[str(path.relative_to(tree))] = file_record(path)
+    # Host system programs only build helpers (kconfig, fixdep, modpost,
+    # objtool) and run scripts; the kernel and modules come from the OpenWrt
+    # cross toolchain above. Distribution upgrades of these programs alone do
+    # not reserve a new generation: make does not rebuild the kernel for them,
+    # and the kernel publisher refuses changed bytes under a published
+    # generation. They are recorded for diagnosis only.
+    host = {}
     for name in ('cc', 'ld', 'objcopy', 'bison', 'flex', 'perl', 'python3', 'make', 'bash'):
         path = shutil.which(name)
         if path:
-            tools['host-' + name] = file_record(Path(path))
-    return {'source': source_hash, 'tools': digest(tools), 'schema': SCHEMA}
+            host['host-' + name] = file_record(Path(path))
+    return {'source': source_hash, 'tools': digest(tools), 'host': digest(host),
+            # The pre-split tools digest, for comparing state recorded by older builds.
+            'legacy_tools': digest({**tools, **host}), 'schema': SCHEMA}
+
+
+def same_tools(previous, current):
+    """Whether the generation-relevant build tools match a recorded fingerprint."""
+    if 'host' in previous:
+        return previous.get('tools') == current['tools']
+    # Recorded before host programs were split out of the tools digest.
+    return previous.get('tools') in (current['tools'], current['legacy_tools'])
+
+
+def same_inputs(previous, current):
+    """Whether a recorded fingerprint still describes the same kernel generation."""
+    return (previous.get('schema') == current['schema'] and
+            previous.get('source') == current['source'] and same_tools(previous, current))

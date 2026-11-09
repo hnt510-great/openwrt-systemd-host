@@ -225,7 +225,7 @@ def prepare_sequence(tree, destination, make_args=(), inputs=None):
     published = json.loads(manifest.read_text())['sequence'] if manifest.exists() else 0
     inputs = inputs or INPUTS.fingerprint(tree, config, make_args)
     previous = json.loads(state_path(tree).read_text()) if state_path(tree).exists() else None
-    reuse = (previous and previous.get('schema') == 1 and previous.get('inputs') == inputs
+    reuse = (previous and previous.get('schema') == 1 and INPUTS.same_inputs(previous['inputs'], inputs)
              and current <= previous['sequence'] and previous['sequence'] >= published)
     if reuse and not generation_matches_compiled_image(tree, previous['sequence'], previous.get('timestamp')):
         print('Recorded generation differs from existing compiled image/config/timestamp; '
@@ -257,6 +257,9 @@ def prepare_sequence(tree, destination, make_args=(), inputs=None):
                 os.replace(temporary, path)
             finally:
                 temporary.unlink(missing_ok=True)
+    if reuse and previous['inputs'] != inputs:
+        # Same generation; record the current host programs and digest format.
+        save_state(tree, {**previous, 'inputs': inputs})
     if not reuse:
         explicit = [arg.split('=', 1)[1] for arg in make_args
                     if arg.startswith('KBUILD_BUILD_TIMESTAMP=')]
@@ -619,7 +622,7 @@ def build(tree, make_args, publish_after=True, artifact_directory=None, lock_fd=
             plan = json.loads(state_path(tree).read_text())
         elif enabled and state_path(tree).exists():
             plan = json.loads(state_path(tree).read_text())
-            if INPUTS.fingerprint(tree, configuration(tree), make_args) != plan['inputs']:
+            if not INPUTS.same_inputs(plan['inputs'], INPUTS.fingerprint(tree, configuration(tree), make_args)):
                 raise ValueError('Kernel inputs changed; run a complete build to reserve a new generation')
         arguments = list(make_args)
         if full:
@@ -638,7 +641,7 @@ def build(tree, make_args, publish_after=True, artifact_directory=None, lock_fd=
             # Replacing tools under an existing published generation is refused.
             manifest = data['destination'] / 'public/kernel-upgrades/manifest.json'
             published = json.loads(manifest.read_text())['sequence'] if manifest.exists() else 0
-            if after['tools'] != plan['inputs']['tools'] and plan['sequence'] <= published:
+            if not INPUTS.same_tools(plan['inputs'], after) and plan['sequence'] <= published:
                 raise ValueError('Kernel build tools changed; retry with a new generation')
             plan.update(inputs=after, phase='built')
             save_state(tree, plan)

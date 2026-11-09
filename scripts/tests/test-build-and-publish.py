@@ -602,6 +602,54 @@ class BuildPublicationTests(unittest.TestCase):
         path.write_bytes(b'new tool')
         self.assertGreater(B.prepare_sequence(self.tree, self.server), first)
 
+    def host_programs(self):
+        """Point the host-program lookup at fixture files the test can change."""
+        host = self.root / 'host-bin'
+        host.mkdir(exist_ok=True)
+        for name in ('cc', 'bash'):
+            (host / name).write_bytes(b'gcc 16.2.0-3' if name == 'cc' else b'bash 5.3-4')
+        which = patch.object(B.INPUTS.shutil, 'which',
+                             side_effect=lambda name: str(host / name) if (host / name).exists() else None)
+        which.start()
+        self.addCleanup(which.stop)
+        return host
+
+    def test_host_program_upgrade_keeps_generation(self):
+        host = self.host_programs()
+        first = B.prepare_sequence(self.tree, self.server)
+        self.generation(first)
+        recorded = json.loads(B.state_path(self.tree).read_text())['inputs']
+        (host / 'cc').write_bytes(b'gcc 16.2.0-4')
+        (host / 'bash').write_bytes(b'bash 5.3-4+b1')
+        self.assertEqual(B.prepare_sequence(self.tree, self.server), first)
+        state = json.loads(B.state_path(self.tree).read_text())
+        self.assertEqual(state['inputs']['tools'], recorded['tools'])
+        self.assertNotEqual(state['inputs']['host'], recorded['host'])
+
+    def test_state_recorded_before_host_split_is_reused(self):
+        self.host_programs()
+        first = B.prepare_sequence(self.tree, self.server)
+        self.generation(first)
+        state = json.loads(B.state_path(self.tree).read_text())
+        inputs = state['inputs']
+        state['inputs'] = {'source': inputs['source'], 'tools': inputs['legacy_tools'],
+                           'schema': inputs['schema']}
+        B.save_state(self.tree, state)
+        self.assertEqual(B.prepare_sequence(self.tree, self.server), first)
+        self.assertIn('host', json.loads(B.state_path(self.tree).read_text())['inputs'])
+
+    def test_legacy_state_cannot_prove_unchanged_tools_after_host_upgrade(self):
+        host = self.host_programs()
+        first = B.prepare_sequence(self.tree, self.server)
+        self.generation(first)
+        state = json.loads(B.state_path(self.tree).read_text())
+        inputs = state['inputs']
+        state['inputs'] = {'source': inputs['source'], 'tools': inputs['legacy_tools'],
+                           'schema': inputs['schema']}
+        B.save_state(self.tree, state)
+        (host / 'cc').write_bytes(b'gcc 16.2.0-4')
+        self.assertGreater(B.prepare_sequence(self.tree, self.server), first)
+
     def test_same_inputs_retry_reuses_partial_generation(self):
         first = B.prepare_sequence(self.tree, self.server)
         self.generation(first)
