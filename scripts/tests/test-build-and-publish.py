@@ -82,6 +82,28 @@ class BuildPublicationTests(unittest.TestCase):
         self.make_package('linux-image-6.18.55-99-openwrt', '6.18.55-r99')
         self.make_package('linux-image-openwrt', '6.18.55-r99', ['linux-image-6.18.55-99-openwrt=6.18.55-r99'])
 
+    def test_saved_artifacts_are_independent_and_detect_tampering(self):
+        image = self.tree / 'bin/systemd/targets/x86/64-glibc/openwrt-x86-64-generic-squashfs-combined-efi.img.gz'
+        image.write_bytes(b'exact image fixture')
+        B.save_state(self.tree, {'schema': 1, 'sequence': 1, 'phase': 'built'})
+        bundle = self.root / 'saved-artifacts'
+        manifest = B.capture_artifacts(self.tree, bundle)
+        self.assertEqual(manifest['schema'], 1)
+        image.write_bytes(b'new live output')
+        self.assertEqual((bundle / 'image.img.gz').read_bytes(), b'exact image fixture')
+        B.verify_artifacts(bundle)
+        result = B.publish(self.tree, self.data, dry_run=True, artifacts=bundle)
+        self.assertEqual(result['kernel']['status'], 'dry-run')
+        (bundle / 'image.img.gz').chmod(0o600)
+        (bundle / 'image.img.gz').write_bytes(b'tampered')
+        with self.assertRaisesRegex(ValueError, 'changed'):
+            B.verify_artifacts(bundle)
+
+    def test_foreign_inherited_build_lock_is_rejected(self):
+        with (self.root / 'foreign-lock').open('w') as lock:
+            with self.assertRaisesRegex(ValueError, 'Inherited build lock'):
+                B.build(self.tree, [], publish_after=False, lock_fd=lock.fileno())
+
     def make_package(self, name, version, depends=(), content=None, signed=True, files=None):
         root = self.root / 'package-files'
         if root.exists():

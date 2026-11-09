@@ -390,11 +390,48 @@ def project(tree, work, apk, progress=None):
     return userspace, channel, abi, release
 
 
-def publish(tree, data, dry_run=False, progress=None):
+def verify_artifacts(bundle):
+    """Validate an independent, complete saved projection before reuse."""
+    bundle = Path(bundle).resolve()
+    manifest = json.loads((bundle / 'manifest.json').read_text())
+    if manifest.get('schema') != 1 or not manifest.get('files'):
+        raise ValueError('Invalid artifact manifest')
+    actual = {str(p.relative_to(bundle)) for p in bundle.rglob('*') if p.is_file()
+              and p != bundle / 'manifest.json'}
+    if actual != set(manifest['files']):
+        raise ValueError('Artifact file set changed')
+    for name, digest in manifest['files'].items():
+        path = bundle / name
+        if path.is_symlink() or not path.resolve().is_relative_to(bundle) or LAN.sha256(path) != digest:
+            raise ValueError('Saved artifact changed: ' + name)
+    return manifest
+
+
+def capture_artifacts(tree, bundle):
+    """Called while the checkout build lock is held; never copy signing keys."""
+    bundle = Path(bundle)
+    bundle.mkdir(mode=0o700, parents=True, exist_ok=False)
+    userspace, channel, abi, release = project(tree, bundle, TREE / 'staging_dir/host/bin/apk')
+    image = tree / 'bin/systemd/targets/x86/64-glibc/openwrt-x86-64-generic-squashfs-combined-efi.img.gz'
+    copy_package(image, bundle / 'image.img.gz')
+    copy_package(tree / '.config', bundle / 'build.config')
+    copy_package(state_path(tree), bundle / 'kernel-inputs.json')
+    manifest = {'schema': 1, 'abi': abi, 'release': release,
+                'public_key_sha256': LAN.sha256(TREE / 'public-key.pem'),
+                'files': {str(p.relative_to(bundle)): LAN.sha256(p)
+                          for p in sorted(bundle.rglob('*')) if p.is_file()}}
+    for name in manifest['files']:
+        (bundle / name).chmod(0o444)
+    (bundle / 'manifest.json').write_text(json.dumps(manifest, sort_keys=True, indent=2) + '\n')
+    verify_artifacts(bundle)
+    return manifest
+
+
+def publish(tree, data, dry_run=False, progress=None, artifacts=None):
     apk = TREE / 'staging_dir/host/bin/apk'
     if progress:
         progress(0, 'Wait for publication lock')
-    if configuration(tree).get('CONFIG_OPENWRT_KERNEL_UPGRADE') != 'y':
+    if artifacts is None and configuration(tree).get('CONFIG_OPENWRT_KERNEL_UPGRADE') != 'y':
         if progress:
             progress(5, 'Prepare userspace feeds', 'signatures and ABI checks')
         result = LAN.publish(argparse.Namespace(source_root=tree, kernel=data.get('kernel'),
@@ -407,19 +444,34 @@ def publish(tree, data, dry_run=False, progress=None):
     destination.mkdir(parents=True, exist_ok=True)
     with (destination / '.upgrade-publish.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        result = publish_locked(tree, data, apk, dry_run, progress)
+        result = publish_locked(tree, data, apk, dry_run, progress, artifacts)
     if progress:
         progress(100, 'Dry run complete' if dry_run else 'Publication complete')
     return result
 
 
-def publish_locked(tree, data, apk, dry_run, progress=None):
+def publish_locked(tree, data, apk, dry_run, progress=None, artifacts=None):
     destination = data['destination']
     prepared = []
     with tempfile.TemporaryDirectory(prefix='.build-publish-', dir=destination) as temporary:
         if progress:
             progress(2, 'Read and stage APKs')
-        userspace, channel, abi, generation = project(tree, Path(temporary), apk, progress)
+        if artifacts is None:
+            userspace, channel, abi, generation = project(tree, Path(temporary), apk, progress)
+        else:
+            artifacts = Path(artifacts).resolve()
+            manifest = verify_artifacts(artifacts)
+            if manifest['public_key_sha256'] != LAN.sha256(TREE / 'public-key.pem'):
+                raise ValueError('Artifact signing key changed')
+            # Copy again into private publication staging so later edits cannot
+            # substitute inputs between verification and the solver simulations.
+            for folder in ('userspace', 'kernel'):
+                shutil.copytree(artifacts / folder, Path(temporary) / folder)
+            for name, digest in manifest['files'].items():
+                if name.startswith(('userspace/', 'kernel/')) and LAN.sha256(Path(temporary) / name) != digest:
+                    raise ValueError('Artifact changed during publication staging: ' + name)
+            userspace, channel = Path(temporary) / 'userspace', Path(temporary) / 'kernel'
+            abi, generation = manifest['abi'], manifest['release']
         if data.get('kernel') and data['kernel'] != abi:
             raise ValueError('Requested ABI differs from compiled generation')
         if progress:
@@ -506,7 +558,7 @@ def run_make(tree, arguments):
     subprocess.run(['make', *arguments], cwd=tree, check=True, umask=0o022)
 
 
-def build(tree, make_args, publish_after=True):
+def build(tree, make_args, publish_after=True, artifact_directory=None, lock_fd=None):
     for argument in make_args:
         if argument in ('-n', '--just-print', '--dry-run', '--recon', '-q', '--question', '-t', '--touch'):
             raise ValueError('A make preview/touch cannot be used for build-and-publish')
@@ -517,7 +569,10 @@ def build(tree, make_args, publish_after=True):
     lockdir = tree / 'tmp'
     lockdir.mkdir(exist_ok=True)
     with (lockdir / '.build-and-publish.lock').open('a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        if lock_fd is None:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        elif (os.fstat(lock_fd).st_dev, os.fstat(lock_fd).st_ino) != (os.fstat(lock.fileno()).st_dev, os.fstat(lock.fileno()).st_ino):
+            raise ValueError('Inherited build lock does not belong to this checkout')
         targets = [arg for arg in make_args if not arg.startswith('-') and '=' not in arg
                    and not arg.isdigit()]
         enabled = configuration(tree).get('CONFIG_OPENWRT_KERNEL_UPGRADE') == 'y'
@@ -553,6 +608,8 @@ def build(tree, make_args, publish_after=True):
                 raise ValueError('Kernel build tools changed; retry with a new generation')
             plan.update(inputs=after, phase='built')
             save_state(tree, plan)
+        if artifact_directory is not None:
+            capture_artifacts(tree, artifact_directory)
         if publish_after:
             return publish(tree, data)
         return {'status': 'built', 'tree': str(tree),

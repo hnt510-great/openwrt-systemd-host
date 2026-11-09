@@ -188,10 +188,60 @@ class ScheduledTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'openwrt-desktop'):
             S.verify_feature_config(original, self.repo)
 
+    def test_status_does_not_create_state_root(self):
+        config, root = self.configuration()
+        self.invoke(config, '--status')
+        self.assertFalse(root.exists())
+
+    def test_disabled_schedule_does_not_create_state(self):
+        config, root = self.configuration()
+        data = json.loads(config.read_text())
+        data['enabled'] = False
+        config.write_text(json.dumps(data))
+        with patch.object(S, 'execute') as execute:
+            self.invoke(config, '--scheduled')
+            execute.assert_not_called()
+        self.assertFalse(root.exists())
+
+    def test_modular_and_gnome_selections_are_protected(self):
+        original = self.root / 'input.config'
+        core = ('CONFIG_OPENWRT_SYSTEMD=y\nCONFIG_USE_GLIBC=y\nCONFIG_USE_APK=y\n'
+                'CONFIG_TARGET_x86_64=y\n')
+        for selection in ('CONFIG_PACKAGE_gnome-shell=y\n', 'CONFIG_PACKAGE_example=m\n'):
+            original.write_text(core + selection)
+            (self.repo / '.config').write_text(core)
+            with self.assertRaisesRegex(ValueError, 'selected core feature'):
+                S.verify_feature_config(original, self.repo)
+
+    def test_bundle_receipt_mismatch_blocks_publication(self):
+        smoke = types.SimpleNamespace(REQUIRED={'routing'}, sha256=lambda p: 'hash')
+        publisher = Mock()
+        receipt = {'status': 'passed', 'checks': {'routing': True},
+                   'image_sha256': 'hash', 'image': str((self.root / 'image').resolve())}
+        with patch.object(S, 'load', side_effect=lambda n, f: smoke if f == 'test-image-network.py' else publisher):
+            with self.assertRaisesRegex(ValueError, 'manifest'):
+                S.gated_publish(self.repo, receipt, self.root / 'image', self.root / 'bundle')
+        publisher.publish.assert_not_called()
+
+    def test_reuse_identity_tracks_local_source_config_and_overlay(self):
+        (self.repo / '.config').write_text('CONFIG_PRIVATE=y\n')
+        publisher = Mock()
+        publisher.INPUTS.fingerprint.return_value = {'source': 'fixed', 'tools': 'fixed'}
+        repositories = [{'path': str(self.repo)}]
+        with patch.object(S, 'load', return_value=publisher):
+            previous = S.workflow_fingerprint(self.repo, repositories)
+            for name in ('untracked-source', '.config', 'files/etc/private'):
+                item = self.repo / name
+                item.parent.mkdir(parents=True, exist_ok=True)
+                item.write_text('new content\n')
+                current = S.workflow_fingerprint(self.repo, repositories)
+                self.assertNotEqual(previous, current)
+                previous = current
+
     def configuration(self):
         root = self.root / 'state'
         config = self.root / 'scheduler.json'
-        config.write_text(json.dumps({'state_root': str(root), 'minimum_free_gib': 0}))
+        config.write_text(json.dumps({'enabled': True, 'state_root': str(root), 'minimum_free_gib': 0}))
         return config, root
 
     def invoke(self, config, *arguments):
@@ -214,6 +264,22 @@ class ScheduledTests(unittest.TestCase):
             self.invoke(config, '--scheduled')
             execute.assert_not_called()
 
+    def test_manual_run_preserves_existing_anchor(self):
+        config, root = self.configuration()
+        with patch.object(S.time, 'time', return_value=10000):
+            self.invoke(config, '--initialize')
+        anchor = json.loads((root / 'schedule.json').read_text())['next_run']
+        with patch.object(S.time, 'time', return_value=anchor + 500), patch.object(S, 'execute'):
+            self.invoke(config, '--run-now')
+        self.assertEqual(json.loads((root / 'schedule.json').read_text())['next_run'], anchor)
+
+    def test_uninitialized_enabled_schedule_only_anchors(self):
+        config, root = self.configuration()
+        with patch.object(S, 'execute') as execute:
+            self.invoke(config, '--scheduled')
+            execute.assert_not_called()
+        self.assertIn('next_run', json.loads((root / 'schedule.json').read_text()))
+
     def test_initial_schedule_uses_singapore_time_across_month_boundaries(self):
         zone = ZoneInfo('Asia/Singapore')
         for hour, expected_day in [(3, 3), (4, 4), (15, 4)]:
@@ -231,6 +297,8 @@ class ScheduledTests(unittest.TestCase):
         state = json.loads((root / 'schedule.json').read_text())
         self.assertEqual(state['status'], 'failed')
         self.assertGreater(state['next_run'], 400000)
+        self.assertGreater(state['retry_at'], 400000)
+        self.assertLessEqual(state['retry_at'] - 400000, 86400)
         self.assertEqual(json.loads((Path(state['last_run']) / 'result.json').read_text())['error'], 'merge failed')
 
 
