@@ -1,0 +1,303 @@
+From 5a5473d5123983588f6d0befbb41ae3f7a744234 Mon Sep 17 00:00:00 2001
+From: itoywh <46450501+itoywh@users.noreply.github.com>
+Date: Wed, 30 Sep 2026 07:05:20 +0800
+Subject: [PATCH] fix(config): make the digit-prefix hint actionable and
+ validate fixed_domain_ttl (#1124)
+
+
+Backported to the composed OpenWrt daed source.
+Documentation and CI hunks omitted.
+
+---
+--- a/dae-core/cmd/validate.go
++++ b/dae-core/cmd/validate.go
+@@ -52,6 +52,16 @@ var (
+ 				fmt.Println(err)
+ 				os.Exit(1)
+ 			}
++			// dns.fixed_domain_ttl is the remaining run-path parse the DNS
++			// block owns: control.ParseFixedDomainTtl runs inside
++			// NewControlPlane and aborts the whole control plane on a bad
++			// entry, so 'name:' (empty TTL), a missing ':' or a non-numeric
++			// TTL used to exit 0 here and then refuse to start the daemon -
++			// the same shape of bug the DNS routing dry-run above fixes.
++			if err := validateFixedDomainTtl(conf); err != nil {
++				fmt.Println(err)
++				os.Exit(1)
++			}
+ 		},
+ 	}
+ )
+@@ -130,3 +140,18 @@ func validateRoutingRules(log *logrus.Lo
+ 	}
+ 	return nil
+ }
++
++// validateFixedDomainTtl is the dry-run of the dns.fixed_domain_ttl parsing
++// that only the run path used to perform. control.ParseFixedDomainTtl is
++// reused verbatim - the same way control.RegisterRoutingProgramParsers is
++// above - so validate and run cannot drift apart: anything accepted here must
++// still build a control plane there.
++func validateFixedDomainTtl(conf *config.Config) error {
++	if conf == nil {
++		return fmt.Errorf("nil config")
++	}
++	if _, err := control.ParseFixedDomainTtl(conf.Dns.FixedDomainTtl); err != nil {
++		return fmt.Errorf("invalid fixed_domain_ttl: %w", err)
++	}
++	return nil
++}
+--- /dev/null
++++ b/dae-core/cmd/validate_fixed_domain_ttl_test.go
+@@ -0,0 +1,68 @@
++/*
++ * SPDX-License-Identifier: AGPL-3.0-only
++ * Copyright (c) 2026, daeuniverse Organization <dae@v2raya.org>
++ */
++
++package cmd
++
++import (
++	"testing"
++
++	"github.com/daeuniverse/dae/config"
++	"github.com/daeuniverse/dae/pkg/config_parser"
++	"github.com/stretchr/testify/require"
++)
++
++// TestValidateFixedDomainTtlRejectsMalformedEntries is a regression guard:
++// `dae validate` never ran control.ParseFixedDomainTtl, so every entry below
++// exited 0 and then aborted daemon startup with "failed to parse ttl". The
++// dry-run reuses the run-path parser, so "validate exits 0 => the daemon
++// starts" holds again.
++func TestValidateFixedDomainTtlRejectsMalformedEntries(t *testing.T) {
++	parse := func(t *testing.T, entry string) *config.Config {
++		t.Helper()
++		sections, err := config_parser.Parse(`
++global {}
++dns {
++  fixed_domain_ttl {
++    ` + entry + `
++  }
++}
++routing {
++  fallback: direct
++}
++`)
++		require.NoError(t, err)
++		conf, err := config.New(sections)
++		require.NoError(t, err)
++		return conf
++	}
++
++	bad := map[string]string{
++		"empty ttl":       `'123.example.com:'`,
++		"missing colon":   `'123.example.com'`,
++		"non-numeric ttl": `'123.example.com: abc'`,
++	}
++	for name, entry := range bad {
++		t.Run(name, func(t *testing.T) {
++			err := validateFixedDomainTtl(parse(t, entry))
++			require.Error(t, err)
++			require.Contains(t, err.Error(), "invalid fixed_domain_ttl")
++			// The offending entry has to be named, otherwise the error cannot
++			// be acted on in a config with several fixed TTLs.
++			require.Contains(t, err.Error(), "123.example.com")
++		})
++	}
++
++	t.Run("valid entry passes", func(t *testing.T) {
++		require.NoError(t, validateFixedDomainTtl(parse(t, `'123.example.com: 10'`)))
++	})
++
++	t.Run("no entries passes", func(t *testing.T) {
++		sections, err := config_parser.Parse("global {}\nrouting {\n  fallback: direct\n}\n")
++		require.NoError(t, err)
++		conf, err := config.New(sections)
++		require.NoError(t, err)
++		require.NoError(t, validateFixedDomainTtl(conf))
++	})
++}
+--- a/dae-core/control/control_plane_parse.go
++++ b/dae-core/control/control_plane_parse.go
+@@ -15,13 +15,18 @@ import (
+ 	"github.com/sirupsen/logrus"
+ )
+ 
++// ParseFixedDomainTtl parses dns.fixed_domain_ttl entries of the form
++// "name: ttl" (quoted as a whole, see pkg/config_parser). It is the only
++// consumer of that config field and runs the run path only, so `dae validate`
++// dry-runs it too via cmd.validateFixedDomainTtl to keep "validate exits 0 =>
++// the daemon starts" true.
+ func ParseFixedDomainTtl(ks []config.KeyableString) (map[string]int, error) {
+ 	m := make(map[string]int)
+ 	for _, k := range ks {
+ 		key, value, _ := strings.Cut(string(k), ":")
+ 		ttl, err := strconv.ParseInt(strings.TrimSpace(value), 0, strconv.IntSize)
+ 		if err != nil {
+-			return nil, fmt.Errorf("failed to parse ttl: %w", err)
++			return nil, fmt.Errorf("failed to parse ttl of entry %q: %w", string(k), err)
+ 		}
+ 		m[strings.TrimSpace(key)] = int(ttl)
+ 	}
+--- a/dae-core/pkg/config_parser/error.go
++++ b/dae-core/pkg/config_parser/error.go
+@@ -22,8 +22,17 @@ const (
+ )
+ 
+ // Error hint messages for common configuration mistakes.
++//
++// The digit-prefix hint must not tell the user to quote the *name*: a
++// declaration key has to be an ID (dae_config.g4: `ID : SAFE_ID_HEAD_CHAR
++// SAFE_CHAR*`), so a quoted name is a QUOTE_STRING and still cannot match. The
++// form that does work in list blocks is quoting the whole `name: value` entry,
++// which parses as one literal and is split again by the consumer (see
++// control.ParseFixedDomainTtl).
+ const (
+-	hintDigitPrefixDomain = `Hint: Domains or keys starting with a digit must be enclosed in quotes.
++	hintDigitPrefixDomain = `Hint: a name starting with a digit cannot be used as a bare key.
++  In list blocks (fixed_domain_ttl, upstream, subscription, node, ...), quote the whole
++  "name: value" entry instead of the name:
+   Change: %s
+   To:    '%s'
+ `
+@@ -57,17 +66,45 @@ func (d *ConsoleErrorListener) detectDig
+ 		return ""
+ 	}
+ 
+-	// Look for pattern: digit(s) followed by dot and colon (like "123.com:60")
+-	words := strings.FieldsSeq(strLine)
++	// Look for pattern: digit(s) followed by dot and colon (like "123.com:60").
++	// The hint must show the whole entry rather than the offending word:
++	// quoting only the name cannot work, and the word carries the trailing ':'
++	// while dropping the value, so the quoted form it suggested was both
++	// unparsable as a key and, once a value was re-added, invalid at startup.
++	entry := strings.TrimSpace(stripLineComment(strLine))
++	if entry == "" {
++		return ""
++	}
++	words := strings.FieldsSeq(entry)
+ 	for w := range words {
+ 		if d.isDigitPrefixDomainPattern(w) {
+-			return fmt.Sprintf("\n\n"+hintDigitPrefixDomain, w, w)
++			return fmt.Sprintf("\n\n"+hintDigitPrefixDomain, entry, entry)
+ 		}
+ 	}
+ 
+ 	return ""
+ }
+ 
++// stripLineComment removes a trailing '#' comment so the hint quotes the entry
++// itself instead of the entry plus its comment. A '#' inside a quoted literal
++// is kept: quote state is tracked while scanning.
++func stripLineComment(s string) string {
++	var quote byte
++	for i := 0; i < len(s); i++ {
++		switch c := s[i]; {
++		case quote != 0:
++			if c == quote {
++				quote = 0
++			}
++		case c == '\'' || c == '"':
++			quote = c
++		case c == '#':
++			return s[:i]
++		}
++	}
++	return s
++}
++
+ // isDigitPrefixDomainPattern checks if a string matches the pattern of a domain
+ // starting with a digit, like "123.com:60" or "123dns.com:53".
+ func (d *ConsoleErrorListener) isDigitPrefixDomainPattern(s string) bool {
+--- /dev/null
++++ b/dae-core/pkg/config_parser/error_test.go
+@@ -0,0 +1,88 @@
++/*
++ * SPDX-License-Identifier: AGPL-3.0-only
++ * Copyright (c) 2022-2026, daeuniverse Organization <dae@v2raya.org>
++ */
++
++package config_parser
++
++import (
++	"strings"
++	"testing"
++)
++
++// fixedDomainTtlValues returns the value-only entries of the
++// dns.fixed_domain_ttl block, i.e. what control.ParseFixedDomainTtl receives
++// after the walker has folded each entry into a single value.
++func fixedDomainTtlValues(t *testing.T, in string) []string {
++	t.Helper()
++	sections, err := Parse(in)
++	if err != nil {
++		t.Fatalf("Parse(%q) = %v, want no error", in, err)
++	}
++	var got []string
++	for _, section := range sections {
++		if section.Name != "dns" {
++			continue
++		}
++		for _, item := range section.Items {
++			sub, ok := item.Value.(*Section)
++			if !ok || sub.Name != "fixed_domain_ttl" {
++				continue
++			}
++			for _, subItem := range sub.Items {
++				param, ok := subItem.Value.(*Param)
++				if !ok {
++					continue
++				}
++				if param.Key != "" {
++					t.Fatalf("fixed_domain_ttl entry %q kept a key; the whole entry is expected as a value", param.Key)
++				}
++				got = append(got, param.Val)
++			}
++		}
++	}
++	return got
++}
++
++// TestDigitPrefixHintQuotesWholeEntry is a regression guard for the hint shown
++// when a name starting with a digit is used as a bare key. The hint used to
++// say the *name* must be quoted and rendered it as `'123.example.com:'` - the
++// colon swallowed and the TTL dropped. A quoted name is still not a valid
++// declaration key in any block, and the rendered form passed `dae validate`
++// while control.ParseFixedDomainTtl rejected it at daemon startup.
++func TestDigitPrefixHintQuotesWholeEntry(t *testing.T) {
++	_, err := Parse("global {}\ndns {\n  fixed_domain_ttl {\n    123.example.com: 10\n  }\n}\n")
++	if err == nil {
++		t.Fatal("Parse() = nil error, want a syntax error for a bare digit-leading key")
++	}
++	msg := err.Error()
++	if !strings.Contains(msg, "'123.example.com: 10'") {
++		t.Errorf("hint must quote the whole entry so the suggestion parses, got:\n%s", msg)
++	}
++	if strings.Contains(msg, "'123.example.com:'") {
++		t.Errorf("hint must not quote the name with the colon swallowed, got:\n%s", msg)
++	}
++
++	// The recommended spelling has to survive the walker as one value-only
++	// entry; ParseFixedDomainTtl splits it again at the ':'.
++	got := fixedDomainTtlValues(t, "dns {\n  fixed_domain_ttl {\n    '123.example.com: 10'\n  }\n}\n")
++	if len(got) != 1 || got[0] != "123.example.com: 10" {
++		t.Fatalf("quoted whole entry = %q, want [\"123.example.com: 10\"]", got)
++	}
++}
++
++// TestDigitPrefixHintDropsTrailingComment pins that the entry shown by the
++// hint excludes a trailing '#' comment: quoting the comment as part of the
++// entry would produce a config that still does not work.
++func TestDigitPrefixHintDropsTrailingComment(t *testing.T) {
++	_, err := Parse("global {}\ndns {\n  fixed_domain_ttl {\n    123.example.com: 10 # my ddns\n  }\n}\n")
++	if err == nil {
++		t.Fatal("Parse() = nil error, want a syntax error for a bare digit-leading key")
++	}
++	msg := err.Error()
++	// The offending line is echoed verbatim above the hint, so assert on the
++	// rendered suggestion rather than on the raw line.
++	if !strings.Contains(msg, "To:    '123.example.com: 10'\n") {
++		t.Errorf("hint must quote the entry without the comment, got:\n%s", msg)
++	}
++}

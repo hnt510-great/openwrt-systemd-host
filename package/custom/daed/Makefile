@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=daed
 PKG_VERSION:=2.1.1
-PKG_RELEASE:=7
+PKG_RELEASE:=8
 
 # daed v2.1.1 bundles a dae core from 2026-04-22 (85a1fc3, before dae
 # v2.0.0rc1). This build re-pins the core to the dae v2.1.1 release instead,
@@ -22,6 +22,9 @@ PKG_HASH:=406119814907ea34dfa935b6f1ba925d887992e351da746f1ff7a206a6f2a21b
 # default LAN interface for new configs (004), a Vision UDP fix in the
 # outbound library (005), and the splice handover for Vision flows after
 # their direct switch (006 in the outbound library, 007 in dae core).
+# Patches 008-009 add local audit events; 010-014 backport later upstream
+# splice latency, netns recovery, config validation, bootstrap DNS and
+# strict-alignment L3 BPF fixes.
 DAED_CORE_VERSION:=2.1.1
 DAED_CORE_HASH:=7c91494a999a24e91869e8e20e26ed8171dd4eedbcb847d1b04d15a6aeb54f44
 

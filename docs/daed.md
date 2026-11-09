@@ -53,6 +53,30 @@ four local changes:
 | `006-outbound-vision-offer-raw-sockets-after-direct-switch.patch` | local | Vision offers its raw socket per direction once that direction has switched to direct mode (`netproxy.DirectTCPConnProvider`); direct-mode writes over plain TLS are flushed instead of waiting in the record coalescer; see [Vision flows after the direct switch](#vision-flows-after-the-direct-switch) |
 | `007-dae-core-splice-vision-direct-flows.patch` | local | dae's copy loop moves a switched Vision direction to its `splice(2)` loop |
 
+Release **2.1.1-r8** keeps the local DNS/connection audit patches (008–009)
+and adds five later upstream dae fixes, refreshed with the package quilt workflow:
+
+| Patch | Upstream | Fix |
+| --- | --- | --- |
+| `010-dae-core-flush-short-splice-writes.patch` | [`17cc1de`](https://github.com/daeuniverse/dae/commit/17cc1de85dd0ae82f69cf0c182d99a1c35b193eb) | Removes `SPLICE_F_MORE` so short TCP replies do not wait for the cork timer, including after Vision hands over to splice |
+| `011-dae-core-recover-locked-netns.patch` | [`2649d5b`](https://github.com/daeuniverse/dae/commit/2649d5b3e853249ccb45527066a0d7cbffff465d) | Reports stale named-netns cleanup errors and recovers the specific kernel-locked mount signature |
+| `012-dae-core-validate-fixed-domain-ttl.patch` | [`5a5473d`](https://github.com/daeuniverse/dae/commit/5a5473d5123983588f6d0befbb41ae3f7a744234) | Corrects digit-prefixed config hints and checks fixed-domain TTLs in dae's CLI validator; daed does not expose that CLI subcommand |
+| `013-dae-core-bootstrap-resolver-address-family.patch` | [`e6e52bb`](https://github.com/daeuniverse/dae/commit/e6e52bbc3c75211f318c59f5890f6ba13e7effde) | Dials bootstrap DNS using the resolver address family rather than the requesting flow's family |
+| `014-dae-core-strict-alignment-L3-loads.patch` | [`8722db0`](https://github.com/daeuniverse/dae/commit/8722db01fca702818ea85cefde46a84dd755f44a) | Uses safe packet loads for L3 hooks on strict-alignment kernels; includes the upstream production BPF verifier test file in full because it was added after v2.1.1 |
+
+The namespace recovery in patch 011 only covers `/run/netns` with a fresh
+mode-0755 tmpfs if both synchronous and lazy unmount fail with `EINVAL` and
+removing the stale entry fails with `EBUSY`. Other cleanup failures stop startup
+with their cause. A recovery cover hides other tools' named-netns entries in
+that directory, logs their names, and persists until reboot; the underlying
+namespaces are not destroyed. It does not mount a cover during normal startup.
+
+As checked on 2026-11-09, daed and dae-wing were archived upstream on
+2026-09-24. The recipe already pins the final dae-wing main commit `b089b56`
+and the latest daed dashboard release v2.1.1. Maintaining the composed recipe
+and selectively backporting dae fixes remains necessary while those projects
+stay archived.
+
 The dashboard of daed v2.1.1 is compatible with the re-pinned backend: the
 GraphQL schemas differ only in the global config, where `soMarkFromDaeSet` was
 removed and `disableThp`, `autoSniffPunt` and `bpfConnStateMapSize` were
