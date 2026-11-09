@@ -54,7 +54,12 @@ The wrapper fingerprints the kernel's inputs (kernel and target configuration,
 patches, selected module sources, shared build rules, tool identities and
 relevant make flags). Changed inputs reserve the next unused build number
 `CONFIG_OPENWRT_KERNEL_SEQUENCE`; unchanged inputs reuse the recorded number and
-kernel build timestamp. Plain `make` targets never reserve a build number. Do not
+kernel build timestamp. Tool identities are the OpenWrt cross toolchain and the
+`staging_dir/host` build tools; the host system's own `cc`, `ld`, `objcopy`,
+`bison`, `flex`, `perl`, `python3`, `make` and `bash` are recorded (`host` in
+`tmp/.kernel-publication-inputs.json`) but a distribution upgrade of them alone
+does not reserve a new number, since make does not rebuild the kernel for it and
+changed bytes under a published number are refused. Plain `make` targets never reserve a build number. Do not
 run a plain full `make` with a number that is already published: the kmod
 configuration packages would collide with published identities.
 

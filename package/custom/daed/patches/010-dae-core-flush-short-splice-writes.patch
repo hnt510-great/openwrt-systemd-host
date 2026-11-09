@@ -1,0 +1,93 @@
+From 17cc1de85dd0ae82f69cf0c182d99a1c35b193eb Mon Sep 17 00:00:00 2001
+From: chenguoqing <42904687+acgq@users.noreply.github.com>
+Date: Sun, 20 Sep 2026 13:08:26 +0800
+Subject: [PATCH] fix(control): flush short TCP splice writes without corking
+ (#1115)
+
+
+Backported to the composed OpenWrt daed source.
+Documentation and CI hunks omitted.
+
+---
+--- a/dae-core/control/tcp_copy_linux.go
++++ b/dae-core/control/tcp_copy_linux.go
+@@ -24,7 +24,10 @@ const (
+ 	relaySplicePipeTargetSize      = 256 << 10
+ 	relaySpliceMaxStep             = relaySplicePipeTargetSize
+ 	relaySplicePipePoolLimit       = 64
+-	relaySpliceFlags               = unix.SPLICE_F_MOVE | unix.SPLICE_F_MORE | unix.SPLICE_F_NONBLOCK
++	// Do not promise a subsequent write with SPLICE_F_MORE: the next read
++	// may wait for the peer's response. Corking that response adds ~200 ms
++	// to each short exchange, even when TCP_NODELAY is enabled.
++	relaySpliceFlags = unix.SPLICE_F_MOVE | unix.SPLICE_F_NONBLOCK
+ )
+ 
+ type relaySplicePipe struct {
+--- /dev/null
++++ b/dae-core/control/tcp_splice_latency_linux_test.go
+@@ -0,0 +1,65 @@
++//go:build linux
++
++/*
++ * SPDX-License-Identifier: AGPL-3.0-only
++ * Copyright (c) 2026, daeuniverse Organization <dae@v2raya.org>
++ */
++
++package control
++
++import (
++	"bytes"
++	"io"
++	"net"
++	"testing"
++	"time"
++
++	"golang.org/x/sys/unix"
++)
++
++// A server-first greeting and subsequent short replies must arrive while the
++// connection remains open, without waiting for another write or TCP's cork timer.
++func TestSplicePipeToSocketFlushesShortWrites(t *testing.T) {
++	listener, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer func() { _ = listener.Close() }()
++	client, err := net.DialTCP("tcp4", nil, listener.Addr().(*net.TCPAddr))
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer func() { _ = client.Close() }()
++	server, err := listener.AcceptTCP()
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer func() { _ = server.Close() }()
++	raw, err := server.SyscallConn()
++	if err != nil {
++		t.Fatal(err)
++	}
++	pipe, err := newRelaySplicePipe()
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer pipe.close()
++	for _, payload := range [][]byte{[]byte("greeting"), []byte("reply one"), []byte("reply two")} {
++		if n, err := unix.Write(pipe.writeFD, payload); err != nil || n != len(payload) {
++			t.Fatalf("pipe write: n=%d err=%v", n, err)
++		}
++		if err := client.SetReadDeadline(time.Now().Add(150 * time.Millisecond)); err != nil {
++			t.Fatal(err)
++		}
++		if n, err := splicePipeToSocket(raw, pipe.readFD, len(payload)); err != nil || n != len(payload) {
++			t.Fatalf("splice: n=%d err=%v", n, err)
++		}
++		got := make([]byte, len(payload))
++		if _, err := io.ReadFull(client, got); err != nil {
++			t.Fatalf("short write was not flushed before the cork timer: %v", err)
++		}
++		if !bytes.Equal(got, payload) {
++			t.Fatalf("received %q, want %q", got, payload)
++		}
++	}
++}

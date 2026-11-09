@@ -28,6 +28,10 @@ LAN = load('build_lan_publisher', 'publish-lan-apk-feeds.py')
 KERNEL = load('build_kernel_publisher', 'publish-kernel-upgrade-feed.py')
 INPUTS = load('kernel_build_inputs', 'kernel-build-inputs.py')
 GUARD = load('build_upgrade_preflight', 'apk-upgrade-preflight.py')
+ALLOCATE = LAN.ALLOCATE
+# Each round may change exact-version dependents (ELF_DEP_*), so allow a short
+# cascade, but never loop on a rebuild that keeps producing new bytes.
+ALLOCATION_ROUNDS = 3
 
 
 class Progress:
@@ -221,7 +225,7 @@ def prepare_sequence(tree, destination, make_args=(), inputs=None):
     published = json.loads(manifest.read_text())['sequence'] if manifest.exists() else 0
     inputs = inputs or INPUTS.fingerprint(tree, config, make_args)
     previous = json.loads(state_path(tree).read_text()) if state_path(tree).exists() else None
-    reuse = (previous and previous.get('schema') == 1 and previous.get('inputs') == inputs
+    reuse = (previous and previous.get('schema') == 1 and INPUTS.same_inputs(previous['inputs'], inputs)
              and current <= previous['sequence'] and previous['sequence'] >= published)
     if reuse and not generation_matches_compiled_image(tree, previous['sequence'], previous.get('timestamp')):
         print('Recorded generation differs from existing compiled image/config/timestamp; '
@@ -253,6 +257,9 @@ def prepare_sequence(tree, destination, make_args=(), inputs=None):
                 os.replace(temporary, path)
             finally:
                 temporary.unlink(missing_ok=True)
+    if reuse and previous['inputs'] != inputs:
+        # Same generation; record the current host programs and digest format.
+        save_state(tree, {**previous, 'inputs': inputs})
     if not reuse:
         explicit = [arg.split('=', 1)[1] for arg in make_args
                     if arg.startswith('KBUILD_BUILD_TIMESTAMP=')]
@@ -390,11 +397,48 @@ def project(tree, work, apk, progress=None):
     return userspace, channel, abi, release
 
 
-def publish(tree, data, dry_run=False, progress=None):
+def verify_artifacts(bundle):
+    """Validate an independent, complete saved projection before reuse."""
+    bundle = Path(bundle).resolve()
+    manifest = json.loads((bundle / 'manifest.json').read_text())
+    if manifest.get('schema') != 1 or not manifest.get('files'):
+        raise ValueError('Invalid artifact manifest')
+    actual = {str(p.relative_to(bundle)) for p in bundle.rglob('*') if p.is_file()
+              and p != bundle / 'manifest.json'}
+    if actual != set(manifest['files']):
+        raise ValueError('Artifact file set changed')
+    for name, digest in manifest['files'].items():
+        path = bundle / name
+        if path.is_symlink() or not path.resolve().is_relative_to(bundle) or LAN.sha256(path) != digest:
+            raise ValueError('Saved artifact changed: ' + name)
+    return manifest
+
+
+def capture_artifacts(tree, bundle):
+    """Called while the checkout build lock is held; never copy signing keys."""
+    bundle = Path(bundle)
+    bundle.mkdir(mode=0o700, parents=True, exist_ok=False)
+    userspace, channel, abi, release = project(tree, bundle, TREE / 'staging_dir/host/bin/apk')
+    image = tree / 'bin/systemd/targets/x86/64-glibc/openwrt-x86-64-generic-squashfs-combined-efi.img.gz'
+    copy_package(image, bundle / 'image.img.gz')
+    copy_package(tree / '.config', bundle / 'build.config')
+    copy_package(state_path(tree), bundle / 'kernel-inputs.json')
+    manifest = {'schema': 1, 'abi': abi, 'release': release,
+                'public_key_sha256': LAN.sha256(TREE / 'public-key.pem'),
+                'files': {str(p.relative_to(bundle)): LAN.sha256(p)
+                          for p in sorted(bundle.rglob('*')) if p.is_file()}}
+    for name in manifest['files']:
+        (bundle / name).chmod(0o444)
+    (bundle / 'manifest.json').write_text(json.dumps(manifest, sort_keys=True, indent=2) + '\n')
+    verify_artifacts(bundle)
+    return manifest
+
+
+def publish(tree, data, dry_run=False, progress=None, artifacts=None):
     apk = TREE / 'staging_dir/host/bin/apk'
     if progress:
         progress(0, 'Wait for publication lock')
-    if configuration(tree).get('CONFIG_OPENWRT_KERNEL_UPGRADE') != 'y':
+    if artifacts is None and configuration(tree).get('CONFIG_OPENWRT_KERNEL_UPGRADE') != 'y':
         if progress:
             progress(5, 'Prepare userspace feeds', 'signatures and ABI checks')
         result = LAN.publish(argparse.Namespace(source_root=tree, kernel=data.get('kernel'),
@@ -407,19 +451,34 @@ def publish(tree, data, dry_run=False, progress=None):
     destination.mkdir(parents=True, exist_ok=True)
     with (destination / '.upgrade-publish.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        result = publish_locked(tree, data, apk, dry_run, progress)
+        result = publish_locked(tree, data, apk, dry_run, progress, artifacts)
     if progress:
         progress(100, 'Dry run complete' if dry_run else 'Publication complete')
     return result
 
 
-def publish_locked(tree, data, apk, dry_run, progress=None):
+def publish_locked(tree, data, apk, dry_run, progress=None, artifacts=None):
     destination = data['destination']
     prepared = []
     with tempfile.TemporaryDirectory(prefix='.build-publish-', dir=destination) as temporary:
         if progress:
             progress(2, 'Read and stage APKs')
-        userspace, channel, abi, generation = project(tree, Path(temporary), apk, progress)
+        if artifacts is None:
+            userspace, channel, abi, generation = project(tree, Path(temporary), apk, progress)
+        else:
+            artifacts = Path(artifacts).resolve()
+            manifest = verify_artifacts(artifacts)
+            if manifest['public_key_sha256'] != LAN.sha256(TREE / 'public-key.pem'):
+                raise ValueError('Artifact signing key changed')
+            # Copy again into private publication staging so later edits cannot
+            # substitute inputs between verification and the solver simulations.
+            for folder in ('userspace', 'kernel'):
+                shutil.copytree(artifacts / folder, Path(temporary) / folder)
+            for name, digest in manifest['files'].items():
+                if name.startswith(('userspace/', 'kernel/')) and LAN.sha256(Path(temporary) / name) != digest:
+                    raise ValueError('Artifact changed during publication staging: ' + name)
+            userspace, channel = Path(temporary) / 'userspace', Path(temporary) / 'kernel'
+            abi, generation = manifest['abi'], manifest['release']
         if data.get('kernel') and data['kernel'] != abi:
             raise ValueError('Requested ABI differs from compiled generation')
         if progress:
@@ -500,13 +559,43 @@ def publish_locked(tree, data, apk, dry_run, progress=None):
                     shutil.rmtree(path, ignore_errors=True)
 
 
+def make_options(make_args):
+    """Keep job and verbosity options for a targeted rebuild."""
+    options = []
+    for index, argument in enumerate(make_args):
+        if (argument.startswith(('-j', '--jobs', 'V=')) or
+                (argument.isdigit() and index and make_args[index - 1] in ('-j', '--jobs'))):
+            options.append(argument)
+    if not any(option.startswith(('-j', '--jobs')) for option in options):
+        options.insert(0, f'-j{os.cpu_count() or 1}')
+    return options
+
+
+def publish_allocating(tree, data, publish_once, make_args=(), allocate=False):
+    """Publish; on same-version rebuilds optionally allocate releases, rebuild, retry."""
+    for round_number in range(ALLOCATION_ROUNDS + 1):
+        try:
+            return publish_once()
+        except LAN.SameVersionRebuildError as error:
+            if not allocate or round_number == ALLOCATION_ROUNDS:
+                raise
+            allocations = ALLOCATE.plan(tree, data['destination'], error.entries)
+            print('Allocating new releases for same-version rebuilds:\n' +
+                  ALLOCATE.describe(allocations), file=sys.stderr)
+            ALLOCATE.apply(tree, allocations)
+            targets = ALLOCATE.rebuild_targets(allocations)
+            print('Rebuilding: ' + ' '.join(targets), file=sys.stderr)
+            run_make(tree, [*make_options(list(make_args)), *targets])
+
+
 def run_make(tree, arguments):
     # Package scripts/lists and temporary roots inherit the build's umask.
     # Keep their recorded ACLs stable across shells and validation checkouts.
     subprocess.run(['make', *arguments], cwd=tree, check=True, umask=0o022)
 
 
-def build(tree, make_args, publish_after=True):
+def build(tree, make_args, publish_after=True, artifact_directory=None, lock_fd=None,
+          allocate_rebuilds=False):
     for argument in make_args:
         if argument in ('-n', '--just-print', '--dry-run', '--recon', '-q', '--question', '-t', '--touch'):
             raise ValueError('A make preview/touch cannot be used for build-and-publish')
@@ -517,7 +606,10 @@ def build(tree, make_args, publish_after=True):
     lockdir = tree / 'tmp'
     lockdir.mkdir(exist_ok=True)
     with (lockdir / '.build-and-publish.lock').open('a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        if lock_fd is None:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        elif (os.fstat(lock_fd).st_dev, os.fstat(lock_fd).st_ino) != (os.fstat(lock.fileno()).st_dev, os.fstat(lock.fileno()).st_ino):
+            raise ValueError('Inherited build lock does not belong to this checkout')
         targets = [arg for arg in make_args if not arg.startswith('-') and '=' not in arg
                    and not arg.isdigit()]
         enabled = configuration(tree).get('CONFIG_OPENWRT_KERNEL_UPGRADE') == 'y'
@@ -530,7 +622,7 @@ def build(tree, make_args, publish_after=True):
             plan = json.loads(state_path(tree).read_text())
         elif enabled and state_path(tree).exists():
             plan = json.loads(state_path(tree).read_text())
-            if INPUTS.fingerprint(tree, configuration(tree), make_args) != plan['inputs']:
+            if not INPUTS.same_inputs(plan['inputs'], INPUTS.fingerprint(tree, configuration(tree), make_args)):
                 raise ValueError('Kernel inputs changed; run a complete build to reserve a new generation')
         arguments = list(make_args)
         if full:
@@ -549,19 +641,24 @@ def build(tree, make_args, publish_after=True):
             # Replacing tools under an existing published generation is refused.
             manifest = data['destination'] / 'public/kernel-upgrades/manifest.json'
             published = json.loads(manifest.read_text())['sequence'] if manifest.exists() else 0
-            if after['tools'] != plan['inputs']['tools'] and plan['sequence'] <= published:
+            if not INPUTS.same_tools(plan['inputs'], after) and plan['sequence'] <= published:
                 raise ValueError('Kernel build tools changed; retry with a new generation')
             plan.update(inputs=after, phase='built')
             save_state(tree, plan)
+        if artifact_directory is not None:
+            capture_artifacts(tree, artifact_directory)
         if publish_after:
-            return publish(tree, data)
+            return publish_allocating(tree, data, lambda: publish(tree, data), make_args,
+                                      allocate_rebuilds)
         return {'status': 'built', 'tree': str(tree),
                 'sequence': plan['sequence'] if plan else None}
 
 
 def main():
     if len(sys.argv) > 1 and sys.argv[1] in ('build', 'build-only'):
-        result = build(TREE, sys.argv[2:], publish_after=sys.argv[1] == 'build')
+        make_args = [arg for arg in sys.argv[2:] if arg != '--allocate-rebuilds']
+        result = build(TREE, make_args, publish_after=sys.argv[1] == 'build',
+                       allocate_rebuilds='--allocate-rebuilds' in sys.argv[2:])
     else:
         parser = argparse.ArgumentParser(description=__doc__)
         parser.add_argument('--config', type=Path, default=TREE / 'configs/lan-apk-feeds.json')
@@ -572,6 +669,9 @@ def main():
         parser.add_argument('--incremental', action='store_true', help='Compatibility; always incremental')
         parser.add_argument('--dry-run', action='store_true')
         parser.add_argument('--no-progress', action='store_true', help='Disable progress on stderr')
+        parser.add_argument('--allocate-rebuilds', action='store_true',
+                            help='Allocate ELF rebuild ledger releases for same-version rebuilds, '
+                                 'rebuild those packages and retry')
         args = parser.parse_args()
         data = json.loads(args.config.read_text())
         data.update({k: v for k, v in vars(args).items()
@@ -584,7 +684,8 @@ def main():
                 (lockdir / '.build-and-publish.lock').open('a') as lock:
             progress(0, 'Wait for build/publication lock')
             fcntl.flock(lock, fcntl.LOCK_EX)
-            result = publish(tree, data, args.dry_run, progress)
+            result = publish_allocating(tree, data,
+                lambda: publish(tree, data, args.dry_run, progress), allocate=args.allocate_rebuilds)
     print(json.dumps(result, indent=2))
 
 

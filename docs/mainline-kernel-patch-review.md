@@ -942,3 +942,60 @@ This is source integration, patch application and focused object compilation.
 No full kernel, image or generation was built, nothing was published, and no
 router was contacted. The kernel version change requires a new reserved
 generation. The MAP-E tunnel finding remains open.
+
+## Upstream synchronization review, 2026-11-08
+
+Merged OpenWrt through `3236b6ae94` (13 incoming main-tree commits) as
+`922a0a6535`, plus 4 packages-feed (`0a0481aba`), 5 LuCI (`b0176a7c6c`), 1
+video (`1ff9c26`) and 2 `passwall_luci` (`112cc368`) commits. Telephony,
+routing, taskplan and `passwall_packages` had nothing incoming. Backup
+branches are `backup/pre-upstream-20261108T121754Z` in the main tree, each
+feed and the argon theme submodule.
+
+### Kernel patches: no generic or x86 6.18 changes
+
+All 13 incoming main-tree commits touch only board-specific trees (`airoha`
+EN7581 thermal sensor, `ath79` PCI/PCIe/INTC rework, and `realtek` DSA/FDB/PIE
+driver updates) that retain their own 6.18 kernel series:
+
+- All 574 present generic/x86 6.18 source patches and 5 recorded removed
+  entries in `configs/mainline-kernel-patches.json` match by SHA-256: no
+  generic or x86 6.18 patch was added, modified or removed.
+- All 349 carried Linux 7.3 patches match their registered SHA-256 values and
+  apply to a fresh extraction of the verified Linux 7.3.3 archive (SHA256
+  `79c66dde...4f3d1`) with `--fuzz=0`.
+- `update-mainline-kernel.py --check` confirms Linux 7.3.3 remains the latest
+  upstream release in the 7.3 series. No new 6.18-to-7.3 backport is needed.
+
+### Feeds and custom packages
+
+All feed merges completed without conflicts or local-feature regressions:
+
+- `packages`: updates `python3` to `3.14.10-r1`, `python-pip` to `26.2.2-r1`,
+  `rsyslog` to `8.2606.0-r3`, and `bcm27xx-eeprom` to `2026.11.03~be236766-r1`.
+- `luci`: updates `luci-mod-dashboard` (temperature monitoring and live chart
+  improvements), `luci-app-qosify`, and `luci-app-usteer`.
+- `video`: updates `wpewebkit` to `2.54.2-r6` (in-memory network session cache
+  option), preserving all local GStreamer, colorimetry, Kodi hole-punch and EME
+  patches.
+- `passwall_luci`: extracts optional node DNS from Clash subscriptions and
+  fixes component update button clipping while retaining local Git-derived
+  LuCI revision versioning.
+- `update-custom-packages.py --update` checked all 170 registered custom
+  packages: 130 are current, 34 are local, and 6 remain on their configured
+  review branches (`flatpak` 1.19.2, `gcr3` 4.4, `gtk-vnc` 1.6,
+  `intel-media-driver` 600.0132, `libgtk3` 4.24, `libibus` tag noise). No
+  custom recipe required a version bump.
+
+Validation: `python3` 3.14.10, `python-pip` 26.2.2 and `wpewebkit` 2.54.2-r6
+download, verify SHA-256 and apply all patches cleanly via `make .../prepare`.
+`./scripts/feeds update -i -a` and `./scripts/feeds install -a` succeed with
+all nine feed indexes nonempty and zero broken `package/feeds` links. Strict
+`conf --fatalrecursive` on an isolated copy of `.config` reports no Kconfig
+cycles and zero configuration changes, leaving the working `.config`
+untouched. The mainline-updater (20), custom-updater (47), kernel-input (7)
+and package-metadata/Kconfig (4) test suites pass.
+
+This is source integration, patch-application and Kconfig validation only. No
+kernel, firmware image or APK generation was built, nothing was published, and
+no router was contacted. The optional MAP-E tunnel finding remains open.

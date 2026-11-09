@@ -3,6 +3,7 @@
 import argparse
 from datetime import datetime, timedelta, timezone
 import fcntl
+import hashlib
 import importlib.util
 import json
 import os
@@ -218,6 +219,14 @@ Process nested repositories before the main repository where gitlinks overlap.
 Commit only merge/conflict resolutions and necessary parent gitlink updates, using
 a temporary index if the real index contains unrelated staged work. Preserve all
 other local edits as uncommitted work, and preserve original branches and stashes.
+After Git feed integration, run python3 scripts/update-custom-packages.py --update
+exactly once. Let that updater manage the Argon upstream merge and release bump;
+do not separately merge Argon upstream. Then run python3
+scripts/update-mainline-kernel.py --update exactly once. A failed updater, dirty
+updater-owned file or port-required result MUST stop integration, never bypass it.
+Commit only updater-owned changes in each repository with an alternate index;
+record the nested gitlink in the parent after its own scoped commit. Do not include
+pre-existing edits. Preserve updater reports in the run backup directory.
 No package installation on the physical router, no host service changes, VM changes,
 firmware flashing, building or feed publication in this step. Do not leave unresolved
 conflicts or unfinished merges. Inspect git diff --check for every repo. Report each
@@ -257,28 +266,30 @@ def verify_repositories(repositories):
             upstream = marker.read_text().strip()
             if not re.fullmatch('[0-9a-f]{40,64}', upstream):
                 raise ValueError('Missing exact fetched upstream commit')
-            revision = repo['revision']
-            if re.fullmatch('[0-9a-f]{40,64}', revision):
-                expected = revision
-            else:
-                remote_ref = 'HEAD' if revision == 'HEAD' else 'refs/heads/' + revision
-                lines = git(path, 'ls-remote', repo['url'], remote_ref).splitlines()
-                if len(lines) != 1:
-                    raise ValueError('Could not resolve upstream revision: ' + revision)
-                expected = lines[0].split()[0]
-            if upstream != expected:
-                raise ValueError('Recorded upstream differs from current remote: ' + str(path))
+            previous = repo.get('upstream_commit')
+            if not previous:
+                revision = repo['revision']
+                if re.fullmatch('[0-9a-f]{40,64}', revision):
+                    previous = revision
+                else:
+                    ref = 'HEAD' if revision == 'HEAD' else 'refs/heads/' + revision
+                    lines = git(path, 'ls-remote', repo['url'], ref).splitlines()
+                    if len(lines) != 1:
+                        raise ValueError('Could not resolve upstream revision')
+                    previous = lines[0].split()[0]
+            if previous and upstream != previous:
+                raise ValueError('Recorded upstream differs within this run')
             git(path, 'merge-base', '--is-ancestor', upstream, 'HEAD')
             repo['upstream_commit'] = upstream
         git(path, 'diff', '--check')
         repo['merged_commit'] = git(path, 'rev-parse', 'HEAD')
 
 
-def run_logged(argv, cwd, log, timeout):
+def run_logged(argv, cwd, log, timeout, pass_fds=()):
     with log.open('ab') as stream:
         process = subprocess.Popen([str(a) for a in argv], cwd=cwd, stdout=stream,
             stderr=subprocess.STDOUT, env=dict(os.environ, PYTHONUNBUFFERED='1'),
-            umask=0o022, start_new_session=True)
+            umask=0o022, start_new_session=True, pass_fds=pass_fds)
         try:
             status = process.wait(timeout=timeout)
             if status:
@@ -311,12 +322,14 @@ def verify_feature_config(original, worker):
         'openwrt-desktop', 'libvirt-daemon', 'openwrt-flatpak', 'podman',
         'openwrt-appimage', 'distrobox', 'gcc', 'native-libs-dev',
         'virt-manager', 'firefox-esr-bin', 'openwrt-podman-rootless')]
+    features += ['CONFIG_SIGNED_PACKAGES', 'CONFIG_OPENWRT_SYSTEMD_SERVICE_BRIDGE']
+    features += [name for name in required if name.startswith('CONFIG_PACKAGE_')]
     for name in features:
-        if required.get(name) == 'y' and actual.get(name) != 'y':
+        if required.get(name) in ('y', 'm') and actual.get(name) != required[name]:
             raise ValueError('Configuration lost a selected core feature: ' + name)
 
 
-def gated_publish(worker, receipt, image):
+def gated_publish(worker, receipt, image, artifacts=None):
     smoke = load('scheduled_smoke', 'test-image-network.py')
     if (receipt.get('status') != 'passed' or set(receipt.get('checks', {})) != smoke.REQUIRED
             or not all(value is True for value in receipt['checks'].values())
@@ -325,12 +338,92 @@ def gated_publish(worker, receipt, image):
         raise ValueError('Exact image has no complete passing VM validation receipt')
     publisher = load('scheduled_publisher', 'build-and-publish.py')
     # Existing signed, ABI-pinned publisher validates both repository views first.
+    if artifacts is not None:
+        publisher.verify_artifacts(artifacts)
+        if receipt.get('artifact_manifest_sha256') != smoke.sha256(Path(artifacts) / 'manifest.json'):
+            raise ValueError('VM receipt does not match the saved artifact manifest')
+        return publisher.publish(worker, publisher.settings(worker), artifacts=artifacts)
     return publisher.publish(worker, publisher.settings(worker))
+
+
+def workflow_fingerprint(worker, repositories, source_only=False):
+    """Conservative content identity, including local work and build tools."""
+    digest = hashlib.sha256()
+    for repo in repositories:
+        path = Path(repo['path'])
+        digest.update(git(path, 'rev-parse', 'HEAD').encode())
+        names = subprocess.check_output(['git', '-C', str(path), 'ls-files', '-z',
+                                         '--cached', '--others', '--exclude-standard']).decode().split('\0')
+        for name in sorted(set(filter(None, names))):
+            item = path / name
+            if '__pycache__' in item.parts or '.claude' in item.parts or item.name.startswith('._'):
+                continue
+            digest.update((str(path) + '/' + name).encode())
+            if item.is_symlink():
+                digest.update(os.readlink(item).encode())
+            elif item.is_file():
+                with item.open('rb') as stream:
+                    digest.update(hashlib.file_digest(stream, 'sha256').digest())
+            digest.update(str(item.stat().st_mode if item.exists() else 0).encode())
+    for name in ('files', 'overlay'):
+        root = worker / name
+        for item in sorted(root.rglob('*')):
+            digest.update(str(item.relative_to(worker)).encode())
+            digest.update(str(item.lstat().st_mode).encode())
+            if item.is_symlink():
+                digest.update(os.readlink(item).encode())
+            elif item.is_file():
+                with item.open('rb') as stream:
+                    digest.update(hashlib.file_digest(stream, 'sha256').digest())
+    if source_only:
+        return digest.hexdigest()
+    digest.update((worker / '.config').read_bytes())
+    publisher = load('scheduled_fingerprint', 'build-and-publish.py')
+    digest.update(json.dumps(publisher.INPUTS.fingerprint(worker, publisher.configuration(worker)), sort_keys=True).encode())
+    return digest.hexdigest()
+
+
+def publication_identity(worker):
+    publisher = load('scheduled_publication_identity', 'build-and-publish.py')
+    destination = publisher.settings(worker)['destination']
+    abi = (worker / 'staging_dir/target-x86_64_glibc/kernel.version').read_text().strip()
+    paths = [destination / 'public/kernel-upgrades/manifest.json',
+             destination / 'public/abi' / abi / 'manifest.json']
+    return {str(path): publisher.LAN.sha256(path) if path.is_file() else None for path in paths}
+
+
+def phase(run, name):
+    path = run / 'phases.json'
+    data = json.loads(path.read_text()) if path.exists() else {'phases': []}
+    now = time.time()
+    if data['phases'] and 'finished' not in data['phases'][-1]:
+        last = data['phases'][-1]
+        last.update(finished=now, elapsed_seconds=now - last['started'])
+    data['active_phase'] = name
+    data['phases'].append({'name': name, 'started': now})
+    atomic_json(path, data)
+
+
+def resume_publication(worker, run):
+    bundle = run / 'artifacts'
+    receipt = json.loads((run / 'vm/validation.json').read_text())
+    phase(run, 'publication')
+    atomic_json(run / 'publication.json', gated_publish(worker, receipt, bundle / 'image.img.gz', bundle))
+    repositories_file = run / 'repositories-built.json'
+    if repositories_file.exists():
+        repositories = json.loads(repositories_file.read_text())
+        # Persist only after successful promotion. A failed run never authorizes skipping.
+        fingerprint = json.loads((run / 'build-fingerprint.json').read_text())['fingerprint']
+        atomic_json(run.parent.parent / 'last-published.json', {'fingerprint': fingerprint, 'run': str(run),
+                    'publication': publication_identity(worker)})
+    phase(run, 'complete')
 
 
 def execute(config, run):
     worker = SOURCE
+    phase(run, 'preservation')
     repositories = prepare(worker, run)
+    phase(run, 'integration')
     daemon = load('scheduled_daemon', 'codex-daemon-task.py')
     prompt = merge_prompt(repositories, worker)
     (run / 'integration-prompt.txt').write_text(prompt)
@@ -338,21 +431,53 @@ def execute(config, run):
         worker, prompt, run / 'codex-integration.jsonl', config['codex_timeout'], extra_writable=[run]))
     verify_repositories(repositories)
     atomic_json(run / 'repositories.json', repositories)
+    phase(run, 'metadata')
     run_logged(['./scripts/feeds', 'update', '-i', '-a'], worker, run / 'feed-index.log', 3600)
     run_logged(['./scripts/feeds', 'install', '-a'], worker, run / 'feed-install.log', 3600)
+    for feed in feed_definitions(worker):
+        index = worker / 'feeds' / (feed['name'] + '.index')
+        if not index.is_file() or not index.stat().st_size:
+            raise ValueError('Missing/empty feed index: ' + feed['name'])
+    if any(p.is_symlink() and not p.exists() for p in (worker / 'package/feeds').rglob('*')):
+        raise ValueError('Broken package feed link')
+    run_logged(['make', 'prepare-tmpinfo'], worker, run / 'metadata.log', 3600)
+    fingerprint = workflow_fingerprint(worker, repositories)
+    last = run.parent.parent / 'last-published.json'
+    if last.exists():
+        saved = json.loads(last.read_text())
+        if (saved.get('fingerprint') == fingerprint and
+                saved.get('publication') == publication_identity(worker)):
+            publisher = load('scheduled_reuse', 'build-and-publish.py')
+            try:
+                publisher.verify_artifacts(Path(saved['run']) / 'artifacts')
+            except (OSError, ValueError, KeyError):
+                pass  # Missing evidence requires a fresh build, never a skip.
+            else:
+                if all(saved['publication'].values()):
+                    phase(run, 'unchanged')
+                    atomic_json(run / 'reuse.json', saved)
+                    return
     jobs = config['jobs']
+    phase(run, 'build')
     for attempt in range(config['repair_attempts'] + 1):
         log = run / f'build-{attempt}.log'
         try:
-            run_logged(['make', 'defconfig'], worker, log, 600)
-            run_logged(['scripts/config/conf', '--fatalrecursive', '--defconfig=.config',
-                        '-w', '.config', 'Config.in'], worker, log, 600)
-            verify_feature_config(run / 'input.config', worker)
-            run_logged([sys.executable, str(SOURCE / 'scripts/scheduled-maintenance.py'),
-                        '--build-worker', str(worker), '--jobs', str(jobs)],
-                        worker, log, config['build_timeout'])
+            source_before = workflow_fingerprint(worker, repositories, source_only=True)
+            with (worker / 'tmp/.build-and-publish.lock').open('a') as build_lock:
+                fcntl.flock(build_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                run_logged(['make', 'defconfig'], worker, log, 600)
+                run_logged(['scripts/config/conf', '--fatalrecursive', '--defconfig=.config',
+                            '-w', '.config', 'Config.in'], worker, log, 600)
+                verify_feature_config(run / 'input.config', worker)
+                run_logged([sys.executable, str(SOURCE / 'scripts/scheduled-maintenance.py'),
+                            '--build-worker', str(worker), '--jobs', str(jobs), '--artifact-directory', str(run / 'artifacts'), '--build-lock-fd', str(build_lock.fileno())],
+                            worker, log, config['build_timeout'], pass_fds=(build_lock.fileno(),))
+            if source_before != workflow_fingerprint(worker, repositories, source_only=True):
+                raise ValueError('Source or overlay changed during the build; saved artifacts cannot be published')
             break
         except (subprocess.CalledProcessError, ValueError) as failure:
+            if (run / 'artifacts').exists():
+                raise  # Keep incomplete captures for diagnosis; never overwrite them.
             if attempt == config['repair_attempts']:
                 raise
             prompt = (f'Repair the failed scheduled OpenWrt build in {worker}. Read {log}. '
@@ -371,10 +496,16 @@ def execute(config, run):
             atomic_json(run / f'repositories-after-repair-{attempt}.json', repositories)
     verify_repositories(repositories)
     atomic_json(run / 'repositories-built.json', repositories)
-    image = worker / 'bin/systemd/targets/x86/64-glibc/openwrt-x86-64-generic-squashfs-combined-efi.img.gz'
+    atomic_json(run / 'build-fingerprint.json', {'fingerprint': workflow_fingerprint(worker, repositories)})
+    phase(run, 'vm')
+    bundle = run / 'artifacts'
+    image = bundle / 'image.img.gz'
     smoke = load('scheduled_image_test', 'test-image-network.py')
     receipt = smoke.test_image(image, run / 'vm')
-    atomic_json(run / 'publication.json', gated_publish(worker, receipt, image))
+    receipt['artifact_manifest_sha256'] = smoke.sha256(bundle / 'manifest.json')
+    atomic_json(run / 'vm/validation.json', receipt)
+    resume_publication(worker, run)
+
 
 
 def main():
@@ -385,22 +516,34 @@ def main():
     parser.add_argument('--initialize', action='store_true', help='Anchor first run 72 hours after the next configured start time')
     parser.add_argument('--run-now', action='store_true', help='Run all five steps now')
     parser.add_argument('--build-worker', type=Path, help=argparse.SUPPRESS)
+    parser.add_argument('--resume', type=Path, help='Retry publication of a validated saved run')
+    parser.add_argument('--build-lock-fd', type=int, help=argparse.SUPPRESS)
+    parser.add_argument('--artifact-directory', type=Path, help=argparse.SUPPRESS)
     parser.add_argument('--jobs', type=int, default=8)
     args = parser.parse_args()
     if args.build_worker:
         publisher = load('scheduled_build', 'build-and-publish.py')
-        print(json.dumps(publisher.build(args.build_worker, ['-j' + str(args.jobs), 'V=s'], publish_after=False)))
+        print(json.dumps(publisher.build(args.build_worker, ['-j' + str(args.jobs), 'V=s'], publish_after=False, artifact_directory=args.artifact_directory, lock_fd=args.build_lock_fd)))
         return
     config = json.loads(args.config.read_text())
     root = Path(config['state_root']).resolve()
     if root == SOURCE or root.is_relative_to(SOURCE) or SOURCE.is_relative_to(root):
         raise ValueError('State root must be separate from the source checkout')
-    root.mkdir(parents=True, exist_ok=True)
-    root.chmod(0o700)
     state = root / 'schedule.json'
     if args.status and not args.initialize:
-        print(state.read_text() if state.exists() else '{}')
+        data = json.loads(state.read_text()) if state.exists() else {}
+        data['enabled'] = config.get('enabled', False)
+        if data.get('last_run'):
+            phases = Path(data['last_run']) / 'phases.json'
+            if phases.exists():
+                data['progress'] = json.loads(phases.read_text())
+        print(json.dumps(data, indent=2))
         return
+    if args.scheduled and not config.get('enabled', False):
+        print('Scheduled maintenance is disabled')
+        return
+    root.mkdir(parents=True, exist_ok=True)
+    root.chmod(0o700)
     with (root / 'scheduler.lock').open('a') as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -415,31 +558,75 @@ def main():
         if args.status or args.initialize:
             print(json.dumps(data, indent=2))
             return
-        if not args.scheduled and not args.run_now:
+        if not args.scheduled and not args.run_now and not args.resume:
             parser.error('Choose --scheduled, --status, --initialize or --run-now')
         now = time.time()
-        if args.scheduled and now < data.get('next_run', 0):
+        if args.scheduled and not data:
+            atomic_json(state, {'next_run': initial_run_time(now, config), 'interval_seconds': INTERVAL})
+            return
+        if args.scheduled and now < data.get('retry_at', data.get('next_run', 0)):
             return
         if any(shutil.disk_usage(path).free < config['minimum_free_gib'] * 1024 ** 3
                for path in (SOURCE, root)):
             raise ValueError('Insufficient free space for scheduled image build')
         run = root / 'runs' / datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
-        run.mkdir(parents=True, mode=0o700)
+        resume = args.resume
+        if args.scheduled and data.get('status') in ('failed', 'interrupted') and data.get('last_run'):
+            previous = Path(data['last_run'])
+            receipt_path = previous / 'vm/validation.json'
+            if receipt_path.exists():
+                saved = json.loads(receipt_path.read_text())
+                if saved.get('status') == 'passed' and saved.get('artifact_manifest_sha256'):
+                    resume = previous
+        if resume:
+            run = resume.resolve()
+            if not run.is_relative_to(root / 'runs') or not run.is_dir():
+                raise ValueError('Resume requires a saved run under state_root/runs')
+        else:
+            run.mkdir(parents=True, mode=0o700)
         anchor = data.get('next_run', (int(now) // 3600) * 3600)
         next_run = anchor + (int((now - anchor) // INTERVAL) + 1) * INTERVAL if anchor <= now else anchor
+        if args.run_now or args.resume:
+            next_run = data.get('next_run', initial_run_time(now, config))
         data.update(last_started=now, next_run=next_run, last_run=str(run), status='running')
         atomic_json(state, data)
         # Cron has a minimal environment. Keep binaries deterministic and avoid Android qemu-img.
         os.environ['PATH'] = str(Path.home() / '.local/bin') + ':/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin'
         os.environ['GIT_TERMINAL_PROMPT'] = '0'
         os.environ['GIT_MERGE_AUTOEDIT'] = 'no'
+        def interrupted(signum, frame):
+            raise KeyboardInterrupt('Scheduler received signal ' + str(signum))
+        signal.signal(signal.SIGTERM, interrupted)
         try:
-            execute(config, run)
-            data.update(status='passed', last_success=time.time())
+            if resume:
+                resume_publication(SOURCE, run)
+            else:
+                execute(config, run)
+            data.pop('retry_at', None)
+            data.pop('error', None)
+            manifest = run / 'artifacts/manifest.json'
+            if manifest.exists():
+                data['artifact_manifest_sha256'] = hashlib.sha256(manifest.read_bytes()).hexdigest()
+            if not resume and (run / 'reuse.json').exists():
+                data.update(status='unchanged')
+            else:
+                data.update(status='passed', last_success=time.time())
         except BaseException as error:
-            data.update(status='failed', error=str(error))
+            local = datetime.fromtimestamp(time.time(), ZoneInfo(config.get('timezone', 'Asia/Singapore')))
+            retry = local.replace(hour=config.get('start_hour', 4), minute=0, second=0, microsecond=0)
+            if retry <= local:
+                retry += timedelta(days=1)
+            data.update(status='interrupted' if isinstance(error, (KeyboardInterrupt, SystemExit)) else 'failed',
+                        error=str(error), retry_at=retry.timestamp())
             raise
         finally:
+            receipt_path = run / 'vm/validation.json'
+            try:
+                saved_receipt = json.loads(receipt_path.read_text())
+            except (OSError, ValueError):
+                saved_receipt = {}
+            data['resumable'] = bool(data.get('status') in ('failed', 'interrupted')
+                and saved_receipt.get('status') == 'passed' and saved_receipt.get('artifact_manifest_sha256'))
             data['last_finished'] = time.time()
             atomic_json(state, data)
             atomic_json(run / 'result.json', data)

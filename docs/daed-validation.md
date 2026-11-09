@@ -296,3 +296,45 @@ default LAN interface build, dry-run and publication logs are under
 pre-fix reproduction test are under `vision-udp-20261101/`. Build logs are in `logs/daed/` of the build tree.
 The Vision splice handover build log, Go test output, the scratch end-to-end
 test and its `strace` summaries are under `vision-splice-20261104/`.
+
+
+## Additional upstream backports (daed 2.1.1-r8)
+
+Validated on 2026-11-09 on the build host (Linux `7.2.15+deb14-amd64`,
+Go 1.27). Patches 010–014 backport dae commits `17cc1de`, `2649d5b`,
+`5a5473d`, `e6e52bb`, and `8722db0`; full commit links and behavior are in
+[the feature guide](daed.md#upstream-version-and-backports). Existing
+patches 001–009 are byte-for-byte unchanged. The new patches were refreshed
+with `make package/custom/daed/refresh V=s`; the strict-alignment verifier
+test is included in full because it did not exist in the v2.1.1 base.
+
+| Check | Result |
+| --- | --- |
+| New patches applied through quilt with `--fuzz=0` | All five passed |
+| `make package/custom/daed/clean V=s`, then `make package/custom/daed/compile -j3 V=s` | Passed; all 14 patches applied without fuzz; BPF objects regenerated for both endiannesses; all three r8 APKs built |
+| `go test -race -count=1 -timeout=180s ./control ./component/daedns ./pkg/config_parser ./cmd github.com/daeuniverse/outbound/protocol/vless/...` from `dae-core` | All six packages passed, including existing Vision handover/audit coverage and the new splice, bootstrap, config, and namespace tests |
+| Short-splice and bootstrap tests with a Go source overlay restoring the two old expressions | Both failed as expected: short reply timed out at 150 ms, bootstrap dialer inherited the requesting IP family; the shipped sources were not changed by the overlay |
+| `TestProductionProgramsLoad` from a compiled control test binary under `sudo -n` | Passed all eight combinations of redirect-peer, current-task and strict-alignment switches; loads production BPF programs without attaching network hooks |
+| `TestDeleteNamedNetnsKernelLockedMount`, verbose, unprivileged | Passed (not skipped), using nested user/mount/network namespaces and a private tmpfs `/run`; confirms recovery against a real locked namespace mount without covering the host's `/run/netns` |
+| `python3 scripts/tests/test-custom-package-updates.py` | 47 tests passed |
+| `node scripts/tests/test-luci-daed-view.js` | Passed |
+| `python3 scripts/update-custom-packages.py --check --package daed` | `daed: local`, as intended for the composed recipe |
+| `scripts/checkpatch.pl --no-tree --no-signoff` on patch 014 | Zero errors, one reviewed warning: the upstream volatile 16-bit load intentionally prevents clang fusing adjacent halfword loads into an unaligned 32-bit load. The upstream commit has no Signed-off-by trailer, so signoff checking was disabled; no trailer was invented |
+| `git diff --check` | Passed |
+| Existing `.config` SHA-256 before and after | Unchanged: `0b56e92e37cd76d8c7e75c38b0359b20ef77ab2710ce338b98cf9266abf6a7b5` |
+
+| Artifact (`bin/systemd/packages/x86_64/base/`) | SHA-256 |
+| --- | --- |
+| `daed-2.1.1-r8.apk` | `64c76d4add3c96b4ceee0079b674250ba2513c8be507d8e60a989cfe8a01a314` |
+| `daed-geoip-2.1.1-r8.apk` | `ebbe578121144b83be7d5fbd5cb33f1b56c853d455ba46c815bd68302a2ecc51` |
+| `daed-geosite-2.1.1-r8.apk` | `eabb864694667fbccbf4771606575bf94cf4f3662d8194764fb2bf12831ecc3c` |
+
+Build and test logs, upstream commit JSON and the baseline source overlay are
+saved in `/srv/openwrt-validation/daed-validation-20261109/upstream-backports/`.
+The overlay paths refer to the original scratch directory
+`/tmp/daed-backport-20261109/`.
+
+No image or VM boot was performed for r8, and no physical-router acceptance
+was performed. No packages were published or installed on the router, and no
+router configuration or service state was changed. Host BPF verifier and
+isolated-namespace checks do not establish target-router acceptance.

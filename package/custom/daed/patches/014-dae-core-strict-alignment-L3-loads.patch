@@ -1,0 +1,284 @@
+From 8722db01fca702818ea85cefde46a84dd755f44a Mon Sep 17 00:00:00 2001
+From: Zakk <zakk@gentoozh.org>
+Date: Fri, 6 Nov 2026 00:50:37 +1100
+Subject: [PATCH] fix(kern): avoid 4-byte packet loads on L3 hooks for
+ strict-alignment kernels (#1160)
+
+
+Backported to the composed OpenWrt daed source.
+Documentation and CI hunks omitted.
+
+---
+The verifier test file was introduced after v2.1.1; include it in full.
+
+--- a/dae-core/control/kern/tproxy.c
++++ b/dae-core/control/kern/tproxy.c
+@@ -1041,6 +1041,32 @@ report_parse_passthrough(int ret)
+ 	}
+ }
+ 
++// Without an L2 header the verifier places the IP header at NET_IP_ALIGN (2),
++// so a field at a multiple of 4 sits at 2 mod 4 and strict-alignment kernels
++// reject a 4-byte load of it. On that path pkt_load32 reads such a field as two
++// 2-byte halves, and pkt_load16 reads 2-byte fields as volatile so clang cannot
++// fuse neighbouring halves into one such 4-byte load.
++static __always_inline __u16 pkt_load16(const void *p, __u32 link_h_len)
++{
++	if (link_h_len == ETH_HLEN)
++		return *(const __u16 *)p;
++	return *(const volatile __u16 *)p;
++}
++
++static __always_inline __u32 pkt_load32(const void *p, __u32 link_h_len)
++{
++	union {
++		__u16 half[2];
++		__u32 word;
++	} v;
++
++	if (link_h_len == ETH_HLEN)
++		return *(const __u32 *)p;
++	v.half[0] = pkt_load16(p, link_h_len);
++	v.half[1] = pkt_load16((const __u16 *)p + 1, link_h_len);
++	return v.word;
++}
++
+ // Fast-path packet parsing via bpf_skb_pull_data + direct access.
+ // Returns 0 on success, -1 for slow-path fallback, -EFAULT for malformed.
+ static __always_inline int
+@@ -1119,8 +1145,8 @@ parse_transport_fast(struct __sk_buff *s
+ 		((__u8 *)iph)[0] = ((const __u8 *)iph_ptr)[0];
+ 		iph->tos = iph_ptr->tos;
+ 		iph->protocol = iph_ptr->protocol;
+-		iph->saddr = iph_ptr->saddr;
+-		iph->daddr = iph_ptr->daddr;
++		iph->saddr = pkt_load32(&iph_ptr->saddr, link_h_len);
++		iph->daddr = pkt_load32(&iph_ptr->daddr, link_h_len);
+ 		*ihl = iphdr_ihl(iph_ptr);
+ 		*l4proto = iph_ptr->protocol;
+ 
+@@ -1139,17 +1165,17 @@ parse_transport_fast(struct __sk_buff *s
+ 
+ 			if ((void *)(tcph_ptr + 1) > data_end)
+ 				return -1;
+-			tcph->source = tcph_ptr->source;
+-			tcph->dest = tcph_ptr->dest;
+-			tcph->seq = tcph_ptr->seq;
+-			tcph->ack_seq = tcph_ptr->ack_seq;
++			tcph->source = pkt_load16(&tcph_ptr->source, link_h_len);
++			tcph->dest = pkt_load16(&tcph_ptr->dest, link_h_len);
++			tcph->seq = pkt_load32(&tcph_ptr->seq, link_h_len);
++			tcph->ack_seq = pkt_load32(&tcph_ptr->ack_seq, link_h_len);
+ 			// Data offset + flags, read through the raw accessors for
+ 			// the same reason as the IP version/ihl byte above. The
+ 			// reserved nibble is zero in a valid header and is not read
+ 			// by any consumer of the copied struct.
+ 			((__u8 *)tcph)[12] = tcph_doff(tcph_ptr) << 4;
+ 			((__u8 *)tcph)[13] = tcph_flags(tcph_ptr);
+-			tcph->window = tcph_ptr->window;
++			tcph->window = pkt_load16(&tcph_ptr->window, link_h_len);
+ 			*listener_l4proto = tcp_listener_l4proto(tcph_ptr);
+ 			return 0;
+ 		}
+@@ -1158,10 +1184,10 @@ parse_transport_fast(struct __sk_buff *s
+ 
+ 			if ((void *)(udph_ptr + 1) > data_end)
+ 				return -1;
+-			udph->source = udph_ptr->source;
+-			udph->dest = udph_ptr->dest;
+-			udph->len = udph_ptr->len;
+-			udph->check = udph_ptr->check;
++			udph->source = pkt_load16(&udph_ptr->source, link_h_len);
++			udph->dest = pkt_load16(&udph_ptr->dest, link_h_len);
++			udph->len = pkt_load16(&udph_ptr->len, link_h_len);
++			udph->check = pkt_load16(&udph_ptr->check, link_h_len);
+ 			*listener_l4proto = IPPROTO_UDP;
+ 			return 0;
+ 		}
+@@ -1177,23 +1203,25 @@ parse_transport_fast(struct __sk_buff *s
+ 			return -1;
+ 
+ 		/* Preserve version, traffic class, and flow label for DSCP extraction. */
+-		__builtin_memcpy(ipv6h, ipv6h_ptr, 4);
++		__u32 ipv6h_word0 = pkt_load32(ipv6h_ptr, link_h_len);
++
++		__builtin_memcpy(ipv6h, &ipv6h_word0, 4);
+ 		ipv6h->nexthdr = ipv6h_ptr->nexthdr;
+ 		ipv6h->payload_len = ipv6h_ptr->payload_len;
+ 		__u32 *saddr_dst = (__u32 *)ipv6h->saddr.in6_u.u6_addr32;
+ 		const __u32 *saddr_src = (const __u32 *)ipv6h_ptr->saddr.in6_u.u6_addr32;
+ 
+-		saddr_dst[0] = saddr_src[0];
+-		saddr_dst[1] = saddr_src[1];
+-		saddr_dst[2] = saddr_src[2];
+-		saddr_dst[3] = saddr_src[3];
++		saddr_dst[0] = pkt_load32(&saddr_src[0], link_h_len);
++		saddr_dst[1] = pkt_load32(&saddr_src[1], link_h_len);
++		saddr_dst[2] = pkt_load32(&saddr_src[2], link_h_len);
++		saddr_dst[3] = pkt_load32(&saddr_src[3], link_h_len);
+ 		__u32 *daddr_dst = (__u32 *)ipv6h->daddr.in6_u.u6_addr32;
+ 		const __u32 *daddr_src = (const __u32 *)ipv6h_ptr->daddr.in6_u.u6_addr32;
+ 
+-		daddr_dst[0] = daddr_src[0];
+-		daddr_dst[1] = daddr_src[1];
+-		daddr_dst[2] = daddr_src[2];
+-		daddr_dst[3] = daddr_src[3];
++		daddr_dst[0] = pkt_load32(&daddr_src[0], link_h_len);
++		daddr_dst[1] = pkt_load32(&daddr_src[1], link_h_len);
++		daddr_dst[2] = pkt_load32(&daddr_src[2], link_h_len);
++		daddr_dst[3] = pkt_load32(&daddr_src[3], link_h_len);
+ 
+ 		*l4proto = ipv6h_ptr->nexthdr;
+ 		*ihl = sizeof(struct ipv6hdr) / 4;
+@@ -1244,17 +1272,17 @@ parse_transport_fast(struct __sk_buff *s
+ 
+ 			if ((void *)(tcph_ptr + 1) > data_end)
+ 				return -1;
+-			tcph->source = tcph_ptr->source;
+-			tcph->dest = tcph_ptr->dest;
+-			tcph->seq = tcph_ptr->seq;
+-			tcph->ack_seq = tcph_ptr->ack_seq;
++			tcph->source = pkt_load16(&tcph_ptr->source, link_h_len);
++			tcph->dest = pkt_load16(&tcph_ptr->dest, link_h_len);
++			tcph->seq = pkt_load32(&tcph_ptr->seq, link_h_len);
++			tcph->ack_seq = pkt_load32(&tcph_ptr->ack_seq, link_h_len);
+ 			// Data offset + flags, read through the raw accessors for
+ 			// the same reason as the IP version/ihl byte above. The
+ 			// reserved nibble is zero in a valid header and is not read
+ 			// by any consumer of the copied struct.
+ 			((__u8 *)tcph)[12] = tcph_doff(tcph_ptr) << 4;
+ 			((__u8 *)tcph)[13] = tcph_flags(tcph_ptr);
+-			tcph->window = tcph_ptr->window;
++			tcph->window = pkt_load16(&tcph_ptr->window, link_h_len);
+ 			*listener_l4proto = tcp_listener_l4proto(tcph_ptr);
+ 			return 0;
+ 		}
+@@ -1263,10 +1291,10 @@ parse_transport_fast(struct __sk_buff *s
+ 
+ 			if ((void *)(udph_ptr + 1) > data_end)
+ 				return -1;
+-			udph->source = udph_ptr->source;
+-			udph->dest = udph_ptr->dest;
+-			udph->len = udph_ptr->len;
+-			udph->check = udph_ptr->check;
++			udph->source = pkt_load16(&udph_ptr->source, link_h_len);
++			udph->dest = pkt_load16(&udph_ptr->dest, link_h_len);
++			udph->len = pkt_load16(&udph_ptr->len, link_h_len);
++			udph->check = pkt_load16(&udph_ptr->check, link_h_len);
+ 			*listener_l4proto = IPPROTO_UDP;
+ 			return 0;
+ 		}
+--- /dev/null
++++ b/dae-core/control/bpf_verifier_load_test.go
+@@ -0,0 +1,111 @@
++//go:build !dae_stub_ebpf
++
++/*
++ * SPDX-License-Identifier: AGPL-3.0-only
++ * Copyright (c) 2026, daeuniverse Organization <dae@v2raya.org>
++ */
++
++package control
++
++import (
++	"errors"
++	"fmt"
++	"os"
++	"regexp"
++	"slices"
++	"testing"
++
++	"github.com/cilium/ebpf"
++	"github.com/cilium/ebpf/rlimit"
++	"golang.org/x/sys/unix"
++)
++
++var verifierProcessedInsns = regexp.MustCompile(`processed \d+ insns \(limit \d+\)`)
++
++// TestProductionProgramsLoad loads every program of the production object once
++// for each combination of the .rodata switches that change which code the
++// verifier walks. It checks that the verifier accepts each program, not a
++// particular processed-instruction count, because that count moves with the
++// clang and kernel versions; the counts are logged so growth stays visible.
++// Each combination is also loaded with BPF_F_STRICT_ALIGNMENT, which applies
++// the packet alignment rules of kernels without efficient unaligned access,
++// such as LoongArch with ARCH_STRICT_ALIGN (#1159), on any host.
++func TestProductionProgramsLoad(t *testing.T) {
++	if os.Geteuid() != 0 {
++		t.Skip("loading BPF programs requires root")
++	}
++	if err := rlimit.RemoveMemlock(); err != nil {
++		t.Fatalf("remove memlock limit: %v", err)
++	}
++	for _, redirectPeer := range []uint8{0, 1} {
++		for _, currentTask := range []uint8{0, 1} {
++			for _, strictAlign := range []bool{false, true} {
++				name := fmt.Sprintf("redirect_peer=%d,current_task=%d,strict_align=%t", redirectPeer, currentTask, strictAlign)
++				t.Run(name, func(t *testing.T) {
++					loadProductionProgramsForTest(t, redirectPeer, currentTask, strictAlign)
++				})
++			}
++		}
++	}
++}
++
++func loadProductionProgramsForTest(t *testing.T, useRedirectPeer, hasBpfGetCurrentTask uint8, strictAlign bool) {
++	t.Helper()
++	spec, err := loadBpf()
++	if err != nil {
++		t.Fatalf("load spec: %v", err)
++	}
++	for _, m := range spec.Maps {
++		m.Pinning = ebpf.PinNone
++	}
++	if strictAlign {
++		for _, p := range spec.Programs {
++			p.Flags |= unix.BPF_F_STRICT_ALIGNMENT
++		}
++	}
++	param := struct {
++		tproxyPort           uint32
++		controlPlanePid      uint32
++		dae0Ifindex          uint32
++		daeNetnsId           uint32
++		dae0peerMac          [6]byte
++		paddingAfterMac      [2]uint8
++		useRedirectPeer      uint8
++		hasBpfGetCurrentTask uint8
++		datapathGeneration   uint16
++		daeSocketMark        uint32
++	}{
++		useRedirectPeer:      useRedirectPeer,
++		hasBpfGetCurrentTask: hasBpfGetCurrentTask,
++	}
++	if err := spec.Variables["PARAM"].Set(param); err != nil {
++		t.Fatalf("set PARAM: %v", err)
++	}
++	if err := spec.Variables["EVENT_RATE"].Set(eventRateValue()); err != nil {
++		t.Fatalf("set EVENT_RATE: %v", err)
++	}
++	if err := tuneEventRateMap(spec); err != nil {
++		t.Fatalf("tune event rate map: %v", err)
++	}
++
++	coll, err := ebpf.NewCollectionWithOptions(spec, ebpf.CollectionOptions{
++		Programs: ebpf.ProgramOptions{LogLevel: ebpf.LogLevelStats},
++	})
++	if err != nil {
++		var verr *ebpf.VerifierError
++		if errors.As(err, &verr) {
++			t.Fatalf("load programs: %+v", verr)
++		}
++		t.Fatalf("load programs: %v", err)
++	}
++	defer coll.Close()
++
++	names := make([]string, 0, len(coll.Programs))
++	for name := range coll.Programs {
++		names = append(names, name)
++	}
++	slices.Sort(names)
++	for _, name := range names {
++		t.Logf("%s: %s", name, verifierProcessedInsns.FindString(coll.Programs[name].VerifierLog))
++	}
++}

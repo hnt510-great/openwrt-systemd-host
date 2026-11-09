@@ -1,206 +1,202 @@
 # GEMINI.md
 
-This file provides guidance and workspace rules for Gemini / Antigravity when working with code in this repository.
+This file provides project memory, architectural context, and operational rules for Gemini / Antigravity when working in this repository.
 
 ---
 
-## 1. Project Overview & Architecture
+## 1. Project Overview & Core Divergences
 
-This repository is a customized OpenWrt fork tracking `openwrt/openwrt` `main` (~216 commits ahead). It builds an x86_64 "router plus desktop" system with several foundational divergences from upstream:
+This repository is a heavily customized OpenWrt fork tracking `openwrt/openwrt` `main` (~300 commits ahead). It targets `x86/64` as a combined **router plus general-purpose Linux desktop/virtualization/container host** built on foundations that differ from stock OpenWrt:
 
-- **glibc C library**: Uses glibc instead of musl (`CONFIG_LIBC_USE_GLIBC=y`, `CONFIG_USE_GLIBC=y`).
-- **APK package manager**: Uses signed APK packages instead of opkg (`CONFIG_USE_APK=y`, `CONFIG_SIGNED_PACKAGES=y`).
-- **Native systemd**: Runs native systemd as PID 1 alongside a retained procd (`CONFIG_OPENWRT_SYSTEMD=y`).
-- **Mainline Linux 7.3**: Target `x86/64` runs mainline Linux 7.3 (`CONFIG_LINUX_7_3=y`); the versioned 6.18 configuration is retained.
-- **GNOME Desktop Session**: Shared-user GNOME 51 desktop on VT7 (local display, LAN RDP via `gnome-remote-desktop`, Sunshine/Moonlight).
-- **Core build-system surgery**: Modifies core upstream files (`include/kernel.mk`, `include/package-pack.mk`, `include/package.mk`, `include/rootfs.mk`, `package/base-files`, `package/system/{apk,procd,systemd}`, `target/linux/x86/image`). Always inspect interactions before modifying custom recipes.
+- **C Library (`glibc`)**: Uses `glibc` instead of `musl` (`CONFIG_LIBC_USE_GLIBC=y`, `CONFIG_USE_GLIBC=y`), with Debian multiarch compatibility (`/lib/x86_64-linux-gnu`, `/usr/lib/x86_64-linux-gnu`) via `glibc-distro-compat`.
+- **Package Manager (`APK`)**: Uses signed APK packages (`CONFIG_USE_APK=y`, `CONFIG_SIGNED_PACKAGES=y`) with explicit ELF SONAME (`so:<SONAME>=0`) and ucode ABI contracts instead of `opkg`.
+- **Init & Supervision (`native systemd` + `procd`)**: Runs native `systemd` as PID 1 (`CONFIG_OPENWRT_SYSTEMD=y`) with a merged `/usr` filesystem (`scripts/merge-usr.py`), while retaining `procd` as the OpenWrt ubus/hotplug/rc service API and as a GRUB recovery init (`openwrt.init=procd`).
+- **Kernel (`Mainline Linux 7.3`)**: Target `x86/64` runs mainline Linux 7.3 (`CONFIG_LINUX_7_3=y`, currently 7.3.x); `6.18` kernel configs/patches are retained alongside it. Kernels ship as parallel, ABI-pinned distribution packages (`linux-image-<kver>-<gen>-openwrt`) managed on-device by `kernelctl`.
+- **Desktop Session (`GNOME 51`)**: Shared-user GNOME Wayland desktop on VT7 (`package/custom/openwrt-desktop`) started via PAM/logind without a display manager, shared over LAN IPv4 RDP (`gnome-remote-desktop`) and Sunshine/Moonlight, with Fcitx5 (`openwrt-desktop-ime`) and PipeWire (`openwrt-desktop-audio`).
+- **Core Build-System Surgery**: Directly modifies upstream build and core files (`include/kernel.mk`, `include/package-pack.mk`, `include/package.mk`, `include/rootfs.mk`, `package/base-files`, `package/system/{apk,procd,systemd}`, `package/network/{services/dnsmasq,utils/nftables,config/firewall4}`, `package/libs/libnftnl`, `target/linux/x86/image`).
 
-Outputs:
-- Systemd images and native APK feeds land in `bin/systemd/`.
-- Stock images stay in `bin/targets/`.
+Build outputs:
+- **Native systemd firmware & APK feeds**: `bin/systemd/` (e.g., `bin/systemd/targets/x86/64-glibc/`).
+- **Stock images**: `bin/targets/`.
 
 ---
 
 ## 2. Essential Commands
 
-### Feeds & Packages
+### Feeds & Custom Package Updates
 ```bash
-./scripts/feeds update -a          # Fetch feeds AND bump registered custom recipes via update-custom-packages.py
-./scripts/feeds update -i -a       # Regenerate indexes ONLY (no upstream version queries)
-./scripts/feeds install -a         # Link feed packages into package/feeds/
+./scripts/feeds update -a          # Fetch feeds, init luci-theme-argon submodule, AND run update-custom-packages.py --update
+./scripts/feeds update -i -a       # Regenerate feed indexes ONLY without querying upstream versions
+./scripts/feeds install -a         # Populate symlinks in package/feeds/
 ```
-> [!IMPORTANT]
-> `./scripts/feeds update -a` automatically queries upstream versions for recipes registered in `configs/custom-package-updates.json` and edits them. Inspect changes before running, or use `-i -a` when only index regeneration is needed.
+- `./scripts/feeds update -a` automatically queries upstream versions and updates recipes listed in `configs/custom-package-updates.json` (including `companion_assets` SHA-256 hashes). Inspect local work before running, and use `-i -a` when you only want index regeneration.
+- Every recipe under `package/custom/` **must** be registered in `configs/custom-package-updates.json` (`series`, `major`, `stable`, `follow`, or `local`), or the updater fails.
 
-### Configuration
+### Configuration Management
 ```bash
 make defconfig                     # Normalize existing .config
-make prereq                        # Check host prerequisites
-make download                      # Prefetch sources into dl/
+make prereq                        # Verify host prerequisites
+make download                      # Prefetch source archives into dl/
 
-# Merging a kconfig fragment:
+# Merge a feature fragment into .config (never overwrite .config with the full snapshot unprompted):
 ./scripts/kconfig.pl + .config configs/<feature>.config > .config.new && mv .config.new .config && make defconfig
 ```
-> [!NOTE]
-> Do NOT use `scripts/diffconfig.sh` to minimize config; circular Kconfig dependencies (Mesa, glib2-gir, openwrt-desktop) make it unreliable. The full baseline is stored in `configs/x86-64-systemd-desktop.config`. Preserve `.config` unless explicitly instructed to overwrite it.
+- **Full Snapshot**: `configs/x86-64-systemd-desktop.config` (~381 KB) is the complete accepted configuration snapshot (`cp configs/x86-64-systemd-desktop.config .config && make defconfig`).
+- Do **not** rely on `scripts/diffconfig.sh` to minimize `.config`; circular Kconfig dependencies (`video-support`, `openwrt-desktop`, `glib2-gir`, Mesa) break minimization.
 
-### Build Targets
+### Building & Patch Refreshing
 ```bash
-make -j$(nproc) V=s                # Full firmware build (verbose)
-make package/<name>/compile V=s    # Build a single package (e.g., package/custom/fastfetch/compile)
-make target/linux/compile V=s      # Build kernel only
-make package/<name>/prepare V=s    # Prepare sources (unpack + patch)
-make package/<name>/refresh        # Refresh quilt patches for a package
-make target/linux/refresh          # Refresh quilt patches for target kernel
+make -j3 V=s                                              # Build configured firmware (plain make does NOT reserve a kernel generation)
+make package/custom/<name>/compile V=s                    # Build a single custom package
+make target/linux/compile V=s                             # Build kernel only
+make package/<name>/prepare V=s                           # Unpack and apply patches for a package
+make package/<name>/refresh V=s                           # Regenerate quilt patches for a package
+make target/linux/refresh V=s                             # Regenerate quilt patches for the kernel
+python3 scripts/build-and-publish.py build-only -j12 V=s  # Full build reserving a kernel generation without publishing
 ```
 
-### Publication & Upgrades
+### Publication & Kernel Maintenance
 ```bash
-./scripts/build-and-publish.sh -j16           # Build and publish userspace APKs and kernel generation
-./scripts/publish-changed-feeds.sh [--dry-run] # Preflight simulation against live router, then publish
-python3 scripts/build-and-publish.py build-only -j12 V=s  # Reserve generation and build, do not publish
-python3 scripts/update-mainline-kernel.py --check|--update # Check or update mainline point releases
+./scripts/build-and-publish.sh -j16                       # Build + preflight + publish userspace APKs and kernel generation
+./scripts/publish-changed-feeds.sh [--dry-run]            # Run live-router preflight simulation, then publish changed APKs
+python3 scripts/update-mainline-kernel.py --check|--update # Compare Linux 7.3 series against kernel.org / update point release
 ```
 
 ---
 
-## 3. Configuration & Feed Management
+## 3. Architecture & Subsystems
 
-- **Configuration Baseline**: `configs/x86-64-systemd-desktop.config` (356 KB) is the master configuration. Reproduce with:
-  `cp configs/x86-64-systemd-desktop.config .config && make defconfig`
-- **Configuration Fragments**: `configs/<feature>.config` contain partial Kconfig settings merged via `scripts/kconfig.pl`.
-- **Feed Manifests**: `configs/*-feeds.json` define upstream base commit, local commit, and patches for each feed. `configs/lan-apk-feeds.json` holds publication targets (`/srv/openwrt-feeds`, served via nginx `lan-apk-feeds.service`).
-- **Independent Feed Repositories**: `feeds/packages` and `feeds/video` are independent Git repos with local commits. The root repo ignores `feeds/`, but changes are tracked as patch series in `patches/feeds/NNNN-<feed>-<topic>.patch`.
-  - Never reset or wipe `feeds/` working trees without checking local commits.
-  - To apply feed patches on a clean base: `git -C feeds/packages am "$PWD/patches/feeds/0001-packages-local-integration.patch"`.
+### 3.1 Dual-Init & Native Systemd Supervision
+- **Boot path**: `/sbin/init` mounts early filesystems, runs preinit, and mounts overlayfs. GRUB default passes `openwrt.init=systemd` to exec `systemd` as PID 1 (falling back to `procd` if preflight fails); the `procd recovery` GRUB entry passes `openwrt.init=procd`.
+- **Integration (`package/system/systemd-openwrt/`)**:
+  - `openwrt-ubusd.service`: Runs `ubusd`.
+  - `openwrt-procd.service`: Runs `procd --systemd=units`. `procd` remains the ubus service/system/hotplug API and runs `/etc/hotplug.d` and `/etc/rc.button` handlers fed by `systemd-udevd`, while each normal service instance registered via `procd.sh` becomes a transient `openwrt-SERVICE@INSTANCE.service` under `openwrt-SERVICE.slice` (procd patch `130-systemd-transient-units.patch`). Instances requiring `vrf`, `trace`, `bundle`, or descriptor passing fall back to procd children in `openwrt-*.scope`.
+  - `openwrt-services.service`: Runs enabled `/etc/init.d/*` rc scripts in sequence.
+  - `openwrt-network-wait-online.service`: Holds `network-online.target` until `netifd` brings up autostart static local interfaces (e.g., `lan`), up to 120s.
+- **CLI Service Bridge (`package/system/systemd-openwrt-services/`)**:
+  - Maps `systemctl start|stop|restart|reload|enable|status openwrt@NAME.service` onto `/etc/init.d/NAME` (`dbus` and `sshd` use native units). PID 1 refuses direct start/stop/restart/reload jobs on transient `openwrt-SERVICE@INSTANCE.service` units from non-procd clients so init script hooks are not bypassed.
+- **Merged `/usr` (`scripts/merge-usr.py`)**:
+  - Invoked from `include/package-pack.mk` and `include/rootfs.mk` to rewrite `/bin`, `/sbin`, `/lib` into `/usr/...`. `ALTERNATIVE_COMMANDS` handles BusyBox applet collisions (`dmesg`, `mount`, `passwd`, `ping`, `reboot`, etc.).
 
----
+### 3.2 Whole-Disk USB & Optical Installer ISO
+- Enabled via `configs/installer-iso.config` (`CONFIG_INSTALLER_ISO_IMAGES`), producing `bin/systemd/targets/x86/64-glibc/openwrt-x86-64-generic-installer.iso`.
+- Built from `TARGET_DIR_ORIG` plus **only git-tracked `files/` defaults** (personal untracked overlays in `files/` are excluded).
+- Boots via hybrid BIOS/UEFI from raw USB (partition 3) or optical/virtual SATA CD-ROM (external initramfs loop-mounts the appended squashfs read-only) with `fstools_overlay=tmpfs` into an English whiptail TUI (`package/custom/openwrt-installer`, supports `openwrt-installer --answers FILE [--dry-run]`).
+- Creates a fresh GPT (p128 BIOS gap, p1 FAT32 ESP `/boot`, p2 read-only `rootfs` squashfs, p3 `rootfs_data` overlay with `ext4`/`btrfs`/`xfs`, optional p4+ data partitions), configures LAN/WAN/firewall/accounts, and schedules a firstboot unit for optional regular user + `desktop-setup`. See `docs/installer-iso.md`.
 
-## 4. Key Subsystems & Design
-
-### Dual-Init Architecture (systemd + procd)
-- `/sbin/init` performs early mounts, runs preinit, and mounts overlayfs.
-- GRUB default passes `openwrt.init=systemd` to exec systemd as PID 1; fallback or `openwrt.init=procd` boots procd.
-- Bridge units live in `package/system/systemd-openwrt/`:
-  - `openwrt-ubusd.service`: Starts ubus daemon.
-  - `openwrt-procd.service`: `procd --systemd=units`, the OpenWrt service API (ubus `service`/`system`/`hotplug.*`, triggers, validation) and `/etc/hotplug.d` handlers fed by udev.
-    Each instance registered through `procd.sh` runs as a transient `openwrt-SERVICE@INSTANCE.service` in `openwrt-SERVICE.slice` (procd patch `130-systemd-transient-units.patch`); vrf/trace/bundle/descriptor-passing instances fall back to procd children in scopes.
-    The systemd manager owns the hardware watchdog. Rollback to procd supervision is a `--systemd` drop-in plus `RuntimeWatchdogSec=0`. See `docs/systemd-native-supervision.md`.
-  - `openwrt-services.service`: Runs `/etc/init.d/*` rc scripts in sequence.
-  - `openwrt-network-wait-online.service`: Holds `network-online.target` until netifd brings static local interfaces (e.g., `lan`) up.
-- **Merged `/usr`**: `scripts/merge-usr.py` transforms rootfs layout, redirecting `/bin`, `/sbin`, and `/lib` to `/usr/...`. BusyBox conflicts are handled via `ALTERNATIVE_COMMANDS`.
-
-### GNOME Desktop Profile
-- Meta-package: `package/custom/openwrt-desktop` launches GNOME 51 on VT7 under an unprivileged user session via PAM/logind (no display manager).
-- Shared display: `gnome-remote-desktop` (RDP, LAN IPv4 only) and Sunshine (Moonlight).
-- Companion packages: `openwrt-desktop-ime` (Fcitx5 + Kimpanel), `openwrt-desktop-audio` (PipeWire/PulseAudio adapter).
-- On-device setup commands (run as root):
+### 3.3 GNOME 51 Desktop, Audio, IME & Remote Access
+- **Meta-packages**: `openwrt-desktop`, `openwrt-desktop-ime` (Fcitx5 + Kimpanel + Pinyin/libime + CJK fonts), `openwrt-desktop-audio` (PipeWire + WirePlumber + PulseAudio compat).
+- **Session model**: Runs as an ordinary user on VT7 via PAM/logind (`openwrt-desktop.service`). Shares the same local Wayland display over RDP (`gnome-remote-desktop` bound to LAN IPv4 TCP 3389) and Sunshine/Moonlight. Keyring bootstrap secrets live under root-only `/etc/desktop/gnome/` passed via systemd `LoadCredential`.
+- **On-device provisioning commands (run as root)**:
   ```sh
   desktop-setup USER
   desktop-rdp-setup USER [--password-stdin]
   sunshine-setup USER --capture=portal|--enable-kms
   desktop-audio-setup USER
   ```
-- Keyring credentials use systemd `LoadCredential` under `/etc/desktop/gnome/`. Never hardcode user passwords in images.
+- See `docs/gnome-desktop.md`.
 
-### Mainline Kernel & Parallel Generations
-- Mainline series: Linux 7.3 tracked in `target/linux/x86/64`. `scripts/update-mainline-kernel.py` verifies SHA-256 and applies backport/pending/hack patches with zero fuzz.
-- Generations: `package/custom/openwrt-kernel-upgrade` enables parallel ABI-pinned kernels with GRUB recovery.
-  - Runtime management: `/usr/sbin/kernelctl` (Python 3) with state in `/etc/openwrt-kernel/`.
-  - Host scripts: `scripts/kernel-build-inputs.py` fingerprints inputs; `scripts/publish-kernel-upgrade-feed.py` handles feed publishing.
-  - Generation allocation: Reserved by `build-and-publish.py`. Plain `make` targets do NOT reserve a generation.
+### 3.4 Mainline Kernel & Parallel Generations
+- **Series updates**: `scripts/update-mainline-kernel.py --check|--update` checks kernel.org, verifies source SHA-256, and tests applying generic + x86 patch stacks with zero fuzz before updating version metadata. Patch review state lives in `configs/mainline-kernel-patches.json` and `docs/mainline-kernel-patch-review.md`.
+- **Distribution-style kernel packaging**:
+  - `scripts/kernel-package.py` and `package/kernel-bundle` (`scripts/kernel-bundle.py`) package each build `N` into `linux-image-<kver>-N-openwrt` (kernel + all selected `.ko` modules) and `linux-headers-<release>`, plus metapackages `linux-image-openwrt` and `kernel-dev-headers`. `kmod-*` packages contain only autoload/modprobe configs and are kernel-independent.
+  - On the router, `/usr/sbin/kernelctl` (`package/custom/openwrt-kernel-upgrade`, state schema 2 in `/etc/openwrt-kernel/`) installs new kernels alongside the running kernel, updates GRUB with a 3-attempt boot counter, blesses healthy boots via `openwrt-kernel-boot.service`, and prunes kernels other than default, fallback, and rescue.
+  - Firmware flashing via `sysupgrade` is blocked under native systemd; boot the GRUB **procd recovery** entry to flash full images.
 
-### ELF ABI & Signed APK Packaging
-- Packaging declares ELF shared-library contracts (`so:<SONAME>=0`) scanned via `scripts/elf-abi.py` into `/usr/lib/apk/packages/<name>.elf.json`.
-- Ucode ABI is tracked separately via `scripts/ucode-abi.py`.
-- Rebuild ledger: `configs/apk-elf-rebuilds.mk` manages metadata migrations without editing recipes.
-- Target migration: `scripts/apply-elf-migration.py` includes a 20-minute systemd rollback timer.
-- Package immutability: Published packages are immutable; any byte change requires bumping `PKG_RELEASE`.
+### 3.5 ELF ABI, Signed APKs & Publication Gate
+- **ABI scanning**: `scripts/elf-abi.py` generates `/usr/lib/apk/packages/<name>.elf.json` (`so:<SONAME>=0` providers/requires; private loader paths in `configs/elf-abi-policy.json`). `scripts/ucode-abi.py` locks ucode interpreter/module ABI.
+- **Rebuild ledger**: `configs/apk-elf-rebuilds.mk` maps exact recipe versions to bumped effective releases for metadata migrations without touching feed recipes.
+- **Immutability**: Published APK package identities are immutable—any byte change requires bumping `PKG_RELEASE`. When a same-version rebuild differs, `scripts/diagnose-apk-rebuild.py` classifies differences as `benign`, `change`, or `unknown`. `scripts/allocate-rebuild-releases.py` (or `--allocate-rebuilds` on the build/publish wrappers) allocates ELF rebuild ledger releases for `change` or `so:`-dependency-changed packages.
+- **Router-gated publication (`scripts/publish-changed-feeds.sh`)**:
+  - Publishes to `/srv/openwrt-feeds` (`configs/lan-apk-feeds.json`, served by nginx `lan-apk-feeds.service` for LAN (`192.0.2.0/24`) and WireGuard (`10.0.0.0/24`)).
+  - Requires a reachable live router (`upgrade_preflight.ssh_target`, `router-admin@192.0.2.1` (empty in public example)), reads its APK database under lock, checks installed kmods against candidate kernel ABI, and runs `scripts/apk-upgrade-preflight.py` (`--plan-json`, `--userspace-only`) before exposing snapshots. Never pushes packages directly onto the router.
 
-### APK Upgrade Preflight & Publication Gate
-- `scripts/publish-changed-feeds.sh` is the production publication gate.
-- Strict requirements:
-  - Connects to physical router via SSH (`upgrade_preflight.ssh_target` in `configs/lan-apk-feeds.json`, empty in the public example).
-  - Reads installed package state under APK lock.
-  - Simulates upgrade transactions with `scripts/apk-upgrade-preflight.py` (`--plan-json`, `--userspace-only`).
-  - Halts if router is unreachable, has pending kernel trial, or simulation encounters blockers.
-- Packages are published to host `/srv/openwrt-feeds`, never pushed directly into target router storage.
+### 3.6 Router Configuration History (`uci-history`) & Observability (`router-audit`)
+- **`uci-history` (`package/custom/uci-history`, `luci-app-uci-history`, `docs/uci-history.md`)**:
+  - Versions `/etc/config` and configured `extra_path`s (`/etc/sysupgrade.conf`, `/etc/nftables.d`, `/etc/crontabs`) in a bare Git repo (`/etc/uci-history/repo`, mode 0700) with automatic secret masking and timed rollback transactions (`uci-history-revert-ID.timer` + boot recovery `uci-history-boot.service`).
+- **`router-audit` (`package/custom/router-audit`, `docs/router-audit.md`, `docs/router-audit-debian.md`)**:
+  - Read-only collector (`router-audit-collect.service`, spool `/srv/router-audit` ≤ 256 MiB / 24h, schema 1.1) and exporter (`/usr/sbin/router-audit-export`).
+  - Receives nonblocking DNS query metadata (`dns_queries`, `dns_minute`) from `dnsmasq` and `daed` (`ROUTER_AUDIT_DNS=1`), per-flow proxy dial metadata (`conn_flows`) from `daed` (`ROUTER_AUDIT_CONN=1`), and minute conntrack snapshots (`connections`).
+  - Companion off-router Debian scripts in `/usr/share/router-audit/`: `pull.py` (SQLite ingestion via restricted `router-audit` SSH account), `analyze.py` (deterministic rates, 7-day baselines, findings, LLM text formatting), `explain.py` (local OpenAI-compatible LLM runner, defaulting to Qwen3.5-4B Q6_K with thinking off), and `mcp_server.py` (read-only stdio MCP server).
 
-### `package/custom/` Local Packages
-- Wired via `feeds.conf.default`: `src-link custom ../package/custom`.
-- Patterns:
-  - Prebuilt binary repacks (`cmake-bin`, `node-bin`, `firefox-esr-bin`) gated on `@TARGET_x86_64 @USE_GLIBC`.
-  - Distro compatibility (`glibc-distro-compat`, `glibc-getent`, `glibc-locale-utf8`).
-  - Native target development (`native-libs-dev`, `kernel-dev-headers`, `native-build-deps`).
-  - Shared Xorg/Meson makefile fragments: `xorg-client.mk`, `xorg-meson.mk`.
-- **Registration requirement**: Every recipe in `package/custom/` must be registered in `configs/custom-package-updates.json`.
+### 3.7 Router Datapath & Service Additions
+- **Full Cone NAT** (`docs/fullcone-nat.md`): Kernel `CONFIG_NF_NAT_MASQUERADE_FULLCONE`, `libnftnl`/`nftables`/`firewall4` patches, and LuCI checkbox (`0029-luci-firewall-fullcone.patch`), enabled via `firewall.@defaults[0].fullcone='2'`.
+- **dnsmasq `nftset` Netlink Fast Path** (`docs/dnsmasq-nftset.md`): Direct netlink insertion for plain IP address sets, falling back to `libnftables`.
+- **`daed` eBPF Transparent Proxy** (`package/custom/daed`, `luci-app-daed`, `configs/daed.config`, `docs/daed.md`): Shipped disabled beside default Passwall (init script prevents running both simultaneously); requires kernel BTF (`/sys/kernel/btf/vmlinux`).
+- **`ttyd` over HTTPS** (`docs/ttyd-https.md`): Reuses `uhttpd` cert/key when `ssl=1` so LuCI's terminal iframe avoids mixed-content blocking.
+- **Unprivileged `pppd`** (`docs/ppp-ujail.md`): Runs in `ujail` as user `ppp` (uid 454) with `CAP_NET_ADMIN`/`CAP_NET_RAW`.
+- **LAN Discovery `notrack`** (`docs/lan-discovery-notrack.md`): `firewall4` adds `upnp_ssdp_notrack` (UDP 1900) and `wsd_ipv4_notrack`/`wsd_ipv6_notrack` (UDP 3702) in `notrack_lan`.
+- **Resource Governor Plan** (`docs/resource-governor-plan.md`): Approved staged design (2026-11-07, not yet built) for router-first cgroup v2 resource policy (`openwrt-resource-policy` static policy `S`, optional `resgovd` adaptive governor `A`, and `scripts/resbench/` A/B harness).
 
 ---
 
-## 5. Testing & Verification
+## 4. Feed & Submodule Structure
 
-No single monolithic test command exists. Run targeted tests:
+- **Independent Feed Repos**: `feeds/packages`, `feeds/luci`, `feeds/video`, `feeds/telephony`, `feeds/passwall_packages`, and `feeds/passwall_luci` are independent Git repositories ignored by the root `.gitignore` but containing live local commits.
+  - `patches/feeds/NNNN-<feed>-<topic>.patch` and `configs/*-feeds.json` mirror the local commit series for `packages`, `video`, and `luci`.
+  - Never `git reset --hard` or wipe `feeds/` repositories. Do not re-apply `patches/feeds/*` if the feed repo already contains those commits.
+- **Submodule**: `package/custom/luci-theme-argon` is a tracked Git submodule (`.gitmodules`, branch `master`). Commits inside it belong to its own repo; the root repo records only the gitlink. (`package/luci-app-argon-config/` is retired and untracked.)
+- **Custom Packages (`package/custom/`)**: Linked as the `custom` feed (`src-link custom ../package/custom`). Includes prebuilt binary repacks (`cmake-bin`, `node-bin`, `firefox-esr-bin`), glibc compatibility packages, on-device development headers (`native-libs-dev`, `kernel-dev-headers`, `native-build-deps`), X11/Wayland/GNOME/virtualization recipes (`xorg-client.mk`, `xorg-meson.mk`), Rust helpers (`include/rust-*.mk`), and system tools (`openwrt-installer`, `openwrt-kernel-upgrade`, `openwrt-needrestart`, `uci-history`, `router-audit`).
 
-### Host Tests
+---
+
+## 5. Testing & Validation Conventions
+
+Run the narrowest applicable test suite from the repository root:
+
 ```bash
-python3 scripts/tests/test-<topic>.py    # e.g., test-elf-abi, test-ucode-abi, test-lan-apk-publisher,
-                                         # test-kernel-upgrade, test-merge-usr, test-needrestart, etc.
-node scripts/tests/test-<app>-view.js    # LuCI views
-sh scripts/tests/test-alternatives.sh    # Alternatives/symlinks
-scripts/deptest.sh <package>             # Dependency validation
-scripts/checkpatch.pl <patch-file>       # Patch format verification
-git diff --check                         # Whitespace & formatting check
+# Host Python unit tests
+python3 scripts/tests/test-custom-package-updates.py
+python3 scripts/tests/test-elf-abi.py
+python3 scripts/tests/test-ucode-abi.py
+python3 scripts/tests/test-apk-upgrade-preflight.py
+python3 scripts/tests/test-lan-apk-publisher.py
+python3 scripts/tests/test-build-and-publish.py
+python3 scripts/tests/test-kernel-upgrade.py
+python3 scripts/tests/test-mainline-kernel-updates.py
+python3 scripts/tests/test-merge-usr.py
+python3 scripts/tests/test-network-wait-online.py
+python3 scripts/tests/test-systemd-service-bridge.py
+python3 scripts/tests/test-uci-history.py
+python3 scripts/tests/test-router-audit.py
+python3 scripts/tests/test-router-audit-analysis.py
+python3 scripts/tests/test-openwrt-installer.py
+
+# Host Node.js LuCI view assertions
+node scripts/tests/test-luci-needrestart.js
+node scripts/tests/test-luci-daed-view.js
+node scripts/tests/test-luci-firewall-fullcone.js
+node scripts/tests/test-luci-uci-history.js
+
+# Shell & patch checks
+sh scripts/tests/test-alternatives.sh
+scripts/deptest.sh <package>
+scripts/checkpatch.pl <patch>
+git diff --check
 ```
 
-### Guest VM & Target Tests
-- Integration tests intended for VM or target: `scripts/tests/*-guest*.sh|py`, `firefox-smoke.sh`, `desktop-kernel-smoke.py`, `test-image-network.py`.
-- `scripts/tests/test-libvirt-secondary-drivers.py` requires `sudo` on the target device.
-
-### Documentation Requirements
-Every non-trivial feature must maintain a documentation pair:
-1. Feature guide: `docs/<feature>.md` (setup, architecture, configuration).
-2. Validation record: `docs/<feature>-validation.md` (hand-written check table, target SHA-256, evidence path in `/srv/openwrt-validation/...`).
+- **VM / Target-only checks**: `scripts/tests/*-guest*.sh|py`, `scripts/test-image-network.py`, `scripts/tests/test-daed-vm.py`, `scripts/tests/test-libvirt-secondary-drivers.py` (target-only with `sudo`), and hardware/display probes (`firefox-smoke.sh`, `desktop-kernel-smoke.py`, `sunshine-stream-*`). Always report source checks, disposable VM results, and physical router validation separately.
+- **Documentation Pairs**: Every feature pairs `docs/<topic>.md` with a hand-written `docs/<topic>-validation.md` recording the image path, SHA-256, `| Check | Result |` table, explicit scope statement, and external evidence directory (`/srv/openwrt-validation/<topic>-validation-YYYYMMDD/`). Match the language (English for new docs, Chinese for legacy Chinese docs) of neighboring files.
 
 ---
 
-## 6. Coding Style & Conventions
+## 6. Coding Style, Safety & Operational Guardrails
 
-- **Makefiles, C, Shell, LuCI**: Use hard tabs for indentation.
-- **Python**: Use four spaces for indentation (PEP 8).
-- **Patches**:
-  - OpenWrt patches must be quilt-managed (`make package/<pkg>/refresh`, `make target/linux/refresh`), NEVER generated via `git format-patch`.
-  - Patches follow `NNN-description.patch` naming.
-- **Git Commits**:
-  - Format: `area: imperative summary` (e.g., `systemd: update unit dependencies`, `apk: bump elf abi ledger`).
-  - Keep main repository commits and feed repository commits cleanly separated.
-
----
-
-## 7. Guardrails & Safety Rules
-
-> [!CAUTION]
-> Adhere strictly to the following constraints:
-> 
-> 1. **Automated Scheduled Maintenance is DISABLED**: Do not re-enable the 72-hour cron job or background automation without explicit user request.
-> 2. **Never push directly to physical router**: Production publication writes to the LAN feed destination (`/srv/openwrt-feeds`). Deployment to the router is a separate, user-authorized step.
-> 3. **Preserve unversioned files in `files/`**:
->    - Only 11 files in `files/` are versioned:
->      - `files/etc/config/fstab`
->      - `files/etc/skel/.zshrc`
->      - `files/etc/ssh/sshd_config.d/00-openwrt-access.conf`
->      - `files/etc/sudoers.d/10-multiuser`
->      - `files/etc/uci-defaults/{99-multiuser,99-openssh-access,99-uhttpd-luci,99-zsh-default}`
->      - `files/etc/zsh/zshrc`
->      - `files/lib/upgrade/keep.d/{multiuser,openssh-access}`
->    - Keep personal account provisioning, credentials and network overlays outside the public source tree. Do NOT stage or commit them.
-> 4. **Embedded Submodules**: `package/custom/luci-theme-argon` and `package/luci-app-argon-config` are embedded Git repositories without `.gitmodules`. Do not stage unintended changes inside them.
-> 5. **Immutable Packages**: Never overwrite a published APK release without incrementing `PKG_RELEASE`.
-> 6. **Feeds Working Tree**: Do not hard-reset `feeds/packages` or `feeds/video`; they contain live local branches.
-
-## Changing router configuration
-
-Over SSH, use `uci-history --json begin --timeout 300 --note 'purpose'` before
-changing UCI configuration, verify connectivity and service behavior, then run
-`uci-history --json confirm`. Use `status`, `log`, and `diff` with `--json` to
-inspect state. Never include `--show-secrets` output in transcripts. Use existing
-authorized root access (`sudo -n`); this feature grants no additional privilege.
+- **Indentation & Naming**:
+  - Use **tabs** in Makefiles, C, shell scripts, and LuCI JS/HTML.
+  - Use **4 spaces** in Python.
+  - Name patches `NNN-description.patch` and refresh with `make package/<pkg>/refresh` or `make target/linux/refresh` (never `git format-patch`).
+  - Use `component: imperative summary` for commit messages and stage explicit file paths.
+- **Workspace & Security Guardrails**:
+  1. **Scheduled Maintenance is Disabled**: Automatic 72-hour maintenance (`scripts/scheduled-maintenance.py`) was disabled on 2026-10-18. Never reinstall its cron job or run it unless explicitly requested.
+  2. **Protect `files/` Overlay**: `.gitignore` ignores `/files`. Only **11 files** under `files/` are tracked (`etc/config/fstab`, `etc/skel/.zshrc`, `etc/ssh/sshd_config.d/00-openwrt-access.conf`, `etc/sudoers.d/10-multiuser`, `etc/uci-defaults/{99-multiuser,99-openssh-access,99-uhttpd-luci,99-zsh-default}`, `etc/zsh/zshrc`, `lib/upgrade/keep.d/{multiuser,openssh-access}`). Never stage or commit personal overlays (`99-zz-user`, credentials, network/DDNS/proxy configs) or root `private-key.pem`/`public-key.pem`.
+  3. **Publication vs. Deployment**: Feed publication (`publish-changed-feeds.sh`) and physical device installation are separate operations requiring explicit user authorization.
+  4. **Safe Router Configuration (`uci-history`)**: Over SSH, always wrap UCI changes in a timed transaction:
+     ```sh
+     sudo -n uci-history --json status
+     sudo -n uci-history --json begin --timeout 300 --actor agent --note 'purpose'
+     # apply authorized changes, verify connectivity and service health
+     sudo -n uci-history --json diff
+     sudo -n uci-history --json confirm
+     ```
+     Never include `--show-secrets` output in transcripts, and use existing `sudo -n` root access without modifying sudoers.

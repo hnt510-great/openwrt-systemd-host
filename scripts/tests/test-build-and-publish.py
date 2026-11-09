@@ -82,6 +82,28 @@ class BuildPublicationTests(unittest.TestCase):
         self.make_package('linux-image-6.18.55-99-openwrt', '6.18.55-r99')
         self.make_package('linux-image-openwrt', '6.18.55-r99', ['linux-image-6.18.55-99-openwrt=6.18.55-r99'])
 
+    def test_saved_artifacts_are_independent_and_detect_tampering(self):
+        image = self.tree / 'bin/systemd/targets/x86/64-glibc/openwrt-x86-64-generic-squashfs-combined-efi.img.gz'
+        image.write_bytes(b'exact image fixture')
+        B.save_state(self.tree, {'schema': 1, 'sequence': 1, 'phase': 'built'})
+        bundle = self.root / 'saved-artifacts'
+        manifest = B.capture_artifacts(self.tree, bundle)
+        self.assertEqual(manifest['schema'], 1)
+        image.write_bytes(b'new live output')
+        self.assertEqual((bundle / 'image.img.gz').read_bytes(), b'exact image fixture')
+        B.verify_artifacts(bundle)
+        result = B.publish(self.tree, self.data, dry_run=True, artifacts=bundle)
+        self.assertEqual(result['kernel']['status'], 'dry-run')
+        (bundle / 'image.img.gz').chmod(0o600)
+        (bundle / 'image.img.gz').write_bytes(b'tampered')
+        with self.assertRaisesRegex(ValueError, 'changed'):
+            B.verify_artifacts(bundle)
+
+    def test_foreign_inherited_build_lock_is_rejected(self):
+        with (self.root / 'foreign-lock').open('w') as lock:
+            with self.assertRaisesRegex(ValueError, 'Inherited build lock'):
+                B.build(self.tree, [], publish_after=False, lock_fd=lock.fileno())
+
     def make_package(self, name, version, depends=(), content=None, signed=True, files=None):
         root = self.root / 'package-files'
         if root.exists():
@@ -578,6 +600,54 @@ class BuildPublicationTests(unittest.TestCase):
         first = B.prepare_sequence(self.tree, self.server)
         self.generation(first)
         path.write_bytes(b'new tool')
+        self.assertGreater(B.prepare_sequence(self.tree, self.server), first)
+
+    def host_programs(self):
+        """Point the host-program lookup at fixture files the test can change."""
+        host = self.root / 'host-bin'
+        host.mkdir(exist_ok=True)
+        for name in ('cc', 'bash'):
+            (host / name).write_bytes(b'gcc 16.2.0-3' if name == 'cc' else b'bash 5.3-4')
+        which = patch.object(B.INPUTS.shutil, 'which',
+                             side_effect=lambda name: str(host / name) if (host / name).exists() else None)
+        which.start()
+        self.addCleanup(which.stop)
+        return host
+
+    def test_host_program_upgrade_keeps_generation(self):
+        host = self.host_programs()
+        first = B.prepare_sequence(self.tree, self.server)
+        self.generation(first)
+        recorded = json.loads(B.state_path(self.tree).read_text())['inputs']
+        (host / 'cc').write_bytes(b'gcc 16.2.0-4')
+        (host / 'bash').write_bytes(b'bash 5.3-4+b1')
+        self.assertEqual(B.prepare_sequence(self.tree, self.server), first)
+        state = json.loads(B.state_path(self.tree).read_text())
+        self.assertEqual(state['inputs']['tools'], recorded['tools'])
+        self.assertNotEqual(state['inputs']['host'], recorded['host'])
+
+    def test_state_recorded_before_host_split_is_reused(self):
+        self.host_programs()
+        first = B.prepare_sequence(self.tree, self.server)
+        self.generation(first)
+        state = json.loads(B.state_path(self.tree).read_text())
+        inputs = state['inputs']
+        state['inputs'] = {'source': inputs['source'], 'tools': inputs['legacy_tools'],
+                           'schema': inputs['schema']}
+        B.save_state(self.tree, state)
+        self.assertEqual(B.prepare_sequence(self.tree, self.server), first)
+        self.assertIn('host', json.loads(B.state_path(self.tree).read_text())['inputs'])
+
+    def test_legacy_state_cannot_prove_unchanged_tools_after_host_upgrade(self):
+        host = self.host_programs()
+        first = B.prepare_sequence(self.tree, self.server)
+        self.generation(first)
+        state = json.loads(B.state_path(self.tree).read_text())
+        inputs = state['inputs']
+        state['inputs'] = {'source': inputs['source'], 'tools': inputs['legacy_tools'],
+                           'schema': inputs['schema']}
+        B.save_state(self.tree, state)
+        (host / 'cc').write_bytes(b'gcc 16.2.0-4')
         self.assertGreater(B.prepare_sequence(self.tree, self.server), first)
 
     def test_same_inputs_retry_reuses_partial_generation(self):

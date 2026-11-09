@@ -210,6 +210,37 @@ alone does not guarantee a new effective APK version. For example, nginx
 `1.30.5-r1` and `-r2` both mapped to `-r3`; the next local recipe release is
 `-r4`. Preserve historical mappings for exact dependency migration.
 
+#### Allocating releases for relinked consumers
+
+A provider SONAME change (ICU 78→79, libubox 20261103) correctly rebuilds its
+consumers through the `pkginfo/*.sonames` stamps, but their recipe versions
+do not move, so the publisher rejects them. The rejection now classifies every
+named package. `scripts/allocate-rebuild-releases.py` turns it into ledger
+entries:
+
+```sh
+python3 scripts/allocate-rebuild-releases.py base/nautilus-51.1-r3.apk ...          # plan only
+python3 scripts/allocate-rebuild-releases.py --apply base/nautilus-51.1-r3.apk ...  # edit the ledger
+```
+
+A package is allocated when its verdict is `change` or its `so:` dependencies
+changed between the published and rebuilt APK. `benign` and `unknown`
+differences without a dependency change are refused; fix the nondeterminism,
+or after reviewing the diagnosis pass `--accept-unknown`. The next release is
+one past every release of that upstream version found in published snapshots,
+`bin/systemd` and ledger outputs. Only the `ELF_REBUILD_`/`ELF_DEP_` keys for
+the package's current recipe version are written, in a dated
+`automatic same-version rebuild allocations` section; older keys are left
+alone so their outputs stay reserved.
+
+`build-and-publish.sh --allocate-rebuilds -j16` (or
+`publish-changed-feeds.sh --allocate-rebuilds`) does this automatically: on a
+same-version rejection it allocates, rebuilds only the affected source
+packages with the same `-j`/`V=` options, and retries publication, for at most
+three rounds (exact-version dependents can cascade). The retry repeats the
+full router preflight. The ledger is not a kernel build input, so the reserved
+generation stays valid. Commit the ledger change afterwards.
+
 Passwall uses the existing LuCI Git revision versioning for code and
 translations independently, rather than upstream's manually maintained
 version fields. Committed code or translation updates therefore get new

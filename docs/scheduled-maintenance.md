@@ -14,7 +14,9 @@ overlap. A newly initialized schedule starts three days after the next configure
 recorded and retried at the next scheduled slot. Manual runs preserve the cadence.
 The cron entry uses lower CPU and disk I/O priorities for background builds.
 
-Configuration: `configs/scheduled-maintenance.json`.
+Configuration: `configs/scheduled-maintenance.json`. `enabled` defaults to false;
+`--scheduled` exits without creating state while disabled. Initialization never
+enables scheduling. `--status` does not create or chmod directories.
 `timezone` and `start_hour` control initialization; keep the host cron time in
 sync with them. Existing schedule state is retained by `--initialize`; changing
 an existing anchor requires updating its `next_run` under the scheduler lock.
@@ -49,8 +51,13 @@ VM test disks. Free space is checked on both filesystems before a run.
    resolutions and necessary build repairs are committed. The runner checks exact
    upstream revisions, original HEAD ancestry, branch/stash preservation, no new
    unfinished tracked fixes, and completed merges. Failed integration stops the run.
-3. Regenerate feed indexes and package links; normalize Kconfig and require
-   `conf --fatalrecursive`. Check that selected core capabilities survived. Build
+3. After Git integration, Codex invokes the registered custom-package updater
+   once (including Argon's upstream merge and release handling), then the mainline
+   kernel updater once. A dirty updater-owned file, update failure or required
+   kernel-series port stops integration. Only updater-owned changes are committed,
+   separately per repository. Regenerate feed indexes and package links; normalize Kconfig and require
+   `conf --fatalrecursive`. Check that all originally selected packages retain their y/m selections, alongside
+   native init, libc, APK, signatures and virtualization capabilities. Build
    the complete image with eight jobs by default. The existing publication helper
    reserves the correct kernel generation and timestamp, using its new
    `build-only` mode. Up to two Codex repair attempts can address build failures;
@@ -66,8 +73,10 @@ VM test disks. Free space is checked on both filesystems before a run.
    password only inside the guests; keep the image and source overlays intact. Always
    stop these test processes and remove their disposable disks. Keep serial
    logs, command logs and a receipt containing the exact image SHA-256.
-5. Require every check and the unchanged image hash before calling the existing
-   signed publisher. Publish userspace feeds and the complete kernel generation
+5. The build helper captures independent image/APK copies and a hash manifest
+   under the build lock. VM checks use that saved image; the receipt also identifies
+   its artifact manifest. Require every check and unchanged artifact hashes before
+   calling the existing signed publisher with the saved package projection. Publish userspace feeds and the complete kernel generation
    to the configured LAN feed server, retaining its existing ABI/signature checks
    and snapshots. An unsuccessful merge, build or VM test cannot reach this step.
 
@@ -84,6 +93,7 @@ identity files remain independent of this host-side scheduler.
 ```sh
 python3 scripts/scheduled-maintenance.py --status
 python3 scripts/scheduled-maintenance.py --run-now
+python3 scripts/scheduled-maintenance.py --resume /path/to/state_root/runs/RUN
 crontab -l
 ```
 
@@ -113,3 +123,33 @@ python3 scripts/test-image-network.py \
   --image bin/systemd/targets/x86/64-glibc/openwrt-x86-64-generic-squashfs-combined-efi.img.gz \
   --work-dir /path/to/a/new/private-test-directory
 ```
+
+## Saved artifacts and efficient retries
+
+A completed build stores `artifacts/` privately in its run directory. It contains
+independent copies of the tested image, userspace/kernel APK projection, normalized
+configuration and kernel input record, plus a SHA-256 manifest. Signing keys are
+never copied. The publisher verifies the bundle and copies its APKs into private
+publication staging; ordinary signature, retained ELF, router baseline, solver,
+immutable identity and promotion checks all remain mandatory.
+
+A publication failure can be retried with `--resume RUN_DIRECTORY`, without
+rebuilding or repeating VM checks. Resume accepts only a saved run below the
+configured state root with a complete passing receipt bound to its manifest.
+When enabled in the future, daily scheduled retries select such runs automatically;
+failed VM checks take the full workflow instead. Manual runs preserve the regular
+anchor. Failures get a separate retry timestamp at the next configured daily slot.
+
+Every integration still uses Codex and inherits its defaults. After integration
+and metadata refresh, a conservative content fingerprint includes repository heads,
+tracked/untracked source, overlays, configuration and the existing kernel/tool
+fingerprint. Matching the last successful publication, unchanged active feed
+manifests and an intact saved artifact bundle permit skipping build/VM/publication.
+Unknown or changed inputs take the full path. `phases.json` records progress and
+timings; status exposes the last run's phases. Saved artifacts and recovery backups
+are retained; insufficient space stops a new run rather than deleting history.
+
+Normalization, build and artifact capture share the checkout build lock, inherited
+by the build worker. Integration and metadata refresh still require exclusive user
+use of the workspace: editors, raw Git/make and external feed tools do not honor
+that lock. There is no automatic workspace reset or cleanup.
