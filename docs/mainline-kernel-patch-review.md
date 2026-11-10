@@ -999,3 +999,62 @@ and package-metadata/Kconfig (4) test suites pass.
 This is source integration, patch-application and Kconfig validation only. No
 kernel, firmware image or APK generation was built, nothing was published, and
 no router was contacted. The optional MAP-E tunnel finding remains open.
+
+## Upstream synchronization review, 2026-11-10
+
+Merged OpenWrt through `3d5a743f1f` (8 incoming main-tree commits since
+`7edc67adad`) as `41bcc0ec80`, plus 8 packages-feed (`85172e13b`), 1 LuCI
+(`5db150c176`), 3 `passwall_luci` (`ff019682`) and 4 `passwall_packages`
+(`fbb5761`) commits. Telephony, routing, taskplan and video had nothing
+incoming. Backup branches are `backup/pre-upstream-20261110T080047Z` in the
+main tree, each feed and the argon theme submodule.
+
+### Kernel patches: no generic or x86 6.18 changes
+
+The incoming main-tree commits since the 2026-11-08 review (`3236b6ae94..3d5a743f1f`)
+touch only board-specific trees (`ath79` PCI radio path migration and patch
+refresh, `qualcommax` IPQ50xx unused MDIO patch removal, `realtek` RTL930x L3
+host hash updates), out-of-tree Realtek NIC packages (`r8125` 9.018.00, `r8126`
+10.018.00, `r8127` 11.017.02, `r8168` 8.057.00, all unselected in the x86/64
+config), `tools/ccache` 4.14.2, and `ppp` 2.5.5:
+
+- All 574 present generic/x86 6.18 source patches and 5 recorded removed
+  entries in `configs/mainline-kernel-patches.json` match by SHA-256: no
+  generic or x86 6.18 patch was added, modified or removed.
+- All 349 carried Linux 7.3 patches match their registered SHA-256 values and
+  apply to a fresh extraction of the verified Linux 7.3.3 archive (SHA256
+  `79c66dde...4f3d1`) with `--fuzz=0`.
+- `update-mainline-kernel.py --check` confirms Linux 7.3.3 remains the latest
+  upstream release in the 7.3 series. No new 6.18-to-7.3 backport is needed.
+
+### Main tree, feeds and custom packages
+
+- `main`: `ppp` updates from `2.5.4-r9` to `2.5.5-r1` (switching credentials
+  passing in `ppp.sh` from `file` `.opts` to `+ua` `.creds` while preserving
+  unprivileged `ppp` jail ownership).
+- `packages`: updates `ddns-scripts` to `2.8.5-r1`, `weechat` to `4.10.4-r1`
+  (retaining the local default-provider conflict comment on `weechat-minimal`),
+  `shunt` to `0.4.2-r1`, `domoticz` to `2026.4-r1`, `dawn` to `2026-11-09`
+  Git HEAD, and `rsync` to `3.5.2-r1` (CVE-2026-119741).
+- `luci`: updates `luci-app-uhttpd` (`rmempty = false` on default `/www` home).
+- `passwall_luci`: updates `iptables.sh` and `nftables.sh` (ISP DNS bypass set
+  placement, disabling `auto-merge` on dynamic nftsets, and shunt set cleanup
+  on stop) while preserving local Git-derived version calculation.
+- `passwall_packages`: updates `v2ray-geoip` (`202611050019`), `v2ray-geosite`
+  (`202611082203`), and `smartdns` (`48.5_rc1`).
+- `update-custom-packages.py --update` checked all registered custom packages
+  and `luci-theme-argon` (`3.1.3`): 130 are current, 34 are local, and 6 remain
+  on their configured review branches. No custom recipe required a version bump.
+
+Validation: `ppp` 2.5.5, `rsync` 3.5.2 and `v2ray-geodata` download, verify
+SHA-256 and apply all patches cleanly via `make .../prepare`.
+`./scripts/feeds update -i -a` and `./scripts/feeds install -a` succeed with
+all nine feed indexes nonempty and zero broken `package/feeds` links. Strict
+`conf --fatalrecursive` on an isolated copy of `.config` reports no Kconfig
+cycles and zero configuration changes, leaving the working `.config`
+untouched. The mainline-updater (20), custom-updater (47) and kernel-upgrade
+(41) test suites pass.
+
+This is source integration, patch-application and Kconfig validation only. No
+kernel, firmware image or APK generation was built, nothing was published, and
+no router was contacted. The optional MAP-E tunnel finding remains open.
