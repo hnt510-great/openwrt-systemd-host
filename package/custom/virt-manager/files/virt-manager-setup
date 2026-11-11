@@ -34,7 +34,7 @@ else
 		chmod 0600 "$render_grant"
 		usermod -a -G render "$user"
 	fi
-	for daemon in virtqemud virtstoraged virtsecretd; do
+	for daemon in virtqemud virtstoraged virtsecretd virtnodedevd virtnwfilterd; do
 		for suffix in '' '-ro'; do
 			unit="$daemon$suffix.socket"
 			dir="/etc/systemd/system/$unit.d"

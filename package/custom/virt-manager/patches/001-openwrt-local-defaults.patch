@@ -54,18 +54,6 @@
  
          # If there is a bridge device, default to that
          if default_bridge:
---- a/virtinst/guest.py
-+++ b/virtinst/guest.py
-@@ -1099,6 +1099,9 @@
-         return path
- 
-     def _set_default_uefi(self):
-+        # OpenWrt v1 supplies SeaBIOS guest firmware only.
-+        if self.uefi_requested is None:
-+            self.uefi_requested = False
-         if self.uefi_requested is False:
-             return
- 
 --- a/virtinst/devices/graphics.py
 +++ b/virtinst/devices/graphics.py
 @@ -214,6 +214,8 @@
