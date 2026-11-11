@@ -55,7 +55,8 @@ def main():
     system_units = {}
     for unit in ['openwrt-procd.service', 'systemd-logind.service',
                  'systemd-udevd.service', 'openwrt-desktop.service',
-                 'accounts-daemon.service', 'upower.service', 'colord.service']:
+                 'accounts-daemon.service', 'upower.service', 'colord.service',
+                 'rtkit-daemon.service']:
         state = properties(['systemctl', 'show', unit, '-p', 'LoadState,ActiveState,MainPID'])
         system_units[unit] = state
         if state.get('LoadState') != 'loaded':
@@ -73,6 +74,31 @@ def main():
         pid = int(state.get('MainPID', '0'))
         if pid and Path(f'/proc/{pid}').stat().st_uid != account.pw_uid:
             failures.append(f'{unit} is not owned by the desktop user')
+    kms_mode = subprocess.run(['uci', '-q', 'get', 'desktop.main.kms_scheduling'],
+                              capture_output=True, text=True).stdout.strip() or 'high-priority'
+    kms_threads = []
+    shell_pid = int(units['org.gnome.Shell@user.service'].get('MainPID', '0'))
+    for task in Path(f'/proc/{shell_pid}/task').glob('*') if shell_pid else []:
+        try:
+            if (task / 'comm').read_text().strip() != 'KMS thread':
+                continue
+            fields = (task / 'stat').read_text().rsplit(')', 1)[1].split()
+            tid = int(task.name)
+            kms_threads.append(dict(tid=tid, nice=int(fields[16]), policy=int(fields[38]),
+                                    rtprio=int(fields[37])))
+        except (OSError, ValueError, IndexError):
+            continue
+    if len(kms_threads) != 1:
+        failures.append('Expected one gnome-shell KMS thread')
+    for thread in kms_threads:
+        realtime = thread['policy'] in (os.SCHED_FIFO, os.SCHED_RR)
+        if kms_mode == 'realtime' and not realtime:
+            failures.append('KMS thread is not realtime with kms_scheduling=realtime')
+        if kms_mode == 'high-priority' and (realtime or thread['nice'] >= 0):
+            failures.append('KMS thread was not raised to a negative nice level by RealtimeKit')
+    journal = run(['journalctl', '-b', f'_UID={account.pw_uid}', '-o', 'cat', '--no-pager'])
+    if kms_mode != 'normal' and "Failed to make thread 'KMS thread'" in journal:
+        failures.append('gnome-shell could not raise the KMS thread priority')
     locked = run(['gdbus', 'call', '--session', '--dest', 'org.freedesktop.secrets',
                   '--object-path', '/org/freedesktop/secrets/aliases/default', '--method',
                   'org.freedesktop.DBus.Properties.Get',
@@ -90,7 +116,7 @@ def main():
         if actual != [endpoint]:
             failures.append(f'Port {port} must listen only on {endpoint}')
     result = dict(user=args.user, uid=account.pw_uid, sessions=sessions, units=units,
-                  system_units=system_units,
+                  system_units=system_units, kms_scheduling=kms_mode, kms_threads=kms_threads,
                   keyring_locked=locked, monitor_state=monitors, tcp_bindings=bindings,
                   meminfo=Path('/proc/meminfo').read_text(), failures=failures)
     print(json.dumps(result, indent=2))

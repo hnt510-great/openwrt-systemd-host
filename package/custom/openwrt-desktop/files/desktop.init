@@ -24,13 +24,18 @@ write_lan_environment() {
 }
 
 start_service() {
-	local enabled user secret
+	local enabled user secret kms_scheduling
 	. /usr/libexec/desktop-common.sh
 	[ -d /run/systemd/system ] || { logger -t openwrt-desktop 'GNOME is disabled in procd recovery'; return 0; }
 	config_load desktop
 	config_get_bool enabled main enabled 0
 	[ "$enabled" = 1 ] || return 0
 	config_get user main user
+	config_get kms_scheduling main kms_scheduling high-priority
+	case "$kms_scheduling" in
+		high-priority|realtime|normal) ;;
+		*) desktop_error "Invalid kms_scheduling '$kms_scheduling' (expected high-priority, realtime or normal)"; return 1 ;;
+	esac
 	desktop_validate_user "$user" || return 1
 	write_lan_environment || return 1
 	systemctl is-active --quiet openwrt-desktop.service && return 0
@@ -48,7 +53,8 @@ start_service() {
 		--property=After='systemd-logind.service openwrt-desktop-coldplug.service' \
 		--property="LoadCredential=keyring-passphrase:$secret" \
 		--setenv=HOME="$DESKTOP_USER_HOME" --setenv=USER="$user" --setenv=LOGNAME="$user" \
-		--setenv=SHELL="$DESKTOP_USER_SHELL" --setenv=XDG_SESSION_TYPE=wayland --setenv=XDG_SESSION_CLASS=user
+		--setenv=SHELL="$DESKTOP_USER_SHELL" --setenv=XDG_SESSION_TYPE=wayland --setenv=XDG_SESSION_CLASS=user \
+		--setenv=OPENWRT_DESKTOP_KMS_SCHEDULING="$kms_scheduling"
 	if [ -e /dev/tty0 ]; then
 		/bin/busybox chvt 7 || return 1
 		set -- "$@" --property=StandardInput=tty --property=TTYPath=/dev/tty7 			--setenv=XDG_SEAT=seat0 --setenv=XDG_VTNR=7

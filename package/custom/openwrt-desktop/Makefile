@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openwrt-desktop
-PKG_RELEASE:=26
+PKG_RELEASE:=27
 PKG_CONFIG_DEPENDS:=CONFIG_OPENWRT_SYSTEMD
 PKG_LICENSE:=MIT
 
@@ -17,7 +17,7 @@ define Package/openwrt-desktop
 	+xdg-desktop-portal-gnome +python3-gobject +glib2-utils +xwayland \
 	+kmod-input-evdev +dejavu-fonts-ttf-DejaVuSans +noto-sans-symbols2 \
 	+dejavu-fonts-ttf-DejaVuSansMono +openssl-util \
-	+shadow-usermod +shadow-useradd +shadow-passwd +tar
+	+shadow-usermod +shadow-useradd +shadow-passwd +tar +rtkit
 endef
 
 define Package/openwrt-desktop/description
