@@ -525,3 +525,52 @@ Intermediate r8 evidence:
     /srv/openwrt-validation/openwrt-needrestart-r8-validation-20261022-lhqaooxf
 
 Remote transaction/rollback directory: `/root/needrestart-r9-20261022`.
+
+## Chrooted native service and rootless host-overlay correction: r13
+
+On 2026-11-12 the installed scanner on the physical router reported partial
+coverage with two warnings and no affected processes:
+
+- `rtkit-daemon.service` calls `chroot("/proc")` after loading its code, so its
+  root was an unrecognized isolated filesystem. Its cgroup is the native
+  `system.slice/rtkit-daemon.service`, it shares the host user namespace, and
+  its private mount namespace (from `PrivateNetwork=yes`) is rooted at the host
+  overlay.
+- A rootless container bind-mounts the host home directory. Its mappings report
+  the overlay superblock device `0:31` while `stat` reports the layer device
+  `0:32` (`xino=off`), and the unprivileged comparison child cannot open
+  `/proc/<pid>/map_files`, so content could not be compared.
+
+r13 resolves chrooted native-service mappings from the service's mount-namespace
+root after the unit, user-namespace and root-object checks, and lets host root
+open non-FUSE rootless mappings for the child to compare.
+
+| Check | Result |
+| --- | --- |
+| Compiled scanner fixture tests | 102 passed (9 new) |
+| New tests against the r12 scanner | 3 fail as expected (chroot service, chroot replacement advice, FUSE map_files denial) |
+| Unpackaged r13 scanner on the physical router, run once from `/tmp` | Complete, zero warnings, zero unreadable, 149-151 processes, no restart advice, kernel and four containers current |
+| Installed r12 scanner afterwards | Still partial (exit 2); its cached report was restored and the test binary removed |
+
+The pre-package check used a test binary cross-compiled with `-Os` directly
+from the source; it was removed after one run.
+
+Both needrestart packages were then selected in the working `.config` and the
+desktop snapshot (they had been installed on the router but unselected). The
+publication dry run and real run passed the router upgrade preflight; snapshot
+`20261111T165738.696299Z` added only `openwrt-needrestart` r13 and
+`luci-i18n-needrestart-zh-cn` (its git-derived version replaces `0`). Kernel
+artifacts were unchanged.
+
+| Final artifact | SHA-256 |
+| --- | --- |
+| openwrt-needrestart-1.0.0-r13.apk | 7ef3407adc7d9cda6aec9195fc4889a67f89d267fb423480cacb33c2e1c0e242 |
+| Installed stripped scanner | a7b486890849524fa98f6a09c8375b69abdd2ce1d6598a81322d173eb8828823 |
+
+On the physical router, an APK simulation showed only those two upgrades
+(r12 → r13). After the upgrade, `needrestart` reported complete coverage over
+152 processes, zero warnings, no restart advice, kernel and four containers
+current. The APK hook's queued worker finished without failing and its cached
+report was also complete with zero warnings. No service, container or
+configuration was changed and nothing was restarted. No timed rollback was
+prepared and no evidence workspace was retained.

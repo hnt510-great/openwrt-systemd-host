@@ -83,6 +83,13 @@ including FUSE overlays that deny host root. These children discard inherited
 host locks/descriptors and cannot acquire new privileges or expose process dumps.
 After dropping host credentials they join only the target user namespace for
 FUSE access; mount/PID namespaces and container executables are not entered.
+Rootless processes can map host files through bind mounts, such as a shared
+home directory. Overlayfs reports its superblock device in `maps` but a
+per-layer device from `stat`, so those mappings need the old object for a
+content comparison, and only host root may open `/proc/<pid>/map_files`. Root
+opens that object, and hands it to the unprivileged child, only when every
+mount of the mapped device in the process's mount table is a non-FUSE
+filesystem; FUSE-backed mappings keep the conservative unverified warning.
 Container paths are compared inside their own filesystem. Reports retain only
 identity, account, image IDs/reference, and a verified systemd controller when
 available; container environments and raw inspection output are discarded.
@@ -103,6 +110,15 @@ host paths only after verifying their host mount namespace, live same-user
 parent rooted at the host filesystem, and shared executable object. The browser
 sandbox stays enabled; findings belong to the owning application/session.
 Other private roots and unverified parents retain incomplete coverage.
+
+Native systemd services can chroot after loading their code; `rtkit-daemon`
+enters `/proc`. Their mappings are resolved from the root of the service's own
+mount namespace, obtained by a short-lived child that joins only that namespace
+to return an `O_PATH` descriptor. This applies only to a system `.service` unit
+that owns the process's cgroup and shares the host user namespace, and only when
+the namespace root is the host root object. Findings then carry ordinary
+`systemctl restart` advice. Services with a private `RootDirectory=`/`RootImage=`
+or another user namespace retain incomplete coverage.
 
 Flatpak instances are identified by their scoped application ID and instance ID,
 owning UID, host instance metadata, sandbox child PID, mount namespace, and root
