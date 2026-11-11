@@ -892,6 +892,12 @@
       "provider": "local",
       "reason": "Locally maintained read-only router audit export and DNS event collection"
     },
+    "rtkit": {
+      "provider": "gitlab",
+      "policy": "series",
+      "host": "https://gitlab.freedesktop.org",
+      "project": "pipewire/rtkit"
+    },
     "spice-gtk": {
       "provider": "directory",
       "policy": "series",
