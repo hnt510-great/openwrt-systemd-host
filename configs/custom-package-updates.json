@@ -848,6 +848,12 @@
       "policy": "stable",
       "source_url": "https://gitlab.com/libosinfo/osinfo-db/-/releases/v{version}/downloads/"
     },
+    "ovmf-bin": {
+      "provider": "directory",
+      "policy": "stable",
+      "index": "https://deb.debian.org/debian/pool/main/e/edk2/",
+      "filename_pattern": "ovmf-generic_(?P<source_version>(?P<version>[0-9]{4}\\.[0-9]{2}(?:\\.[0-9]+)?)\\+ds-[0-9]+)_all\\.deb"
+    },
     "passt": {
       "provider": "directory",
       "policy": "stable",
