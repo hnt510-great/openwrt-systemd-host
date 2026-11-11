@@ -1,0 +1,109 @@
+From c8cb2c7b2c6ee86cb6cc1a0f20827044e331c2ab Mon Sep 17 00:00:00 2001
+From: hnt510 <hnt510@gmail.com>
+Date: Wed, 11 Nov 2026 23:16:30 +0800
+Subject: [PATCH] qemu: add Linux native AIO and io_uring block options
+
+Add QEMU_LINUX_AIO (libaio) and QEMU_IO_URING (liburing), defaulting to
+the matching kernel options, so disks can use aio=native or aio=io_uring.
+Bump PKG_RELEASE for the changed binaries.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ utils/qemu/Makefile | 32 +++++++++++++++++++++++++++-----
+ 1 file changed, 27 insertions(+), 5 deletions(-)
+
+diff --git a/utils/qemu/Makefile b/utils/qemu/Makefile
+index 4814238e5..8c3ad92b8 100644
+--- a/utils/qemu/Makefile
++++ b/utils/qemu/Makefile
+@@ -10,7 +10,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=qemu
+ PKG_VERSION:=11.1.3
+-PKG_RELEASE:=2
++PKG_RELEASE:=3
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://download.qemu.org/
+ PKG_HASH:=5a8289c7940dc77d3873c81a6c29ba3afe1446fc9d36e77fa1658cdbecb84b22
+@@ -35,6 +35,8 @@ QEMU_DEPS_IN_GUEST :=@(TARGET_x86_64||TARGET_armsr_armv8||TARGET_malta_le64||TAR
+ QEMU_DEPS_IN_HOST :=@(TARGET_x86_64||TARGET_armsr_armv8||TARGET_sunxi_cortexa53||TARGET_rockchip_armv8)
+ QEMU_DEPS_IN_HOST +=+libstdcpp
+ QEMU_DEPS_IN_HOST +=$(ICONV_DEPENDS)
++# Block-layer AIO engines are linked into the system emulators, qemu-img and qemu-nbd.
++QEMU_BLOCK_AIO_DEPS :=+QEMU_LINUX_AIO:libaio +QEMU_IO_URING:liburing
+ 
+ define Package/virtio-console-helper
+   SECTION:=utils
+@@ -94,7 +96,7 @@ define Package/qemu-img
+  SUBMENU:=Virtualization
+  TITLE:=QEMU Image utility
+  URL:=https://www.qemu.org
+- DEPENDS:=+glib2 +QEMU_ZSTD:libzstd $(QEMU_DEPS_IN_HOST)
++ DEPENDS:=+glib2 +QEMU_ZSTD:libzstd $(QEMU_BLOCK_AIO_DEPS) $(QEMU_DEPS_IN_HOST)
+ endef
+ 
+ define Package/qemu-img/install
+@@ -109,7 +111,7 @@ define Package/qemu-nbd
+  SUBMENU:=Virtualization
+  TITLE:=QEMU Network Block Device Utility
+  URL:=https://www.qemu.org
+- DEPENDS:=+glib2 +QEMU_ZSTD:libzstd $(QEMU_DEPS_IN_HOST) +kmod-nbd
++ DEPENDS:=+glib2 +QEMU_ZSTD:libzstd $(QEMU_BLOCK_AIO_DEPS) $(QEMU_DEPS_IN_HOST) +kmod-nbd
+ endef
+ 
+ define Package/qemu-nbd/install
+@@ -205,6 +207,7 @@ define qemu-target
+ 	+QEMU_DEV_USB:libusb-1.0 \
+ 	+QEMU_SECCOMP:libseccomp \
+ 	+QEMU_ZSTD:libzstd \
++	$(QEMU_BLOCK_AIO_DEPS) \
+ 	$(if $(filter %-softmmu,$(1)),+libncurses +libfdt +libslirp +libudev +pixman +qemu-firmware-efi $(ICONV_DEPENDS))
+   endef
+ 
+@@ -283,6 +286,23 @@ config QEMU_TPM
+ 	  Build the TPM TIS/CRB guest devices and the passthrough and
+ 	  emulator (swtpm) backends.
+ 
++config QEMU_LINUX_AIO
++	bool "QEMU Linux native AIO support (aio=native)"
++	default KERNEL_AIO
++	depends on KERNEL_AIO
++	help
++	  Build the block layer with Linux kernel AIO through libaio, so
++	  disks can use aio=native. Without it and io_uring, aio=threads
++	  is the only accepted mode.
++
++config QEMU_IO_URING
++	bool "QEMU io_uring support (aio=io_uring)"
++	default KERNEL_IO_URING
++	depends on KERNEL_IO_URING
++	help
++	  Build the block layer and the main loop with io_uring through
++	  liburing, so disks can use aio=io_uring.
++
+ endif
+ 
+ # Keep these options independent of the QEMU packages: their conditional
+@@ -329,6 +349,8 @@ PKG_CONFIG_DEPENDS += \
+ 	CONFIG_QEMU_SECCOMP \
+ 	CONFIG_QEMU_ZSTD \
+ 	CONFIG_QEMU_TPM \
++	CONFIG_QEMU_LINUX_AIO \
++	CONFIG_QEMU_IO_URING \
+ 
+ 
+ # QEMU configure script does not recognize these options
+@@ -448,8 +470,8 @@ CONFIGURE_ARGS +=			\
+ 	--disable-libssh		\
+ 	--$(if $(CONFIG_QEMU_DEV_USB),enable,disable)-libusb		\
+ 	--disable-libkeyutils           \
+-	--disable-linux-aio		\
+-	--disable-linux-io-uring	\
++	--$(if $(CONFIG_QEMU_LINUX_AIO),enable,disable)-linux-aio	\
++	--$(if $(CONFIG_QEMU_IO_URING),enable,disable)-linux-io-uring	\
+ 	--disable-lzfse			\
+ 	--disable-lzo			\
+ 	--disable-modules		\
+-- 
+2.53.0
+
