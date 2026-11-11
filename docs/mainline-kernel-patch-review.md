@@ -1101,17 +1101,23 @@ The single incoming main-tree commit since the 2026-11-10 review
 - `update-custom-packages.py --update` checked all registered custom packages
   and `luci-theme-argon` (`3.1.3`), advancing `appstream` (`1.2.2 -> 1.2.3`),
   `firefox-esr-bin` (`153.6.0esr -> 153.7.0esr`), `freerdp` (`3.33.0 -> 3.33.1`),
-  and `xwayland` (`24.1.14 -> 24.1.15`).
+  and `xwayland` (`24.1.14 -> 24.1.15`). Follow-up review of the 6 pending
+  `review` entries advanced `gtk-vnc` from `1.5.0` to `1.6.0` (`1.6/` series),
+  leaving the remaining 5 entries (`flatpak` 1.19 prerelease, dual-slot `gcr3`
+  / `libgtk3`, and upstream tag noise in `intel-media-driver` / `libibus`) on
+  their stable branches.
 
-Validation: `appstream` 1.2.3, `firefox-esr-bin` 153.7.0esr, `freerdp` 3.33.1
-and `xwayland` 24.1.15 download, verify SHA-256 and apply all patches cleanly
-via `make .../prepare`. `./scripts/feeds update -a` and `./scripts/feeds
-install -a` succeed with all nine feed indexes nonempty and zero broken
-`package/feeds` links. Strict `conf --fatalrecursive` on an isolated copy of
-`.config` reports no Kconfig cycles and only default-unselected `qt6*` symbols,
-leaving the working `.config` untouched. The mainline-updater (20),
-custom-updater (47) and kernel-upgrade (41) test suites pass.
-
-This is source integration, patch-application and Kconfig validation only. No
-kernel, firmware image or APK generation was built, nothing was published, and
-no router was contacted. The optional MAP-E tunnel finding remains open.
+Validation and publication: `appstream` 1.2.3, `firefox-esr-bin` 153.7.0esr,
+`freerdp` 3.33.1, `xwayland` 24.1.15 and `gtk-vnc` 1.6.0 download, verify
+SHA-256 and apply all patches cleanly. `./scripts/build-and-publish.sh -j16
+--allocate-rebuilds` built the full tree while reusing unchanged kernel
+generation `7.3.3-58-openwrt`, allocated `daed` `2.1.1-r9` in
+`configs/apk-elf-rebuilds.mk` for the Go 1.27.4 compiler rebuild, passed the
+live-router upgrade preflight simulation, and published userspace snapshot
+`20261111T031320.195084Z` (11 updated APKs: `appstream-1.2.3-r1`,
+`daed-2.1.1-r9`, `firefox-esr-bin-153.7.0-r1`, `gtk-vnc-1.6.0-r1`,
+`libfreerdp3-3.33.1-r1`, `libwinpr3-3.33.1-r1`, `winpr-hash-3.33.1-r1`,
+`xwayland-24.1.15-r1`, `luci-app-passwall-26.315.08841~995980a`,
+`luci-i18n-passwall-zh-cn-26.314.59753~596ca9c`, and
+`base-files-1755.9~89e69d9391`). No packages were installed onto the physical
+router. The optional MAP-E tunnel finding remains open.
