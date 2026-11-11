@@ -268,6 +268,20 @@ authenticates it; submission stays on execlists), which low-power VA-API
 encoding needs for bitrate control. Check `dmesg | grep -i huc` and
 `vainfo | grep EncSliceLP`; `i915.enable_guc=0` restores the upstream default.
 
+RealtimeKit (`rtkit-daemon.service`, D-Bus activated) grants scheduling to the
+desktop: Mutter's KMS thread runs at nice -15 by default, which also enables
+Mutter's KMS deadline timer, and PipeWire's data loops run `SCHED_RR` priority
+20. Polkit rule `20-openwrt-rtkit.rules` also authorizes members of the `audio`
+and `video` groups, so RDP-only sessions qualify. `option kms_scheduling` in
+`/etc/config/desktop` selects `high-priority` (default), `realtime` or
+`normal`; restart the desktop after changing it. Desktop kernels are built with
+`PREEMPT_DYNAMIC` (default `preempt=full`), `HZ=1000` and
+`RT_GROUP_SCHED_DEFAULT_DISABLED`, so cgroup v2 slices can hold realtime
+threads; `rt_group_sched=1` restores RT group scheduling and `preempt=lazy`
+the earlier preemption model. An older kernel needs `rt_group_sched=0` on its
+command line before rtkit can grant realtime scheduling. Check with
+`ps -eLo pid,tid,cls,rtprio,ni,comm` and `/sys/kernel/debug/sched/preempt`.
+
 When `openwrt-desktop-ime` is installed, the GNOME session supervises Fcitx5.
 Its IBus compatibility frontend serves GNOME's native input path; the Kimpanel
 Shell extension displays candidates, and GTK3/GTK4 modules support other

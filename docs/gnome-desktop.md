@@ -154,6 +154,84 @@ New profiles use Ctrl+Space as the primary input-method shortcut. Fcitx is
 supervised for the lifetime of the GNOME session and also recovers after a
 clean process exit; an explicit service/session stop still stops it.
 
+## Realtime scheduling and kernel preemption
+
+`openwrt-desktop` and `openwrt-desktop-audio` depend on RealtimeKit (`rtkit`
+0.14 from `gitlab.freedesktop.org/pipewire/rtkit`). `rtkit-daemon.service` is
+D-Bus activated as `org.freedesktop.RealtimeKit1`, runs as the `rtkit` system
+user (UID/GID 193), chroots into `/proc` and keeps only `CAP_SYS_NICE` and
+`CAP_DAC_READ_SEARCH`. A drop-in pins its system bus address to
+`/run/dbus/system_bus_socket`. Mutter 51 and PipeWire 1.6 do not change their
+own scheduling; both request it from RealtimeKit over D-Bus:
+
+| Thread | Request | Expected `ps -eLo cls,rtprio,ni` |
+|---|---|---|
+| `rtkit-daemon` watchdog | built in | `RR`, priority 99 |
+| gnome-shell `KMS thread` (default) | `MakeThreadHighPriority(-15)` | `TS`, nice -15 |
+| gnome-shell `KMS thread` (`realtime`) | `MakeThreadRealtime(20)` | `RR`, priority 20 |
+| PipeWire/WirePlumber `data-loop.0` | `MakeThreadRealtime(20)` (clamped from 88) | `RR`, priority 20 |
+| PipeWire main thread | `MakeThreadHighPriority(-11)` | `TS`, nice -11 |
+
+The upstream polkit action allows active and inactive local sessions. The
+`/usr/share/polkit-1/rules.d/20-openwrt-rtkit.rules` rule also authorizes
+members of `audio` (from `desktop-audio-setup`) and `video` (from
+`desktop-setup`), which covers user services in RDP-only, headless and VM
+sessions without a `seat0` session. `render` is deliberately excluded because
+`libvirt-qemu` belongs to it. RealtimeKit's own limits (`MaxRealtimePriority`
+20, `RLIMIT_RTTIME` 200 ms and its canary watchdog) apply to every caller.
+
+`/etc/config/desktop` selects the Mutter KMS thread policy:
+
+| Option | Values | Default | Effect |
+|---|---|---|---|
+| `kms_scheduling` | `high-priority`, `realtime`, `normal` | `high-priority` | Mutter's upstream nice -15 policy, `SCHED_RR` 20, or no elevation. `high-priority` and `realtime` enable Mutter's KMS deadline timer. |
+
+```sh
+uci set desktop.main.kms_scheduling='realtime'
+uci commit desktop
+/etc/init.d/desktop restart
+```
+
+The init script rejects other values. Non-default modes are passed to Mutter
+as `MUTTER_DEBUG_KMS_SCHEDULING_PRIORITY`; the session clears that variable
+from a surviving user manager first, so returning to `high-priority` takes
+effect on the next desktop restart.
+
+Desktop kernels (`configs/gnome-desktop.config`) are built with
+`CONFIG_PREEMPT_DYNAMIC=y` defaulting to `preempt=full`, `CONFIG_HZ_1000=y`
+and `CONFIG_RT_GROUP_SCHED_DEFAULT_DISABLED=y`. With RT group scheduling
+active, cgroup v2 slices have no realtime runtime, so `sched_setscheduler()`
+returns `EPERM` for `rtkit-daemon`, PipeWire and gnome-shell even with
+`CAP_SYS_NICE`. The x86_64 target configuration carries `HZ=1000` and
+`PREEMPT_DYNAMIC`; the preemption model and the RT group default come from
+the top-level `CONFIG_KERNEL_PREEMPT` and
+`CONFIG_KERNEL_RT_GROUP_SCHED_DEFAULT_DISABLED`, which the fragment selects
+(`include/kernel-defaults.mk` appends top-level `CONFIG_KERNEL_*` values after
+the target configuration). These change the kernel ABI and need a new
+reserved kernel generation.
+
+Boot-time controls, no rebuild required:
+
+- `rt_group_sched=0` enables realtime grants on a kernel built before this
+  baseline; `rt_group_sched=1` restores RT group scheduling on a new kernel.
+  `kernelctl` preserves `rt_group_sched=` from the running command line.
+- `preempt=lazy`, `preempt=voluntary` or `preempt=none` select another model;
+  with debugfs mounted, `/sys/kernel/debug/sched/preempt` shows and changes it.
+- `kernelctl rollback` returns to the previous kernel generation.
+
+Check the result in a running session:
+
+```sh
+zcat /proc/config.gz | grep -E 'CONFIG_(PREEMPT|HZ|RT_GROUP_SCHED)'
+cat /sys/kernel/debug/sched/preempt
+systemctl status rtkit-daemon.service
+ps -eLo pid,tid,cls,rtprio,ni,comm | grep -E 'rtkit|KMS thread|pipewire|data-loop'
+journalctl -b _UID=$(id -u USER) | grep "KMS thread"
+```
+
+gnome-shell logs `Failed to make thread 'KMS thread' high priority` when the
+request is refused. See the [RealtimeKit validation](rtkit-validation.md).
+
 ## Validation boundary
 
 Use [GNOME validation](gnome-desktop-validation.md) for the required build,
