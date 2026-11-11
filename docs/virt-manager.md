@@ -23,8 +23,12 @@ Run the manager from the GNOME application overview or the desktop terminal:
 virsh -c qemu:///system list --all
 ```
 
-Client UNIX sockets receive the configured group access; administration,
-logging and locking sockets remain restricted. There is no libvirt TCP listener.
+Client UNIX sockets of virtqemud, virtstoraged, virtsecretd, virtnodedevd and
+virtnwfilterd receive the configured group access; administration, logging and
+locking sockets remain restricted. There is no libvirt TCP listener. Accounts
+authorized before the node-device and network-filter daemons were added need
+`virt-manager-setup USER` run again; until then host-device lists fail with a
+permission error.
 To revoke access, run `virt-manager-setup --revoke USER` as root, then end that
 user's sessions and management connections so cached credentials are removed.
 Other authorized users and running guests are not stopped by revocation.
@@ -32,8 +36,14 @@ Other authorized users and running guests are not stopped by revocation.
 ## Guests and storage
 
 Create guests from readable installation media or existing raw/qcow2 disks.
+Firmware follows the operating system: guests whose OS database entry requires
+UEFI (for example Windows 11) get UEFI and an emulated TPM 2.0; others default
+to SeaBIOS. Tick *Customize configuration before install* to choose UEFI or
+Secure Boot under **Overview → Firmware** or to add **TPM → Emulated** for any
+guest; see [libvirt](libvirt.md#uefi-secure-boot-and-virtual-tpm).
 Use an existing OpenWrt bridge, normally `br-lan`; this integration does not
-create a second DHCP server. Default directory storage is `/srv/libvirt/images`,
+create a second DHCP server. Libvirt NAT/isolated virtual networks (`virbr*`)
+are intentionally not built. Default directory storage is `/srv/libvirt/images`,
 while an existing pool remains authoritative. Mount external storage before
 its pools and autostart guests. See [libvirt](libvirt.md) for persistence,
 permission and shutdown policy.
@@ -43,6 +53,13 @@ New graphical guests use the available VirtIO video and local SPICE console;
 network or video devices. Clipboard and dynamic resizing require guest-side
 spice-vdagent. A guest OS must enable its serial console or respond to ACPI
 shutdown for those functions to work.
+
+**Add Hardware → PCI Host Device** and **USB Host Device** list the host's
+devices through the node-device daemon. Read
+[libvirt](libvirt.md#pci-and-usb-passthrough) first: PCI passthrough needs an
+active IOMMU, and a NIC that OpenWrt uses must never be passed through.
+Network filters are set in the interface XML (**NIC → XML**); see
+[libvirt](libvirt.md#network-filters).
 
 ## SPICE and graphics
 

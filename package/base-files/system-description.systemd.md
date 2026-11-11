@@ -204,7 +204,7 @@ Feature names in `OPENWRT_FEATURES` have these meanings:
 - `desktop`: ordinary-user GNOME Wayland desktop; inspect `desktop-setup`
   and `/etc/config/desktop` for provisioning and session configuration.
 - `virtualization`: libvirt VM management; inspect `virsh -c qemu:///system list
-  --all`, installed QEMU tools and `/dev/kvm`. KVM requires usable hardware
+  --all`, `virsh nodedev-list`, installed QEMU tools and `/dev/kvm`. KVM requires usable hardware
   support; virt-manager is available when separately selected.
 - `flatpak`: ordinary-user Flatpak and desktop portal integration; inspect
   `flatpak --user list` in the intended user's session.
@@ -298,9 +298,17 @@ activate a newly installed session integration.
 Libvirt/QEMU supports KVM guests and virt-manager/SPICE consoles when selected.
 Inspect the system connection (`qemu:///system`) separately from user sessions.
 SPICE is the default guest audio path; QEMU PipeWire audio is optional and
-requires access to the intended user's audio session. Libvirt drivers outside
-QEMU and storage (network, interface, nwfilter and device passthrough)
-report `VIR_ERR_NO_SUPPORT` instead of failing on absent daemon sockets.
+requires access to the intended user's audio session. Guests can use UEFI
+firmware (OVMF, including Secure Boot with Microsoft keys) and an emulated
+TPM 2.0 (swtpm), so Windows 11 is supported; UEFI variable stores and TPM
+state persist under `/srv/libvirt/state`. Host PCI/USB devices are listed by
+`virtnodedevd` and can be passed through (PCI needs an active IOMMU; check
+`virt-host-validate qemu`, and never pass through a NIC the router uses).
+Per-guest network filters (`virsh nwfilter-list`) use separate nftables bridge
+tables and do not modify firewall4. Guests attach to OpenWrt bridges such as
+`br-lan`; libvirt virtual networks (`virbr*`) and interface management are
+not built and report `VIR_ERR_NO_SUPPORT` instead of failing on absent daemon
+sockets.
 Restarting `virtqemud` does not shut guests down. Installed virtualization
 tools or an active daemon do not establish that any guest is running.
 
