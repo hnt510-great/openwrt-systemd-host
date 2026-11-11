@@ -114,6 +114,15 @@ VM host must expose nested virtualization. For deliberate software emulation,
 change the domain type to qemu and remove the host-passthrough cpu element.
 Do not present a successful software-emulated boot as proof of KVM support.
 
+QEMU is built with Linux native AIO (`CONFIG_QEMU_LINUX_AIO`, libaio) and
+io_uring (`CONFIG_QEMU_IO_URING`, liburing), so a disk `<driver>` accepts
+`io='threads'`, `io='native'` or `io='io_uring'`. `io='native'` needs
+`cache='none'` or `cache='directsync'` (O_DIRECT); io_uring has no cache
+restriction. Both options default to the matching kernel options
+(`KERNEL_AIO`, `KERNEL_IO_URING`); without them threads is the only mode.
+
+    <driver name='qemu' type='qcow2' cache='none' io='native' discard='unmap'/>
+
 Existing manually started QEMU processes remain unmanaged. Import their
 configuration as domain XML separately; stop them before opening the same
 disk under libvirt.
