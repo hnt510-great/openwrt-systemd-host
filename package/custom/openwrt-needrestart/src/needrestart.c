@@ -1119,6 +1119,132 @@ static bool sandbox_host_helper(pid_t pid, const char *cg, const char *exe, int 
 	return identical;
 }
 
+/* Native system services may chroot after loading their code; rtkit-daemon
+ * enters /proc. Their mapped paths are relative to the root of the service's
+ * mount namespace, which systemd sandboxing clones from the host. Resolve them
+ * there only for a system .service unit that owns the process's cgroup, shares
+ * the host user namespace, and whose namespace root is the host root object.
+ * A short-lived child joins only that mount namespace to return an O_PATH
+ * descriptor for "/"; it executes nothing and performs no other lookups.
+ */
+static int service_namespace_root(pid_t pid, const char *cg)
+{
+	char *unit = NULL, proc[96];
+	bool user = false, owned = false;
+	struct stat ns, host_ns, nsroot, hostroot;
+	int result = -1;
+
+	unit_name(pid, &unit, &user);
+	if (unit && !user && valid_name(unit) && strlen(unit) > 8 &&
+	    !strcmp(unit + strlen(unit) - 8, ".service") && strncmp(unit, "user@", 5) &&
+	    strcmp(unit, "openwrt-services.service") && cg) {
+		size_t n = strlen(unit);
+
+		for (const char *p = cg; (p = strchr(p, '/')); p++)
+			if (!strncmp(p + 1, unit, n) && (!p[n + 1] || p[n + 1] == '/'))
+				owned = true;
+	}
+	free(unit);
+	if (!owned)
+		return -1;
+	snprintf(proc, sizeof(proc), "/proc/%d/ns/user", pid);
+	if (stat(path(proc), &ns) || stat(path("/proc/self/ns/user"), &host_ns) ||
+	    ns.st_dev != host_ns.st_dev || ns.st_ino != host_ns.st_ino ||
+	    stat(path("/"), &hostroot))
+		return -1;
+#ifdef NEEDRESTART_TEST
+	if (*test_root) {
+		snprintf(proc, sizeof(proc), "/proc/%d/test-ns-root", pid);
+		result = open(path(proc), O_PATH | O_DIRECTORY | O_CLOEXEC);
+		goto verify;
+	}
+#endif
+	int fds[2], status;
+	pid_t child;
+
+	if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC | SOCK_NONBLOCK, 0, fds))
+		return -1;
+	child = fork();
+	if (!child) {
+		int reply = fcntl(fds[1], F_DUPFD_CLOEXEC, 10), target, dir;
+		char data = 0;
+		union {
+			char buffer[CMSG_SPACE(sizeof(int))];
+			struct cmsghdr align;
+		} control = {0};
+		struct iovec iov = {.iov_base = &data, .iov_len = 1};
+		struct msghdr msg = {.msg_iov = &iov, .msg_iovlen = 1,
+				     .msg_control = control.buffer,
+				     .msg_controllen = sizeof(control.buffer)};
+		struct cmsghdr *c = CMSG_FIRSTHDR(&msg);
+
+		snprintf(proc, sizeof(proc), "/proc/%d/ns/mnt", pid);
+		target = open(proc, O_RDONLY | O_CLOEXEC);
+		if (reply < 0 || target < 0 || dup2(reply, 3) < 0 || dup2(target, 4) < 0 ||
+		    syscall(SYS_close_range, 5, UINT_MAX, 0) || setns(4, CLONE_NEWNS))
+			_exit(126);
+		dir = open("/", O_PATH | O_DIRECTORY | O_CLOEXEC);
+		if (dir < 0)
+			_exit(126);
+		c->cmsg_level = SOL_SOCKET;
+		c->cmsg_type = SCM_RIGHTS;
+		c->cmsg_len = CMSG_LEN(sizeof(int));
+		memcpy(CMSG_DATA(c), &dir, sizeof(int));
+		_exit(sendmsg(3, &msg, MSG_NOSIGNAL) == 1 ? 0 : 126);
+	}
+	close(fds[1]);
+	if (child > 0) {
+		struct pollfd p = {.fd = fds[0], .events = POLLIN};
+		int64_t end = millis() + 1000;
+
+		if (end > deadline)
+			end = deadline;
+		while (millis() < end) {
+			int remaining = end - millis(), ready;
+			char data;
+			union {
+				char buffer[CMSG_SPACE(sizeof(int))];
+				struct cmsghdr align;
+			} control;
+			struct iovec iov = {.iov_base = &data, .iov_len = 1};
+			struct msghdr msg = {.msg_iov = &iov, .msg_iovlen = 1,
+					     .msg_control = control.buffer,
+					     .msg_controllen = sizeof(control.buffer)};
+
+			if (remaining <= 0)
+				break;
+			ready = poll(&p, 1, remaining);
+			if (ready < 0 && errno == EINTR)
+				continue;
+			if (ready <= 0 || !(p.revents & POLLIN))
+				break;
+
+			ssize_t n = recvmsg(fds[0], &msg, MSG_CMSG_CLOEXEC);
+
+			if (n < 0 && (errno == EINTR || errno == EAGAIN))
+				continue;
+			struct cmsghdr *c = n == 1 ? CMSG_FIRSTHDR(&msg) : NULL;
+
+			if (c && c->cmsg_level == SOL_SOCKET && c->cmsg_type == SCM_RIGHTS &&
+			    c->cmsg_len == CMSG_LEN(sizeof(int)))
+				memcpy(&result, CMSG_DATA(c), sizeof(int));
+			break;
+		}
+		kill(child, SIGKILL);
+		waitpid(child, &status, 0);
+	}
+	close(fds[0]);
+#ifdef NEEDRESTART_TEST
+verify:
+#endif
+	if (result >= 0 && (fstat(result, &nsroot) || nsroot.st_dev != hostroot.st_dev ||
+			    nsroot.st_ino != hostroot.st_ino)) {
+		close(result);
+		result = -1;
+	}
+	return result;
+}
+
 struct file_probe {
 	int error, comparison;
 	bool regular, is_elf, old_is_elf, mismatch;
@@ -1168,7 +1294,7 @@ out:
  * fixed-size result crosses back to root.
  */
 static struct file_probe user_probe(uid_t uid, pid_t target, int root, const char *file,
-				    const char *oldpath, bool deleted, bool executable,
+				    const char *oldpath, int mapped, bool deleted, bool executable,
 				    unsigned int maj, unsigned int min, uint64_t ino)
 {
 	struct file_probe result = {.error = EACCES, .comparison = -1};
@@ -1196,14 +1322,17 @@ static struct file_probe user_probe(uid_t uid, pid_t target, int root, const cha
 		int rootcopy = fcntl(root, F_DUPFD_CLOEXEC, 10);
 		int replycopy = fcntl(fds[1], F_DUPFD_CLOEXEC, 10);
 		int nscopy = userns >= 0 ? fcntl(userns, F_DUPFD_CLOEXEC, 10) : -1;
+		int mapcopy = mapped >= 0 ? fcntl(mapped, F_DUPFD_CLOEXEC, 10) : -1;
 		int nullfd = open("/dev/null", O_RDWR);
+		int first = 5;
 
 		close(fds[0]);
 		if (rootcopy < 0 || replycopy < 0 || nullfd < 0 || chdir("/") ||
 		    dup2(nullfd, 0) < 0 || dup2(nullfd, 1) < 0 || dup2(nullfd, 2) < 0 ||
 		    dup2(rootcopy, 3) < 0 || dup2(replycopy, 4) < 0 ||
-		    (userns >= 0 && (nscopy < 0 || dup2(nscopy, 5) < 0)) ||
-		    syscall(SYS_close_range, userns >= 0 ? 6 : 5, UINT_MAX, 0))
+		    (userns >= 0 && (nscopy < 0 || dup2(nscopy, first++) < 0)) ||
+		    (mapped >= 0 && (mapcopy < 0 || dup2(mapcopy, first++) < 0)) ||
+		    syscall(SYS_close_range, first, UINT_MAX, 0))
 			_exit(126);
 		/* Discard host locks and all privileged descriptors before changing UID.
 		 * A stuck FUSE request must never keep the parent's APK lock alive.
@@ -1218,7 +1347,21 @@ static struct file_probe user_probe(uid_t uid, pid_t target, int root, const cha
 			_exit(126);
 		if (prctl(PR_SET_DUMPABLE, 0) || prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0))
 			_exit(126);
-		int oldfd = open(oldpath, O_RDONLY | O_CLOEXEC | O_NONBLOCK);
+		/* map_files needs host CAP_CHECKPOINT_RESTORE; use the object
+		 * the parent opened, if any, instead of reopening it here.
+		 */
+		int oldfd = mapped >= 0 ? first - 1 : open(oldpath, O_RDONLY | O_CLOEXEC | O_NONBLOCK);
+#ifdef NEEDRESTART_TEST
+		/* Model the kernel's map_files restriction for unprivileged users. */
+		char denied[128];
+
+		snprintf(denied, sizeof(denied), "/proc/%d/test-map-files-denied", target);
+		if (fixture && mapped < 0 && strstr(oldpath, "/map_files/") &&
+		    !access(path(denied), F_OK) && oldfd >= 0) {
+			close(oldfd);
+			oldfd = -1;
+		}
+#endif
 
 		result = probe_file(3, file, oldfd, deleted, executable, maj, min, ino);
 		send(4, &result, sizeof(result), MSG_NOSIGNAL);
@@ -1267,6 +1410,48 @@ static struct file_probe user_probe(uid_t uid, pid_t target, int root, const cha
 	return result;
 }
 
+/* Rootless processes can map host files through bind mounts (for example a
+ * shared home directory). Overlayfs reports its superblock device in maps but a
+ * per-layer device from stat, so content comparison needs the old object, and
+ * only host root may open /proc/PID/map_files. Root opens it only when every
+ * mount of that device in the process's mount table is a non-FUSE filesystem,
+ * so no request can reach a user-controlled FUSE daemon. Reading the table is
+ * a plain procfs read.
+ */
+static bool host_openable_mapping(pid_t pid, unsigned int maj, unsigned int min)
+{
+	static pid_t cached_pid;
+	static uint64_t cached_start;
+	static char *table;
+	uint64_t start = start_time(pid);
+	bool matched = false, fuse = false;
+	char *save, *line, *copy;
+
+	if (!start)
+		return false;
+	if (cached_pid != pid || cached_start != start) {
+		free(table);
+		table = proc_read(pid, "mountinfo", MAX_BYTES);
+		cached_pid = pid;
+		cached_start = start;
+	}
+	copy = table ? strdup(table) : NULL;
+	if (!copy)
+		return false;
+	for (line = strtok_r(copy, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
+		unsigned int a, b;
+		char *sep = strstr(line, " - ");
+
+		if (sscanf(line, "%*u %*u %u:%u ", &a, &b) != 2 || a != maj || b != min)
+			continue;
+		matched = true;
+		if (!sep || !strncmp(sep + 3, "fuse", 4) || !sep[3] || sep[3] == ' ')
+			fuse = true;
+	}
+	free(copy);
+	return matched && !fuse;
+}
+
 static void evidence(json_object *files, int root, pid_t pid, const char *mapped,
 		     const char *object, bool executable, unsigned int maj, unsigned int min,
 		     uint64_t ino, bool host, uid_t rootless_uid)
@@ -1306,10 +1491,16 @@ static void evidence(json_object *files, int root, pid_t pid, const char *mapped
 	oldfd = rootless_uid ? -1 : open(path(oldpath), O_RDONLY | O_CLOEXEC | O_NONBLOCK);
 	struct file_probe probe;
 
-	if (rootless_uid)
-		probe = user_probe(rootless_uid, pid, root, file, path(oldpath), deleted,
-				   executable, maj, min, ino);
-	else
+	if (rootless_uid) {
+		int object_fd = -1;
+
+		if (!executable && host_openable_mapping(pid, maj, min))
+			object_fd = open(path(oldpath), O_RDONLY | O_CLOEXEC | O_NONBLOCK);
+		probe = user_probe(rootless_uid, pid, root, file, path(oldpath), object_fd,
+				   deleted, executable, maj, min, ino);
+		if (object_fd >= 0)
+			close(object_fd);
+	} else
 		probe = probe_file(root, file, oldfd, deleted, executable, maj, min, ino);
 	if (probe.error) {
 		if (probe.error == ENOENT && deleted && (executable || probe.old_is_elf))
@@ -1830,6 +2021,15 @@ static void scan_process(pid_t pid, json_object *snap)
 		if (hostroot >= 0) {
 			close(root);
 			root = hostroot;
+			host = true;
+		}
+	}
+	if (!host && !*id && !application) {
+		int nsroot = service_namespace_root(pid, cg);
+
+		if (nsroot >= 0) {
+			close(root);
+			root = nsroot;
 			host = true;
 		}
 	}
