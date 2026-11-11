@@ -633,6 +633,12 @@
       "index": "https://www.freedesktop.org/software/startup-notification/releases/",
       "filename_pattern": "startup\\-notification-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.(?:xz|gz)"
     },
+    "libtpms": {
+      "provider": "github",
+      "policy": "series",
+      "project": "stefanberger/libtpms",
+      "catalog": "tags"
+    },
     "libudisks2": {
       "provider": "github",
       "policy": "series",
