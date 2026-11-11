@@ -920,6 +920,12 @@
       "provider": "local",
       "reason": "Release and hashed gitlink archives in sources.json must be updated together"
     },
+    "swtpm": {
+      "provider": "github",
+      "policy": "series",
+      "project": "stefanberger/swtpm",
+      "catalog": "tags"
+    },
     "tecla": {
       "provider": "directory",
       "policy": "series",
