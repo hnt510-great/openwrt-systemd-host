@@ -1058,3 +1058,60 @@ untouched. The mainline-updater (20), custom-updater (47) and kernel-upgrade
 This is source integration, patch-application and Kconfig validation only. No
 kernel, firmware image or APK generation was built, nothing was published, and
 no router was contacted. The optional MAP-E tunnel finding remains open.
+
+## Upstream synchronization review, 2026-11-11
+
+Merged OpenWrt through `89e69d9391` (1 incoming main-tree commit since
+`3d5a743f1f`) as `45f717a78a`, plus 10 packages-feed (`b8c228029`), 1 LuCI
+(`e5be8068c5`), 11 video (`85dc230`) and 6 `passwall_luci` (`995980a1`)
+commits. Telephony, routing, taskplan and `passwall_packages` had nothing
+incoming. Backup branches are `backup/pre-upstream-20261111T022457Z` in the
+main tree, each feed and the argon theme submodule.
+
+### Kernel patches: no generic or x86 6.18 changes
+
+The single incoming main-tree commit since the 2026-11-10 review
+(`3d5a743f1f..89e69d9391`) touches only `target/linux/ath79/image/generic.mk`
+(D-Link DIR-825 B1 supported device alias):
+
+- All 574 present generic/x86 6.18 source patches and 5 recorded removed
+  entries in `configs/mainline-kernel-patches.json` match by SHA-256: no
+  generic or x86 6.18 patch was added, modified or removed.
+- All 349 carried Linux 7.3 patches match their registered SHA-256 values and
+  apply to a fresh extraction of the verified Linux 7.3.3 archive (SHA256
+  `79c66dde...4f3d1`) with `--fuzz=0`. No new 6.18-to-7.3 backport is needed.
+- `update-mainline-kernel.py --check` reports upstream Linux `7.3.4` is newly
+  available on kernel.org while the working tree remains pinned at `7.3.3`
+  pending an explicit kernel point-release update.
+
+### Feeds and custom packages
+
+- `packages`: updates `golang1.27` to `1.27.4-r1`, `shunt` to `0.4.5-r1`,
+  `owut` to `2026.11.08-r1`, `delve` to `1.27.2-r1`, `django` to `6.1.3-r1`,
+  `python-sqlparse` to `0.6.1-r1`, `python-asgiref` to `3.13.0-r1`, `frp` to
+  `0.71.1-r1`, `stress-ng` to `0.22.01-r1`, and `libmaxminddb` to `1.14.1-r1`.
+- `luci`: updates `luci-app-shunt` to sync with `shunt` 0.4.5.
+- `video`: adds initial Qt 6 framework recipes (`qt6base`, `qt6quick`,
+  `qt6shadertools`, `qt6svg`, `qt6tools`, `qt6translations`, all unselected in
+  `.config`) and enables shared host library building in `libdouble-conversion`.
+- `passwall_luci`: adds socks/http/https and WireGuard URI import/export, fixes
+  Xray Hysteria2 port hopping and sing-box `ws` path query handling, while
+  preserving local Git-derived LuCI revision calculation in
+  `luci-app-passwall/Makefile`.
+- `update-custom-packages.py --update` checked all registered custom packages
+  and `luci-theme-argon` (`3.1.3`), advancing `appstream` (`1.2.2 -> 1.2.3`),
+  `firefox-esr-bin` (`153.6.0esr -> 153.7.0esr`), `freerdp` (`3.33.0 -> 3.33.1`),
+  and `xwayland` (`24.1.14 -> 24.1.15`).
+
+Validation: `appstream` 1.2.3, `firefox-esr-bin` 153.7.0esr, `freerdp` 3.33.1
+and `xwayland` 24.1.15 download, verify SHA-256 and apply all patches cleanly
+via `make .../prepare`. `./scripts/feeds update -a` and `./scripts/feeds
+install -a` succeed with all nine feed indexes nonempty and zero broken
+`package/feeds` links. Strict `conf --fatalrecursive` on an isolated copy of
+`.config` reports no Kconfig cycles and only default-unselected `qt6*` symbols,
+leaving the working `.config` untouched. The mainline-updater (20),
+custom-updater (47) and kernel-upgrade (41) test suites pass.
+
+This is source integration, patch-application and Kconfig validation only. No
+kernel, firmware image or APK generation was built, nothing was published, and
+no router was contacted. The optional MAP-E tunnel finding remains open.
