@@ -3334,3 +3334,6 @@ ELF_REBUILD_samba4-server_4.24.5-r5:=4.24.5-r6
 ELF_DEP_samba4-server_4.24.5-r5:=samba4-server=4.24.5-r6
 ELF_REBUILD_samba4-utils_4.24.5-r5:=4.24.5-r6
 ELF_DEP_samba4-utils_4.24.5-r5:=samba4-utils=4.24.5-r6
+# 2026-11-11 automatic same-version rebuild allocations
+ELF_REBUILD_daed_2.1.1-r8:=2.1.1-r9
+ELF_DEP_daed_2.1.1-r8:=daed=2.1.1-r9
