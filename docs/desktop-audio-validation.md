@@ -22,8 +22,12 @@ gaps. Each gap was exactly as long as the client's `latency:` buffer.
 Package SHA256:
 `1c0fbed58c0d182bd35c9ed406ca1dd300c8a43d5f197f9bc3fb6e60543b01c4`.
 
-r7 was installed from a local file and has **not** been published to the LAN
-feed, which still holds r6. Clients that offer only AAC or PCM still get
+r7 was first installed from a local file and then published. The dry run and
+production publication each changed only r7, with `same_version_rebuilds=[]`,
+the kernel channel unchanged and the router upgrade preflight passed. Snapshot:
+`/srv/openwrt-feeds/public/snapshots/20261112T135955.042112Z`. After
+`apk update` the router resolved r7 from `current/base`, and an upgrade
+simulation had nothing to do. Clients that offer only AAC or PCM still get
 44.1 kHz and are unaffected by this change. No Windows client was tested; the
 existing `pw_stream_set_active called from wrong context` warning still
 appears. The Remmina profile was returned to `sys:pulse,latency:60` without
