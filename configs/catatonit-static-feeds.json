@@ -1,0 +1,8 @@
+{
+  "packages": {
+    "url": "https://github.com/openwrt/packages.git",
+    "base": "e04f2db01d40dc52f710f958293ae1d9be873c0e",
+    "commit": "0b26771a6d808022f8ce46a9d1d24d5a9bf29507",
+    "patch": "patches/feeds/0035-packages-catatonit-static.patch"
+  }
+}

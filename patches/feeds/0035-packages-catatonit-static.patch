@@ -1,0 +1,45 @@
+From 0b26771a6d808022f8ce46a9d1d24d5a9bf29507 Mon Sep 17 00:00:00 2001
+From: hnt510 <hnt510@gmail.com>
+Date: Fri, 13 Nov 2026 00:16:24 +0800
+Subject: [PATCH] catatonit: link statically with glibc
+
+Podman bind-mounts catatonit into the empty pod infra container, so a
+dynamically linked binary fails with "/catatonit: No such file or
+directory". The glibc toolchain's -static spec omits libgcc_eh, so
+libtool's static probe failed and -all-static silently fell back to a
+dynamic link. Add -lc -lgcc_eh to LIBS, as tini does, and bump
+PKG_RELEASE past the ledger's r3 output.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ utils/catatonit/Makefile | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/utils/catatonit/Makefile b/utils/catatonit/Makefile
+index 7f2073aad..064de38b5 100644
+--- a/utils/catatonit/Makefile
++++ b/utils/catatonit/Makefile
+@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=catatonit
+ PKG_VERSION:=0.2.1
+-PKG_RELEASE:=1
++PKG_RELEASE:=4
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
+ PKG_SOURCE_URL:=https://codeload.github.com/openSUSE/catatonit/tar.gz/v$(PKG_VERSION)?
+@@ -18,6 +18,11 @@ PKG_LICENSE_FILES:=COPYING
+ 
+ include $(INCLUDE_DIR)/package.mk
+ 
++# Podman bind-mounts catatonit into the empty pod infra container, so it must
++# be static. The glibc toolchain's -static spec omits libgcc_eh, which makes
++# libtool's static probe fail and silently fall back to a dynamic link.
++CONFIGURE_VARS += $(if $(CONFIG_USE_GLIBC),LIBS="-lc -lgcc_eh")
++
+ define Package/catatonit
+   SECTION:=utils
+   CATEGORY:=Utilities
+-- 
+2.53.0
+
