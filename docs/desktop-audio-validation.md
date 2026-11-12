@@ -1,5 +1,38 @@
 # GNOME desktop audio validation
 
+## GNOME RDP Opus preference and Remmina gaps, 2026-11-12
+
+Remmina 1.4.43 with FreeRDP 3.33.0 on a Fedora 45 client had periodic music
+gaps. Each gap was exactly as long as the client's `latency:` buffer.
+`gnome-remote-desktop` 51.0-r7 adds patch 006, which prefers Opus (48 kHz,
+20 ms packets) over AAC (44.1 kHz, 1024-frame packets).
+
+| Check | Result |
+| --- | --- |
+| r6 baseline, AAC 44.1 kHz, `latency:60` | 59.4 ms gaps 6.49 s apart (`rdp_stream.wav`); the same gaps were present at the Bluetooth sink (`bt_sink.wav`) |
+| r6 baseline, AAC 44.1 kHz, `latency:200` | 199.4 ms gaps about 21.3 s apart (`rdp_stream2.wav`, `rdp_stream3.wav`). With either buffer, this is a 0.93 % shortfall |
+| Server capture rate | A probe set up like GRD's capture stream (S16, 44.1 kHz, forced quantum 256, keep-last-buffer) received 44100.0 frames/s from the 48 kHz HDA sink over 8 s; 0 cycles had more than one buffer |
+| Server AAC encoder | fdk-aac with GRD's parameters consumed 4096000 of 4096000 samples in 2000 calls and produced one AU per 1024 frames |
+| Client cause | FreeRDP 3.33.0 `rdpsnd_pulse_play` adds `pa_bytes_to_usec(size)/1000` (whole milliseconds) to `play_end`, so each 23.22 ms AAC packet counts as 23 ms, 0.94 % short. When the estimate passes the clock, the client inserts `latency` ms of silence. FreeRDP 3.33.1 checks the real queue (`rdpsnd_pulse_ran_dry`); Fedora offered only 3.33.0 |
+| Client workaround, r6, `rate:48000` (Opus only) | 0 gaps in 43.0 s (`rdp_48k.wav`) |
+| Package build | `make package/custom/gnome-remote-desktop/{clean,compile}` passed; `test-gnome-rdp-audio-latency.py` passed |
+| Router installation | Local signed r7 APK (SHA256 below) installed, and only the user `gnome-remote-desktop.service` restarted. The world checksum pin was replaced by the original unversioned entry. `apk fix` and `apk upgrade` simulations made no changes |
+| r7, client offers AAC, Opus and PCM, `latency:60` | Remmina playback stream was 48 kHz; a continuous 440 Hz tone had 0 gaps in 43.0 s (`rdp_opus_fix.wav`, peak 8110, RMS 5668); 6 to 7 gaps would be expected before the fix |
+
+Package SHA256:
+`1c0fbed58c0d182bd35c9ed406ca1dd300c8a43d5f197f9bc3fb6e60543b01c4`.
+
+r7 was installed from a local file and has **not** been published to the LAN
+feed, which still holds r6. Clients that offer only AAC or PCM still get
+44.1 kHz and are unaffected by this change. No Windows client was tested; the
+existing `pw_stream_set_active called from wrong context` warning still
+appears. The Remmina profile was returned to `sys:pulse,latency:60` without
+`rate:48000`. A copy of the earlier `rate:48000` profile is on the client.
+
+Evidence: `/srv/openwrt-validation/rdp-audio-validation-20261112/`: recordings,
+`gaps.py` and its output `gaps.txt`, `SHA256SUMS`, router journal, and the
+`pwprobe.c` and `aacprobe.c` sources.
+
 ## GNOME RDP latency policy and physical deployment, 2026-11-04
 
 `gnome-remote-desktop` 51.0-r6 retains patch 005's recent render-latency

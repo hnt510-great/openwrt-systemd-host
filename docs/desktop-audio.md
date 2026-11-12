@@ -32,7 +32,8 @@ the normal output is preferred, with a virtual fallback when there is no
 sound device. HDMI device identifiers can change; use the current PipeWire
 device list.
 
-RDP transports desktop playback as PCM (48 kHz, with 44.1 kHz negotiation) and exposes a separate **RDP client microphone**
+RDP transports desktop playback as Opus at 48 kHz when the client offers it,
+otherwise as AAC or PCM at 44.1 kHz, and exposes a separate **RDP client microphone**
 source when microphone redirection is enabled by the client. Select that source
 in the recording application. It is not automatically played through speakers.
 Clients without audio redirection continue to share the desktop normally.
@@ -58,6 +59,19 @@ baseline resets when the stream lock is released. Run
 `python3 -B scripts/tests/test-gnome-rdp-audio-latency.py` to exercise the patched
 C policy, including steady high latency, missing and delayed confirmations,
 increasing delay, device changes and stream resets.
+
+Upstream gnome-remote-desktop prefers AAC over Opus. Patch
+`006-prefer-opus-playback.patch` reverses that order. An AAC packet holds 1024
+frames at 44.1 kHz (23.22 ms). The PulseAudio backend of FreeRDP 3.33.0 (Remmina,
+`xfreerdp`) adds each packet's duration in whole milliseconds (23 ms) to its
+estimate of when playback ends. The estimate falls 0.94 % behind, and the client
+then inserts silence as long as its whole `latency:` buffer. With `latency:60`
+that was a 60 ms gap about every 6.5 s; with `latency:200`, a 200 ms gap about
+every 21 s. The server delivers the full rate in both cases. An Opus packet is
+exactly 20 ms, so this rounding loses nothing. FreeRDP 3.33.1 checks the real
+stream queue before inserting silence. Clients that offer only AAC or PCM still
+get 44.1 kHz. With such an older FreeRDP client, `sound=local` with
+`rate:48000` (Remmina `audio-output=sys:pulse,rate:48000,...`) also forces Opus.
 
 ## VNC with SSH audio
 
