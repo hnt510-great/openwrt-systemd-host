@@ -86,7 +86,11 @@ Commands never prompt. Human mode prints the same envelope with indentation.
 
 Secrets are matched case-insensitively by option name, as a complete name or
 underscore suffix: `key`, `psk`, `password`, `passwd`, `secret`, `token`,
-`private_key`, `preshared_key`, `auth_secret`, `pin`. Structured diffs expose only
+`private_key`, `preshared_key`, `auth_secret`, `pin`, `passphrase`, `privatekey`,
+`publickey`, `shortid`, `short_id`, `credentials`, `uuid` (covering Passwall/Xray
+`uuid`, `reality_publicKey` and `reality_shortId`). `uuid` stays visible in `fstab`,
+where it names a block device. A `credentials` entry of the form `NAME=value`
+(acme.sh DNS API) keeps its name, e.g. `CF_Token=[redacted]`. Structured diffs expose only
 `changed` for either secret value. Masked UCI text is normalized, with comments
 omitted. Malformed text is redacted. Extra files have their complete contents
 redacted by default because their formats are unknown. Metadata/secret-only

@@ -81,6 +81,26 @@ class HistoryTest(unittest.TestCase):
             self.assertTrue(H.SECRET.search(key))
         self.assertFalse(H.SECRET.search('monkey'))
 
+    def test_proxy_and_credential_masking(self):
+        data = ("config nodes n1\n option uuid 39125c56-db1f-44c3-aaf7-c589dba8a16a\n"
+                " option reality_publicKey Dpi7Pbvq2rvt\n option reality_shortId 6ba85179e30d4fc2\n"
+                " option address example.org\n"
+                "config cert c\n list credentials 'CF_Token=\"cfut_secretvalue\"'\n"
+                " list credentials 'not an assignment'\n")
+        text = H.masked(data, config='passwall')
+        for leaked in ('39125c56', 'Dpi7Pbvq2rvt', '6ba85179', 'cfut_secretvalue', 'not an assignment'):
+            self.assertNotIn(leaked, text)
+        self.assertIn('CF_Token=[redacted]', text)
+        self.assertIn('example.org', text)
+        self.assertIn('39125c56', H.masked(data, show=True, config='passwall'))
+        fstab = "config mount\n option uuid 0e2b46bb-b5c4-42fb-b8e1-934ab558a57a\n"
+        self.assertIn('0e2b46bb', H.masked(fstab, config='fstab'))
+        self.assertNotIn('0e2b46bb', H.masked(fstab))
+        rows = H.structured({'passwall': data}, {'passwall': data.replace('6ba85179', 'ffffffff')})
+        self.assertEqual((rows[0]['old'], rows[0]['new']), ('changed', 'changed'))
+        rows = H.structured({'fstab': fstab}, {'fstab': fstab.replace('0e2b46bb', '11111111')})
+        self.assertIn('11111111', rows[0]['new'])
+
     def test_partial_mode_delete_and_atomic(self):
         f = self.root / 'etc/config/network'
         f.chmod(0o640)

@@ -18,7 +18,12 @@ import time
 import uuid
 
 SOURCES = ('cli', 'luci', 'ubus', 'rpcd-rollback', 'apk', 'boot', 'external', 'restore', 'txn-revert')
-SECRET = re.compile(r'(?:^|_)(?:key|psk|password|passwd|secret|token|private_key|preshared_key|auth_secret|pin)$', re.I)
+SECRET = re.compile(r'(?:^|_)(?:key|psk|password|passwd|passphrase|secret|token|private_key|preshared_key|'
+                    r'privatekey|publickey|shortid|short_id|auth_secret|pin|credentials|uuid)$', re.I)
+# UUIDs authenticate proxy clients (Passwall/Xray), but in fstab they only name block devices.
+PUBLIC = {'fstab': {'uuid'}}
+# Credential lists hold NAME=value environment assignments (acme.sh DNS APIs); keep the name.
+ASSIGNMENT = re.compile(r'^([A-Za-z_][A-Za-z0-9_]*)=')
 CONFIG = re.compile(r'^[a-zA-Z0-9_][a-zA-Z0-9_-]*$')
 RISKY = {'network', 'firewall', 'dhcp', 'wireless', 'dropbear', 'sshd'}
 DEFAULT_EXTRAS = ['/etc/sysupgrade.conf', '/etc/nftables.d', '/etc/crontabs']
@@ -99,7 +104,16 @@ def parse_uci(text):
     return sections
 
 
-def masked(text, show=False):
+def secret(option, config=None):
+    return bool(SECRET.search(option)) and option.lower() not in PUBLIC.get(config, ())
+
+
+def redact(value):
+    match = ASSIGNMENT.match(value)
+    return match.group(1) + '=[redacted]' if match else '[redacted]'
+
+
+def masked(text, show=False, config=None):
     if show:
         return text
     try:
@@ -109,8 +123,8 @@ def masked(text, show=False):
     result = []
     for words in lines:
         if len(words) == 3 and words[0] in ('option', 'list'):
-            if SECRET.search(words[1]):
-                words[2] = '[redacted]'
+            if secret(words[1], config):
+                words[2] = redact(words[2])
         elif words[0] != 'config' or len(words) not in (2, 3):
             result.append('# [unrecognized statement redacted]\n')
             continue
@@ -132,11 +146,11 @@ def structured(a, b, show=False):
             for option in sorted(set(x) | set(y)):
                 if x.get(option) == y.get(option):
                     continue
-                secret = SECRET.search(option) and not show
+                hide = secret(option, config) and not show
                 rows.append(dict(config=config, section=section, type=right.get('type', left.get('type')),
                                  option=option, op='add' if option not in x else 'delete' if option not in y else 'change',
-                                 old='changed' if secret else x.get(option),
-                                 new='changed' if secret else y.get(option)))
+                                 old='changed' if hide else x.get(option),
+                                 new='changed' if hide else y.get(option)))
     return rows
 
 
@@ -420,7 +434,7 @@ class History:
             def content(files):
                 data = files.get(name, {}).get('data', b'').decode('utf-8', errors='replace')
                 if config_name(name):
-                    return masked(data, show)
+                    return masked(data, show, config_name(name))
                 return data if show else ('[redacted extra file]\n' if data else '')
             if left.get(name) != right.get(name):
                 lines = list(difflib.unified_diff(content(left).splitlines(True), content(right).splitlines(True),
@@ -747,7 +761,7 @@ def main(argv=None):
                 files = h.files_at(a.revision)
                 if a.config and 'etc/config/' + a.config not in files:
                     raise Error(4, 'Configuration not found')
-                result = dict(files={k: masked(v['data'].decode(errors='replace'), a.show_secrets)
+                result = dict(files={k: masked(v['data'].decode(errors='replace'), a.show_secrets, config_name(k))
                                      if config_name(k) else
                                      (v['data'].decode(errors='replace') if a.show_secrets else '[redacted extra file]')
                                      for k, v in files.items() if not a.config or k == 'etc/config/' + a.config})
