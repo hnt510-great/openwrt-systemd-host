@@ -114,10 +114,9 @@
       "files": [
         "drivers/spi/spi-qpic-snand.c"
       ],
-      "status": "merged",
+      "status": "upstream",
       "source_sha256": "f5bd6e94af5529ded69a30e72d83bb018abcd02a7c640a686d61f09c8f12dabc",
-      "ported": "target/linux/generic/backport-7.3/441-v7.4-spi-spi-qpic-snand-publish-the-ECC-context-to-snandc.patch",
-      "ported_sha256": "1d8dc28d915cc7d0a3975e331f20e4de1e22a91ff2bc11d60042b23e8f05da9e"
+      "reason": "Backport targets upstream v7.4; included by the Linux 7.3.4 stable release (the 7.3 port reverse-applies cleanly), so the 7.3 copy was dropped"
     },
     {
       "source": "target/linux/generic/backport-6.18/500-v6.19-ksmbd-server-avoid-busy-polling-in-accept-loop.patch",
@@ -5896,6 +5895,17 @@
       "source_sha256": "cec472cfd971bb87fc0d38ab2c017576bed0120437b9f39227f00dac20905f8e",
       "ported": "target/linux/generic/pending-7.3/645-net-dsa-pass-bridge-multicast-snooping-changes-to-drivers.patch",
       "ported_sha256": "cec472cfd971bb87fc0d38ab2c017576bed0120437b9f39227f00dac20905f8e"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/792-wireguard-socket-fix-sticky-source-address-on-p2p.patch",
+      "files": [
+        "drivers/net/wireguard/socket.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt 4d5d291a26 (pending, Cc stable, absent from Linux 7.3.3 and the 7.3.4 stable changelog); the unchanged patch applies to Linux 7.3.3 with zero fuzz on top of the full x86 stack and socket.o builds. Fixes WireGuard IPv4 replies leaving from the LAN address when a LAN peer targets a point-to-point (PPPoE) local address.",
+      "source_sha256": "9312fab4f20deb8856cc16525f59c80f27913e0d665ff270591c902f53b31a80",
+      "ported": "target/linux/generic/pending-7.3/792-wireguard-socket-fix-sticky-source-address-on-p2p.patch",
+      "ported_sha256": "9312fab4f20deb8856cc16525f59c80f27913e0d665ff270591c902f53b31a80"
     },
     {
       "source": "target/linux/generic/pending-6.18/805-01-nvmem-u-boot-env-post-process-ignore-quotes.patch",

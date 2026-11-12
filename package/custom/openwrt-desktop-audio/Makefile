@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openwrt-desktop-audio
 PKG_VERSION:=1
-PKG_RELEASE:=3
+PKG_RELEASE:=4
 PKG_LICENSE:=MIT
 
 include $(INCLUDE_DIR)/package.mk
@@ -11,7 +11,7 @@ define Package/openwrt-desktop-audio
   SECTION:=sound
   CATEGORY:=Sound
   TITLE:=Ordinary-user desktop and remote audio integration
-  DEPENDS:=@TARGET_x86_64 @USE_GLIBC @OPENWRT_SYSTEMD +openwrt-desktop \
+  DEPENDS:=@TARGET_x86_64 @USE_GLIBC @OPENWRT_SYSTEMD +openwrt-desktop +rtkit \
 	+pipewire +pipewire-pulse +pipewire-alsa +pipewire-tools +wireplumber \
 	+gstreamer1-utils +audio-support +libpulse +pulseaudio-tools +alsa-ucm-conf +alsa-utils +acl \
 	+@PACKAGE_gstreamer1-plugins-good +@PACKAGE_gstreamer1-plugins-bad \

@@ -163,6 +163,9 @@ with open('/lib/apk/db/lock','rb') as lock:
  paths={'world':'/etc/apk/world','installed':'/lib/apk/db/installed',
         'protected':'/etc/openwrt-kernel/protected','state':'/etc/openwrt-kernel/state.json'}
  data={k:pathlib.Path(p).read_bytes() for k,p in paths.items()}
+ # A cut-off APK commit leaves files ahead of the database until apk-resume.
+ if pathlib.Path('/lib/apk/db/transaction/journal').exists():
+  raise SystemExit('Router has an interrupted APK transaction; run apk-resume on the router first')
  state=json.loads(data['state']); release=os.uname().release
  if state.get('schema')==2:
   # Kernel packages: userspace is kernel-independent; boot counting never

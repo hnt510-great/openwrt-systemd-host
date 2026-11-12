@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """JSON-line serial controller for an isolated, disposable OpenWrt EFI VM.
 
-Input: {"command": "...", "timeout": 120}, {"reconnect": true}, or
+Input: {"command": "...", "timeout": 120}, {"reconnect": true[, "timeout": 180]}, or
 {"quit": true}. The immutable raw image is always used through qcow2.
 """
 import argparse
@@ -61,8 +61,8 @@ child = pexpect.spawn('qemu-system-x86_64', options, encoding='utf-8', codec_err
 (args.out / 'qemu.pid').write_text(str(child.pid) + '\n')
 
 
-def connect():
-    deadline = time.monotonic() + 180
+def connect(timeout=180):
+    deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
             index = child.expect([r'Please press Enter to activate this console',
@@ -92,7 +92,7 @@ try:
         if request.get('quit'):
             break
         if request.get('reconnect'):
-            connect()
+            connect(request.get('timeout', 180))
             print(json.dumps({'ready': True}), flush=True)
             continue
         if request.get('reboot'):

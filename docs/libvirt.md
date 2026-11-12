@@ -1,8 +1,9 @@
 # Libvirt and virsh on native-systemd OpenWrt
 
 This package targets x86_64/glibc with CONFIG_OPENWRT_SYSTEMD=y. It provides
-libvirt 12.8.0, virsh, modular QEMU/secret/directory-storage daemons, virtlogd
-and virtlockd. Select CONFIG_PACKAGE_libvirt-daemon=y and
+libvirt 12.9.0, virsh, modular QEMU/secret/directory-storage daemons, the
+node-device and network-filter daemons, virtlogd and virtlockd, plus UEFI
+(OVMF) firmware, the swtpm virtual TPM and virtiofsd for virtio-fs shares. Select CONFIG_PACKAGE_libvirt-daemon=y and
 CONFIG_PACKAGE_virsh=y, run make defconfig, then build:
 
     make package/custom/libvirt/compile -j4 V=s
@@ -21,7 +22,8 @@ startup script, so the recovery and failsafe entries do not launch guests.
     virsh -c qemu:///system version
     virsh list --all
     virsh capabilities
-    systemctl status virtqemud virtstoraged virtlogd virtlockd
+    systemctl status virtqemud virtstoraged virtnodedevd virtnwfilterd virtlogd virtlockd
+    virt-host-validate qemu
     journalctl -b -u virtqemud --no-pager
 
 The default URI is qemu:///system. All packaged libvirt UNIX sockets are
@@ -31,19 +33,25 @@ management is outside the supported scope. QEMU processes run under the locked, 
 account, with supplementary membership in the kvm and render groups. No human
 account, password or SSH key is seeded.
 
-AppArmor/SELinux and private mount namespaces are disabled in this first
+AppArmor/SELinux and private mount namespaces are disabled in this
 integration; libvirt retains DAC ownership management, disk locking and
-cgroup isolation. OpenWrt owns device hotplug, bridges, DHCP and firewall
-rules. This build does not expose libvirt network, interface, nwfilter or
-device-passthrough management. Probes for these excluded drivers return
-`VIR_ERR_NO_SUPPORT`; they do not attempt to connect to absent modular daemon
-sockets. This lets virt-manager detect unsupported capabilities while retaining
-QEMU and storage management. Check this on the router with:
+cgroup isolation. OpenWrt owns bridges, DHCP and firewall rules: guests attach
+to existing OpenWrt bridges such as `br-lan`. Libvirt virtual networks
+(`virbr*`, libvirt's own dnsmasq and NAT) and host interface management are
+deliberately not built, so they never compete with firewall4 or OpenWrt's
+dnsmasq. Probes for these two excluded drivers return `VIR_ERR_NO_SUPPORT`;
+they do not attempt to connect to absent modular daemon sockets. This lets
+virt-manager detect unsupported capabilities. Host devices
+([passthrough](#pci-and-usb-passthrough)) and
+[network filters](#network-filters) are available. Check this on the router
+with:
 
     sudo python3 scripts/tests/test-libvirt-secondary-drivers.py
 
 Copy the test script to the router first if the source tree is not mounted.
 The check only queries APIs and does not change guests, pools or networks.
+It also expects node devices, the default network filters and UEFI/vTPM
+domain capabilities to be reported.
 
 The host uses the existing OpenWrt shutdown
 sequence; a native helper first requests ACPI shutdown for guests and waits
@@ -80,8 +88,9 @@ to writing guest disks into the root overlay.
     virsh vol-list local
 
 This creates an empty disk. Install a guest OS or convert a supplied bootable
-image to that path with qemu-img before expecting it to boot. Use a raw or
-qcow2 image suitable for SeaBIOS; OVMF/UEFI guest firmware is outside v1.
+image to that path with qemu-img before expecting it to boot. The examples use
+SeaBIOS; see [UEFI, Secure Boot and virtual TPM](#uefi-secure-boot-and-virtual-tpm)
+for UEFI guests.
 
 ## Define and run a guest
 
@@ -105,6 +114,15 @@ VM host must expose nested virtualization. For deliberate software emulation,
 change the domain type to qemu and remove the host-passthrough cpu element.
 Do not present a successful software-emulated boot as proof of KVM support.
 
+QEMU is built with Linux native AIO (`CONFIG_QEMU_LINUX_AIO`, libaio) and
+io_uring (`CONFIG_QEMU_IO_URING`, liburing), so a disk `<driver>` accepts
+`io='threads'`, `io='native'` or `io='io_uring'`. `io='native'` needs
+`cache='none'` or `cache='directsync'` (O_DIRECT); io_uring has no cache
+restriction. Both options default to the matching kernel options
+(`KERNEL_AIO`, `KERNEL_IO_URING`); without them threads is the only mode.
+
+    <driver name='qemu' type='qcow2' cache='none' io='native' discard='unmap'/>
+
 Existing manually started QEMU processes remain unmanaged. Import their
 configuration as domain XML separately; stop them before opening the same
 disk under libvirt.
@@ -115,11 +133,253 @@ The package marks /etc/libvirt as configuration so it is included in the
 normal OpenWrt configuration backup. Verify the selection with sysupgrade -l.
 Guest images and /srv/libvirt/state are not included in the firmware backup:
 back them up separately with guests stopped, and preserve external disks.
+That state directory also holds UEFI variable stores (`qemu/nvram`), virtual
+TPM state (`swtpm`) and the vTPM certificate authority (`swtpm-localca`).
 Before reflashing, boot the existing procd recovery entry as described in
 systemd.md. A firmware upgrade alone is not a virtual-machine data backup.
 
 Validation results and exact firmware hash are recorded in
 [libvirt-validation.md](libvirt-validation.md).
+
+## UEFI, Secure Boot and virtual TPM
+
+`ovmf-bin` installs Debian's prebuilt OVMF build (edk2, BSD-2-Clause-Patent)
+under `/usr/share/OVMF` with QEMU firmware descriptors under
+`/usr/share/qemu/firmware`:
+
+| Descriptor | Firmware | Use |
+|---|---|---|
+| `40-edk2-x86_64-secure-enrolled.json` | `OVMF_CODE_4M.ms.fd` + `OVMF_VARS_4M.ms.fd` | Secure Boot on, Microsoft keys enrolled (Windows 11, signed Linux shims) |
+| `50-edk2-x86_64-secure.json` | `OVMF_CODE_4M.secboot.fd` + `OVMF_VARS_4M.fd` | Secure Boot capable, empty key store |
+| `60-edk2-x86_64.json` | `OVMF_CODE_4M.fd` + `OVMF_VARS_4M.fd` | Plain UEFI, no SMM requirement |
+
+Libvirt selects one automatically from `<os firmware='efi'>` and the requested
+features, and copies the variable template to
+`/var/lib/libvirt/qemu/nvram/NAME_VARS.fd`. Secure Boot variants require the
+q35 machine type and SMM; libvirt adds both when it selects them.
+
+QEMU is built with `CONFIG_QEMU_TPM`, and `swtpm` provides the emulator
+backend. Libvirt runs one swtpm per guest under the locked `swtpm` account;
+TPM state is kept in `/var/lib/libvirt/swtpm/UUID`. `swtpm_setup` creates
+endorsement and platform certificates signed by a local CA kept in
+`/var/lib/libvirt/swtpm-localca` (see `/etc/swtpm-localca.conf`). Both live on
+the persistent `/srv/libvirt/state` mount.
+
+A Windows 11 guest (UEFI, Secure Boot with Microsoft keys, TPM 2.0):
+
+```sh
+virt-install --connect qemu:///system --name win11 \
+  --memory 8192 --vcpus 4 --cpu host-passthrough --osinfo win11 \
+  --boot uefi,firmware.feature0.name=secure-boot,firmware.feature0.enabled=yes,firmware.feature1.name=enrolled-keys,firmware.feature1.enabled=yes \
+  --tpm emulator,model=tpm-crb,version=2.0 \
+  --disk size=80,format=qcow2,bus=virtio --cdrom /srv/libvirt/iso/Win11.iso \
+  --network bridge=br-lan,model=virtio \
+  --graphics spice,listen=none --video virtio --noautoconsole
+```
+
+The equivalent domain XML fragments are:
+
+```xml
+<os firmware='efi'>
+  <type arch='x86_64' machine='q35'>hvm</type>
+  <firmware>
+    <feature enabled='yes' name='secure-boot'/>
+    <feature enabled='yes' name='enrolled-keys'/>
+  </firmware>
+</os>
+<devices>
+  <tpm model='tpm-crb'>
+    <backend type='emulator' version='2.0'/>
+  </tpm>
+</devices>
+```
+
+Windows Setup needs VirtIO storage/network drivers when those buses are
+selected; attach the virtio-win ISO as a second CD-ROM or choose SATA and
+e1000e first. In virt-manager, tick *Customize configuration before install*,
+then pick the firmware under **Overview → Firmware** and add **TPM →
+Emulated, CRB, 2.0**.
+
+Switching an existing guest between BIOS and UEFI changes how its disk must
+be partitioned; it is not an in-place change. The TPM state holds guest
+secrets such as BitLocker or LUKS-sealed keys: back up
+`/srv/libvirt/state/swtpm` together with the guest's nvram file and disk, and
+restore them together. Deleting a guest with `virsh undefine --nvram --tpm`
+removes both.
+
+## PCI and USB passthrough
+
+`virtnodedevd` lists host PCI, USB, SCSI and network devices through udev, so
+virt-manager's **Add Hardware → PCI Host Device / USB Host Device** lists are
+populated:
+
+```sh
+virsh nodedev-list --cap pci
+virsh nodedev-list --cap usb_device
+virsh nodedev-dumpxml pci_0000_03_00_0
+```
+
+PCI passthrough uses VFIO (`kmod-vfio-pci`). The IOMMU must be active:
+
+- AMD hosts enable it by default.
+- Intel hosts need `intel_iommu=on iommu=pt` on the kernel command line.
+  Add both words once to the selected GRUB entry (press `e` at the menu, or
+  edit the entry in `/boot/grub/grub.cfg`) and boot. `kernelctl` copies the
+  running command line into the entries it writes for later kernels, so it
+  persists across kernel upgrades.
+
+`virt-host-validate qemu` reports whether `/dev/kvm`, the IOMMU and the
+cgroup controllers are usable. Check the device's IOMMU group with
+`ls /sys/kernel/iommu_groups/*/devices`; every device in a group must be
+passed together.
+
+With `managed='yes'` (the virt-manager default) libvirt unbinds the device
+from its host driver, binds it to `vfio-pci` while the guest runs and returns
+it afterwards. **Never pass through a NIC, disk controller or GPU that OpenWrt
+itself uses** — passing the WAN or LAN interface removes it from netifd and
+can disconnect the router. Use a dedicated device, or a virtual function of
+an SR-IOV NIC.
+
+```xml
+<hostdev mode='subsystem' type='pci' managed='yes'>
+  <source><address domain='0x0000' bus='0x03' slot='0x00' function='0x0'/></source>
+</hostdev>
+<hostdev mode='subsystem' type='usb' managed='yes'>
+  <source><vendor id='0x0781'/><product id='0x5583'/></source>
+</hostdev>
+```
+
+USB passthrough uses QEMU's libusb backend and needs no IOMMU. Libvirt changes
+the ownership of the selected `/dev/bus/usb` node to `libvirt-qemu` while the
+guest runs. QEMU raises its locked-memory limit for VFIO guests automatically;
+all guest RAM is pinned, so leave enough memory for the router.
+
+## Network filters
+
+`virtnwfilterd` uses libvirt's nftables backend (`firewall_backend` in
+`/etc/libvirt/nwfilter.conf`; iptables/ebtables are not used). It only acts on
+guest interfaces that reference a filter, for example a guest bridged to
+`br-lan` that must not spoof its MAC or IP address:
+
+```xml
+<interface type='bridge'>
+  <source bridge='br-lan'/>
+  <model type='virtio'/>
+  <filterref filter='clean-traffic'/>
+</interface>
+```
+
+`virsh nwfilter-list` shows the predefined filters (`clean-traffic`,
+`no-ip-spoofing`, `no-mac-spoofing`, `allow-dhcp`, …) installed in
+`/etc/libvirt/nwfilter`. The guest's IP address is learned from its DHCP
+exchange with OpenWrt (`CTRL_IP_LEARNING`) unless set with
+`<parameter name='IP' value='192.0.2.50'/>`.
+
+Rules are created in separate `bridge` family tables for the guest's tap
+device (`nft list tables bridge`). They do not change firewall4's
+`inet fw4` table, and `fw4 reload` does not remove them. They only see a
+guest's own traffic on its bridge port, ahead of the router's IP stack, so they
+do not alter how Passwall (nftables) or daed (tc eBPF on `br-lan`) handle the
+guest's traffic after it passes the filter.
+
+Nested-VM results for UEFI, vTPM, passthrough and network filters are recorded
+in [libvirt-uefi-passthrough-validation.md](libvirt-uefi-passthrough-validation.md).
+
+## Sharing host directories (virtio-fs)
+
+`libvirt-daemon` pulls in `virtiofsd` 1.14 (the Rust vhost-user daemon from
+the virtio-fs project). It is installed as `/usr/libexec/virtiofsd` with the
+QEMU descriptor `/usr/share/qemu/vhost-user/50-virtiofsd.json`, which is how
+virtqemud finds it; no `qemu.conf` setting is needed. For each `<filesystem>`
+with `<driver type='virtiofs'/>`, virtqemud starts one virtiofsd as root,
+with its namespace sandbox and seccomp filter, and stops it with the guest.
+Check support with:
+
+    virsh domcapabilities --machine q35 | sed -n '/<filesystem/,/<\/filesystem>/p'
+    /usr/libexec/virtiofsd --version
+
+vhost-user devices need guest RAM that virtiofsd can map, so the domain must
+use shared memfd memory backing:
+
+```xml
+<memoryBacking>
+  <source type='memfd'/>
+  <access mode='shared'/>
+</memoryBacking>
+...
+<filesystem type='mount' accessmode='passthrough'>
+  <driver type='virtiofs' queue='1024'/>
+  <source dir='/srv/libvirt/shares/shared'/>
+  <target dir='shared'/>
+  <!-- optional: <readonly/> -->
+</filesystem>
+```
+
+A complete example is `/usr/share/libvirt/examples/openwrt-virtiofs-vm.xml`.
+In virt-manager, enable *Memory → Enable shared memory* and add
+*Filesystem* with the `virtiofs` driver. In a Linux guest, mount the target tag:
+
+    mount -t virtiofs shared /mnt
+    # /etc/fstab: shared /mnt virtiofs defaults 0 0
+
+Windows guests need the virtio-win `viofs` driver and the WinFsp-based
+VirtIO-FS service.
+
+`/srv/libvirt/shares` is created (root, 0755) as a place for shared
+directories; any host directory works. `accessmode='passthrough'` keeps the
+host's numeric UIDs and GIDs, and virtiofsd runs as root, so a guest's root
+user can create root-owned files and read anything in the shared tree that
+host root can. Share only dedicated directories, never `/`, `/etc` or the
+libvirt state directory, and add `<readonly/>` when the guest does not need
+to write. Shared directories are not part of the firmware backup.
+
+Memory backing is fixed when the guest starts: add it to the definition and
+restart the guest before attaching a virtio-fs filesystem. The daemon's
+log is `/var/log/libvirt/qemu/DOMAIN-fsN-virtiofsd.log` (for example
+`openwrt-virtiofs-vm-fs0-virtiofsd.log`). Restarting virtqemud does not stop a
+running guest's virtiofsd.
+On the overlay root it warns that file handles are unsupported and falls back
+to `O_PATH` file descriptors; this is expected.
+
+### OpenWrt as a virtio-fs guest
+
+When this firmware itself runs as a QEMU/KVM guest (on this router or another
+host), `kmod-fs-virtiofs` provides the guest driver (`CONFIG_VIRTIO_FS`,
+module `virtiofs`, with `kmod-fuse`). It is selected in the native-systemd
+configuration; the module is loaded when the virtio-fs device appears. Mount
+the host's target tag:
+
+    mkdir -p /mnt/host
+    mount -t virtiofs shared /mnt/host
+
+To mount it at every boot, use a systemd mount unit; OpenWrt's `block`/fstab
+UCI configuration does not handle virtio-fs:
+
+```ini
+# /etc/systemd/system/mnt-host.mount
+[Unit]
+Description=Host share over virtio-fs
+
+[Mount]
+What=shared
+Where=/mnt/host
+Type=virtiofs
+Options=nofail
+
+[Install]
+WantedBy=multi-user.target
+```
+
+    systemctl daemon-reload
+    systemctl enable --now mnt-host.mount
+
+The unit file is under `/etc` and is kept by the configuration backup;
+add `/etc/systemd/system/mnt-host.mount` to `/etc/sysupgrade.conf` if
+`sysupgrade -l` does not list it. The host must start the guest with shared
+memory and a virtio-fs device as described above.
+
+Nested-VM results are recorded in
+[virtiofs-validation.md](virtiofs-validation.md).
 
 ## Graphics examples
 

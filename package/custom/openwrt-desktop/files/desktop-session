@@ -7,15 +7,24 @@ export XDG_CURRENT_DESKTOP=GNOME XDG_SESSION_DESKTOP=gnome DESKTOP_SESSION=gnome
 export XDG_SESSION_TYPE=wayland XMODIFIERS=@im=fcitx
 # The native text-input path uses Fcitx's IBus frontend. Do not inherit the
 # Weston-only GTK module override or its privileged input-method socket.
-unset WAYLAND_SOCKET GTK_IM_MODULE GTK_IM_MODULE_FILE LIBSEAT_BACKEND
+unset WAYLAND_SOCKET GTK_IM_MODULE GTK_IM_MODULE_FILE LIBSEAT_BACKEND MUTTER_DEBUG_KMS_SCHEDULING_PRIORITY
 for attempt in 1 2 3 4 5; do
 	[ ! -S "$XDG_RUNTIME_DIR/bus" ] || break
 	sleep 1
 done
 [ -S "$XDG_RUNTIME_DIR/bus" ] || exit 1
-systemctl --user unset-environment WAYLAND_SOCKET GTK_IM_MODULE GTK_IM_MODULE_FILE LIBSEAT_BACKEND
+systemctl --user unset-environment WAYLAND_SOCKET GTK_IM_MODULE GTK_IM_MODULE_FILE LIBSEAT_BACKEND MUTTER_DEBUG_KMS_SCHEDULING_PRIORITY
 /usr/libexec/desktop-keyring-unlock
 cd "$HOME"
 export XDG_DATA_DIRS="$HOME/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
-systemctl --user import-environment XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP DESKTOP_SESSION XDG_SESSION_TYPE XMODIFIERS XDG_DATA_DIRS
+# Mutter defaults to high-priority (nice -15 through RealtimeKit); only
+# export its override for the other modes selected in /etc/config/desktop.
+import_kms=
+case "${OPENWRT_DESKTOP_KMS_SCHEDULING:-high-priority}" in
+	realtime|normal)
+		export MUTTER_DEBUG_KMS_SCHEDULING_PRIORITY="$OPENWRT_DESKTOP_KMS_SCHEDULING"
+		import_kms=MUTTER_DEBUG_KMS_SCHEDULING_PRIORITY
+		;;
+esac
+systemctl --user import-environment XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP DESKTOP_SESSION XDG_SESSION_TYPE XMODIFIERS XDG_DATA_DIRS $import_kms
 exec /usr/bin/gnome-session --session=gnome

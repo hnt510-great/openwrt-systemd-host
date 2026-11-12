@@ -48,6 +48,12 @@ upgrade. The actual transaction uses the validated changeset under APK's
 database lock. Existing kernel trial, protected-generation and recovery rules
 remain enforced by `kernelctl`.
 
+From apk 3.0.5-r18 a started commit defers termination signals until its
+database is written. A journal under `/lib/apk/db/transaction/` lets
+`apk-resume` finish a commit cut off by power loss, a crash or SIGKILL. While
+that journal is pending, other commits and publication (router baseline) are
+refused. See [interrupted APK transactions](apk-transaction-recovery.md).
+
 Before a managed transaction writes a package, APK downloads remote payloads
 into its cache and verifies all new payloads against their index identities and
 signatures, including local repository files and existing cache entries. A

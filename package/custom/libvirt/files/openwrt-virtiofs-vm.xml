@@ -1,0 +1,36 @@
+<domain type='kvm'>
+  <name>openwrt-virtiofs-vm</name>
+  <memory unit='MiB'>1024</memory>
+  <vcpu>1</vcpu>
+  <!-- vhost-user devices need guest RAM that virtiofsd can map. -->
+  <memoryBacking>
+    <source type='memfd'/>
+    <access mode='shared'/>
+  </memoryBacking>
+  <os>
+    <type arch='x86_64'>hvm</type>
+    <boot dev='hd'/>
+  </os>
+  <features><acpi/><apic/></features>
+  <cpu mode='host-passthrough'/>
+  <devices>
+    <emulator>/usr/bin/qemu-system-x86_64</emulator>
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2'/>
+      <source file='/srv/libvirt/images/linux.qcow2'/>
+      <target dev='vda' bus='virtio'/>
+    </disk>
+    <!-- Mount in the guest with: mount -t virtiofs shared /mnt -->
+    <filesystem type='mount' accessmode='passthrough'>
+      <driver type='virtiofs' queue='1024'/>
+      <source dir='/srv/libvirt/shares/shared'/>
+      <target dir='shared'/>
+    </filesystem>
+    <interface type='bridge'>
+      <source bridge='br-lan'/>
+      <model type='virtio'/>
+    </interface>
+    <serial type='pty'><target port='0'/></serial>
+    <console type='pty'><target type='serial' port='0'/></console>
+  </devices>
+</domain>

@@ -1112,6 +1112,16 @@ if KERNEL_CGROUPS
 			  schedule realtime tasks for non-root users until you allocate
 			  realtime bandwidth for them.
 
+		config KERNEL_RT_GROUP_SCHED_DEFAULT_DISABLED
+			bool "Require boot parameter to enable group scheduling for SCHED_RR/FIFO"
+			default n
+			depends on KERNEL_RT_GROUP_SCHED
+			help
+			  Disable RT group scheduling by default so cgroup v2 services and
+			  desktop sessions (rtkit, PipeWire, Mutter) can acquire SCHED_RR
+			  and SCHED_FIFO without legacy cgroup v1 rt_runtime allocation.
+			  Pass rt_group_sched=1 on the kernel command line to re-enable.
+
 	endif
 
 	config KERNEL_BLK_CGROUP

@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=gnome-remote-desktop
 PKG_VERSION:=51.0
-PKG_RELEASE:=6
+PKG_RELEASE:=7
 PKG_SOURCE:=gnome-remote-desktop-51.0.tar.xz
 PKG_SOURCE_URL:=https://download.gnome.org/sources/gnome-remote-desktop/51/
 PKG_HASH:=c7954b34da5766288ea19b56026421c9c1fe2c23ef379e57ec209dc0cf13df2b

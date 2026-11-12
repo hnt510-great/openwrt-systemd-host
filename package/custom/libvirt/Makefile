@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=libvirt
 PKG_VERSION:=12.9.0
-PKG_RELEASE:=1
+PKG_RELEASE:=3
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=https://download.libvirt.org/
 PKG_HASH:=dcf579d8a949f4cbf56820529d48f200382a48ea12855ffded7c16a189353cd7
@@ -38,6 +38,7 @@ define Package/libvirt
   SUBMENU:=
   TITLE:=Libvirt client and common libraries
   DEPENDS+=+glib2 +libgnutls +libxml2 +libtirpc +libjson-c +libnl-core +libnl-route +libcap-ng +libacl +libbsd
+  DEPENDS+=+libudev +libpciaccess +libpcap
 endef
 
 define Package/virsh
@@ -48,11 +49,13 @@ endef
 
 define Package/libvirt-daemon
   $(call Package/libvirt/Default)
-  TITLE:=Native systemd QEMU and directory storage management
+  TITLE:=Native systemd QEMU, storage, host device and network filter management
   DEPENDS+=+libvirt +virsh +qemu-x86_64-softmmu +qemu-img +kmod-tun +kvm-support +accel-support
   DEPENDS+=+coreutils-dd +coreutils-kill +coreutils-true +coreutils-timeout
   DEPENDS+=+coreutils-chown +coreutils-chmod +coreutils-mkdir +coreutils-mv +coreutils-rm +coreutils-stat +coreutils-sleep
   DEPENDS+=+acl +shadow-su
+  DEPENDS+=+swtpm +ovmf-bin +@QEMU_TPM +kmod-vfio-pci +nftables +kmod-nft-bridge
+  DEPENDS+=+virtiofsd
   USERID:=libvirt-qemu=191:libvirt-qemu=191:kvm=34,render=43
 endef
 
@@ -64,6 +67,9 @@ define Package/libvirt-daemon/conffiles
 /etc/libvirt/virtqemud.conf
 /etc/libvirt/virtstoraged.conf
 /etc/libvirt/virtsecretd.conf
+/etc/libvirt/virtnodedevd.conf
+/etc/libvirt/virtnwfilterd.conf
+/etc/libvirt/nwfilter.conf
 /etc/libvirt/virtlogd.conf
 /etc/libvirt/virtlockd.conf
 endef
@@ -78,7 +84,10 @@ MESON_ARGS += \
 	-Ddriver_libvirtd=enabled -Dlibvirtd=disabled \
 	-Ddriver_remote=enabled -Dremote_default_mode=direct \
 	-Ddriver_qemu=enabled -Ddriver_secret=enabled -Ddriver_storage=enabled -Dstorage_dir=enabled \
-	-Ddriver_network=disabled -Ddriver_nwfilter=disabled -Ddriver_interface=disabled \
+	-Ddriver_network=disabled -Ddriver_interface=disabled \
+	-Ddriver_nodedev=enabled -Dudev=enabled -Dpciaccess=enabled \
+	-Ddriver_nwfilter=enabled -Dfirewall_backend_priority=nftables -Dlibpcap=enabled \
+	-Dhost_validate=enabled \
 	-Djson_c=enabled -Dlibnl=enabled -Dcapng=enabled -Dreadline=enabled \
 	-Dqemu_user=libvirt-qemu -Dqemu_group=libvirt-qemu \
 	-Dqemu_datadir=/usr/share/qemu -Dqemu_moddir=/usr/lib/qemu \
@@ -118,7 +127,7 @@ define Package/libvirt-daemon/install
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libvirt $(1)/usr/lib/
 	$(CP) $(PKG_INSTALL_DIR)/usr/share/libvirt $(1)/usr/share/
 	$(CP) $(PKG_INSTALL_DIR)/etc/libvirt/. $(1)/etc/libvirt/
-	for daemon in virtqemud virtstoraged virtsecretd virtlogd virtlockd; do \
+	for daemon in virtqemud virtstoraged virtsecretd virtnodedevd virtnwfilterd virtlogd virtlockd; do \
 		$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/$$$$daemon $(1)/usr/sbin/; \
 		$(CP) $(PKG_INSTALL_DIR)/usr/lib/systemd/system/$$$$daemon*.service \
 			$(PKG_INSTALL_DIR)/usr/lib/systemd/system/$$$$daemon*.socket $(1)/usr/lib/systemd/system/; \
@@ -143,6 +152,8 @@ define Package/libvirt-daemon/install
 	$(INSTALL_DATA) ./files/qemu.conf $(1)/etc/libvirt/qemu.conf
 	$(INSTALL_DATA) ./files/libvirt.conf $(1)/etc/libvirt/libvirt.conf
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/libexec/libvirt_iohelper $(1)/usr/libexec/
+	$(INSTALL_DIR) $(1)/usr/bin
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/virt-host-validate $(1)/usr/bin/
 	$(INSTALL_BIN) ./files/libvirt-openwrt-prepare ./files/libvirt-openwrt-guests ./files/libvirt-pipewire-access $(1)/usr/libexec/
 	$(INSTALL_DATA) ./files/libvirt-pipewire-access@.path $(1)/usr/lib/systemd/system/
 	$(INSTALL_DIR) $(1)/etc/hotplug.d/drm

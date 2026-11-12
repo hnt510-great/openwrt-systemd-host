@@ -1,10 +1,10 @@
 include $(TOPDIR)/rules.mk
 PKG_NAME:=gtk-vnc
-PKG_VERSION:=1.5.0
+PKG_VERSION:=1.6.0
 PKG_RELEASE:=1
-PKG_SOURCE:=gtk-vnc-1.5.0.tar.xz
-PKG_SOURCE_URL:=https://download.gnome.org/sources/gtk-vnc/1.5/
-PKG_HASH:=c0beb4747528ad931da43acc567c6a0190f7fc624465571ed9ccece02c34dd23
+PKG_SOURCE:=gtk-vnc-$(PKG_VERSION).tar.xz
+PKG_SOURCE_URL:=https://download.gnome.org/sources/gtk-vnc/1.6/
+PKG_HASH:=0e1a1023f191a842e994e5d10053bbe0e76d5f5fb9ec2eb525e2f8fdea57347f
 PKG_BUILD_DIR:=$(BUILD_DIR)/gtk-vnc-$(PKG_VERSION)
 PKG_LICENSE:=LGPL-2.1-or-later
 PKG_INSTALL:=1

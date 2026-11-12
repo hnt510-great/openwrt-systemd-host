@@ -163,7 +163,7 @@ endef
 
 define Kernel/CompileModules/Default
 	+$(call Kernel/Make,modules,$(if $(KERNELNAME),$(KERNELNAME),all) modules, \
-		rm -f $(LINUX_DIR)/vmlinux $(LINUX_DIR)/System.map;)
+		rm -f $(LINUX_DIR)/vmlinux $(LINUX_DIR)/vmlinux.unstripped $(LINUX_DIR)/System.map;)
 	# If .config did not change, use the previous timestamp to avoid package rebuilds
 	cmp -s $(LINUX_DIR)/.config $(LINUX_DIR)/.config.modules.save && \
 		mv $(LINUX_DIR)/.config.modules.save $(LINUX_DIR)/.config; \

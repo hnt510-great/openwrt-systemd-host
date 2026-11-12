@@ -188,6 +188,16 @@ before assuming one is active.
   WS-Discovery (UDP 3702) multicast is not conntracked. An existing section of
   the same name, including a disabled one, is kept; the LAN input policy still
   applies. Rules live in the `notrack_lan` chain.
+- **Wireless AP**: the onboard Intel Wi-Fi 6 AX101 (`phy0`, iwlwifi) runs one
+  access point, `phy0-ap0`, bridged into `br-lan` and managed by `wpad`
+  (`openwrt-wpad@hostapd.service`). Configure it in `/etc/config/wireless`
+  or LuCI *Network → Wireless*; it is not a separate interface on *Network →
+  Interfaces*. Only 2.4 GHz works for AP mode: the card's firmware keeps its
+  own regulatory domain (`iw reg get` shows `phy#0 (self-managed)`) and marks
+  every 5 GHz channel no-IR whatever `country` is set, and no firmware update
+  changes that. 5 GHz needs an additional non-Intel radio. `iwinfo`,
+  `hostapd_cli` and LuCI *Services → Wifi Schedule* (installed disabled) are
+  available.
 
 ```sh
 uci -q get firewall.@defaults[0].fullcone
@@ -195,6 +205,7 @@ nft list chain inet fw4 notrack_lan
 nft list chain inet fw4 srcnat_wan
 uci show daed; uci -q get passwall.@global[0].enabled
 /etc/init.d/daed status
+ubus call network.wireless status; iwinfo phy0-ap0 info
 ```
 
 ## Optional capabilities
@@ -204,7 +215,7 @@ Feature names in `OPENWRT_FEATURES` have these meanings:
 - `desktop`: ordinary-user GNOME Wayland desktop; inspect `desktop-setup`
   and `/etc/config/desktop` for provisioning and session configuration.
 - `virtualization`: libvirt VM management; inspect `virsh -c qemu:///system list
-  --all`, installed QEMU tools and `/dev/kvm`. KVM requires usable hardware
+  --all`, `virsh nodedev-list`, installed QEMU tools and `/dev/kvm`. KVM requires usable hardware
   support; virt-manager is available when separately selected.
 - `flatpak`: ordinary-user Flatpak and desktop portal integration; inspect
   `flatpak --user list` in the intended user's session.
@@ -268,6 +279,20 @@ authenticates it; submission stays on execlists), which low-power VA-API
 encoding needs for bitrate control. Check `dmesg | grep -i huc` and
 `vainfo | grep EncSliceLP`; `i915.enable_guc=0` restores the upstream default.
 
+RealtimeKit (`rtkit-daemon.service`, D-Bus activated) grants scheduling to the
+desktop: Mutter's KMS thread runs at nice -15 by default, which also enables
+Mutter's KMS deadline timer, and PipeWire's data loops run `SCHED_RR` priority
+20. Polkit rule `20-openwrt-rtkit.rules` also authorizes members of the `audio`
+and `video` groups, so RDP-only sessions qualify. `option kms_scheduling` in
+`/etc/config/desktop` selects `high-priority` (default), `realtime` or
+`normal`; restart the desktop after changing it. Desktop kernels are built with
+`PREEMPT_DYNAMIC` (default `preempt=full`), `HZ=1000` and
+`RT_GROUP_SCHED_DEFAULT_DISABLED`, so cgroup v2 slices can hold realtime
+threads; `rt_group_sched=1` restores RT group scheduling and `preempt=lazy`
+the earlier preemption model. An older kernel needs `rt_group_sched=0` on its
+command line before rtkit can grant realtime scheduling. Check with
+`ps -eLo pid,tid,cls,rtprio,ni,comm` and `/sys/kernel/debug/sched/preempt`.
+
 When `openwrt-desktop-ime` is installed, the GNOME session supervises Fcitx5.
 Its IBus compatibility frontend serves GNOME's native input path; the Kimpanel
 Shell extension displays candidates, and GTK3/GTK4 modules support other
@@ -284,9 +309,27 @@ activate a newly installed session integration.
 Libvirt/QEMU supports KVM guests and virt-manager/SPICE consoles when selected.
 Inspect the system connection (`qemu:///system`) separately from user sessions.
 SPICE is the default guest audio path; QEMU PipeWire audio is optional and
-requires access to the intended user's audio session. Libvirt drivers outside
-QEMU and storage (network, interface, nwfilter and device passthrough)
-report `VIR_ERR_NO_SUPPORT` instead of failing on absent daemon sockets.
+requires access to the intended user's audio session. Guests can use UEFI
+firmware (OVMF, including Secure Boot with Microsoft keys) and an emulated
+TPM 2.0 (swtpm), so Windows 11 is supported; UEFI variable stores and TPM
+state persist under `/srv/libvirt/state`. Host PCI/USB devices are listed by
+`virtnodedevd` and can be passed through (PCI needs an active IOMMU; check
+`virt-host-validate qemu`, and never pass through a NIC the router uses).
+Per-guest network filters (`virsh nwfilter-list`) use separate nftables bridge
+tables and do not modify firewall4. Guests attach to OpenWrt bridges such as
+`br-lan`; libvirt virtual networks (`virbr*`) and interface management are
+not built and report `VIR_ERR_NO_SUPPORT` instead of failing on absent daemon
+sockets.
+Host directories can be shared with guests over virtio-fs: libvirt starts
+`/usr/libexec/virtiofsd` (found through
+`/usr/share/qemu/vhost-user/50-virtiofsd.json`) as root for each
+`<filesystem>` with `<driver type='virtiofs'/>`; the guest needs shared
+memfd memory backing and its own virtio-fs driver. Its log is
+`/var/log/libvirt/qemu/DOMAIN-fsN-virtiofsd.log`, and
+`/srv/libvirt/shares` is a suggested location for shared directories. When
+this firmware itself runs as a KVM guest, `kmod-fs-virtiofs` lets it mount a
+host share (`mount -t virtiofs TAG /mnt/...`, or a systemd `.mount` unit for
+boot-time mounts).
 Restarting `virtqemud` does not shut guests down. Installed virtualization
 tools or an active daemon do not establish that any guest is running.
 
@@ -325,6 +368,17 @@ explicit `apk upgrade --userspace-only --simulate` checks a userspace-only
 alternative that keeps the installed kernel packages. Keep world constraints, signature
 checks and kernel protection hooks intact. An APK upgrade or reinstall starts
 an init script only where it is enabled; it does not start disabled services.
+
+An APK commit that has started runs to its database write: Ctrl-C, SIGTERM
+and SSH hangups are deferred until then, and with `apk-transaction-guard` the
+commit leaves its caller's service (a LuCI-driven upgrade survives an rpcd
+restart) and blocks an ordinary shutdown. Power loss, a crash or SIGKILL
+leaves a journal in `/lib/apk/db/transaction/`; `apk-resume.service` finishes
+that transaction at the next boot before router services start, offline from
+the journal's package copies, and further APK commits are refused until it is
+done. Check with `apk-resume --status`; run `apk-resume` by hand if the boot
+attempt failed (from failsafe, after `mount_root`). Do not delete the journal
+to get APK working again.
 
 OpenWrt rootfs/overlay and sysupgrade conventions still apply. Inspect `mount`
 and `/etc/config/fstab` to determine the actual persistent storage and extroot

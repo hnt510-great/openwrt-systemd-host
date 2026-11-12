@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=xwayland
-PKG_VERSION:=24.1.14
+PKG_VERSION:=24.1.15
 PKG_RELEASE:=1
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=https://xorg.freedesktop.org/archive/individual/xserver/
-PKG_HASH:=4eb6b98d678299a4b96138d886345b294130695760345ef84596225a8224078a
+PKG_HASH:=7311b4bcda22cfc19cb99680eb1c35cfc1ea885981310639f0429fe2948c122e
 PKG_BUILD_DEPENDS:=wayland/host wayland-protocols xorgproto xtrans xkbcomp
 PKG_BUILD_PARALLEL:=1
 PKG_LICENSE:=MIT

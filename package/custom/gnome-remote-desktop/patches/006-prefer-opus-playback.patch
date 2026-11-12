@@ -1,0 +1,34 @@
+--- a/src/grd-rdp-dvc-audio-playback.c
++++ b/src/grd-rdp-dvc-audio-playback.c
+@@ -621,16 +621,25 @@ prepare_client_format (GrdRdpDvcAudioPla
+ {
+   uint32_t frames_per_packet;
+ 
+-  if (audio_playback->aac_client_format_idx >= 0)
+-    {
+-      audio_playback->client_format_idx = audio_playback->aac_client_format_idx;
+-      audio_playback->codec = GRD_RDP_DSP_CODEC_AAC;
+-    }
+-  else if (audio_playback->opus_client_format_idx >= 0)
++  /*
++   * Prefer Opus: it runs at the 48 kHz of the PipeWire graph, so no
++   * resampling is needed, and each packet holds exactly 20 ms of audio.
++   * An AAC packet holds 1024 frames at 44.1 kHz (23.22 ms). FreeRDP 3.33.0's
++   * PulseAudio backend adds whole milliseconds per packet (23 ms) to its
++   * estimate of when playback ends. The estimate therefore falls behind by
++   * 0.94 %, and the backend inserts its whole latency buffer as silence
++   * every few seconds.
++   */
++  if (audio_playback->opus_client_format_idx >= 0)
+     {
+       audio_playback->client_format_idx = audio_playback->opus_client_format_idx;
+       audio_playback->codec = GRD_RDP_DSP_CODEC_OPUS;
+     }
++  else if (audio_playback->aac_client_format_idx >= 0)
++    {
++      audio_playback->client_format_idx = audio_playback->aac_client_format_idx;
++      audio_playback->codec = GRD_RDP_DSP_CODEC_AAC;
++    }
+   else if (audio_playback->pcm_client_format_idx >= 0)
+     {
+       audio_playback->client_format_idx = audio_playback->pcm_client_format_idx;

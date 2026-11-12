@@ -4,6 +4,21 @@ set -eu
 : "${XDG_RUNTIME_DIR:?}"
 export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
 gdbus wait --session org.gnome.Mutter.DisplayConfig
+# Mutter's bus name appears before GNOME Shell imports WAYLAND_DISPLAY into
+# the user manager, so this unit's environment may lack it; read it back.
+wait_wayland_display() {
+	tries=0
+	while [ -z "${WAYLAND_DISPLAY:-}" ]; do
+		WAYLAND_DISPLAY=$(systemctl --user show-environment 2>/dev/null |
+			sed -n 's/^WAYLAND_DISPLAY=//p')
+		[ -z "$WAYLAND_DISPLAY" ] || break
+		tries=$((tries + 1))
+		[ "$tries" -le 60 ] || return 0
+		sleep 1
+	done
+	export WAYLAND_DISPLAY
+}
+wait_wayland_display
 /usr/libexec/desktop-gnome-settings
 if [ "$(uci -q get desktop.main.audio_enabled || :)" = 1 ] &&
    [ "$(uci -q get desktop.main.audio_user || :)" = "$USER" ]; then

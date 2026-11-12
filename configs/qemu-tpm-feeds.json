@@ -1,0 +1,8 @@
+{
+  "packages": {
+    "url": "https://github.com/openwrt/packages.git",
+    "base": "b8c228029253c6b33efacd34b7d1dcb280ecb9d6",
+    "commit": "6d7587dfe1ad50e1c1226869cbbf3e942aa04b4f",
+    "patch": "patches/feeds/0032-packages-qemu-tpm.patch"
+  }
+}

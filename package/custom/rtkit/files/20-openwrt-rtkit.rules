@@ -1,0 +1,12 @@
+// Active and inactive local sessions are already allowed by the upstream
+// org.freedesktop.RealtimeKit1.policy. Also grant users enrolled by
+// desktop-setup (video) or desktop-audio-setup (audio) so that services in
+// user@UID.service are authorized in RDP-only and headless sessions.
+// Do not use "render": libvirt-qemu is a member of it.
+polkit.addRule(function(action, subject) {
+    if ((action.id === "org.freedesktop.RealtimeKit1.acquire-high-priority" ||
+         action.id === "org.freedesktop.RealtimeKit1.acquire-real-time") &&
+        (subject.isInGroup("audio") || subject.isInGroup("video"))) {
+        return polkit.Result.YES;
+    }
+});

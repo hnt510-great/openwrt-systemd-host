@@ -663,6 +663,24 @@ endef
 $(eval $(call KernelPackage,fuse))
 
 
+define KernelPackage/fs-virtiofs
+  SUBMENU:=$(FS_MENU)
+  TITLE:=Virtio file system (virtio-fs) guest support
+  DEPENDS:=@VIRTIO_SUPPORT +kmod-fuse
+  KCONFIG:=CONFIG_VIRTIO_FS
+  FILES:=$(LINUX_DIR)/fs/fuse/virtiofs.ko
+  AUTOLOAD:=$(call AutoProbe,virtiofs)
+endef
+
+define KernelPackage/fs-virtiofs/description
+ Kernel module to mount host directories shared over virtio-fs
+ (virtiofsd) when OpenWrt runs as a QEMU/KVM guest:
+ mount -t virtiofs TAG /mnt
+endef
+
+$(eval $(call KernelPackage,fs-virtiofs))
+
+
 define KernelPackage/pstore
   SUBMENU:=$(FS_MENU)
   TITLE:=Pstore file system

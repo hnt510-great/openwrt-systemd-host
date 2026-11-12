@@ -397,6 +397,72 @@ class NeedrestartTests(unittest.TestCase):
         self.write('usr/lib/replacement.so', b'\x7fELFreplacement')
         self.assertEqual(self.scan()['services'][0]['processes'][0]['files'][0]['reason'], 'replaced')
 
+    def service_chroot(self, changed=False, unit='example.service'):
+        current, old, proc = self.process(deleted=False, changed=changed)
+        (proc / 'root').unlink()
+        chroot = self.root / 'service-proc-root'
+        chroot.mkdir()
+        (proc / 'root').symlink_to(chroot)
+        (proc / 'test-ns-root').symlink_to(self.root)
+        (proc / 'test-exe').symlink_to(old)
+        marker = self.write('proc/self/ns/user', 'user-namespace')
+        (proc / 'ns').mkdir()
+        os.link(marker, proc / 'ns/user')
+        self.json('ownership.json', {'123': {'unit': unit}})
+        return current, old, proc
+
+    def test_system_service_chroot_is_host_service(self):
+        self.service_chroot()
+        r = self.scan()
+        self.assertEqual(r['warnings'], [])
+        self.assertEqual(r['services'], [])
+
+    def test_system_service_chroot_retains_restart_advice(self):
+        self.service_chroot(changed=True)
+        s = self.scan()['services'][0]
+        self.assertEqual((s['kind'], s['name']), ('systemd', 'example.service'))
+        self.assertEqual(s['processes'][0]['files'][0]['reason'], 'replaced')
+
+    def test_system_service_chroot_requires_owning_unit(self):
+        self.service_chroot(unit='other.service')
+        self.assertFalse(self.scan(2)['complete'])
+
+    def test_system_service_chroot_requires_host_user_namespace(self):
+        _, _, proc = self.service_chroot()
+        (proc / 'ns/user').unlink()
+        self.write('proc/123/ns/user', 'private-namespace')
+        self.assertFalse(self.scan(2)['complete'])
+
+    def test_system_service_chroot_requires_host_namespace_root(self):
+        _, _, proc = self.service_chroot()
+        (proc / 'test-ns-root').unlink()
+        (proc / 'test-ns-root').symlink_to(self.root / 'service-proc-root')
+        self.assertFalse(self.scan(2)['complete'])
+
+    def rootless_overlay_mapping(self, fstype):
+        uid = os.getuid()
+        if not uid:
+            self.skipTest('rootless fixture requires an ordinary host UID')
+        self.json('podman.json', [self.store(uid, local='c' * 64)])
+        _, _, proc = self.process(deleted=False, changed=False, executable=False,
+            cgroup=f'/user.slice/user-{uid}.slice/user@{uid}.service/app.slice/libpod-'
+                   + 'a' * 64 + '.scope')
+        self.write('proc/123/maps', '1000-2000 r-xp 00000000 00:01 999 /usr/bin/example\n')
+        self.write('proc/123/test-map-files-denied', '')
+        self.write('proc/123/mountinfo', f'30 20 0:1 /home /home rw - {fstype} src rw\n')
+        return proc
+
+    def test_rootless_host_overlay_mapping_verified_by_host_object(self):
+        self.rootless_overlay_mapping('overlay')
+        r = self.scan()
+        self.assertEqual(r['warnings'], [])
+        self.assertEqual(r['services'], [])
+
+    def test_rootless_fuse_mapping_object_never_opened_by_root(self):
+        self.rootless_overlay_mapping('fuse.fuse-overlayfs')
+        self.assertIn('Some differing mapped-file identities could not be verified '
+                      '(including possible overlayfs mappings)', self.scan(2)['warnings'])
+
     def browser_sandbox(self, changed=False):
         binary = 'usr/lib/firefox-esr/firefox-bin'
         current, old, child = self.process(file=binary, deleted=False, changed=changed,

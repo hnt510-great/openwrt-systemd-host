@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 PKG_NAME:=virt-manager
 PKG_VERSION:=5.1.0
-PKG_RELEASE:=3
+PKG_RELEASE:=4
 PKG_SOURCE:=virt-manager-5.1.0.tar.xz
 PKG_SOURCE_URL:=https://github.com/virt-manager/virt-manager/releases/download/v5.1.0/
 PKG_HASH:=ccfc44b6c1c0be8398beb687c675d9ea4ca1c721dfb67bd639209a7b0dec11b1
@@ -31,7 +31,7 @@ endef
 
 define Package/virt-manager
   $(call Package/virt-manager-common)
-  TITLE:=Virtual Machine Manager for the Weston desktop
+  TITLE:=Virtual Machine Manager for the GNOME desktop
   DEPENDS:=+virt-manager-common +libgtk3 +gtk-vnc +spice-gtk +accel-support +libvirt-glib +libvte3 +dconf +glib2-utils +libvirt-daemon +openwrt-desktop +shadow-groupadd +shadow-gpasswd
 endef
 

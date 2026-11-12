@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=firefox-esr-bin
-PKG_VERSION:=153.6.0esr
+PKG_VERSION:=153.7.0esr
 PKG_RELEASE:=1
 PKG_SOURCE:=firefox-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=https://archive.mozilla.org/pub/firefox/releases/$(PKG_VERSION)/linux-x86_64/zh-CN/
-PKG_HASH:=d88ef00dfc2252ce827e6254dab559a46951554dd17785c499221b3f63671686
+PKG_HASH:=a65668007ad70a2b6bf17edeffc98c707c6a8de10fd07796d7986b6b6b66f6fe
 PKG_BUILD_DIR:=$(BUILD_DIR)/firefox-esr-$(PKG_VERSION)
 PKG_UNPACK:=mkdir -p $(PKG_BUILD_DIR)/upstream; xzcat $(DL_DIR)/$(PKG_SOURCE) | $(TAR) -C $(PKG_BUILD_DIR)/upstream --strip-components=1 -xf -
 PKG_LICENSE:=MPL-2.0 GPL-2.0-or-later LGPL-2.1-or-later

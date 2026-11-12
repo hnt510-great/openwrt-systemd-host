@@ -1,0 +1,8 @@
+{
+  "packages": {
+    "url": "https://github.com/openwrt/packages.git",
+    "base": "6d7587dfe1ad50e1c1226869cbbf3e942aa04b4f",
+    "commit": "c8cb2c7b2c6ee86cb6cc1a0f20827044e331c2ab",
+    "patch": "patches/feeds/0033-packages-qemu-aio.patch"
+  }
+}
