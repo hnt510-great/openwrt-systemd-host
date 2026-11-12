@@ -114,10 +114,9 @@
       "files": [
         "drivers/spi/spi-qpic-snand.c"
       ],
-      "status": "merged",
+      "status": "upstream",
       "source_sha256": "f5bd6e94af5529ded69a30e72d83bb018abcd02a7c640a686d61f09c8f12dabc",
-      "ported": "target/linux/generic/backport-7.3/441-v7.4-spi-spi-qpic-snand-publish-the-ECC-context-to-snandc.patch",
-      "ported_sha256": "1d8dc28d915cc7d0a3975e331f20e4de1e22a91ff2bc11d60042b23e8f05da9e"
+      "reason": "Backport targets upstream v7.4; included by the Linux 7.3.4 stable release (the 7.3 port reverse-applies cleanly), so the 7.3 copy was dropped"
     },
     {
       "source": "target/linux/generic/backport-6.18/500-v6.19-ksmbd-server-avoid-busy-polling-in-accept-loop.patch",
