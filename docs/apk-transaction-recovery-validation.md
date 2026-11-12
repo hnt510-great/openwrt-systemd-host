@@ -3,10 +3,9 @@
 Implementation and host validation: 2026-11-12, in this checkout. Evidence is
 under `/srv/openwrt-validation/apk-transaction-validation-20261112/` (kept outside
 the repository). An exact image was built (build-only, kernel generation 61)
-and tested in a disposable KVM guest. Nothing was published, and no physical
-device was flashed or changed. The physical router was only inspected
-read-only during design: its overlay layout, its tmpfs APK cache and rpcd's
-cgroup and `KillMode`.
+and tested in a disposable KVM guest. At the user's request the build was then
+published and the feature was installed on the physical router (see "Publication
+and router install"); no firmware was flashed.
 
 Guide: [apk-transaction-recovery.md](apk-transaction-recovery.md).
 
@@ -112,4 +111,36 @@ Runs `vm-1` to `vm-4` are kept for completeness:
 | Upgrade through LuCI's real rpcd | Approximated by a `KillMode=mixed` service; rpcd itself was not restarted |
 | Cut during a C library or systemd write; procd-mode rc script; `/rom` loader fallback in `apk-resume` | Not performed |
 | Journal without payload copies (low space, no cache) resuming from the network | Not exercised |
-| Physical router | Not deployed |
+| Physical router: an actual interruption | Not performed (installed and checked only; see below) |
+
+## Publication and router install
+
+Published on 2026-11-12 with `./scripts/publish-changed-feeds.sh`. The dry run
+and the real run both passed the full router preflight (receipt
+`/srv/openwrt-feeds/upgrade-receipts/1794469353536621886.json`). The
+publication also carries kernel generation 61. A full upgrade would change 260
+packages: `apk-mbedtls`, `base-files`, the generation-61 kernel, its headers
+and kmods.
+
+On the router (`router-admin@192.0.2.1`, running `7.3.4-60-openwrt`), only this
+feature was installed. The transaction ran in a transient unit, so an SSH drop
+could not cut it off:
+
+```sh
+sudo systemd-run --unit=apk-install-transaction-guard --wait --pipe --collect \
+	apk add -u apk-transaction-guard apk-mbedtls base-files
+```
+
+| Check | Result |
+| --- | --- |
+| Simulation | Exactly 3 changes: `apk-mbedtls` r17 → r18, `apk-transaction-guard` 1-r1 new, `base-files` 1757.11 → 1758.12 |
+| Install | `OK`, exit 0 (log `router-install.log`); `base-files` rewrote its usual `.apk-new` copies of locally modified conffiles |
+| Installed | `apk-mbedtls-3.0.5-r18`, `apk-transaction-guard-1-r1`, `base-files-1758.12~ada52cc7ed` |
+| `apk-resume.service` / hook | `enabled`; `00-transaction-scope` present |
+| `apk-resume --status` | "No interrupted APK transaction.", exit 0 |
+| First live commit under r18 (`apk fix apk-transaction-guard`) | Ran in `apk-transaction-19818.scope`, completed `OK`, left no journal |
+| `systemctl --failed` | Empty |
+
+Kernel generation 61 was not installed; it arrives with the next ordinary
+`apk upgrade` and a deliberate reboot. Logs: `router-install.log`,
+`router-verify.log`, `publish.log`, `publish-dry-run.log`.
