@@ -1,0 +1,8 @@
+{
+  "luci": {
+    "url": "https://github.com/openwrt/luci.git",
+    "base": "b6c386cfb34bddde542504161d1a144e55fb7f15",
+    "commit": "7aa3995f1eb6149239e051d3ad961df35b1aad33",
+    "patch": "patches/feeds/0034-luci-status-redraw.patch"
+  }
+}

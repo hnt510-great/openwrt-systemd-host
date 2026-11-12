@@ -1,0 +1,98 @@
+From 7aa3995f1eb6149239e051d3ad961df35b1aad33 Mon Sep 17 00:00:00 2001
+From: hnt510 <hnt510@gmail.com>
+Date: Thu, 12 Nov 2026 16:17:48 +0800
+Subject: [PATCH] luci-mod-status: keep unchanged overview sections across
+ polls
+
+The overview rebuilt every include's DOM on each poll. Recreated <img>
+elements are briefly painted blank while the new image decodes, so
+static icons such as the wireless signal badge flickered every five
+seconds.
+
+Render each poll into a scratch node and replace only the top-level
+nodes whose markup differs, releasing dom.data registry entries of
+replaced and discarded nodes. A differing node count still replaces the
+whole section, and output changed by user actions is re-rendered. The
+wireless radio boxes now stay in place while the station list, whose
+widgets carry unique data-idref values, is rebuilt.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../resources/view/status/index.js            | 44 +++++++++++++++++--
+ 1 file changed, 41 insertions(+), 3 deletions(-)
+
+diff --git a/modules/luci-mod-status/htdocs/luci-static/resources/view/status/index.js b/modules/luci-mod-status/htdocs/luci-static/resources/view/status/index.js
+index e9379ef650..3ce8afa343 100644
+--- a/modules/luci-mod-status/htdocs/luci-static/resources/view/status/index.js
++++ b/modules/luci-mod-status/htdocs/luci-static/resources/view/status/index.js
+@@ -56,10 +56,48 @@ return view.extend({
+ 		return has_load ? Promise.all(tasks) : Promise.resolve(null);
+ 	},
+ 
++	/*
++	 * Update the children of container to content, replacing only the
++	 * top-level nodes whose rendered markup differs. Rebuilding identical
++	 * markup on every poll recreates <img> elements, which browsers briefly
++	 * paint blank while the new image decodes, so unchanged icons visibly
++	 * flicker. Comparing per top-level node keeps e.g. the wireless radio
++	 * boxes in place while the station list, whose widgets carry unique
++	 * data-idref values, is rebuilt.
++	 */
++	updateContent: function(container, content) {
++		var scratch = E('div'), bin = E('div'), changed = false;
++
++		dom.content(scratch, content);
++
++		var next = Array.prototype.slice.call(scratch.childNodes),
++		    prev = Array.prototype.slice.call(container.childNodes);
++
++		if (next.length != prev.length) {
++			dom.content(container, next);
++			return true;
++		}
++
++		for (var i = 0; i < next.length; i++) {
++			if (next[i].isEqualNode(prev[i]))
++				continue;
++
++			container.replaceChild(next[i], prev[i]);
++			bin.appendChild(prev[i]);
++			changed = true;
++		}
++
++		/* release dom.data registry entries of replaced and discarded nodes */
++		dom.content(bin, null);
++		dom.content(scratch, null);
++
++		return changed;
++	},
++
+ 	poll_status: function(includes, containers, first_load) {
+ 		return network.flushCache().then(L.bind(
+ 			this.invokeIncludesLoad, this, includes, first_load
+-		)).then(function(results) {
++		)).then(L.bind(function(results) {
+ 			for (var i = 0; i < includes.length; i++) {
+ 				var content = null;
+ 
+@@ -84,7 +122,7 @@ return view.extend({
+ 					containers[i].parentNode.classList.add('fade-in');
+ 
+ 					if (!includes[i].hide)
+-						dom.content(containers[i], content);
++						this.updateContent(containers[i], content);
+ 				}
+ 			}
+ 
+@@ -93,7 +131,7 @@ return view.extend({
+ 				ssi.style.display = '';
+ 				ssi.classList.add('fade-in');
+ 			}
+-		});
++		}, this));
+ 	},
+ 
+ 	load: function() {
+-- 
+2.53.0
+

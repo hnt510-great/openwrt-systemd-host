@@ -56,6 +56,21 @@ Running kernel `7.3.4-60-openwrt`.
 | LuCI backend | `luci-rpc getWirelessDevices` and `iwinfo devices` report `radio0`/`phy0-ap0` |
 | `apk add iwinfo hostapd-utils luci-app-wifischedule` | Pass; `iwinfo`, `hostapd_cli` work; `wifi_schedule` installed disabled |
 
+## Status overview redraw
+
+| Check | Result |
+| --- | --- |
+| Router data behind the Wireless box | 12 samples of `luci-rpc getWirelessDevices` one second apart were identical (Master, same BSSID, `quality_max 70`, no `quality`); hostapd logged no restarts |
+| `node scripts/tests/test-luci-status-redraw.js` | Pass: unchanged nodes kept across polls; radio icon kept while a station list with fresh `data-idref` widgets is rebuilt; registry entries of replaced and discarded nodes released; changed attributes, text, child count and strings replaced; user-mutated output re-rendered; hidden and failed includes untouched |
+| Same test against the unpatched view | Fails at "unchanged icon element is kept across polls" |
+| Same test against the minified file in the built package | Pass |
+| `make package/feeds/luci/luci-mod-status/compile V=s` | Pass, `luci-mod-status-26.316.29868~7aa3995-r2` |
+| Publication dry run and publication | Pass; only `luci-mod-status` changed; snapshot `20261112T081905.065019Z`, receipt `1794471562950873046.json`; APK SHA-256 `fcda9537f57bd36c2bd4a54d8b1218f50f6336cd43903c0e2ba36b00167dba6c` |
+| Router upgrade | `apk add -u luci-mod-status`: `26.298.44302~5d5a1d9-r2 -> 26.316.29868~7aa3995-r2` |
+
+The test uses a minimal DOM shim, not a browser; the absence of flicker was
+not observed in a real browser.
+
 ## Scope
 
 Not checked: a wireless client association or throughput test, LuCI pages in

@@ -99,6 +99,15 @@ hostapd_cli -i phy0-ap0 all_sta
 ubus call network.wireless status
 ```
 
+With no associated stations, the AP reports no signal quality and *Status →
+Overview* shows the grey `signal-000-000.svg` badge; that is expected.
+The overview used to rebuild every section on each poll (default 5 s), which
+made that badge blink. `feeds/luci` commit `7aa3995f1e` (mirrored as
+`patches/feeds/0034-luci-status-redraw.patch`, baseline
+`configs/luci-status-redraw-feeds.json`) replaces only the top-level nodes
+whose markup changed, so the radio box stays in place while the station list
+is rebuilt. Test: `node scripts/tests/test-luci-status-redraw.js`.
+
 Wifi Schedule is installed disabled (`wifi_schedule.@global[0].enabled='0'`).
 Keep its "unload modules" option off on this card: unloading iwlwifi forces a
 firmware reload on every resume.
