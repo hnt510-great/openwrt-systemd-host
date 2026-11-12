@@ -984,6 +984,10 @@
       "policy": "series",
       "source_url": "https://github.com/virt-manager/virt-manager/releases/download/v{version}/"
     },
+    "virtiofsd": {
+      "provider": "local",
+      "reason": "Cargo vendor tarball: bump PKG_VERSION and PKG_VENDOR_HASH from the GitLab v<version> archive, then regenerate PKG_HASH with make package/custom/virtiofsd/download (scripts/gen-cargo-vendor-tarball.sh)"
+    },
     "wireplumber": {
       "provider": "github",
       "policy": "series",
