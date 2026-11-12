@@ -1,0 +1,809 @@
+Subject: [PATCH] apk: journal transactions and resume interrupted commits
+
+Before the first package write on a live root, keep a durable journal under
+lib/apk/db/transaction: the target world, exact package identities, the
+signed indexes and copies of the verified payloads. The journal is removed
+once the database, post-commit hooks and kernel policy have completed.
+
+While a journal is pending other commits are refused. "apk fix
+--openwrt-resume" solves the journaled transaction again with solver-local
+identity constraints, requires the same changes and commits them; when the
+database was already written it reruns only the post-commit hooks and
+kernel policy. APK_OPENWRT_JOURNAL enables the journal for --root tests.
+
+---
+--- a/doc/apk-fix.8.scd
++++ b/doc/apk-fix.8.scd
+@@ -24,6 +24,14 @@
+ *--directory-permissions*
+ 	Reset all directory permissions.
+ 
++*--openwrt-resume*
++	Finish a package transaction that was interrupted after it started
++	writing (power loss, crash or SIGKILL). The transaction journal in
++	_/lib/apk/db/transaction_ records the target world, the exact package
++	identities and the indexes used; the same changes are solved again and
++	committed. When only the post-commit actions were cut off, they run
++	again. Other APK commits are refused while a journal is pending.
++
+ *--reinstall*, *-r*
+ 	Reinstall packages (default).
+ 
+--- a/src/apk_context.h
++++ b/src/apk_context.h
+@@ -74,6 +74,7 @@
+ 	const char *openwrt_plan_json;
+ 	unsigned int openwrt_userspace_only;
+ 	unsigned int openwrt_full_upgrade;
++	unsigned int openwrt_resume;
+ 	const char *uvol;
+ 	const char *apknew_suffix;
+ 	apk_blob_t default_pkgname_spec;
+--- a/src/apk_solver.h
++++ b/src/apk_solver.h
+@@ -61,3 +61,5 @@
+ 		    struct apk_dependency_array *world, struct apk_changeset *changeset);
+ 
+ int apk_solver_verify_changeset(struct apk_database *db, struct apk_changeset *changeset);
++
++int apk_solver_openwrt_resume(struct apk_database *db);
+--- a/src/app_fix.c
++++ b/src/app_fix.c
+@@ -21,12 +21,14 @@
+ 	unsigned short fix_depends : 1;
+ 	unsigned short fix_xattrs : 1;
+ 	unsigned short fix_directory_permissions : 1;
++	unsigned short openwrt_resume : 1;
+ 	int errors;
+ };
+ 
+ #define FIX_OPTIONS(OPT) \
+ 	OPT(OPT_FIX_depends,			APK_OPT_SH("d") "depends") \
+ 	OPT(OPT_FIX_directory_permissions,	"directory-permissions") \
++	OPT(OPT_FIX_openwrt_resume,		"openwrt-resume") \
+ 	OPT(OPT_FIX_reinstall,			APK_OPT_SH("r") "reinstall") \
+ 	OPT(OPT_FIX_upgrade,			APK_OPT_SH("u") "upgrade") \
+ 	OPT(OPT_FIX_xattr,			APK_OPT_SH("x") "xattr")
+@@ -43,6 +45,10 @@
+ 	case OPT_FIX_directory_permissions:
+ 		ctx->fix_directory_permissions = 1;
+ 		break;
++	case OPT_FIX_openwrt_resume:
++		ctx->openwrt_resume = 1;
++		ac->openwrt_resume = 1;
++		break;
+ 	case OPT_FIX_reinstall:
+ 		ctx->solver_flags |= APK_SOLVERF_REINSTALL;
+ 		break;
+@@ -103,6 +109,13 @@
+ 	struct apk_installed_package *ipkg;
+ 
+ 	ctx->db = db;
++	if (ctx->openwrt_resume) {
++		if (apk_array_len(args)) {
++			apk_err(&ac->out, "--openwrt-resume takes no package arguments.");
++			return -1;
++		}
++		return apk_solver_openwrt_resume(db);
++	}
+ 	if (!ctx->solver_flags)
+ 		ctx->solver_flags = APK_SOLVERF_REINSTALL;
+ 
+--- a/src/commit.c
++++ b/src/commit.c
+@@ -7,9 +7,12 @@
+  * SPDX-License-Identifier: GPL-2.0-only
+  */
+ 
++#include <dirent.h>
+ #include <signal.h>
+ #include <stdlib.h>
+ #include <sys/stat.h>
++#include <sys/statvfs.h>
++#include <time.h>
+ #include <unistd.h>
+ #include "apk_defines.h"
+ #include "apk_database.h"
+@@ -19,6 +22,11 @@
+ #include "apk_extract.h"
+ 
+ static int openwrt_plan_json(struct apk_database *, struct apk_changeset *, const char *);
++static int openwrt_journal_refuse(struct apk_database *);
++static int openwrt_journal_begin(struct apk_database *, struct apk_changeset *,
++				 struct apk_dependency_array *);
++static void openwrt_journal_database(struct apk_database *);
++static void openwrt_journal_end(struct apk_database *);
+ 
+ #ifdef __linux__
+ static bool running_on_host(void)
+@@ -184,11 +192,12 @@
+ 	return true;
+ }
+ 
++static int kernel_policy_run(struct apk_database *db, const char *phase, int errors);
++
+ static int kernel_policy(struct apk_database *db, struct apk_changeset *changeset,
+ 			 const char *phase, int errors)
+ {
+ 	const char *path = "run/openwrt-kernel-apk.txn";
+-	char status[32], flags[32];
+ 	if (faccessat(db->root_fd, "etc/openwrt-kernel/protected", F_OK, 0) != 0) {
+ 		/* Offline image construction is allowed. A live adoption must happen
+ 		 * BEFORE any tracker can retire the original module ownership. */
+@@ -219,6 +228,13 @@
+ 		if (close(fd)) failed = 1;
+ 		if (failed) return -1;
+ 	}
++	return kernel_policy_run(db, phase, errors);
++}
++
++static int kernel_policy_run(struct apk_database *db, const char *phase, int errors)
++{
++	char status[32], flags[32];
++
+ 	snprintf(status, sizeof status, "%d", errors);
+ 	snprintf(flags, sizeof flags, "%d", !!(db->ctx->flags & (APK_NO_SCRIPTS | APK_NO_COMMIT_HOOKS)));
+ 	char *argv[] = { "/usr/sbin/kernelctl", (char *)phase,
+@@ -712,6 +728,8 @@
+ 	int r, errors = 0, pkg_diff = 0;
+ 
+ 	assert(world);
++	if (openwrt_journal_refuse(db) < 0)
++		return -1;
+ 	if (apk_db_check_world(db, world) != 0) {
+ 		apk_err(out, "Not committing changes due to missing repository tags.");
+ 		return -1;
+@@ -797,7 +815,8 @@
+ 		return -1;
+ 	}
+ 
+-	if (run_commit_hooks(db, PRE_COMMIT_HOOK) == -2) {
++	if (run_commit_hooks(db, PRE_COMMIT_HOOK) == -2 ||
++	    openwrt_journal_begin(db, changeset, world) < 0) {
+ 		commit_guard_end(db);
+ 		return -1;
+ 	}
+@@ -832,10 +851,13 @@
+ all_done:
+ 	apk_dependency_array_copy(&db->world, world);
+ 	commit_barrier(db);
++	openwrt_journal_database(db);
+ 	if (apk_db_write_config(db) != 0) errors++;
+ 	commit_barrier(db);
+ 	run_commit_hooks(db, POST_COMMIT_HOOK);
+ 	if (kernel_policy(db, changeset, "apk-post", errors) < 0) errors++;
++	commit_barrier(db);
++	openwrt_journal_end(db);
+ 
+ 	if (!db->performing_preupgrade) {
+ 		char buf2[32];
+@@ -1658,3 +1680,629 @@
+ 	apk_change_array_free(&set.changes);
+ 	return r;
+ }
++
++/* OpenWrt: durable transaction journal.
++ *
++ * APK writes its database only after every package has been unpacked. A
++ * commit interrupted by power loss, a crash or SIGKILL therefore leaves new
++ * files behind an old database. Before the first package write the journal
++ * records the target world, the exact package identities and the signed
++ * indexes, and keeps copies of the verified payloads, so that
++ * "apk fix --openwrt-resume" can finish the same transaction offline.
++ */
++#define JOURNAL_DIR		"lib/apk/db/transaction"
++#define JOURNAL_FILE		JOURNAL_DIR "/journal"
++#define JOURNAL_TMP		JOURNAL_DIR "/journal.tmp"
++#define JOURNAL_DATABASE	JOURNAL_DIR "/phase-database"
++#define JOURNAL_REPO		JOURNAL_DIR "/repo"
++#define JOURNAL_MARGIN		(64ULL * 1024 * 1024)
++
++static int journal_owned;
++
++static bool journal_wanted(struct apk_database *db)
++{
++	if (db->ctx->flags & APK_SIMULATE) return false;
++	if (db->usermode) return false;
++	return openwrt_live_root(db) || getenv("APK_OPENWRT_JOURNAL") != NULL;
++}
++
++static int journal_fsync_path(struct apk_database *db, const char *path)
++{
++	int fd = openat(db->root_fd, path, O_RDONLY | O_CLOEXEC), r = 0;
++
++	if (fd < 0) return -errno;
++	if (fsync(fd) != 0) r = -errno;
++	close(fd);
++	return r;
++}
++
++static int journal_remove_tree(int parent, const char *name)
++{
++	int fd = openat(parent, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
++
++	if (fd < 0) {
++		if (errno == ENOENT) return 0;
++		if (errno == ENOTDIR && !unlinkat(parent, name, 0)) return 0;
++		return -errno;
++	}
++	DIR *dir = fdopendir(fd);
++	if (!dir) {
++		close(fd);
++		return -errno;
++	}
++	struct dirent *de;
++	int r = 0;
++
++	while ((de = readdir(dir)) != NULL) {
++		if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..")) continue;
++		if (de->d_type == DT_DIR) {
++			if (journal_remove_tree(fd, de->d_name) < 0) r = -1;
++		} else if (unlinkat(fd, de->d_name, 0) != 0 && errno != ENOENT)
++			r = -errno;
++	}
++	closedir(dir);
++	if (unlinkat(parent, name, AT_REMOVEDIR) != 0 && errno != ENOENT) r = -errno;
++	return r;
++}
++
++static void journal_file_sha256(int dirfd, const char *path, char hex[static 65])
++{
++	struct apk_digest_ctx ctx;
++	struct apk_digest hash;
++	char buffer[16384];
++	ssize_t length = 0;
++	int fd = openat(dirfd, path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW), error = 0;
++
++	strcpy(hex, "-");
++	if (fd < 0) return;
++	if (apk_digest_ctx_init(&ctx, APK_DIGEST_SHA256) < 0) {
++		close(fd);
++		return;
++	}
++	while ((length = read(fd, buffer, sizeof buffer)) > 0)
++		if (apk_digest_ctx_update(&ctx, buffer, length) < 0) {
++			error = 1;
++			break;
++		}
++	if (length < 0 || apk_digest_ctx_final(&ctx, &hash) < 0) error = 1;
++	close(fd);
++	apk_digest_ctx_free(&ctx);
++	if (error) return;
++	apk_blob_t b = APK_BLOB_PTR_LEN(hex, 65);
++	apk_blob_push_hexdump(&b, APK_DIGEST_BLOB(hash));
++	apk_blob_push_blob(&b, APK_BLOB_PTR_LEN("", 1));
++}
++
++/* Hard link, or copy and fsync, one payload or index into the journal. */
++static int journal_copy(struct apk_database *db, int sfd, const char *src, const char *dst,
++			uint64_t size, bool *nospace)
++{
++	char dir[PATH_MAX];
++	const char *slash = strrchr(dst, '/');
++
++	if (slash && apk_fmt(dir, sizeof dir, "%.*s", (int)(slash - dst), dst) >= 0)
++		apk_make_dirs(db->root_fd, dir, 0700, 0700);
++	unlinkat(db->root_fd, dst, 0);
++	if (linkat(sfd, src, db->root_fd, dst, 0) == 0)
++		return journal_fsync_path(db, dst);
++
++	struct statvfs st;
++	if (fstatvfs(db->root_fd, &st) == 0 &&
++	    (uint64_t)st.f_bavail * st.f_frsize < size + JOURNAL_MARGIN) {
++		*nospace = true;
++		return -ENOSPC;
++	}
++	int in = openat(sfd, src, O_RDONLY | O_CLOEXEC), out, r = 0;
++	if (in < 0) return -errno;
++	out = openat(db->root_fd, dst, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
++	if (out < 0) {
++		r = -errno;
++		close(in);
++		return r;
++	}
++	char buffer[65536];
++	ssize_t n;
++	while ((n = read(in, buffer, sizeof buffer)) > 0) {
++		for (ssize_t off = 0; off < n; ) {
++			ssize_t w = write(out, buffer + off, n - off);
++			if (w < 0) {
++				if (errno == EINTR) continue;
++				r = -errno;
++				goto done;
++			}
++			off += w;
++		}
++	}
++	if (n < 0) r = -errno;
++	else if (fsync(out) != 0) r = -errno;
++done:
++	close(in);
++	if (close(out) != 0 && !r) r = -errno;
++	if (r) unlinkat(db->root_fd, dst, 0);
++	return r;
++}
++
++static apk_blob_t journal_basename(apk_blob_t url)
++{
++	apk_blob_t dir, base;
++
++	if (apk_blob_rsplit(url, '/', &dir, &base)) return base;
++	return url;
++}
++
++/* The index file the journal keeps for repository i, or a null blob. */
++static int journal_copy_index(struct apk_database *db, int i, bool *nospace)
++{
++	struct apk_repository *repo = &db->repos[i];
++	char url[PATH_MAX], dst[PATH_MAX];
++	apk_blob_t base = journal_basename(repo->url_index);
++	struct stat st;
++	int fd = AT_FDCWD;
++	const char *local;
++
++	if (apk_fmt(dst, sizeof dst, JOURNAL_REPO "/%d/" BLOB_FMT, i, BLOB_PRINTF(base)) < 0)
++		return -ENAMETOOLONG;
++	if (apk_fmt(url, sizeof url, BLOB_FMT, BLOB_PRINTF(repo->url_index)) < 0)
++		return -ENAMETOOLONG;
++	local = apk_url_local_file(url, sizeof url);
++	if (!local) {
++		if (apk_repo_index_cache_url(db, repo, &fd, url, sizeof url) < 0) return -ENOENT;
++		local = url;
++	}
++	if (fstatat(fd, local, &st, 0) != 0) return -errno;
++	return journal_copy(db, fd, local, dst, st.st_size, nospace);
++}
++
++static bool journal_change_effective(const struct apk_change *change)
++{
++	return change->old_pkg != change->new_pkg || change->reinstall;
++}
++
++/* Keep a payload beside every journaled index that lists it. */
++static bool journal_copy_payload(struct apk_database *db, struct apk_package *pkg,
++				 unsigned int indexes, bool *nospace)
++{
++	struct apk_repository *repo = NULL;
++	char url[PATH_MAX], dst[PATH_MAX], name[PATH_MAX];
++	const char *local = NULL;
++	int fd = AT_FDCWD;
++	bool copied = false;
++
++	if (pkg->cached) repo = &db->cache_repository;
++	else if (pkg->repos & db->local_repos) {
++		for (unsigned i = 0; i < db->num_repos; i++)
++			if (pkg->repos & db->local_repos & BIT(i)) {
++				repo = &db->repos[i];
++				break;
++			}
++	}
++	if (!repo || apk_repo_package_url(db, repo, pkg, &fd, url, sizeof url) < 0) return false;
++	local = apk_url_local_file(url, sizeof url);
++	if (!local) return false;
++
++	for (unsigned i = 0; i < db->num_repos; i++) {
++		struct apk_repository *r = &db->repos[i];
++		apk_blob_t spec = r->pkgname_spec;
++
++		if (!(indexes & BIT(i)) || !(pkg->repos & BIT(i)) || r->absolute_pkgname) continue;
++		if (!apk_blob_compare(spec, db->ctx->default_reponame_spec))
++			spec = db->ctx->default_pkgname_spec;
++		if (apk_blob_subst(name, sizeof name, spec, apk_pkg_subst, pkg) < 0) continue;
++		if (apk_fmt(dst, sizeof dst, JOURNAL_REPO "/%u/%s", i, name) < 0) continue;
++		if (journal_copy(db, fd, local, dst, pkg->size, nospace) == 0) copied = true;
++		if (*nospace) return false;
++	}
++	return copied;
++}
++
++static void journal_push_dep(FILE *file, struct apk_database *db, struct apk_dependency *dep)
++{
++	char buf[1024];
++	apk_blob_t b = APK_BLOB_BUF(buf);
++
++	apk_blob_push_dep(&b, db, dep);
++	b = apk_blob_pushed(APK_BLOB_BUF(buf), b);
++	if (!APK_BLOB_IS_NULL(b)) fprintf(file, BLOB_FMT, BLOB_PRINTF(b));
++}
++
++static void journal_identity(struct apk_database *db, struct apk_package *pkg, char *buf, size_t len)
++{
++	struct apk_dependency dep;
++	apk_blob_t b = APK_BLOB_PTR_LEN(buf, len);
++
++	apk_dep_from_pkg(&dep, db, pkg);
++	apk_blob_push_dep(&b, db, &dep);
++	apk_blob_push_blob(&b, APK_BLOB_PTR_LEN("", 1));
++	if (APK_BLOB_IS_NULL(b)) strcpy(buf, "-");
++}
++
++static unsigned journal_attempt(struct apk_database *db)
++{
++	apk_blob_t data, line;
++	unsigned attempt = 0;
++
++	if (apk_blob_from_file(db->root_fd, JOURNAL_FILE, &data) < 0) return 0;
++	apk_blob_foreach_token(l, data, APK_BLOB_STRLIT("\n")) {
++		line = l;
++		if (apk_blob_starts_with(line, APK_BLOB_STRLIT("attempt "))) {
++			line.ptr += 8;
++			line.len -= 8;
++			attempt = apk_blob_pull_uint(&line, 10);
++		}
++	}
++	free(data.ptr);
++	return attempt;
++}
++
++static bool journal_payloads(struct apk_database *db)
++{
++	apk_blob_t data;
++	bool payloads = false;
++
++	if (apk_blob_from_file(db->root_fd, JOURNAL_FILE, &data) < 0) return false;
++	apk_blob_foreach_token(l, data, APK_BLOB_STRLIT("\n"))
++		if (!apk_blob_compare(l, APK_BLOB_STRLIT("payloads 1"))) payloads = true;
++	free(data.ptr);
++	return payloads;
++}
++
++static int openwrt_journal_refuse(struct apk_database *db)
++{
++	if (!journal_wanted(db) || db->ctx->openwrt_resume) return 0;
++	if (faccessat(db->root_fd, JOURNAL_FILE, F_OK, 0) != 0) {
++		/* A journal directory without its journal never reached a write. */
++		journal_remove_tree(db->root_fd, JOURNAL_DIR);
++		return 0;
++	}
++	apk_err(&db->ctx->out,
++		"An earlier package transaction was interrupted (see /" JOURNAL_FILE ").");
++	apk_err(&db->ctx->out,
++		"Run apk-resume (or apk fix --openwrt-resume) to finish it first.");
++	return -1;
++}
++
++static int openwrt_journal_begin(struct apk_database *db, struct apk_changeset *set,
++				 struct apk_dependency_array *world)
++{
++	struct apk_out *out = &db->ctx->out;
++	char before_world[65], before_installed[65], boot_id[64] = "-", identity[1024];
++	unsigned attempt = 0, indexes = 0;
++	bool payloads = true, nospace = false, resume = false;
++
++	if (!journal_wanted(db)) return 0;
++	if (db->ctx->openwrt_resume && !faccessat(db->root_fd, JOURNAL_FILE, F_OK, 0)) {
++		resume = true;
++		attempt = journal_attempt(db);
++		payloads = journal_payloads(db);
++		unlinkat(db->root_fd, JOURNAL_DATABASE, 0);
++	} else {
++		journal_remove_tree(db->root_fd, JOURNAL_DIR);
++		if (apk_make_dirs(db->root_fd, JOURNAL_REPO, 0700, 0700) < 0) {
++			apk_err(out, "Unable to create the transaction journal: %s",
++				apk_error_str(-errno));
++			return -1;
++		}
++		for (unsigned i = 0; i < db->num_repos && !nospace; i++)
++			if (journal_copy_index(db, i, &nospace) == 0) indexes |= BIT(i);
++		apk_array_foreach(change, set->changes) {
++			if (!change->new_pkg || !journal_change_effective(change)) continue;
++			if (nospace || !journal_copy_payload(db, change->new_pkg, indexes, &nospace))
++				payloads = false;
++		}
++		if (!payloads) {
++			journal_remove_tree(db->root_fd, JOURNAL_REPO);
++			indexes = 0;
++			apk_warn(out, "%s; recovering an interruption will need the network.",
++				nospace ? "Not enough space to keep package copies in the transaction journal"
++					: "Some packages are not available locally for the transaction journal");
++		}
++	}
++
++	journal_file_sha256(db->root_fd, "etc/apk/world", before_world);
++	journal_file_sha256(db->root_fd, "lib/apk/db/installed", before_installed);
++	if (resume) {
++		/* The journaled "before" state stays authoritative. */
++		apk_blob_t data;
++		if (apk_blob_from_file(db->root_fd, JOURNAL_FILE, &data) == 0) {
++			apk_blob_foreach_token(l, data, APK_BLOB_STRLIT("\n")) {
++				if (apk_blob_starts_with(l, APK_BLOB_STRLIT("before-world ")) && l.len - 13 < 65)
++					snprintf(before_world, 65, "%.*s", (int)l.len - 13, l.ptr + 13);
++				if (apk_blob_starts_with(l, APK_BLOB_STRLIT("before-installed ")) && l.len - 17 < 65)
++					snprintf(before_installed, 65, "%.*s", (int)l.len - 17, l.ptr + 17);
++			}
++			free(data.ptr);
++		}
++	}
++	int bfd = open("/proc/sys/kernel/random/boot_id", O_RDONLY | O_CLOEXEC);
++	if (bfd >= 0) {
++		ssize_t n = read(bfd, boot_id, sizeof boot_id - 1);
++		boot_id[n > 0 ? n : 0] = 0;
++		boot_id[strcspn(boot_id, "\n")] = 0;
++		if (!boot_id[0]) strcpy(boot_id, "-");
++		close(bfd);
++	}
++
++	int fd = openat(db->root_fd, JOURNAL_TMP, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
++	if (fd < 0) goto err;
++	FILE *file = fdopen(fd, "w");
++	if (!file) {
++		close(fd);
++		goto err;
++	}
++	fprintf(file, "schema 1\nboot-id %s\npid %d\nstarted %lld\nattempt %u\npayloads %d\n"
++		"before-world %s\nbefore-installed %s\n",
++		boot_id, (int)getpid(), (long long)time(NULL), attempt + resume, payloads,
++		before_world, before_installed);
++	apk_array_foreach(dep, world) {
++		fputs("world ", file);
++		journal_push_dep(file, db, dep);
++		fputc('\n', file);
++	}
++	if (resume) {
++		/* Keep the original repository records and their tags. */
++		apk_blob_t data;
++		if (apk_blob_from_file(db->root_fd, JOURNAL_FILE, &data) == 0) {
++			apk_blob_foreach_token(l, data, APK_BLOB_STRLIT("\n"))
++				if (apk_blob_starts_with(l, APK_BLOB_STRLIT("repo ")))
++					fprintf(file, BLOB_FMT "\n", BLOB_PRINTF(l));
++			free(data.ptr);
++		}
++	} else {
++		for (unsigned i = 0; i < db->num_repos; i++) {
++			struct apk_repository *repo = &db->repos[i];
++			apk_blob_t base = journal_basename(repo->url_index);
++
++			if (!(indexes & BIT(i))) continue;
++			fprintf(file, "repo %u " BLOB_FMT, i, BLOB_PRINTF(base));
++			/* "-" is the untagged default; others are written as "@tag". */
++			for (unsigned t = 0; t < db->num_repo_tags; t++)
++				if (repo->tag_mask & BIT(t))
++					fprintf(file, " " BLOB_FMT,
++						BLOB_PRINTF(t == APK_DEFAULT_REPOSITORY_TAG ?
++							APK_BLOB_STRLIT("-") : db->repo_tags[t].tag));
++			fputc('\n', file);
++		}
++	}
++	apk_array_foreach(change, set->changes) {
++		struct apk_package *old = change->old_pkg, *new = change->new_pkg;
++
++		if (!journal_change_effective(change)) continue;
++		if (new) journal_identity(db, new, identity, sizeof identity);
++		else strcpy(identity, "-");
++		fprintf(file, "change %s " BLOB_FMT " %s " BLOB_FMT " %d %s\n",
++			old ? old->name->name : "-", BLOB_PRINTF(old ? *old->version : APK_BLOB_STRLIT("-")),
++			new ? new->name->name : "-", BLOB_PRINTF(new ? *new->version : APK_BLOB_STRLIT("-")),
++			change->reinstall ? 1 : 0, identity);
++	}
++	int error = ferror(file);
++	if (fflush(file) || fsync(fd)) error = 1;
++	if (fclose(file)) error = 1;
++	if (error) goto err;
++	if (renameat(db->root_fd, JOURNAL_TMP, db->root_fd, JOURNAL_FILE) != 0) goto err;
++	if (journal_fsync_path(db, JOURNAL_DIR) < 0 || journal_fsync_path(db, "lib/apk/db") < 0) goto err;
++	journal_owned = 1;
++	return 0;
++err:
++	apk_err(out, "Unable to write the transaction journal: %s", apk_error_str(-errno));
++	if (!resume) journal_remove_tree(db->root_fd, JOURNAL_DIR);
++	return -1;
++}
++
++static void openwrt_journal_database(struct apk_database *db)
++{
++	if (!journal_owned) return;
++	int fd = openat(db->root_fd, JOURNAL_DATABASE, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
++	if (fd >= 0) {
++		fsync(fd);
++		close(fd);
++	}
++	journal_fsync_path(db, JOURNAL_DIR);
++}
++
++static void openwrt_journal_end(struct apk_database *db)
++{
++	if (!journal_owned) return;
++	journal_owned = 0;
++	if (journal_remove_tree(db->root_fd, JOURNAL_DIR) < 0)
++		apk_warn(&db->ctx->out, "Unable to remove the transaction journal");
++	journal_fsync_path(db, "lib/apk/db");
++}
++
++/* ---- resume ---------------------------------------------------------------- */
++
++struct journal_change {
++	apk_blob_t old_name, old_version, new_name, new_version, identity;
++	int reinstall, matched;
++};
++
++static apk_blob_t journal_word(apk_blob_t *line)
++{
++	apk_blob_t word, rest;
++
++	if (APK_BLOB_IS_NULL(*line)) return APK_BLOB_NULL;
++	if (!apk_blob_split(*line, APK_BLOB_STRLIT(" "), &word, &rest)) {
++		word = *line;
++		rest = APK_BLOB_NULL;
++	}
++	*line = rest;
++	return word;
++}
++
++static bool journal_dash(apk_blob_t b)
++{
++	return !apk_blob_compare(b, APK_BLOB_STRLIT("-"));
++}
++
++/* After the database was written only the post-commit actions remain. */
++static int journal_resume_post(struct apk_database *db, struct apk_dependency_array *world,
++			       struct journal_change *changes, int count)
++{
++	int errors = 0;
++
++	apk_msg(&db->ctx->out, "Completing the post-commit actions of the interrupted transaction.");
++	commit_guard_begin(db);
++	journal_owned = 1;
++	apk_dependency_array_copy(&db->world, world);
++	if (apk_db_write_config(db) != 0) errors++;
++	commit_barrier(db);
++	run_commit_hooks(db, POST_COMMIT_HOOK);
++	if (!faccessat(db->root_fd, "etc/openwrt-kernel/protected", F_OK, 0)) {
++		int fd = openat(db->root_fd, "run/openwrt-kernel-apk.txn",
++				O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
++		if (fd < 0) errors++;
++		else {
++			for (int i = 0; i < count; i++)
++				dprintf(fd, BLOB_FMT "\t" BLOB_FMT "\t" BLOB_FMT "\t" BLOB_FMT "\t%d\n",
++					BLOB_PRINTF(changes[i].old_name), BLOB_PRINTF(changes[i].old_version),
++					BLOB_PRINTF(changes[i].new_name), BLOB_PRINTF(changes[i].new_version),
++					changes[i].reinstall);
++			if (close(fd) != 0) errors++;
++			else if (kernel_policy_run(db, "apk-post", errors) < 0) errors++;
++		}
++	}
++	commit_barrier(db);
++	if (!errors) openwrt_journal_end(db);
++	else journal_owned = 0;
++	commit_guard_end(db);
++	return errors;
++}
++
++int apk_solver_openwrt_resume(struct apk_database *db)
++{
++	struct apk_out *out = &db->ctx->out;
++	struct apk_dependency_array *world, *solver_world;
++	struct apk_changeset set = {};
++	struct journal_change *changes = NULL;
++	char installed[65], identity[1024], before_installed[65] = "";
++	apk_blob_t data;
++	int count = 0, capacity = 0, r = -1;
++	bool database_phase;
++
++	db->ctx->openwrt_resume = 1;
++	apk_change_array_init(&set.changes);
++	if (apk_blob_from_file(db->root_fd, JOURNAL_FILE, &data) < 0) {
++		apk_change_array_free(&set.changes);
++		apk_msg(out, "No interrupted transaction.");
++		return 0;
++	}
++	apk_dependency_array_init(&world);
++	apk_dependency_array_init(&solver_world);
++	apk_blob_foreach_token(l, data, APK_BLOB_STRLIT("\n")) {
++		apk_blob_t line = l, key = journal_word(&line);
++
++		if (!apk_blob_compare(key, APK_BLOB_STRLIT("schema"))) {
++			if (apk_blob_compare(line, APK_BLOB_STRLIT("1"))) {
++				apk_err(out, "Unsupported transaction journal schema.");
++				goto out;
++			}
++		} else if (!apk_blob_compare(key, APK_BLOB_STRLIT("before-installed"))) {
++			snprintf(before_installed, sizeof before_installed, BLOB_FMT, BLOB_PRINTF(line));
++		} else if (!apk_blob_compare(key, APK_BLOB_STRLIT("world"))) {
++			struct apk_dependency dep;
++			apk_blob_pull_dep(&line, db, &dep, true);
++			if (!dep.name || dep.broken) {
++				apk_err(out, "Malformed world entry in the transaction journal.");
++				goto out;
++			}
++			apk_dependency_array_add(&world, dep);
++		} else if (!apk_blob_compare(key, APK_BLOB_STRLIT("change"))) {
++			struct journal_change c = {};
++
++			c.old_name = journal_word(&line);
++			c.old_version = journal_word(&line);
++			c.new_name = journal_word(&line);
++			c.new_version = journal_word(&line);
++			apk_blob_t flag = journal_word(&line);
++			c.reinstall = !apk_blob_compare(flag, APK_BLOB_STRLIT("1"));
++			c.identity = journal_word(&line);
++			if (APK_BLOB_IS_NULL(c.identity) || !c.identity.len) {
++				apk_err(out, "Malformed change in the transaction journal.");
++				goto out;
++			}
++			if (count == capacity) {
++				capacity = capacity ? capacity * 2 : 64;
++				changes = realloc(changes, capacity * sizeof *changes);
++				if (!changes) goto out;
++			}
++			changes[count++] = c;
++		}
++	}
++
++	journal_file_sha256(db->root_fd, "lib/apk/db/installed", installed);
++	database_phase = strcmp(installed, before_installed) != 0;
++	if (database_phase) {
++		if (faccessat(db->root_fd, JOURNAL_DATABASE, F_OK, 0) != 0) {
++			apk_err(out, "The installed database changed outside the interrupted transaction;");
++			apk_err(out, "resolve it by hand and remove /" JOURNAL_DIR ".");
++			goto out;
++		}
++		r = journal_resume_post(db, world, changes, count);
++		goto out;
++	}
++
++	apk_msg(out, "Finishing the interrupted transaction (%d package changes).", count);
++	apk_dependency_array_copy(&solver_world, world);
++	for (int i = 0; i < count; i++) {
++		struct apk_dependency dep;
++
++		if (journal_dash(changes[i].identity)) {
++			char conflict[512];
++			apk_blob_t b;
++
++			if (apk_fmt(conflict, sizeof conflict, "!" BLOB_FMT,
++				    BLOB_PRINTF(changes[i].old_name)) < 0)
++				goto out;
++			b = APK_BLOB_STR(conflict);
++			apk_blob_pull_dep(&b, db, &dep, false);
++		} else {
++			apk_blob_t b = changes[i].identity;
++			apk_blob_pull_dep(&b, db, &dep, false);
++			if (changes[i].reinstall)
++				apk_solver_set_name_flags(dep.name, APK_SOLVERF_REINSTALL, 0);
++		}
++		if (!dep.name || dep.broken) {
++			apk_err(out, "Malformed package identity in the transaction journal.");
++			goto out;
++		}
++		apk_dependency_array_add(&solver_world, dep);
++	}
++	r = apk_solver_plan(db, 0, solver_world, &set);
++	if (r != 0) {
++		apk_err(out, "The interrupted transaction can no longer be solved from its journal.");
++		goto out;
++	}
++	int effective = 0;
++	apk_array_foreach(change, set.changes) {
++		if (!journal_change_effective(change)) continue;
++		effective++;
++		bool found = false;
++		if (change->new_pkg) journal_identity(db, change->new_pkg, identity, sizeof identity);
++		for (int i = 0; i < count && !found; i++) {
++			if (changes[i].matched) continue;
++			if (change->new_pkg ?
++			    !apk_blob_compare(changes[i].identity, APK_BLOB_STR(identity)) :
++			    (journal_dash(changes[i].identity) && change->old_pkg &&
++			     !apk_blob_compare(changes[i].old_name, APK_BLOB_STR(change->old_pkg->name->name))))
++				changes[i].matched = found = true;
++		}
++		if (!found) {
++			apk_err(out, "Resumed plan differs from the journal at %s.",
++				(change->new_pkg ?: change->old_pkg)->name->name);
++			r = -1;
++			goto out;
++		}
++	}
++	if (effective != count) {
++		apk_err(out, "Resumed plan has %d changes; the journal recorded %d.", effective, count);
++		r = -1;
++		goto out;
++	}
++	r = apk_solver_commit_changeset(db, &set, world);
++out:
++	apk_change_array_free(&set.changes);
++	apk_dependency_array_free(&solver_world);
++	apk_dependency_array_free(&world);
++	free(changes);
++	free(data.ptr);
++	return r;
++}

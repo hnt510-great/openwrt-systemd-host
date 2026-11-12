@@ -56,6 +56,17 @@ class PreflightTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 self.baseline_in(root)
 
+    def test_baseline_rejects_an_interrupted_apk_transaction(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.baseline_root(root, {'schema': 2, 'phase': 'ready', 'kernels': {GEN: {'kind': 'package'}}})
+            self.baseline_in(root)
+            journal = root / 'lib/apk/db/transaction/journal'
+            journal.parent.mkdir(parents=True)
+            journal.write_text('schema 1\n')
+            with self.assertRaisesRegex(SystemExit, 'interrupted APK transaction'):
+                self.baseline_in(root)
+
     def test_package_router_skips_generation_transition_checks(self):
         baseline = {'model': 'packages', 'abi': None, 'installed': 'P:kmod-nic\nV:1\n\n', 'world': ''}
         G.validate_transition(baseline, [], OLD)

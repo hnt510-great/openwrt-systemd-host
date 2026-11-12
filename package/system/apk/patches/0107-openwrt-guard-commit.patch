@@ -1,0 +1,141 @@
+Subject: [PATCH] apk: finish a started commit before honoring termination
+
+A commit that has begun changing packages now runs to its database write.
+SIGINT, SIGTERM, SIGHUP and SIGQUIT are deferred for the commit window and
+honored afterwards; maintainer scripts run in their own session so terminal
+hangups and job-control signals do not reach them; and on a live root the
+package data is synced before and after the database records it.
+
+---
+--- a/src/commit.c
++++ b/src/commit.c
+@@ -7,6 +7,8 @@
+  * SPDX-License-Identifier: GPL-2.0-only
+  */
+ 
++#include <signal.h>
++#include <stdlib.h>
+ #include <sys/stat.h>
+ #include <unistd.h>
+ #include "apk_defines.h"
+@@ -504,6 +506,71 @@ static int run_commit_hooks(struct apk_d
+ 		NULL);
+ }
+ 
++/* OpenWrt: a commit runs to its database write once it has started.
++ * Termination requests are deferred, maintainer scripts run in their own
++ * session, and package data is durable before the database records it.
++ */
++static const int commit_guard_signals[] = { SIGINT, SIGTERM, SIGHUP, SIGQUIT };
++static struct sigaction commit_guard_saved[ARRAY_SIZE(commit_guard_signals)];
++static volatile sig_atomic_t commit_guard_pending;
++static int commit_guard_depth;
++
++static void commit_guard_handler(int sig)
++{
++	static const char msg[] =
++		"\nPackage changes in progress; stopping after the database is written.\n";
++
++	if (!commit_guard_pending) {
++		commit_guard_pending = sig;
++		if (write(STDERR_FILENO, msg, sizeof msg - 1) < 0) {}
++	}
++}
++
++static void commit_guard_begin(struct apk_database *db)
++{
++	struct sigaction sa = { .sa_handler = commit_guard_handler, .sa_flags = SA_RESTART };
++
++	if (db->ctx->flags & APK_SIMULATE) return;
++	if (commit_guard_depth++) return;
++	sigemptyset(&sa.sa_mask);
++	for (size_t i = 0; i < ARRAY_SIZE(commit_guard_signals); i++)
++		sigaction(commit_guard_signals[i], &sa, &commit_guard_saved[i]);
++}
++
++static void commit_guard_end(struct apk_database *db)
++{
++	if (!commit_guard_depth || --commit_guard_depth) return;
++	for (size_t i = 0; i < ARRAY_SIZE(commit_guard_signals); i++)
++		sigaction(commit_guard_signals[i], &commit_guard_saved[i], NULL);
++	if (commit_guard_pending) {
++		int sig = commit_guard_pending;
++
++		apk_err(&db->ctx->out, "Stopped by signal %d after completing the transaction.", sig);
++		apk_db_close(db);
++		exit(128 + sig);
++	}
++}
++
++/* A live root is the running system: no --root, or --root naming "/". */
++static bool openwrt_live_root(struct apk_database *db)
++{
++	struct stat target, live;
++
++	if (!db->ctx->root_set) return true;
++	return !fstat(db->root_fd, &target) && !stat("/", &live) &&
++		target.st_dev == live.st_dev && target.st_ino == live.st_ino;
++}
++
++static void commit_barrier(struct apk_database *db)
++{
++	struct apk_ctx *ac = db->ctx;
++
++	if ((ac->flags & APK_SIMULATE) || ac->sync == APK_NO || db->usermode) return;
++	if (!openwrt_live_root(db) && !getenv("APK_OPENWRT_JOURNAL")) return;
++	if (syncfs(db->root_fd) != 0)
++		apk_warn(&ac->out, "syncfs failed: %s", apk_error_str(-errno));
++}
++
+ static void sync_if_needed(struct apk_database *db)
+ {
+ 	struct apk_ctx *ac = db->ctx;
+@@ -724,11 +791,16 @@ int apk_solver_commit_changeset(struct a
+ 		if (r > 0) apk_msg(out, "Proceeding with upgrade...");
+ 	}
+ 
+-	if (kernel_policy(db, changeset, "apk-pre", 0) < 0)
++	commit_guard_begin(db);
++	if (kernel_policy(db, changeset, "apk-pre", 0) < 0) {
++		commit_guard_end(db);
+ 		return -1;
++	}
+ 
+-	if (run_commit_hooks(db, PRE_COMMIT_HOOK) == -2)
++	if (run_commit_hooks(db, PRE_COMMIT_HOOK) == -2) {
++		commit_guard_end(db);
+ 		return -1;
++	}
+ 
+ 	/* Go through changes */
+ 	db->indent_level = 1;
+@@ -759,7 +831,9 @@ int apk_solver_commit_changeset(struct a
+ 
+ all_done:
+ 	apk_dependency_array_copy(&db->world, world);
++	commit_barrier(db);
+ 	if (apk_db_write_config(db) != 0) errors++;
++	commit_barrier(db);
+ 	run_commit_hooks(db, POST_COMMIT_HOOK);
+ 	if (kernel_policy(db, changeset, "apk-post", errors) < 0) errors++;
+ 
+@@ -796,6 +870,7 @@ all_done:
+ 				installed_packages);
+ 		}
+ 	}
++	commit_guard_end(db);
+ 	return errors;
+ }
+ 
+--- a/src/process.c
++++ b/src/process.c
+@@ -138,6 +138,9 @@ pid_t apk_process_fork(struct apk_proces
+ 	pid_t pid = fork();
+ 	if (pid < 0) return pid;
+ 	if (pid == 0) {
++		/* OpenWrt: terminal hangups and job-control signals belong to
++		 * the caller, not to maintainer scripts mid-transaction. */
++		setsid();
+ 		dup2(p->pipe_stdin[0], STDIN_FILENO);
+ 		dup2(p->pipe_stdout[1], STDOUT_FILENO);
+ 		dup2(p->pipe_stderr[1], STDERR_FILENO);
