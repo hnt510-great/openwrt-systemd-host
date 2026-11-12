@@ -46,7 +46,7 @@ Signed-off-by: coolsnowwolf <coolsnowwolf@gmail.com>
 +masquerade{% if (fullcone): %} fullcone{% endif %} comment "!fw4: Masquerade{% if (fullcone): %} (Fullcone){% endif %} {{ fw4.nfproto(family, true) }} {{ zone.name }} traffic"
 --- a/root/usr/share/ucode/fw4.uc
 +++ b/root/usr/share/ucode/fw4.uc
-@@ -524,6 +524,21 @@ function nft_try_fullcone() {
+@@ -563,6 +563,21 @@ function nft_try_fullcone() {
  	return ok;
  }
  
@@ -68,7 +68,7 @@ Signed-off-by: coolsnowwolf <coolsnowwolf@gmail.com>
  
  return {
  	read_kernel_version: function() {
-@@ -2069,7 +2084,7 @@ return {
+@@ -2171,7 +2186,7 @@ return {
  		}
  
  		let defs = this.parse_options(data, {
@@ -77,7 +77,7 @@ Signed-off-by: coolsnowwolf <coolsnowwolf@gmail.com>
  			fullcone6: [ "bool", "0" ],
  			input: [ "policy", "drop" ],
  			output: [ "policy", "drop" ],
-@@ -2105,11 +2120,19 @@ return {
+@@ -2207,11 +2222,19 @@ return {
  
  		delete defs.syn_flood;
  
@@ -98,7 +98,7 @@ Signed-off-by: coolsnowwolf <coolsnowwolf@gmail.com>
  		this.state.defaults = defs;
  	},
  
-@@ -2357,9 +2380,11 @@ return {
+@@ -2464,9 +2487,11 @@ return {
  
  		if (zone.masq) {
  			zone.dflags.snat = true;

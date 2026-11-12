@@ -9,7 +9,7 @@ warning when the expression is unavailable.
 ---
 --- a/root/usr/share/ucode/fw4.uc
 +++ b/root/usr/share/ucode/fw4.uc
-@@ -2133,6 +2133,12 @@ return {
+@@ -2235,6 +2235,12 @@ return {
  			warn("nft_try_masq_fullcone failed, disable fullcone globally\n");
  		}
  

@@ -7,7 +7,7 @@ Install a one-time migration while preserving existing user rules.
 
 Signed-off-by: coolsnowwolf <coolsnowwolf@gmail.com>
 ---
---- a/root/etc/uci-defaults/96-wsd-notrack
+--- /dev/null
 +++ b/root/etc/uci-defaults/96-wsd-notrack
 @@ -0,0 +1,36 @@
 +#!/bin/sh
