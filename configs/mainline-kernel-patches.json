@@ -5898,6 +5898,17 @@
       "ported_sha256": "cec472cfd971bb87fc0d38ab2c017576bed0120437b9f39227f00dac20905f8e"
     },
     {
+      "source": "target/linux/generic/pending-6.18/792-wireguard-socket-fix-sticky-source-address-on-p2p.patch",
+      "files": [
+        "drivers/net/wireguard/socket.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt 4d5d291a26 (pending, Cc stable, absent from Linux 7.3.3 and the 7.3.4 stable changelog); the unchanged patch applies to Linux 7.3.3 with zero fuzz on top of the full x86 stack and socket.o builds. Fixes WireGuard IPv4 replies leaving from the LAN address when a LAN peer targets a point-to-point (PPPoE) local address.",
+      "source_sha256": "9312fab4f20deb8856cc16525f59c80f27913e0d665ff270591c902f53b31a80",
+      "ported": "target/linux/generic/pending-7.3/792-wireguard-socket-fix-sticky-source-address-on-p2p.patch",
+      "ported_sha256": "9312fab4f20deb8856cc16525f59c80f27913e0d665ff270591c902f53b31a80"
+    },
+    {
       "source": "target/linux/generic/pending-6.18/805-01-nvmem-u-boot-env-post-process-ignore-quotes.patch",
       "files": [
         "drivers/nvmem/layouts/u-boot-env.c"
