@@ -2,10 +2,11 @@
 
 Implementation and host validation: 2026-11-12, in this checkout. Evidence is
 under `/srv/openwrt-validation/apk-transaction-validation-20261112/` (kept outside
-the repository). No image was built, no VM was booted, nothing was published,
-and no physical device was flashed or changed. The physical router was only
-inspected read-only during design: its overlay layout, its tmpfs APK cache and
-rpcd's cgroup and `KillMode`.
+the repository). An exact image was built (build-only, kernel generation 61)
+and tested in a disposable KVM guest. Nothing was published, and no physical
+device was flashed or changed. The physical router was only inspected
+read-only during design: its overlay layout, its tmpfs APK cache and rpcd's
+cgroup and `KillMode`.
 
 Guide: [apk-transaction-recovery.md](apk-transaction-recovery.md).
 
@@ -63,18 +64,52 @@ point. It covers:
 - **SIGKILL during a resume:** the journal stays, `attempt` becomes 1, and a
   second `apk-resume` completes.
 
+## Exact-image VM gate
+
+| Item | Value |
+| --- | --- |
+| Image | `image/openwrt-x86-64-generic-squashfs-combined-efi.img.gz` (frozen copy of the build-only output) |
+| Image SHA-256 | `663525c5b4f0779c7d8faa83f5ce6e9a1fa795b581327306dc07a5170cfcc15a` |
+| Image contents | `apk-mbedtls 3.0.5-r18`, `apk-transaction-guard 1-r1`, `linux-image-7.3.4-61-openwrt` |
+| Driver | `python3 scripts/tests/test-apk-transaction-vm.py --image … --work-dir vm-5` |
+| Receipt | `vm-5/validation.json`, `vm-5.log`, `vm-5/vm/serial.log` |
+
+The driver boots the image through `scripts/tests/kernel-upgrade/vm-console.py`
+(qcow2 over the raw image, UEFI, isolated user networking). The build's signed
+feeds are served from a read-only ext4 NVMe disk, because this kernel has
+`CONFIG_NET_9P_VIRTIO` unset and the harness's 9p share cannot mount.
+
+| Check | Result |
+| --- | --- |
+| Image carries apk r18, the `00-transaction-scope` hook and an enabled `apk-resume.service` | Pass |
+| apk started inside a `KillMode=mixed` service (`fake-rpcd`, standing in for rpcd) is moved to `apk-transaction-<pid>.scope` | Pass |
+| Shutdown block inhibitor "Package transaction in progress" is listed | Pass |
+| `systemctl reboot` during the commit | Refused: `Operation inhibited by "apk" … "Package transaction in progress"` |
+| `systemctl stop fake-rpcd` during the commit | apk survived and completed (`OK:`); no journal left |
+| Power cut: `apk add --force-reinstall` of 81 packages (the 80 largest non-core packages plus rpcd), QMP `system_reset` after 28 had started | Journal present with 81 changes, `payloads 1` |
+| Next boot: `apk-resume.service` | `Result=success`; all 81 changes completed **offline from the journal** in 32 s (feeds disk not mounted) |
+| Ordering | resume exited at 50.636756 s; `openwrt-services.service` started at 50.640922 s |
+| `apk-resume --status` / journal directory | Nothing pending; `/lib/apk/db/transaction` absent |
+| `apk audit --system --packages` | No package of the transaction newly reported |
+| `apk fix --simulate` | Nothing to repair |
+| `systemctl is-system-running` | `running` |
+
+Runs `vm-1` to `vm-4` are kept for completeness:
+
+- `vm-1` and `vm-2`: the 9p mount failed.
+- `vm-3`: an untracked launch, stopped by hand.
+- `vm-4`: same product behavior as `vm-5`, but three checks were wrong:
+  - the inhibitor table was truncated on the 80-column console;
+  - it read a oneshot unit's `ActiveEnter` timestamp, which is 0;
+  - it took the exit status of a trailing `ls`.
+
 ## Not covered
 
 | Item | Status |
 | --- | --- |
-| Exact-image VM: power cut (`system_reset`) during a multi-package upgrade, `apk-resume.service` ordering before `openwrt-services.service`, kernel package registered in GRUB after resume | Not performed |
-| LuCI upgrade that restarts rpcd surviving in its scope | Not performed (scope move proven on the host's systemd only) |
-| `reboot`/`systemctl reboot` refusal while the inhibitor is held | Not performed; inhibitor registration only |
-| procd-mode rc script and the `/rom` loader fallback in `apk-resume` | Not performed |
-| Journal without payload copies (low space, no cache) resuming from the network | Code path not exercised by the host test |
+| A real version upgrade (old → new identities) cut in the VM | Not performed; the VM transaction reinstalls the image's own versions. Old → new resume is covered by the host test. |
+| Kernel package in the VM power-cut transaction, GRUB entry after resume | Not performed in the VM; the database-phase `kernelctl apk-post` replay is covered by the host test |
+| Upgrade through LuCI's real rpcd | Approximated by a `KillMode=mixed` service; rpcd itself was not restarted |
+| Cut during a C library or systemd write; procd-mode rc script; `/rom` loader fallback in `apk-resume` | Not performed |
+| Journal without payload copies (low space, no cache) resuming from the network | Not exercised |
 | Physical router | Not deployed |
-
-These need an image built with apk r18 and `apk-transaction-guard` before a VM
-gate. The first live use of the patched APK on a router is also the first
-upgrade that the journal can protect; the APK self-upgrade itself runs under
-the old binary.
