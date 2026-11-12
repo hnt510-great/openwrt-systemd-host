@@ -188,6 +188,16 @@ before assuming one is active.
   WS-Discovery (UDP 3702) multicast is not conntracked. An existing section of
   the same name, including a disabled one, is kept; the LAN input policy still
   applies. Rules live in the `notrack_lan` chain.
+- **Wireless AP**: the onboard Intel Wi-Fi 6 AX101 (`phy0`, iwlwifi) runs one
+  access point, `phy0-ap0`, bridged into `br-lan` and managed by `wpad`
+  (`openwrt-wpad@hostapd.service`). Configure it in `/etc/config/wireless`
+  or LuCI *Network → Wireless*; it is not a separate interface on *Network →
+  Interfaces*. Only 2.4 GHz works for AP mode: the card's firmware keeps its
+  own regulatory domain (`iw reg get` shows `phy#0 (self-managed)`) and marks
+  every 5 GHz channel no-IR whatever `country` is set, and no firmware update
+  changes that. 5 GHz needs an additional non-Intel radio. `iwinfo`,
+  `hostapd_cli` and LuCI *Services → Wifi Schedule* (installed disabled) are
+  available.
 
 ```sh
 uci -q get firewall.@defaults[0].fullcone
@@ -195,6 +205,7 @@ nft list chain inet fw4 notrack_lan
 nft list chain inet fw4 srcnat_wan
 uci show daed; uci -q get passwall.@global[0].enabled
 /etc/init.d/daed status
+ubus call network.wireless status; iwinfo phy0-ap0 info
 ```
 
 ## Optional capabilities
