@@ -100,11 +100,22 @@ root-owned 0600 because of the harness shell's `umask 077`, without sudo. An
 earlier attempt ran out of host disk space while copying the image; the
 harnesses now delete their raw image copies and overlays when they finish.
 
+## Publication
+
+Published on 2026-11-12 with `scripts/publish-changed-feeds.sh` after a
+passing `--dry-run`, from the committed tree rebuilt with
+`build-and-publish.py build-only` (kernel sequence 62 reused; base-files
+`1760.14` after the commit count changed). The router upgrade simulation
+against the installed router passed with no blockers and 264 package changes,
+mostly kernel generation 61 to 62. Userspace snapshot:
+`/srv/openwrt-feeds/public/snapshots/20261112T110343.841044Z`; kernel
+snapshot: `/srv/openwrt-feeds/public/kernel-snapshots/1794481464331660230`.
+Nothing was installed on the router.
+
 ## Scope
 
 This was KVM and nested AMD KVM validation on the build host. No physical
-device was flashed, no APKs were published, and nothing was installed on the
-router. Windows guests (viofs/WinFsp), virt-manager's GUI filesystem dialog,
+device was flashed and nothing was installed on the router. Windows guests (viofs/WinFsp), virt-manager's GUI filesystem dialog,
 live migration, DAX and `accessmode='mapped'`/ID mapping were not tested. An
 OpenWrt guest running under libvirt on an OpenWrt host (as opposed to under
 plain QEMU on the build host) was not run end to end.
