@@ -249,3 +249,40 @@ This involved no physical desktop restart or router deployment.
 Evidence: `/srv/openwrt-validation/installer-validation-20261107/`, especially
 `manual-installed-diagnostic.log`, `manual-gnome-check.log` and
 `desktop-coldplug-tests.log`.
+
+## RDP mode changes during a session — 2026-11-12
+
+Changing the physical router's display mode in Settings > Displays during a
+Remmina session intermittently disconnected the client. The router has Intel
+Raptor Lake UHD graphics (i915, Mesa iris 26.2.2) and runs Mutter 51.1-r1 and
+PipeWire 1.6.11-r1. The RDP server used the GL view path; Vulkan did not
+initialize on this device. The 2560-wide modes came from a device-local EDID
+override that is not part of the firmware.
+
+| Check | Result |
+| --- | --- |
+| r7, mode switches that changed the width | 3 of 3 disconnected: 1920x1080 → 2560 wide (no debug logging), then 2560x1440 → 3840x2160 twice with debug logging. Each logged `Failed to import DMA buffer as EGL image: 12291` (`EGL_BAD_ALLOC`), then `ERRINFO_GRAPHICS_SUBSYSTEM_FAILED` |
+| r7, same-width switches | 5 stream rebuilds (2560x1440 ↔ 2560x1600 and scale changes) with no failure |
+| Stream sequence | A mode change closes Mutter's monitor stream, and the layout manager creates a new one. About 10 ms after a new stream starts, Mutter renegotiates its format with the device modifier list. Both failures logged with debug logging fell inside that renegotiation, after `clear buffers 8` and before the stream's `param_changed` |
+| Failing import, captured with `gdb` at `eglGetError` | Attributes 3840x2160 `XR24`, offset 0, pitch 15360, modifier `0x0100000000000002` (Y-tiled), all correct. The fd, 109, was an `anon_inode:syncobj_file`; the process had no dma-buf fd open at that moment |
+| EGL import probe on the router | Linear, X-tiled and Y-tiled buffers import at 1920x1080, 2560x1440, 2560x1600, 3840x2160 and 4096x2160, so size is not the cause. `EGL_BAD_ALLOC` is reproduced only when the declared width exceeds the buffer's (ruled out by the capture above) or when the fd is not a dma-buf |
+| Package build | `make package/custom/gnome-remote-desktop/{clean,compile}` passed with patch 007 applied |
+| Publication | Dry run and production publication each changed only `gnome-remote-desktop` 51.0-r7 → r8, with `same_version_rebuilds=[]`, the kernel channel unchanged and the router's full upgrade preflight passed. Snapshot `/srv/openwrt-feeds/public/snapshots/20261112T153501.894537Z` |
+| Router installation | `apk update` and `apk add -u gnome-remote-desktop` installed r8 from the feed; only the user `gnome-remote-desktop.service` was restarted |
+| r8, 2560x1440 → 3840x2160 → 2560x1440 in one Remmina session | 2 stream rebuilds; 0 import, graphics-subsystem or fd-duplication failures; the session stayed connected. The process held 16 dma-buf fds for 8 buffers (PipeWire's plus the server's duplicates) |
+
+Package SHA256:
+`e71d24062e661df4445eeb8f950063ed69a4acbc67b8619ff598344c31493a8a`.
+
+The failure is a race. r8 has been exercised for one widening and one
+narrowing switch, against 3 of 3 failures with r7. No Windows client was tested,
+and neither the Vulkan nor the NVIDIA path was exercised. Upstream's
+`on_stream_remove_buffer()` removes its table entry by the wrong key; stale
+entries are replaced when PipeWire reuses the buffer pointer. That behaviour is
+unchanged. The temporary debug drop-in and `gdb` attachment were removed after
+the run.
+
+Evidence: `/srv/openwrt-validation/grd-dmabuf-fd-validation-20261112/`, including
+`r7-gdb-eglGetError.txt`, `r7-fds-at-failure.txt`,
+`r7-debug-session-full.log`, `r8-session.log`, the publication JSON reports
+and the `egl-probes/` sources.

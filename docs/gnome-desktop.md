@@ -137,6 +137,19 @@ LAN address. LAN changes replace the listener environment and restart remote
 services without replacing GNOME. RDP does not negotiate another port or bind
 a wildcard address. The default is TCP 3389 on LAN IPv4 only.
 
+RDP shares the local monitor, so changing its mode or scale in Settings >
+Displays during a session closes Mutter's screen-cast stream. The server
+creates a new stream, resets the RDP graphics pipeline, and the client follows
+the new desktop size without reconnecting. Each new stream renegotiates its
+buffers right after it starts. Upstream 51.0 kept only PipeWire's borrowed
+dma-buf fd. If PipeWire closed it while a frame was still queued, the import
+used a dead or reused fd. The log then shows
+`Failed to import DMA buffer as EGL image: 12291` followed by
+`ERRINFO_GRAPHICS_SUBSYSTEM_FAILED`, and the client disconnects. Patch 007
+(`gnome-remote-desktop` 51.0-r8) keeps the server's own duplicate of each
+dma-buf fd for the buffer's lifetime. See the
+[r8 validation](gnome-desktop-validation.md#rdp-mode-changes-during-a-session--2026-11-12).
+
 Sunshine retains its user's configuration, pairing state, PipeWire audio,
 uinput enrollment and the Intel 8086:4e61 H.264-only encoder workaround.
 Portal capture may require an initial screen-selection permission in GNOME;

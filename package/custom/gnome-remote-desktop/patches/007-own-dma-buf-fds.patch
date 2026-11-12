@@ -1,0 +1,85 @@
+rdp/pw-buffer: Keep an own reference to dma-buf fds
+
+The dma-buf fd of a PipeWire buffer is owned by the PipeWire memory pool.
+Every new mutter screen-cast stream renegotiates right after it starts
+streaming (device negotiation). When that happens, the pool can close the
+dma-buf fds before the buffers are removed from the stream, while a frame
+of one of those buffers is still waiting for its image view. The cached fd
+number may already have been reused (observed: a syncobj fd), so the EGL
+dma-buf import fails with EGL_BAD_ALLOC and the RDP session is terminated
+with ERRINFO_GRAPHICS_SUBSYSTEM_FAILED. This shows up as an intermittent
+disconnect when the monitor mode is changed during a session.
+
+Duplicate the fd when the buffer is added and close it when the buffer is
+freed, as is already done for the syncobj fds.
+Index: gnome-remote-desktop-51.0/src/grd-rdp-pw-buffer.c
+===================================================================
+--- gnome-remote-desktop-51.0.orig/src/grd-rdp-pw-buffer.c
++++ gnome-remote-desktop-51.0/src/grd-rdp-pw-buffer.c
+@@ -21,6 +21,7 @@
+ 
+ #include "grd-rdp-pw-buffer.h"
+ 
++#include <fcntl.h>
+ #include <glib/gstdio.h>
+ #include <sys/mman.h>
+ 
+@@ -170,17 +171,34 @@ is_supported_dma_buf_buffer (struct pw_b
+ }
+ 
+ static GrdRdpPwBufferDmaBufInfo *
+-dma_buf_info_new (struct pw_buffer *pw_buffer)
++dma_buf_info_new (struct pw_buffer  *pw_buffer,
++                  GError           **error)
+ {
+   struct spa_buffer *spa_buffer = pw_buffer->buffer;
+-  GrdRdpPwBufferDmaBufInfo *dma_buf_info;
++  g_autofree GrdRdpPwBufferDmaBufInfo *dma_buf_info = NULL;
+ 
+   dma_buf_info = g_new0 (GrdRdpPwBufferDmaBufInfo, 1);
+-  dma_buf_info->fd = spa_buffer->datas[0].fd;
++
++  /*
++   * The dma-buf fd is owned by the PipeWire memory pool. When the stream is
++   * renegotiated, the pool may close it (and the fd number may be reused)
++   * before the buffer is removed from the stream, while a frame of this
++   * buffer is still waiting to be imported. Keep an own reference to the
++   * dma-buf for as long as this buffer exists.
++   */
++  dma_buf_info->fd = fcntl (spa_buffer->datas[0].fd, F_DUPFD_CLOEXEC, 3);
++  if (dma_buf_info->fd == -1)
++    {
++      g_set_error (error, G_IO_ERROR, g_io_error_from_errno (errno),
++                   "Failed to duplicate dma-buf file descriptor: %s",
++                   g_strerror (errno));
++      return NULL;
++    }
++
+   dma_buf_info->offset = spa_buffer->datas[0].chunk->offset;
+   dma_buf_info->stride = spa_buffer->datas[0].chunk->stride;
+ 
+-  return dma_buf_info;
++  return g_steal_pointer (&dma_buf_info);
+ }
+ 
+ static gboolean
+@@ -248,7 +266,9 @@ grd_rdp_pw_buffer_new (struct pw_stream
+       struct spa_buffer *spa_buffer = rdp_pw_buffer->pw_buffer->buffer;
+       int acquire_syncobj_fd, release_syncobj_fd;
+ 
+-      rdp_pw_buffer->dma_buf_info = dma_buf_info_new (pw_buffer);
++      rdp_pw_buffer->dma_buf_info = dma_buf_info_new (pw_buffer, error);
++      if (!rdp_pw_buffer->dma_buf_info)
++        return NULL;
+ 
+       if (grd_spa_buffer_find_syncobj_fds (spa_buffer,
+                                            &acquire_syncobj_fd,
+@@ -291,6 +311,8 @@ void
+ grd_rdp_pw_buffer_free (GrdRdpPwBuffer *rdp_pw_buffer)
+ {
+   maybe_unmap_buffer (rdp_pw_buffer);
++  if (rdp_pw_buffer->dma_buf_info)
++    g_clear_fd (&rdp_pw_buffer->dma_buf_info->fd, NULL);
+   g_clear_pointer (&rdp_pw_buffer->dma_buf_info, g_free);
+ 
+   g_clear_fd (&rdp_pw_buffer->acquire_syncobj_fd, NULL);
