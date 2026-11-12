@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-mkdir -p /srv/libvirt/state /srv/libvirt/images /var/lib/libvirt
+mkdir -p /srv/libvirt/state /srv/libvirt/images /srv/libvirt/shares /var/lib/libvirt
 mkdir -p /run/libvirt/qemu /var/cache/libvirt/qemu /var/log/libvirt/qemu
 mkdir -p /srv/libvirt/state/qemu /srv/libvirt/state/lockd
 mkdir -p /srv/libvirt/state/secrets
@@ -18,7 +18,7 @@ if [ ! -e "$key" ]; then
 	trap - EXIT HUP INT TERM
 fi
 chmod 0600 "$key"
-chmod 0755 /srv/libvirt /srv/libvirt/state /srv/libvirt/images
+chmod 0755 /srv/libvirt /srv/libvirt/state /srv/libvirt/images /srv/libvirt/shares
 chown libvirt-qemu:libvirt-qemu /srv/libvirt/state/qemu /srv/libvirt/images
 chown swtpm:swtpm /srv/libvirt/state/swtpm-localca
 chmod 0750 /srv/libvirt/state/swtpm-localca
