@@ -1,0 +1,153 @@
+#!/bin/sh
+# Finish an APK transaction that was cut off by power loss, a crash or SIGKILL.
+#
+# The patched APK keeps a journal in /lib/apk/db/transaction while it changes
+# packages: the target world, the exact package identities, the signed indexes
+# and copies of the verified payloads. This tool replays that transaction with
+# "apk fix --openwrt-resume", offline when the payload copies are present.
+
+usage() {
+	cat <<'EOF'
+Usage: apk-resume [--status] [--root DIR]
+
+Without options, finish an interrupted APK transaction if one is recorded.
+  --status    describe the recorded transaction; exit 1 while one is pending
+  --root DIR  operate on another root (testing and offline repair)
+
+Exit status: 0 nothing to do or finished, 1 failed or pending, 2 usage,
+75 another APK process is still running.
+EOF
+}
+
+ROOT=
+STATUS=0
+while [ $# -gt 0 ]; do
+	case "$1" in
+	--status) STATUS=1 ;;
+	--root)
+		[ $# -ge 2 ] || { usage >&2; exit 2; }
+		ROOT=${2%/}
+		shift
+		;;
+	-h|--help) usage; exit 0 ;;
+	*) usage >&2; exit 2 ;;
+	esac
+	shift
+done
+
+DIR="$ROOT/lib/apk/db/transaction"
+JOURNAL="$DIR/journal"
+MOTD="$ROOT/run/motd.d/50-apk-resume"
+
+log() {
+	echo "apk-resume: $*" >&2
+	[ -z "$ROOT" ] && command -v logger >/dev/null 2>&1 && logger -t apk-resume -- "$*"
+	return 0
+}
+
+field() {
+	sed -n "s/^$1 //p" "$JOURNAL" | head -n 1
+}
+
+pending_note() {
+	[ -n "$ROOT" ] && return 0
+	mkdir -p "${MOTD%/*}" 2>/dev/null || return 0
+	cat >"$MOTD" 2>/dev/null <<'EOF'
+An interrupted APK package transaction is still pending.
+Run "apk-resume --status" for details and "apk-resume" to finish it.
+EOF
+}
+
+if [ ! -f "$JOURNAL" ]; then
+	rm -f "$MOTD" 2>/dev/null
+	[ "$STATUS" = 1 ] && echo "No interrupted APK transaction."
+	exit 0
+fi
+
+if [ "$STATUS" = 1 ]; then
+	started=$(field started)
+	when=$(date -d "@$started" 2>/dev/null || echo "$started")
+	if [ -e "$DIR/phase-database" ]; then
+		phase="database written; post-commit actions pending (or database write cut off)"
+	else
+		phase="package files being written"
+	fi
+	if [ "$(field payloads)" = 1 ]; then
+		source="offline (journal keeps the package payloads)"
+	else
+		source="network (configured repositories)"
+	fi
+	echo "Interrupted APK transaction"
+	echo "  started:  $when"
+	echo "  attempts: $(field attempt)"
+	echo "  phase:    $phase"
+	echo "  payloads: $source"
+	echo "  changes:  $(grep -c '^change ' "$JOURNAL")"
+	exit 1
+fi
+
+# The database lock is held for a whole commit: a held lock is a live APK.
+if command -v flock >/dev/null 2>&1 && [ -e "$ROOT/lib/apk/db/lock" ] &&
+   ! flock -n "$ROOT/lib/apk/db/lock" true 2>/dev/null; then
+	log "another APK process holds the database lock; not resuming now"
+	exit 75
+fi
+
+APK=${APK_RESUME_APK:-/usr/bin/apk}
+set --
+if [ -z "$APK_RESUME_APK" ] && ! "$APK" --version >/dev/null 2>&1; then
+	# A cut-off upgrade can leave the live APK unable to load its libraries.
+	# The read-only image keeps a consistent APK and C library.
+	loader=$(ls /rom/usr/lib/ld-linux-*.so.* 2>/dev/null | head -n 1)
+	if [ -x /rom/usr/bin/apk ] && [ -n "$loader" ] &&
+	   "$loader" --library-path /rom/usr/lib /rom/usr/bin/apk --version >/dev/null 2>&1; then
+		log "the installed apk cannot run; using the read-only image's apk"
+		APK=$loader
+		set -- --library-path /rom/usr/lib /rom/usr/bin/apk
+	else
+		log "no working apk is available"
+		pending_note
+		exit 1
+	fi
+fi
+
+REPOS=
+cleanup() {
+	[ -n "$REPOS" ] && rm -f "$REPOS"
+}
+trap cleanup EXIT
+
+if [ "$(field payloads)" = 1 ]; then
+	REPOS=$(mktemp "${TMPDIR:-/tmp}/apk-resume.XXXXXX") || exit 1
+	sed -n 's/^repo //p' "$JOURNAL" | while read -r index name tags; do
+		path="$DIR/repo/$index/$name"
+		for tag in $tags; do
+			if [ "$tag" = - ]; then
+				echo "$path"
+			else
+				echo "$tag $path"
+			fi
+		done
+	done >"$REPOS"
+	set -- "$@" --repositories-file "$REPOS" --no-network --no-cache
+	log "finishing the interrupted transaction offline from the journal"
+else
+	log "finishing the interrupted transaction from the configured repositories"
+fi
+[ -n "$ROOT" ] && set -- "$@" --root "$ROOT"
+
+# shellcheck disable=SC2086 # APK_RESUME_ARGS is a deliberate word list
+"$APK" "$@" $APK_RESUME_ARGS fix --openwrt-resume
+rc=$?
+if [ "$rc" = 0 ] && [ ! -f "$JOURNAL" ]; then
+	rm -f "$MOTD" 2>/dev/null
+	log "the interrupted transaction is complete"
+	exit 0
+fi
+if [ "$rc" = 0 ]; then
+	log "apk finished with package errors; the journal was kept"
+else
+	log "apk exited with status $rc; the journal was kept"
+fi
+pending_note
+exit 1

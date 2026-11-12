@@ -1,0 +1,46 @@
+#!/bin/sh
+# Keep an APK commit alive when its caller's service is restarted, and block
+# an ordinary shutdown until the transaction has written its database.
+#
+# Runs as a pre-commit hook: the parent process is the committing apk. Every
+# failure here is a warning only; the transaction journal still covers it.
+[ "$1" = pre-commit ] || exit 0
+[ -d /run/systemd/system ] || exit 0
+apk=$PPID
+[ -r "/proc/$apk/comm" ] || exit 0
+
+if command -v systemd-run >/dev/null 2>&1 && command -v systemd-inhibit >/dev/null 2>&1; then
+	# A transient service is owned by systemd, not by the caller's cgroup.
+	systemd-run --quiet --collect --no-block \
+		--unit="apk-transaction-inhibit-$apk" \
+		--description="Hold shutdown during APK transaction $apk" \
+		systemd-inhibit --what=shutdown:sleep --mode=block --who=apk \
+		--why="Package transaction in progress" \
+		/bin/sh -c 'while [ -d "/proc/$0" ]; do sleep 1; done' "$apk" \
+		</dev/null >/dev/null 2>&1 ||
+		echo "warning: unable to block shutdown during this transaction" >&2
+fi
+
+if command -v busctl >/dev/null 2>&1; then
+	# Move apk into its own scope; its later children (maintainer scripts)
+	# follow it. Restarting rpcd or another caller no longer kills apk.
+	busctl call org.freedesktop.systemd1 /org/freedesktop/systemd1 \
+		org.freedesktop.systemd1.Manager StartTransientUnit 'ssa(sv)a(sa(sv))' \
+		"apk-transaction-$apk.scope" fail 3 \
+		PIDs au 1 "$apk" \
+		Description s "APK package transaction" \
+		CollectMode s inactive-or-failed \
+		0 >/dev/null 2>&1 ||
+		{ echo "warning: unable to move this transaction out of its caller's service" >&2; exit 0; }
+	# The move is a queued job; let it finish before packages are written.
+	tries=0
+	until grep -q "/apk-transaction-$apk.scope\$" "/proc/$apk/cgroup" 2>/dev/null; do
+		tries=$((tries + 1))
+		if [ "$tries" -gt 50 ]; then
+			echo "warning: this transaction did not reach its own scope" >&2
+			break
+		fi
+		sleep 0.1
+	done
+fi
+exit 0

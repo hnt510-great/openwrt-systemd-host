@@ -1,0 +1,18 @@
+[Unit]
+Description=Finish an interrupted APK package transaction
+# Maintainer scripts register services with procd over ubus, so both must be
+# up; router services must not start on a half-written package set.
+After=local-fs.target openwrt-ubusd.service openwrt-procd.service
+Wants=openwrt-ubusd.service openwrt-procd.service
+Before=openwrt-services.service multi-user.target
+ConditionPathExists=/lib/apk/db/transaction/journal
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/apk-resume
+TimeoutStartSec=30min
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

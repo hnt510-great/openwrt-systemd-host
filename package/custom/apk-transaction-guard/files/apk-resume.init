@@ -1,0 +1,13 @@
+#!/bin/sh /etc/rc.common
+# procd and recovery boots; with systemd as PID 1, apk-resume.service runs it.
+START=11
+
+boot() {
+	[ -d /run/systemd/system ] && return 0
+	[ -f /lib/apk/db/transaction/journal ] || return 0
+	/usr/sbin/apk-resume
+}
+
+start() {
+	return 0
+}

@@ -14,6 +14,10 @@
       "filename_pattern": "adwaita\\-icon\\-theme\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/adwaita-icon-theme/"
     },
+    "apk-transaction-guard": {
+      "provider": "local",
+      "reason": "Locally maintained integration package"
+    },
     "appstream": {
       "provider": "github",
       "policy": "series",

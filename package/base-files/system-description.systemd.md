@@ -348,6 +348,17 @@ alternative that keeps the installed kernel packages. Keep world constraints, si
 checks and kernel protection hooks intact. An APK upgrade or reinstall starts
 an init script only where it is enabled; it does not start disabled services.
 
+An APK commit that has started runs to its database write: Ctrl-C, SIGTERM
+and SSH hangups are deferred until then, and with `apk-transaction-guard` the
+commit leaves its caller's service (a LuCI-driven upgrade survives an rpcd
+restart) and blocks an ordinary shutdown. Power loss, a crash or SIGKILL
+leaves a journal in `/lib/apk/db/transaction/`; `apk-resume.service` finishes
+that transaction at the next boot before router services start, offline from
+the journal's package copies, and further APK commits are refused until it is
+done. Check with `apk-resume --status`; run `apk-resume` by hand if the boot
+attempt failed (from failsafe, after `mount_root`). Do not delete the journal
+to get APK working again.
+
 OpenWrt rootfs/overlay and sysupgrade conventions still apply. Inspect `mount`
 and `/etc/config/fstab` to determine the actual persistent storage and extroot
 layout; `/var` may point into `/tmp`.
