@@ -3,7 +3,7 @@
 This package targets x86_64/glibc with CONFIG_OPENWRT_SYSTEMD=y. It provides
 libvirt 12.9.0, virsh, modular QEMU/secret/directory-storage daemons, the
 node-device and network-filter daemons, virtlogd and virtlockd, plus UEFI
-(OVMF) firmware and the swtpm virtual TPM. Select CONFIG_PACKAGE_libvirt-daemon=y and
+(OVMF) firmware, the swtpm virtual TPM and virtiofsd for virtio-fs shares. Select CONFIG_PACKAGE_libvirt-daemon=y and
 CONFIG_PACKAGE_virsh=y, run make defconfig, then build:
 
     make package/custom/libvirt/compile -j4 V=s
@@ -284,6 +284,102 @@ guest's traffic after it passes the filter.
 
 Nested-VM results for UEFI, vTPM, passthrough and network filters are recorded
 in [libvirt-uefi-passthrough-validation.md](libvirt-uefi-passthrough-validation.md).
+
+## Sharing host directories (virtio-fs)
+
+`libvirt-daemon` pulls in `virtiofsd` 1.14 (the Rust vhost-user daemon from
+the virtio-fs project). It is installed as `/usr/libexec/virtiofsd` with the
+QEMU descriptor `/usr/share/qemu/vhost-user/50-virtiofsd.json`, which is how
+virtqemud finds it; no `qemu.conf` setting is needed. For each `<filesystem>`
+with `<driver type='virtiofs'/>`, virtqemud starts one virtiofsd as root,
+with its namespace sandbox and seccomp filter, and stops it with the guest.
+Check support with:
+
+    virsh domcapabilities --machine q35 | sed -n '/<filesystem/,/<\/filesystem>/p'
+    /usr/libexec/virtiofsd --version
+
+vhost-user devices need guest RAM that virtiofsd can map, so the domain must
+use shared memfd memory backing:
+
+```xml
+<memoryBacking>
+  <source type='memfd'/>
+  <access mode='shared'/>
+</memoryBacking>
+...
+<filesystem type='mount' accessmode='passthrough'>
+  <driver type='virtiofs' queue='1024'/>
+  <source dir='/srv/libvirt/shares/shared'/>
+  <target dir='shared'/>
+  <!-- optional: <readonly/> -->
+</filesystem>
+```
+
+A complete example is `/usr/share/libvirt/examples/openwrt-virtiofs-vm.xml`.
+In virt-manager, enable *Memory → Enable shared memory* and add
+*Filesystem* with the `virtiofs` driver. In a Linux guest, mount the target tag:
+
+    mount -t virtiofs shared /mnt
+    # /etc/fstab: shared /mnt virtiofs defaults 0 0
+
+Windows guests need the virtio-win `viofs` driver and the WinFsp-based
+VirtIO-FS service.
+
+`/srv/libvirt/shares` is created (root, 0755) as a place for shared
+directories; any host directory works. `accessmode='passthrough'` keeps the
+host's numeric UIDs and GIDs, and virtiofsd runs as root, so a guest's root
+user can create root-owned files and read anything in the shared tree that
+host root can. Share only dedicated directories, never `/`, `/etc` or the
+libvirt state directory, and add `<readonly/>` when the guest does not need
+to write. Shared directories are not part of the firmware backup.
+
+Memory backing is fixed when the guest starts: add it to the definition and
+restart the guest before attaching a virtio-fs filesystem. The daemon's
+log is `/var/log/libvirt/qemu/DOMAIN-fsN-virtiofsd.log` (for example
+`openwrt-virtiofs-vm-fs0-virtiofsd.log`). Restarting virtqemud does not stop a
+running guest's virtiofsd.
+On the overlay root it warns that file handles are unsupported and falls back
+to `O_PATH` file descriptors; this is expected.
+
+### OpenWrt as a virtio-fs guest
+
+When this firmware itself runs as a QEMU/KVM guest (on this router or another
+host), `kmod-fs-virtiofs` provides the guest driver (`CONFIG_VIRTIO_FS`,
+module `virtiofs`, with `kmod-fuse`). It is selected in the native-systemd
+configuration; the module is loaded when the virtio-fs device appears. Mount
+the host's target tag:
+
+    mkdir -p /mnt/host
+    mount -t virtiofs shared /mnt/host
+
+To mount it at every boot, use a systemd mount unit; OpenWrt's `block`/fstab
+UCI configuration does not handle virtio-fs:
+
+```ini
+# /etc/systemd/system/mnt-host.mount
+[Unit]
+Description=Host share over virtio-fs
+
+[Mount]
+What=shared
+Where=/mnt/host
+Type=virtiofs
+Options=nofail
+
+[Install]
+WantedBy=multi-user.target
+```
+
+    systemctl daemon-reload
+    systemctl enable --now mnt-host.mount
+
+The unit file is under `/etc` and is kept by the configuration backup;
+add `/etc/systemd/system/mnt-host.mount` to `/etc/sysupgrade.conf` if
+`sysupgrade -l` does not list it. The host must start the guest with shared
+memory and a virtio-fs device as described above.
+
+Nested-VM results are recorded in
+[virtiofs-validation.md](virtiofs-validation.md).
 
 ## Graphics examples
 

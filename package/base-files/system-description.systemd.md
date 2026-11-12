@@ -320,6 +320,16 @@ tables and do not modify firewall4. Guests attach to OpenWrt bridges such as
 `br-lan`; libvirt virtual networks (`virbr*`) and interface management are
 not built and report `VIR_ERR_NO_SUPPORT` instead of failing on absent daemon
 sockets.
+Host directories can be shared with guests over virtio-fs: libvirt starts
+`/usr/libexec/virtiofsd` (found through
+`/usr/share/qemu/vhost-user/50-virtiofsd.json`) as root for each
+`<filesystem>` with `<driver type='virtiofs'/>`; the guest needs shared
+memfd memory backing and its own virtio-fs driver. Its log is
+`/var/log/libvirt/qemu/DOMAIN-fsN-virtiofsd.log`, and
+`/srv/libvirt/shares` is a suggested location for shared directories. When
+this firmware itself runs as a KVM guest, `kmod-fs-virtiofs` lets it mount a
+host share (`mount -t virtiofs TAG /mnt/...`, or a systemd `.mount` unit for
+boot-time mounts).
 Restarting `virtqemud` does not shut guests down. Installed virtualization
 tools or an active daemon do not establish that any guest is running.
 
