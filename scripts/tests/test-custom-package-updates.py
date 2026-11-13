@@ -599,6 +599,56 @@ class UpdateTests(unittest.TestCase):
         self.execute(updater)
         self.assertEqual(updater.report['packages']['firefox']['new_version'], '153.5.0esr')
 
+    CHROME_INDEX = 'https://dl.google.com/linux/chrome/deb/dists/stable/main/binary-amd64/Packages'
+
+    def chrome_recipe(self):
+        path = self.root / 'package/custom/chrome/Makefile'
+        path.parent.mkdir(parents=True)
+        path.write_text('PKG_NAME:=chrome\nPKG_VERSION:=157.0.8103.78\nPKG_RELEASE:=2\n'
+                        'PKG_SOURCE:=google-chrome-stable_$(PKG_VERSION)-1_amd64.deb\n'
+                        'PKG_SOURCE_URL:=https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/\n'
+                        'PKG_HASH:=' + 'a' * 64 + '\n')
+        self.entries['chrome'] = {'provider': 'chrome', 'policy': 'stable', 'channel': 'stable'}
+        return path
+
+    def chrome_index(self, version, digest, package='google-chrome-stable'):
+        return (f'Package: {package}\nVersion: {version}-1\n'
+                f'Filename: pool/main/g/{package}/{package}_{version}-1_amd64.deb\n'
+                f'SHA256: {digest.upper()}\n')
+
+    def test_chrome_tracks_newest_stable_major_and_verifies_index_digest(self):
+        path = self.chrome_recipe()
+        payload = b'!<arch>\nfixture chrome archive'
+        digest = hashlib.sha256(payload).hexdigest()
+        self.fetcher.data[self.CHROME_INDEX] = (
+            self.chrome_index('159.0.8154.6', 'b' * 64, 'google-chrome-beta') + '\n' +
+            self.chrome_index('158.0.8120.4', digest)).encode()
+        self.fetcher.data['https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/'
+                          'google-chrome-stable_158.0.8120.4-1_amd64.deb'] = payload
+        self.commit()
+        updater = self.updater()
+        self.execute(updater)
+        text = path.read_text()
+        self.assertIn('PKG_VERSION:=158.0.8120.4\n', text)
+        self.assertIn('PKG_RELEASE:=1\n', text)
+        self.assertIn('PKG_HASH:=' + digest, text)
+        self.assertIn('PKG_SOURCE:=google-chrome-stable_$(PKG_VERSION)-1_amd64.deb\n', text)
+        self.assertEqual(updater.report['packages']['chrome']['verification'], 'upstream-sha256')
+
+    def test_chrome_rejects_mismatched_archive_and_unexpected_revision(self):
+        path = self.chrome_recipe()
+        self.fetcher.data[self.CHROME_INDEX] = self.chrome_index('158.0.8120.4', 'c' * 64).encode()
+        self.fetcher.data['https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/'
+                          'google-chrome-stable_158.0.8120.4-1_amd64.deb'] = b'!<arch>\nother bytes'
+        self.commit()
+        with self.assertRaisesRegex(U.UpdateError, 'SHA256 mismatch'):
+            self.execute(self.updater())
+        self.assertIn('PKG_VERSION:=157.0.8103.78\n', path.read_text())
+        self.fetcher.data[self.CHROME_INDEX] = self.chrome_index('158.0.8120.4', 'c' * 64).replace(
+            '-1\n', '-2\n', 1).encode()
+        with self.assertRaisesRegex(U.UpdateError, 'Unexpected Chrome package entry'):
+            U.catalog(self.entries['chrome'], self.fetcher)
+
     def test_source_relocation_keeps_pinned_digest_and_release(self):
         path = self.recipe('fixture')
         path.write_text(path.read_text().replace('a' * 64, DIGEST))

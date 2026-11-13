@@ -260,6 +260,21 @@ def catalog(entry, fetcher):
                 versions[version] = {'catalog': url, 'checksums':
                     f'https://archive.mozilla.org/pub/firefox/releases/{version}/SHA256SUMS',
                     'checksum_filename': f'linux-x86_64/zh-CN/firefox-{version}.tar.xz'}
+    elif provider == 'chrome':
+        # Google's signed apt index publishes one SHA256 per channel build.
+        channel = entry.get('channel', 'stable')
+        if channel not in ('stable', 'beta', 'unstable'):
+            raise UpdateError('Unsupported Chrome channel: ' + channel)
+        url = 'https://dl.google.com/linux/chrome/deb/dists/stable/main/binary-amd64/Packages'
+        for stanza in fetcher.get(url).decode().split('\n\n'):
+            control = dict(re.findall(r'^([A-Za-z0-9-]+): *(.*)$', stanza, re.M))
+            if control.get('Package') != 'google-chrome-' + channel:
+                continue
+            match = re.fullmatch(r'([0-9]+(?:\.[0-9]+){3})-1', control.get('Version', ''))
+            filename = f'pool/main/g/google-chrome-{channel}/google-chrome-{channel}_{match[1]}-1_amd64.deb' if match else None
+            if not match or control.get('Filename') != filename:
+                raise UpdateError('Unexpected Chrome package entry: ' + control.get('Version', ''))
+            versions[match[1]] = {'catalog': url, 'hash': valid_hash(control.get('SHA256', '').lower())}
     elif provider == 'sourceforge':
         url = f'https://sourceforge.net/projects/{entry["project"]}/rss?path=/traceroute&limit=100'
         data = ET.fromstring(fetcher.get(url))
@@ -378,7 +393,8 @@ def validate_payload(path, filename):
     with path.open('rb') as stream:
         prefix = stream.read(8)
     signature = next((magic for suffix, magic in (('.gz', b'\x1f\x8b'), ('.xz', b'\xfd7zXZ\x00'),
-                         ('.bz2', b'BZh'), ('.otf', b'OTTO'), ('.zip', b'PK\x03\x04'))
+                         ('.bz2', b'BZh'), ('.otf', b'OTTO'), ('.zip', b'PK\x03\x04'),
+                         ('.deb', b'!<arch>\n'))
                       if filename.endswith(suffix)), None)
     if signature is None or not prefix.startswith(signature):
         raise UpdateError('Unexpected source format for ' + filename)
