@@ -43,6 +43,14 @@ with `LANG=en_US.UTF-8` (or `LANG=en_us.utf-8`); installing locale data does
 not change the system or user language preference.
 First-boot cache initialization registers the SVG image loader as well as
 schemas, GIO modules and input modules, so GNOME application icons can load.
+GNOME Shell and GTK rescan an icon theme only when the theme's top directory
+or its `icon-theme.cache` changes, but packages add icons to size
+subdirectories such as `hicolor/48x48/apps`. The APK commit hook
+`/usr/lib/apk/commit_hooks.d/70-icon-theme-refresh` (from `openwrt-desktop`)
+therefore touches each theme whose subdirectories changed, refreshing an
+existing cache first. Applications installed into a running session, such as
+`google-chrome-bin`, then show their icons without logging out. Its host
+test is `scripts/tests/test-desktop-icon-theme-hook.py`.
 
 GNOME Shell depends on `libgio-gnutls` (built by the `glib-networking`
 recipe) and `ca-bundle` for HTTPS extension downloads. Extension Manager

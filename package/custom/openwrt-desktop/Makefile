@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openwrt-desktop
-PKG_RELEASE:=28
+PKG_RELEASE:=29
 PKG_CONFIG_DEPENDS:=CONFIG_OPENWRT_SYSTEMD
 PKG_LICENSE:=MIT
 
@@ -55,6 +55,8 @@ define Package/openwrt-desktop/install
 	$(INSTALL_DATA) ./files/desktop.keep $(1)/lib/upgrade/keep.d/desktop
 	$(INSTALL_DIR) $(1)/etc/hotplug.d/drm
 	$(INSTALL_BIN) ./files/desktop.hotplug $(1)/etc/hotplug.d/drm/95-desktop
+	$(INSTALL_DIR) $(1)/usr/lib/apk/commit_hooks.d
+	$(INSTALL_BIN) ./files/icon-theme-refresh.hook $(1)/usr/lib/apk/commit_hooks.d/70-icon-theme-refresh
 endef
 
 $(eval $(call BuildPackage,openwrt-desktop))
