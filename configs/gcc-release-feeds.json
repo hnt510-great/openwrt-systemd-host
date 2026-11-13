@@ -1,0 +1,8 @@
+{
+  "packages": {
+    "url": "https://github.com/openwrt/packages.git",
+    "base": "3819ded09273623f188b790c8cb32a4234e3d64a",
+    "commit": "1b8ede040ab587a1a7792106a0600c166f795a60",
+    "patch": "patches/feeds/0036-packages-gcc-release.patch"
+  }
+}

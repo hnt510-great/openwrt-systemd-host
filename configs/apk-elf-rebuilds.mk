@@ -1016,7 +1016,7 @@ ELF_REBUILD_libvte3_0.82.4-r2:=0.82.4-r3
 ELF_REBUILD_libwacom_2.19.1-r1:=2.19.1-r3
 ELF_REBUILD_libwacom_2.19.1-r2:=2.19.1-r3
 ELF_REBUILD_libwayland_1.26.0-r3:=1.26.0-r5
-ELF_REBUILD_libwayland_1.26.0-r4:=1.26.0-r5
+ELF_REBUILD_libwayland_1.26.0-r4:=1.26.0-r6
 ELF_REBUILD_libwebp_1.6.0-r1:=1.6.0-r3
 ELF_REBUILD_libwebp_1.6.0-r2:=1.6.0-r3
 ELF_REBUILD_libwebsockets-full_4.5.8-r1:=4.5.8-r4
@@ -2615,7 +2615,7 @@ ELF_DEP_libvte3_0.82.4-r2:=libvte3=0.82.4-r3
 ELF_DEP_libwacom_2.19.1-r1:=libwacom=2.19.1-r3
 ELF_DEP_libwacom_2.19.1-r2:=libwacom=2.19.1-r3
 ELF_DEP_libwayland_1.26.0-r3:=libwayland=1.26.0-r5
-ELF_DEP_libwayland_1.26.0-r4:=libwayland=1.26.0-r5
+ELF_DEP_libwayland_1.26.0-r4:=libwayland=1.26.0-r6
 ELF_DEP_libwebp_1.6.0-r1:=libwebp=1.6.0-r3
 ELF_DEP_libwebp_1.6.0-r2:=libwebp=1.6.0-r3
 ELF_DEP_libwebsockets-full_4.5.8-r1:=libwebsockets-full=4.5.8-r4
@@ -3227,8 +3227,8 @@ ELF_REBUILD_procd_2026.10.18~5aef7c33-r7:=2026.10.18~5aef7c33-r8
 ELF_DEP_procd_2026.10.18~5aef7c33-r7:=procd=2026.10.18~5aef7c33-r8
 ELF_REBUILD_spice-gtk_0.41-r5:=0.41-r6
 ELF_DEP_spice-gtk_0.41-r5:=spice-gtk=0.41-r6
-ELF_REBUILD_sunshine_2026.914.233613-r7:=2026.914.233613-r10
-ELF_DEP_sunshine_2026.914.233613-r7:=sunshine=2026.914.233613-r10
+ELF_REBUILD_sunshine_2026.914.233613-r7:=2026.914.233613-r11
+ELF_DEP_sunshine_2026.914.233613-r7:=sunshine=2026.914.233613-r11
 ELF_REBUILD_ubox_2025.10.30~6f78fa49-r10:=2025.10.30~6f78fa49-r12
 ELF_DEP_ubox_2025.10.30~6f78fa49-r10:=ubox=2025.10.30~6f78fa49-r12
 ELF_REBUILD_uhttpd-mod-ubus_2026.10.19~ca796d7d-r3:=2026.10.19~ca796d7d-r5

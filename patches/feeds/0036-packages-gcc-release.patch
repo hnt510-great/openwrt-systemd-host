@@ -1,0 +1,29 @@
+From 1b8ede040ab587a1a7792106a0600c166f795a60 Mon Sep 17 00:00:00 2001
+From: hnt510 <hnt510@gmail.com>
+Date: Sat, 14 Nov 2026 00:10:58 +0800
+Subject: [PATCH] gcc: bump PKG_RELEASE to 13 for Linux 7.3.4 UAPI headers
+
+Updating the target kernel to Linux 7.3.4 changed three staged UAPI
+headers packaged into gcc (linux/version.h, linux/iommufd.h, and
+linux/media/arm/mali-c55-config.h). Bump PKG_RELEASE beyond the
+published 14.4.0-r12 payload.
+---
+ devel/gcc/Makefile | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/devel/gcc/Makefile b/devel/gcc/Makefile
+index 48d752319..2a76724fb 100644
+--- a/devel/gcc/Makefile
++++ b/devel/gcc/Makefile
+@@ -24,7 +24,7 @@ PKG_NAME:=gcc
+ GCC_VERSION:=$(call qstrip,$(CONFIG_GCC_VERSION))
+ PKG_VERSION:=$(firstword $(subst +, ,$(GCC_VERSION)))
+ GCC_MAJOR_VERSION:=$(word 1,$(subst ., ,$(PKG_VERSION)))
+-PKG_RELEASE:=12
++PKG_RELEASE:=13
+ GCC_DIR:=$(PKG_NAME)-$(PKG_VERSION)
+ 
+ PKG_SOURCE_URL:=@GNU/gcc/gcc-$(PKG_VERSION)
+-- 
+2.53.0
+
