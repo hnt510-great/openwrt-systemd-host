@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=libudisks2
-PKG_VERSION:=2.11.2
+PKG_VERSION:=2.12.0
 PKG_RELEASE:=1
-PKG_SOURCE:=udisks-2.11.2.tar.bz2
-PKG_SOURCE_URL:=https://github.com/storaged-project/udisks/releases/download/udisks-2.11.2/
-PKG_HASH:=18630a8aad806bea0bc626ce97e71e50ec82c742956ac1c834a4275f8f22207b
+PKG_SOURCE:=udisks-2.12.0.tar.bz2
+PKG_SOURCE_URL:=https://github.com/storaged-project/udisks/releases/download/udisks-2.12.0/
+PKG_HASH:=dd709167fddf07b14f8175dbb3ab0c372147f66b437cc2341a9f97d79303c71f
 PKG_BUILD_DIR:=$(BUILD_DIR)/udisks-$(PKG_VERSION)
 PKG_LICENSE:=LGPL-2.1-or-later
 PKG_INSTALL:=1
