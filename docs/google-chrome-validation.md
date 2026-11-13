@@ -1,10 +1,10 @@
 # Google Chrome package validation
 
 Built and published on 2026-11-13 (Asia/Singapore). The image was not booted
-in a VM, no physical router was flashed, and Chrome was not installed on the
-router. The publication preflight simulated the router's upgrade, which this
-release only changes for `base-files`, because Chrome is a new package the
-router has not installed.
+in a VM and no physical router was flashed. The publication preflight
+simulated the router's upgrade, which this release only changes for
+`base-files`. After publication, Chrome was installed on the router from the
+LAN feed with APK (see the router section).
 
 ## Delivered artifacts
 
@@ -36,11 +36,24 @@ router has not installed.
 | Router upgrade preflight and publication | Passed; status `published` |
 | `git diff --check` | Passed |
 
+## Router installation
+
+On 2026-11-13, after the publication above, Chrome was installed on the router
+(`router-admin@192.0.2.1`), which has 48 GiB free on its overlay.
+
+| Check | Result |
+| --- | --- |
+| `apk add --simulate google-chrome-bin` | Installs only `google-chrome-bin`; no other packages change |
+| `apk add google-chrome-bin` | Passed; post-commit uci-history and needrestart hooks ran |
+| `/opt/google/chrome/chrome --version` | `Google Chrome 157.0.8103.78` |
+| `user.max_user_namespaces` | 63026 (namespace sandbox available) |
+| `google-chrome --headless=new --dump-dom https://example.com/` as the ordinary user, sandbox enabled | Page loaded over HTTPS; `<title>Example Domain</title>` returned |
+| stderr | Only the benign `libasound.so.2: no version information available` warning |
+
 ## Not covered
 
-Not checked: Wayland start-up in a GNOME session, the user-namespace sandbox
-at runtime, GPU/EGL selection, audio, video decoding, and installing with
-`apk add google-chrome-bin` on the router or in a VM.
+Not checked: an interactive Wayland window in the GNOME session, GPU/EGL
+selection, audio, video decoding and remote-desktop interaction.
 
 ## Evidence
 
