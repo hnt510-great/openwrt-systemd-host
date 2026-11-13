@@ -306,6 +306,11 @@
       "filename_pattern": "gobject\\-introspection\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/gobject-introspection/"
     },
+    "google-chrome-bin": {
+      "provider": "chrome",
+      "policy": "stable",
+      "channel": "stable"
+    },
     "gsettings-desktop-schemas": {
       "provider": "directory",
       "policy": "series",
