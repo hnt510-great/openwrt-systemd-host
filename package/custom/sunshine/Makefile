@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=sunshine
 PKG_VERSION:=2026.914.233613
-PKG_RELEASE:=7
+PKG_RELEASE:=12
 PKG_SOURCE:=sunshine-source-63d35f702ee9.tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/LizardByte/Sunshine/tar.gz/63d35f702ee9e362e43263742981836ec0710384?
 PKG_HASH:=2564df7ee9c1ac1d617e30b406ec0ed7d358cbba485cfb013956bdab528dae5f
@@ -126,6 +126,9 @@ define Package/sunshine/install
 	$(INSTALL_DIR) $(1)/usr/bin $(1)/usr/sbin $(1)/usr/libexec $(1)/usr/share
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/sunshine $(1)/usr/bin/
 	$(CP) $(PKG_INSTALL_DIR)/usr/share/sunshine $(1)/usr/share/
+	# @codecov/vite-plugin writes nondeterministic CI bundle stats (builtAt,
+	# duration, host outputPath and async module order) into the Vite outDir.
+	rm -f $(1)/usr/share/sunshine/web/sunshine-esm-stats.json
 	$(CP) $(PKG_INSTALL_DIR)/usr/share/applications $(PKG_INSTALL_DIR)/usr/share/icons $(1)/usr/share/
 	$(INSTALL_BIN) ./files/sunshine-setup $(1)/usr/sbin/
 	$(INSTALL_BIN) ./files/sunshine-permissions $(1)/usr/libexec/
