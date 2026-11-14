@@ -318,3 +318,20 @@ to `-O3`, enables `WITH_SIMD=ON` and `WITH_RDPEUDP=ON`, and disables
 | Router installation | `apk update && apk upgrade` installed all 4 packages on `192.0.2.1`, followed by `systemctl restart openwrt-desktop.service` |
 | Vulkan device & extensions | `vkCreateInstance` returned `0` (`VK_SUCCESS`) with 1 physical device and all 8 required extensions (`VK_KHR_synchronization2`, `VK_KHR_external_memory_fd`, `VK_EXT_external_memory_dma_buf`, `VK_EXT_image_drm_format_modifier`, `VK_KHR_format_feature_flags2`, `VK_KHR_zero_initialize_workgroup_memory`, `VK_EXT_physical_device_drm`, `VK_KHR_external_semaphore_fd`) |
 | Live RDP VA-API H.264 session | `gnome-remote-desktop-daemon` logged `[HWAccel.Vulkan] Initialization of Vulkan was successful` on startup and `[HWAccel.VAAPI] Successfully initialized VAAPI 1.24 with vendor: Intel iHD driver for Intel(R) Gen Graphics - 26.3.5 ()` when an H.264 RDPGFX client connected |
+
+## Built-in GNOME Shell screenshot and screencast UI — 2026-11-14
+
+`gnome-shell` 51.1-r4 adds `002-screenshot-search-and-screencast-service.patch`
+and GStreamer runtime dependencies, `pipewire` 1.6.11-r2 enables the PipeWire
+GStreamer plugin (`libgstpipewire.so`), `configs/gnome-desktop.config` selects
+`gst1-mod-vpx` and `gst1-mod-matroska`, and `openwrt-desktop` r31 initializes
+default XDG user directories (`~/.config/user-dirs.dirs`, `~/Pictures`,
+`~/Videos`) on `desktop-user-setup` and `desktop-session` startup.
+
+| Check | Result |
+| --- | --- |
+| Custom package registration & hygiene | `python3 scripts/tests/test-custom-package-updates.py` passed 49 tests; `git diff --check` and `sh -n` passed; temporary-`HOME` smoke check verified `desktop-user-setup --xdg-dirs` creates defaults without overwriting an existing `user-dirs.dirs` |
+| Package builds & archive checks | `gnome-shell-51.1-r4`, `openwrt-desktop-31`, `pipewire-1.6.11-r2` (with subpackages), `gst1-mod-vpx-1.28.7-r6`, `gst1-mod-matroska-1.28.7-r6` and `libvpx1.17-1.17.0-r1` compiled and passed `merge-usr.py` and `elf-abi.py`; `gresource` inspection confirmed the patched `systemActions.js` in `libshell-51.so` and `main.js` in `org.gnome.Shell.Screencast.src.gresource` |
+| Publication | `./scripts/publish-changed-feeds.sh --dry-run` and production publication passed router upgrade preflight (`snapshot /srv/openwrt-feeds/public/snapshots/20261114T083002.746364Z`) |
+| Router installation & session restart | `apk update && apk upgrade` installed/upgraded all 10 packages on `192.0.2.1`; after `systemctl restart openwrt-desktop.service`, `desktop-session` generated `~/.config/user-dirs.dirs`, `~/Pictures` and `~/Videos`, and `pipewire.service`, `gnome-shell`, `org.gnome.Shell.Screenshot` and `org.gnome.Shell.Screencast` were active on the user bus |
+| Live GStreamer & D-Bus screencast | `gst-inspect-1.0` verified `pipewiresrc`, `vp8enc`, `webmmux`, `videoconvertscale` and `glupload`; `org.gnome.Shell.Screencast.Screencast` recorded a `63837`-byte valid EBML/WebM capture file (cleaned up afterward). Direct interactive keyboard (`Print`) / GUI pointer screenshot triggering was not run in this automated pass |

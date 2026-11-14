@@ -16,6 +16,7 @@ done
 systemctl --user unset-environment WAYLAND_SOCKET GTK_IM_MODULE GTK_IM_MODULE_FILE LIBSEAT_BACKEND MUTTER_DEBUG_KMS_SCHEDULING_PRIORITY
 /usr/libexec/desktop-keyring-unlock
 cd "$HOME"
+/usr/libexec/desktop-user-setup --xdg-dirs
 export XDG_DATA_DIRS="$HOME/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 # Mutter defaults to high-priority (nice -15 through RealtimeKit); only
 # export its override for the other modes selected in /etc/config/desktop.

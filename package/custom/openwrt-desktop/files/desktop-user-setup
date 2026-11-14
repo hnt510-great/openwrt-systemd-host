@@ -3,6 +3,41 @@ set -eu
 [ "$(id -u)" -ge 1000 ] || exit 1
 umask 077
 config_home=${XDG_CONFIG_HOME:-$HOME/.config}
+
+ensure_xdg_user_dirs() {
+	[ ! -e "$config_home/user-dirs.dirs" ] || return 0
+	[ -n "${HOME:-}" ] && [ -d "$HOME" ] || return 0
+	mkdir -p "$config_home" \
+		"$HOME/Desktop" "$HOME/Documents" "$HOME/Downloads" \
+		"$HOME/Music" "$HOME/Pictures" "$HOME/Public" \
+		"$HOME/Templates" "$HOME/Videos"
+	tmp="$(mktemp "$config_home/.user-dirs.XXXXXX")"
+	cat > "$tmp" <<'EOF' || { rm -f "$tmp"; return 1; }
+XDG_DESKTOP_DIR="$HOME/Desktop"
+XDG_DOWNLOAD_DIR="$HOME/Downloads"
+XDG_TEMPLATES_DIR="$HOME/Templates"
+XDG_PUBLICSHARE_DIR="$HOME/Public"
+XDG_DOCUMENTS_DIR="$HOME/Documents"
+XDG_MUSIC_DIR="$HOME/Music"
+XDG_PICTURES_DIR="$HOME/Pictures"
+XDG_VIDEOS_DIR="$HOME/Videos"
+EOF
+	mv "$tmp" "$config_home/user-dirs.dirs"
+}
+
+case "${1:-}" in
+	--xdg-dirs)
+		ensure_xdg_user_dirs
+		exit 0
+		;;
+	'') ;;
+	*)
+		printf 'Usage: desktop-user-setup [--xdg-dirs]\n' >&2
+		exit 1
+		;;
+esac
+
+ensure_xdg_user_dirs
 wants="$config_home/systemd/user/gnome-session.target.wants"
 mkdir -p "$wants"
 for unit in openwrt-gnome-remotes.service openwrt-fcitx5.service; do

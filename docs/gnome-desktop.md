@@ -92,6 +92,25 @@ applications:
   Archive Manager (`file-roller` with `libarchive` and Nautilus actions) and
   Document Viewer (`evince` with `poppler`).
 
+GNOME Shell 51 provides the built-in interactive screenshot and screencast UI
+(`/org/gnome/shell/ui/screenshot.js` in `libshell-51.so`), the Overview
+`Take a Screenshot` search action (`/org/gnome/shell/misc/systemActions.js`),
+the Quick Settings `ScreenshotItem` button, the `Print` / `<Shift>Print` /
+`<Alt>Print` / `<Ctrl><Shift><Alt>R` keybindings
+(`/usr/share/gnome-control-center/keybindings/50-gnome-shell-screenshots.xml`)
+and the `org.gnome.Shell.Screenshot` / `org.gnome.Shell.Screencast` D-Bus
+services. Patch `002-screenshot-search-and-screencast-service.patch` expands
+Overview search keywords (`take a screenshot`, `photo`, `截图`, `截屏`, `录屏`)
+and registers `org.gnome.Shell.Screencast` unconditionally instead of exiting
+before D-Bus ownership when a pipeline probe fails. Video recording uses the
+PipeWire GStreamer element (`/usr/lib/gstreamer-1.0/libgstpipewire.so` from
+`package/custom/pipewire`) together with `gst1-mod-videoconvertscale`,
+`gst1-mod-opengl`, `gst1-mod-vpx` (`vp8enc`) and `gst1-mod-matroska`
+(`webmmux`). On user setup and session startup, `desktop-user-setup --xdg-dirs`
+creates default XDG directories and `~/.config/user-dirs.dirs` when absent so
+screenshots save to `~/Pictures/Screenshots` and screencasts save to
+`~/Videos/Screencasts`.
+
 The desktop ships DejaVu Sans/Sans Mono as primary fonts and
 `noto-sans-symbols2` (Noto Sans Symbols 2, OFL-1.1) as a fontconfig fallback.
 DejaVu lacks several Miscellaneous Technical and pictograph code points, such

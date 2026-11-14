@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=pipewire
 PKG_VERSION:=1.6.11
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 PKG_BUILD_DIR:=$(BUILD_DIR)/pipewire-$(PKG_VERSION)
 PKG_SOURCE:=pipewire-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/PipeWire/pipewire/tar.gz/refs/tags/$(PKG_VERSION)?
@@ -27,7 +27,7 @@ define Package/pipewire
   SECTION:=sound
   CATEGORY:=Sound
   TITLE:=PipeWire desktop audio server
-  DEPENDS:=+libpipewire +alsa-lib +libudev +alsa-ucm-conf +libsndfile +glib2
+  DEPENDS:=+libpipewire +alsa-lib +libudev +alsa-ucm-conf +libsndfile +glib2 +libgstreamer1 +libgst1allocators +libgst1audio +libgst1video
 endef
 
 define Package/pipewire-pulse
@@ -60,7 +60,8 @@ MESON_ARGS += --prefix=/usr --libdir=lib --sysconfdir=/etc --localstatedir=/var 
 	-Daudiomixer=enabled -Daudioconvert=enabled -Daudiotestsrc=enabled -Dvideoconvert=enabled \
 	-Dlibsystemd=enabled -Dlogind=enabled -Dsystemd-user-service=enabled \
 	-Dsystemd-user-unit-dir=/usr/lib/systemd/user -Dsystemd-system-service=disabled \
-	-Dpipewire-alsa=enabled -Dsndfile=enabled -Dpw-cat=enabled -Dflatpak=enabled
+	-Dpipewire-alsa=enabled -Dsndfile=enabled -Dpw-cat=enabled -Dflatpak=enabled \
+	-Dgstreamer=enabled -Dgstreamer-device-provider=enabled
 
 define Build/InstallDev
 	$(INSTALL_DIR) $(1)/usr/include $(1)/usr/lib/pkgconfig
@@ -85,9 +86,10 @@ define Package/libpipewire/install
 endef
 
 define Package/pipewire/install
-	$(INSTALL_DIR) $(1)/usr/bin $(1)/usr/lib/pipewire-0.3 $(1)/usr/lib/spa-0.2 $(1)/usr/share/pipewire
+	$(INSTALL_DIR) $(1)/usr/bin $(1)/usr/lib/pipewire-0.3 $(1)/usr/lib/spa-0.2 $(1)/usr/lib/gstreamer-1.0 $(1)/usr/share/pipewire
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/pipewire $(1)/usr/bin/
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/pipewire-0.3/*.so $(1)/usr/lib/pipewire-0.3/
+	$(CP) $(PKG_INSTALL_DIR)/usr/lib/gstreamer-1.0/libgstpipewire.so $(1)/usr/lib/gstreamer-1.0/
 	for module in protocol-native client-node client-device adapter metadata session-manager protocol-pulse; do \
 		rm -f $(1)/usr/lib/pipewire-0.3/libpipewire-module-$$$$module.so; \
 	done
