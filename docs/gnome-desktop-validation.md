@@ -300,3 +300,21 @@ and the `egl-probes/` sources.
 | Publication | `./scripts/publish-changed-feeds.sh --dry-run` and production publication passed router upgrade preflight (`snapshot /srv/openwrt-feeds/public/snapshots/20261114T023413.484582Z`) |
 | Router installation | `apk update && apk upgrade` installed all 13 packages cleanly on `192.0.2.1` |
 | Wayland image clipboard | `wl-copy --type image/png` and `wl-paste --type image/png` transferred a 70-byte PNG payload over `WAYLAND_DISPLAY=wayland-0` |
+
+## RDP Vulkan ICD and VA-API H.264 hardware encoding — 2026-11-14
+
+`libmesa-virtualization` 26.2.2-r11 (`feeds/video`, mirrored as
+`patches/feeds/0037-video-mesa-vulkan.patch` and `configs/mesa-vulkan-feeds.json`)
+adds the `intel`, `intel_hasvk` and `virtio` Vulkan ICDs so
+`gnome-remote-desktop-daemon` can initialize Vulkan and `GrdHwAccelVaapi`
+instead of falling back to CPU `GrdRdpSwEncoderCa`. `freerdp` 3.33.1-r2 switches
+to `-O3`, enables `WITH_SIMD=ON` and `WITH_RDPEUDP=ON`, and disables
+`WITH_VERBOSE_WINPR_ASSERT`.
+
+| Check | Result |
+| --- | --- |
+| Package builds | `libmesa-virtualization-26.2.2-r11` (`363a867e30d22a2f70a7018b990c68bbf20a385a2fea465262a51693c7d8e4ab`), `libfreerdp3-3.33.1-r2` (`0e878bb80ab0a98924fc0a1daa5e3804aec1b7504fd169787eaebed881aca392`), `libwinpr3-3.33.1-r2` (`5a51a08f989f6f57eab0975e9c24a4a3dbee370748f645966380cca4475a09c3`) and `winpr-hash-3.33.1-r2` (`c1ba2892474226791923140f47e9cdd74513b3704fa267619022a76722c4be81`) compiled and passed `elf-abi.py` |
+| Publication | `./scripts/publish-changed-feeds.sh` passed router upgrade preflight and published snapshot `/srv/openwrt-feeds/public/snapshots/20261114T065751.094388Z` |
+| Router installation | `apk update && apk upgrade` installed all 4 packages on `192.0.2.1`, followed by `systemctl restart openwrt-desktop.service` |
+| Vulkan device & extensions | `vkCreateInstance` returned `0` (`VK_SUCCESS`) with 1 physical device and all 8 required extensions (`VK_KHR_synchronization2`, `VK_KHR_external_memory_fd`, `VK_EXT_external_memory_dma_buf`, `VK_EXT_image_drm_format_modifier`, `VK_KHR_format_feature_flags2`, `VK_KHR_zero_initialize_workgroup_memory`, `VK_EXT_physical_device_drm`, `VK_KHR_external_semaphore_fd`) |
+| Live RDP VA-API H.264 session | `gnome-remote-desktop-daemon` logged `[HWAccel.Vulkan] Initialization of Vulkan was successful` on startup and `[HWAccel.VAAPI] Successfully initialized VAAPI 1.24 with vendor: Intel iHD driver for Intel(R) Gen Graphics - 26.3.5 ()` when an H.264 RDPGFX client connected |

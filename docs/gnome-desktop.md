@@ -172,6 +172,16 @@ used a dead or reused fd. The log then shows
 dma-buf fd for the buffer's lifetime. See the
 [r8 validation](gnome-desktop-validation.md#rdp-mode-changes-during-a-session--2026-11-12).
 
+`gnome-remote-desktop` requires a working Vulkan device before it initializes
+`GrdHwAccelVaapi` for hardware H.264 (AVC420/AVC444) RDP encoding. In `feeds/video`,
+`libmesa-virtualization` (26.2.2-r11, mirrored as
+`patches/feeds/0037-video-mesa-vulkan.patch` and `configs/mesa-vulkan-feeds.json`)
+builds and packages the `intel`, `intel_hasvk` and `virtio` Vulkan ICDs
+(`/usr/lib/libvulkan_*.so` and `/usr/share/vulkan/icd.d/*_icd.*.json`) alongside
+the shared GLVND/EGL/GBM/Gallium stack. `package/custom/freerdp` (3.33.1-r2)
+builds `libfreerdp3` and `libwinpr3` with `-O3`, `-DWITH_SIMD=ON`,
+`-DWITH_RDPEUDP=ON` and `-DWITH_VERBOSE_WINPR_ASSERT=OFF`.
+
 Sunshine retains its user's configuration, pairing state, PipeWire audio,
 uinput enrollment and the Intel 8086:4e61 H.264-only encoder workaround.
 Portal capture may require an initial screen-selection permission in GNOME;

@@ -1,0 +1,8 @@
+{
+  "video": {
+    "url": "https://github.com/openwrt/video.git",
+    "base": "dc7a797324f6dd6748b5f4d8e783a57f04e83c5f",
+    "commit": "412afe7a1b7c4c753d813c5d6d58554b66fc4fce",
+    "patch": "patches/feeds/0037-video-mesa-vulkan.patch"
+  }
+}

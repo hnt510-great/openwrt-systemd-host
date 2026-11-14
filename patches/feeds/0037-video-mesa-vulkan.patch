@@ -1,0 +1,83 @@
+From 412afe7a1b7c4c753d813c5d6d58554b66fc4fce Mon Sep 17 00:00:00 2001
+From: hnt510 <hnt510@gmail.com>
+Date: Sat, 14 Nov 2026 15:14:02 +0800
+Subject: [PATCH] mesa: build Intel and VirtIO Vulkan ICDs in virtualization
+ variant
+
+Enable -Dvulkan-drivers=intel,intel_hasvk,virtio and -Dintel-rt=enabled
+when building VARIANT=virtualization, add libdisplay-info/libexpat/libudev
+dependencies, and install libvulkan_*.so and *_icd.*.json into
+libmesa-virtualization so gnome-remote-desktop can initialize Vulkan and
+VA-API H.264 hardware encoding without a separate non-GLVND Mesa build.
+Bump PKG_RELEASE to 11.
+---
+ libs/mesa/Makefile | 20 +++++++++++++-------
+ 1 file changed, 13 insertions(+), 7 deletions(-)
+
+diff --git a/libs/mesa/Makefile b/libs/mesa/Makefile
+index 4a787fc..3a5cc12 100644
+--- a/libs/mesa/Makefile
++++ b/libs/mesa/Makefile
+@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=mesa
+ PKG_VERSION:=26.2.2
+-PKG_RELEASE:=10
++PKG_RELEASE:=11
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://archive.mesa3d.org/
+@@ -143,15 +143,17 @@ endef
+ define Package/libmesa-virtualization
+ $(call Package/libmesa/Default,$(1))
+   TITLE+= (Intel, VirtIO and software rendering)
+-  DEPENDS+=+accel-support +libdrm-intel +libglvnd +libX11 +libXext \
+-	+libXfixes +libXrandr +libXxf86vm +libxcb +libxshmfence @TARGET_x86_64 @MESA_USE_LLVM
++  DEPENDS+=+accel-support +libdisplay-info +libdrm-intel +libexpat +libglvnd +libudev \
++	+libX11 +libXext +libXfixes +libXrandr +libXxf86vm +libxcb +libxshmfence \
++	@TARGET_x86_64 @MESA_USE_LLVM
+   VARIANT:=virtualization
+ endef
+ 
+ define Package/libmesa-virtualization/description
+   A single Mesa provider with Intel iris/crocus/i915, VirtIO virgl and
+-  software softpipe drivers. Shared EGL, GBM and Gallium libraries are
+-  installed once, so all render paths remain available in the same image.
++  software softpipe drivers, plus Intel and VirtIO Vulkan ICDs. Shared
++  EGL, GBM, Gallium and Vulkan libraries are installed once, so all
++  render paths remain available in the same image.
+ endef
+ 
+ define Package/libmesa-intel/description
+@@ -608,7 +610,8 @@ endif
+ ifeq ($(BUILD_VARIANT),virtualization)
+ MESON_ARGS += \
+ 	-Dgallium-drivers=crocus,i915,iris,virgl,softpipe \
+-	-Dintel-rt=disabled
++	-Dvulkan-drivers=intel,intel_hasvk,virtio \
++	-Dintel-rt=enabled
+ endif
+ 
+ ifeq ($(BUILD_VARIANT),tegra)
+@@ -684,7 +687,7 @@ ifeq ($(BUILD_VARIANT),vulkan)
+ MESON_ARGS += \
+ 	-Dgallium-drivers=zink \
+ 	-Dvulkan-drivers=$(subst $(space),$(comma),$(strip $(VULKAN_DRIVERS)))
+-else
++else ifneq ($(BUILD_VARIANT),virtualization)
+ MESON_ARGS += \
+ 	-Dvulkan-drivers=
+ endif
+@@ -857,6 +860,9 @@ define Package/libmesa-virtualization/install
+ 	$(call Package/libmesa/install,$(1))
+ 	$(INSTALL_DIR) $(1)/usr/share/glvnd/egl_vendor.d
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/share/glvnd/egl_vendor.d/*.json $(1)/usr/share/glvnd/egl_vendor.d/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libvulkan_*.so $(1)/usr/lib/
++	$(INSTALL_DIR) $(1)/usr/share/vulkan/icd.d
++	$(CP) $(PKG_INSTALL_DIR)/usr/share/vulkan/icd.d/*_icd.*.json $(1)/usr/share/vulkan/icd.d/
+ endef
+ Package/libmesa-intel/install = $(Package/libmesa/install)
+ Package/libmesa-amd/install = $(Package/libmesa/install)
+-- 
+2.53.0
+
