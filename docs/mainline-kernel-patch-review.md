@@ -1184,3 +1184,42 @@ Validation: `./scripts/feeds update -i -a`, `./scripts/feeds install -a` and
 mainline-kernel, custom-package and LuCI firewall test suites pass. No firmware
 or APK feed was published and no router was modified. The optional MAP-E tunnel
 finding remains open.
+
+## Upstream synchronization review, 2026-11-14
+
+Merged OpenWrt through `e2ed57b957` (7 incoming main-tree commits since
+`24c13d794c`) as `8fc9b983fd`, plus 1 packages-feed (`b986e7a60`) commit as
+`9c6a80d3c`. LuCI, video, telephony, routing, taskplan, `passwall_packages` and
+`passwall_luci` had nothing incoming. Backup branches are
+`backup/pre-upstream-20261114T035414Z` in the main tree, each feed and the
+argon theme submodule.
+
+### Kernel patches: no generic or x86 6.18 changes
+
+All 7 incoming main-tree commits (`ea807f4842..e2ed57b957`) touch only
+`target/linux/realtek/` (`files-6.18/drivers/net/pcs/pcs-rtl-otto.c` and
+`patches-6.18/744-net-phylink-pass-media-to-PCS-configuration.patch`):
+
+- All 580 present generic/x86 6.18 source patches and 5 recorded removed
+  entries in `configs/mainline-kernel-patches.json` match by SHA-256: no
+  generic or x86 6.18 patch was added, modified or removed.
+- All 354 carried Linux 7.3 patches match their registered SHA-256 values and
+  apply to a fresh extraction of Linux 7.3.4 (`b11b6df8...fd1f`) with
+  `--fuzz=0`. No new 6.18-to-7.3 backport is needed.
+- `update-mainline-kernel.py --check` reports `7.3.4` is `current`.
+
+### Feeds and custom packages
+
+- `packages`: adds host build support to `libjpeg-turbo` (`b986e7a60`) without
+  changing target package contents or version (`3.1.1-r3`, mapped to `3.1.1-r4`
+  in `configs/apk-elf-rebuilds.mk`).
+- `update-custom-packages.py` advances `libostree` (`2026.6 -> 2026.7`). The
+  remaining 5 `review` entries (`flatpak` 1.19 prerelease, dual-slot `gcr3` /
+  `libgtk3`, and upstream tag noise in `intel-media-driver` / `libibus`) stay
+  on their pinned stable branches.
+
+Validation: `./scripts/feeds update -i -a`, `./scripts/feeds install -a` and
+`make defconfig` succeed with zero `.config` changes; `libostree` and
+`libjpeg-turbo` prepare/compile cleanly, and the mainline-kernel and
+custom-package test suites pass. No firmware or APK feed was published and no
+router was modified. The optional MAP-E tunnel finding remains open.
