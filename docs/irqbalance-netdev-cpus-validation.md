@@ -28,8 +28,33 @@ Date: 2026-11-14. Checkout: `/srv/openwrt` on the build host. Package source: ir
 
 ## Validation boundary
 
-No router package installation, service restart, UCI change, feed publication or reboot was performed. No VM or new throughput/latency benchmark was run: this task requests a source patch, and native protected-daemon execution plus synthetic placement/activation tests validate the new functionality without deploying it. Actual router effective affinities, reboot/hotplug behavior, kernel-managed interrupt restrictions and performance require a separately authorized deployment and device check. The earlier LAN RPS benchmark is not evidence of this IRQ patch's performance.
+At source-patch completion, no router package installation, service restart, UCI change, feed publication or reboot had been performed; the separately authorized publication/deployment below supersedes that status. No VM or new throughput/latency benchmark was run: this task requests a source patch, and native protected-daemon execution plus synthetic placement/activation tests validate the new functionality without deploying it. Actual router effective affinities, reboot/hotplug behavior, kernel-managed interrupt restrictions and performance require a separately authorized deployment and device check. The earlier LAN RPS benchmark is not evidence of this IRQ patch's performance.
 
 ## Publication preparation — 2026-11-15
 
 The first private r3 artifact conflicted with an existing published identity because the recipe r2 was mapped to r3 by `configs/apk-elf-rebuilds.mk`. The recipe is now r4; the original published r3 APK was restored byte-for-byte in local outputs. No published r3 bytes or migration entries were changed. The r4 package was rebuilt and the complete source/CLI/UCI/native sandbox suite passed again.
+
+## Published and installed on the physical router — 2026-11-15
+
+User explicitly authorized commit, publication and router installation.
+
+- Main integration commit: `6e6483a05c`; packages feed head: `ab479830befa928f964afd49e9433957c88971ee`.
+- Coordinated dry-run and formal publication both passed signature/immutability, ELF/dependency and reachable-router upgrade checks. The simulated change was only `irqbalance 1.9.5-r3 → 1.9.5-r4`.
+- Published userspace snapshot: `/srv/openwrt-feeds/public/snapshots/20261114T160445.978679Z`. Kernel channel unchanged, generation `7.3.4-63-openwrt`.
+- Router refreshed signed indexes, independently simulated the targeted transaction, then installed r4 using `apk upgrade irqbalance`. No trust/signature or dependency checks were bypassed. APK world was byte-identical afterwards.
+- UCI transaction `b0e0cab5660d43e2afdb6e7ccdf351b2` guarded the installation/configuration. Added `netdev_cpus` list entries `eth0:0-3,8-11` and `eth1:0-3,8-11`, committed and restarted through `/etc/init.d/irqbalance`. Validation passed and the transaction was confirmed; history head is 64, no drift or pending rollback.
+- Running command: `/usr/sbin/irqbalance -f -c 2 -t 10 --netdev-cpus eth0:0-3,8-11 --netdev-cpus eth1:0-3,8-11`. Existing boot enablement remains in place.
+- Repeated observations after balance cycles and a final assertion found all ten eth0/eth1 IRQs' configured and effective CPU sets nonempty and contained in CPU 0–3,8–11. No global banned CPU list was added.
+
+Final affinity snapshot (assignments remain dynamic):
+
+| Device | Administrative IRQ | TxRx queue 0 | Queue 1 | Queue 2 | Queue 3 |
+|---|---|---|---|---|---|
+| eth0 | IRQ154 → CPU2 | IRQ155 → CPU2 | IRQ156 → CPU11 | IRQ157 → CPU9 | IRQ158 → CPU3 |
+| eth1 | IRQ159 → CPU3 | IRQ160 → CPU3 | IRQ161 → CPU0 | IRQ162 → CPU8 | IRQ163 → CPU3 |
+
+Unrelated devices remain unrestricted: observed NVMe IRQs on CPUs 7/5, xHCI on CPU7 and Wi-Fi on CPU5. This confirms the constraint is per matching network device rather than a global exclusion.
+
+IPv4, IPv6, DNS and WireGuard-link health checks passed; the build host reached the router and guest VM without loss in the connectivity probes. CAKE remains 130 Mbit/s, LAN/WAN RPS remains f0f, VM cputune and boot ID are unchanged. No reboot, hotplug event or new throughput/latency benchmark was performed; the previous RPS benchmark does not measure the performance of this new IRQ policy.
+
+Router backup and private evidence: `/root/irqbalance-netdev-deploy-20261115-000253/` contains the signature-verified old r3 APK, old config/init/binary/world, before/after state and targeted transaction plans. Policy rollback can remove the two `netdev_cpus` entries and restart irqbalance under a new confirmed UCI-history transaction; the patched daemon's no-rule behavior is unchanged.
