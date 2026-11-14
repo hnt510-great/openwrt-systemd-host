@@ -1,0 +1,395 @@
+diff --git a/utils/irqbalance/Makefile b/utils/irqbalance/Makefile
+index 558f51b59..a216dcd2a 100644
+--- a/utils/irqbalance/Makefile
++++ b/utils/irqbalance/Makefile
+@@ -6,7 +6,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=irqbalance
+ PKG_VERSION:=1.9.5
+-PKG_RELEASE:=1
++PKG_RELEASE:=4
+ 
+ PKG_SOURCE_PROTO:=git
+ PKG_SOURCE_URL:=https://github.com/Irqbalance/irqbalance.git
+diff --git a/utils/irqbalance/files/irqbalance.config b/utils/irqbalance/files/irqbalance.config
+index 967b14d9a..c89920769 100644
+--- a/utils/irqbalance/files/irqbalance.config
++++ b/utils/irqbalance/files/irqbalance.config
+@@ -15,3 +15,7 @@ config irqbalance 'irqbalance'
+ 	#list banirq '36'
+ 	#list banirq '69'
+ 
++
++	# Optional PCI network-interface CPU pools (shell wildcard + CPU list).
++	# Rules are intersected when more than one matches. Unmatched IRQs are unchanged.
++	#list netdev_cpus 'enp*:0-3,8-11'
+diff --git a/utils/irqbalance/files/irqbalance.init b/utils/irqbalance/files/irqbalance.init
+index 05145ca8b..f18ada52f 100644
+--- a/utils/irqbalance/files/irqbalance.init
++++ b/utils/irqbalance/files/irqbalance.init
+@@ -39,6 +39,13 @@ start_service() {
+ 	}
+ 	config_list_foreach irqbalance banirq handle_banirq_value
+ 
++	# Optional per-netdev CPU pools; each list entry is one daemon argument.
++	handle_netdev_cpus_value()
++	{
++		procd_append_param command --netdev-cpus "$1"
++	}
++	config_list_foreach irqbalance netdev_cpus handle_netdev_cpus_value
++
+ 	# debug
+ 	if [ "$debug" -gt 0 ]; then
+ 		procd_append_param command -d
+diff --git a/utils/irqbalance/patches/030-netdev-cpu-pools.patch b/utils/irqbalance/patches/030-netdev-cpu-pools.patch
+new file mode 100644
+index 000000000..1cda947cd
+--- /dev/null
++++ b/utils/irqbalance/patches/030-netdev-cpu-pools.patch
+@@ -0,0 +1,346 @@
++From: OpenWrt local integration
++Subject: [PATCH] irqbalance: add per-network-device CPU pools
++
++Keep matching device IRQs within a configurable CPU list while retaining
++load-based placement and leaving unrelated IRQ policies unchanged.
++
++---
++--- a/Makefile.am
+++++ b/Makefile.am
++@@ -45,7 +45,7 @@ irqbalance_LDFLAGS = -Wl,-Bstatic
++ endif
++ 
++ irqbalance_SOURCES = activate.c bitmap.c classify.c cputree.c irqbalance.c \
++-	irqlist.c numa.c placement.c procinterrupts.c
+++	irqlist.c numa.c netdev.c placement.c procinterrupts.c
++ if THERMAL
++ irqbalance_SOURCES += thermal.c
++ endif
++--- a/activate.c
+++++ b/activate.c
++@@ -64,6 +64,9 @@ static void activate_mapping(struct irq_
++ 
++ 	/* activate only online cpus, otherwise writing to procfs returns EOVERFLOW */
++ 	cpus_and(applied_mask, cpu_online_map, info->assigned_obj->mask);
+++	restrict_irq_cpu_mask(info, &applied_mask);
+++	if ((info->flags & IRQ_FLAG_CPUSET) && cpus_empty(applied_mask))
+++		return; /* Keep pending; never write an empty or out-of-pool mask. */
++ 
++ 	/*
++  	 * Don't activate anything for which we have an invalid mask 
++--- a/classify.c
+++++ b/classify.c
++@@ -384,6 +384,7 @@ get_numa_node:
++ 		process_one_line(path, get_mask_from_bitmap, &new->cpumask);
++ 	}
++ 
+++	apply_netdev_cpu_rules(new, devpath);
++ 	log(TO_CONSOLE, LOG_INFO, "Adding IRQ %d to database\n", irq);
++ 	return new;
++ }
++@@ -593,8 +594,10 @@ static void add_new_irq(char *path, stru
++ 	int ret;
++ 
++ 	new = get_irq_info(irq);
++-	if (new)
+++	if (new) {
+++		apply_netdev_cpu_rules(new, path);
++ 		return;
+++	}
++ 
++ 	if (path) {
++ 		sprintf(buf, "%s/driver", path);
++@@ -703,6 +706,7 @@ void free_irq_db(void)
++ 
++ void free_cl_opts(void)
++ {
+++	free_netdev_cpu_rules();
++ 	g_list_free_full(cl_banned_modules, free);
++ 	g_list_free_full(cl_banned_irqs, free);
++ }
++--- a/irqbalance.1
+++++ b/irqbalance.1
++@@ -88,6 +88,20 @@ to see balancing as unnecessary.
++ The default value for deepestcache is 2.
++ 
++ .TP
+++.B -N, --netdev-cpus=<interface-pattern:cpulist>
+++Restrict IRQs of matching PCI network interfaces to the specified CPU list,
+++while continuing automatic load balancing within that pool. Interface patterns
+++use shell wildcard syntax and should be quoted. The option is repeatable;
+++all matching rules (including interfaces sharing an IRQ) are intersected.
+++Online CPUs and global CPU bans further restrict the pool. Nonmatching IRQs
+++retain their normal policy. For example:
+++.B --netdev-cpus='enp*:0-3,8-11'
+++No IRQ numbers or CPU pools are built in. An empty effective pool is reported;
+++irqbalance leaves the current affinity unchanged rather than violating the
+++pool. Explicitly banned or unmanaged IRQs remain unmanaged. New PCI IRQs and
+++CPU hotplug use the rules; request SIGHUP after an interface rename or if
+++the netdev appears after its IRQ was initially discovered.
+++.TP
++ .B -l, --policyscript=<script>
++ When specified, the referenced script or directory will execute once for each discovered IRQ,
++ with the sysfs device path and IRQ number passed as arguments.  Note that the
++--- a/irqbalance.c
+++++ b/irqbalance.c
++@@ -89,6 +89,7 @@ struct option lopts[] = {
++ 	{"interval", 1 , NULL, 't'},
++ 	{"version", 0, NULL, 'V'},
++ 	{"migrateval", 1, NULL, 'e'},
+++	{"netdev-cpus", 1, NULL, 'N'},
++ 	{0, 0, 0, 0}
++ };
++ 
++@@ -97,6 +98,8 @@ static void usage(void)
++ 	log(TO_CONSOLE, LOG_INFO, "irqbalance [--oneshot | -o] [--debug | -d] [--foreground | -f] [--journal | -j]\n");
++ 	log(TO_CONSOLE, LOG_INFO, "	[--powerthresh= | -p <off> | <n>] [--banirq= | -i <n>] [--banmod= | -m <module>] [--policyscript= | -l <script>]\n");
++ 	log(TO_CONSOLE, LOG_INFO, "	[--pid= | -s <file>] [--deepestcache= | -c <n>] [--interval= | -t <n>] [--migrateval= | -e <n>]\n");
+++	log(TO_CONSOLE, LOG_INFO,
+++	    "\t[--netdev-cpus= | -N <interface-pattern:cpulist>] (repeatable)\n");
++ }
++ 
++ static void version(void)
++@@ -112,7 +115,7 @@ static void parse_command_line(int argc,
++ 	char *endptr;
++ 
++ 	while ((opt = getopt_long(argc, argv,
++-		"odfjVi:p:s:c:l:m:t:e:",
+++		"odfjVi:p:s:c:l:m:t:e:N:",
++ 		lopts, &longind)) != -1) {
++ 
++ 		switch(opt) {
++@@ -150,6 +153,13 @@ static void parse_command_line(int argc,
++ 				free(polscript);
++ 				polscript = strdup(optarg);
++ 				break;
+++			case 'N':
+++				if (add_netdev_cpu_rule(optarg)) {
+++					log(TO_CONSOLE, LOG_ERR,
+++					    "Invalid netdev CPU rule: %s\n", optarg);
+++					exit(1);
+++				}
+++				break;
++ 			case 'm':
++ 				add_cl_banned_module(optarg);
++ 				break;
++--- a/irqbalance.h
+++++ b/irqbalance.h
++@@ -110,6 +110,11 @@ extern void for_each_irq(GList *list, vo
++ extern struct irq_info *get_irq_info(int irq);
++ extern void migrate_irq(GList **from, GList **to, struct irq_info *info);
++ extern void free_cl_opts(void);
+++int add_netdev_cpu_rule(const char *arg);
+++void free_netdev_cpu_rules(void);
+++void apply_netdev_cpu_rules(struct irq_info *info, const char *devpath);
+++void restrict_irq_cpu_mask(struct irq_info *info, cpumask_t *mask);
+++int irq_object_allowed(struct irq_info *info, cpumask_t *mask);
++ extern void add_cl_banned_module(char *modname);
++ #define irq_numa_node(irq) ((irq)->numa_node)
++ 
++--- a/meson.build
+++++ b/meson.build
++@@ -56,6 +56,7 @@ irqbalance_sources = files(
++   'irqbalance.c',
++   'irqlist.c',
++   'numa.c',
+++  'netdev.c',
++   'placement.c',
++   'procinterrupts.c',
++ )
++--- /dev/null
+++++ b/netdev.c
++@@ -0,0 +1,138 @@
+++// SPDX-License-Identifier: GPL-2.0-or-later
+++#include <errno.h>
+++#include <fnmatch.h>
+++#include <stdlib.h>
+++#include <string.h>
+++
+++#include "irqbalance.h"
+++
+++struct netdev_cpu_rule {
+++	char *pattern;
+++	cpumask_t cpus;
+++};
+++
+++static GList *netdev_cpu_rules;
+++
+++static int parse_netdev_cpus(const char *text, cpumask_t *mask)
+++{
+++	char *end;
+++	unsigned long first, last, cpu;
+++
+++	cpus_clear(*mask);
+++	for (;;) {
+++		if (!g_ascii_isdigit(*text))
+++			return -EINVAL;
+++		errno = 0;
+++		first = strtoul(text, &end, 10);
+++		if (errno || first >= NR_CPUS)
+++			return -EINVAL;
+++		last = first;
+++		if (*end == '-') {
+++			text = end + 1;
+++			if (!g_ascii_isdigit(*text))
+++				return -EINVAL;
+++			errno = 0;
+++			last = strtoul(text, &end, 10);
+++			if (errno || last >= NR_CPUS || last < first)
+++				return -EINVAL;
+++		}
+++		for (cpu = first; cpu <= last; cpu++)
+++			cpu_set(cpu, *mask);
+++		if (!*end)
+++			return 0;
+++		if (*end != ',' || !end[1])
+++			return -EINVAL;
+++		text = end + 1;
+++	}
+++}
+++
+++int add_netdev_cpu_rule(const char *arg)
+++{
+++	const char *sep = strchr(arg, ':');
+++	struct netdev_cpu_rule *rule;
+++
+++	if (!sep || sep == arg || !sep[1] ||
+++	    strspn(sep + 1, "0123456789,-") != strlen(sep + 1))
+++		return -EINVAL;
+++	rule = calloc(1, sizeof(*rule));
+++	if (!rule)
+++		return -ENOMEM;
+++	rule->pattern = strndup(arg, sep - arg);
+++	if (!rule->pattern) {
+++		free(rule);
+++		return -ENOMEM;
+++	}
+++	if (parse_netdev_cpus(sep + 1, &rule->cpus) ||
+++	    cpus_empty(rule->cpus)) {
+++		free(rule->pattern);
+++		free(rule);
+++		return -EINVAL;
+++	}
+++	netdev_cpu_rules = g_list_append(netdev_cpu_rules, rule);
+++	return 0;
+++}
+++
+++static void free_netdev_cpu_rule(gpointer data)
+++{
+++	struct netdev_cpu_rule *rule = data;
+++
+++	free(rule->pattern);
+++	free(rule);
+++}
+++
+++void free_netdev_cpu_rules(void)
+++{
+++	g_list_free_full(netdev_cpu_rules, free_netdev_cpu_rule);
+++	netdev_cpu_rules = NULL;
+++}
+++
+++/* Match sysfs netdevs, not /proc/interrupts labels or fixed IRQ numbers. */
+++void apply_netdev_cpu_rules(struct irq_info *info, const char *devpath)
+++{
+++	char *path;
+++	const char *name;
+++	GDir *dir;
+++	GList *entry;
+++
+++	if (!netdev_cpu_rules || !devpath || (info->flags & IRQ_FLAG_BANNED))
+++		return;
+++	path = g_build_filename(devpath, "net", NULL);
+++	dir = g_dir_open(path, 0, NULL);
+++	g_free(path);
+++	if (!dir)
+++		return;
+++	while ((name = g_dir_read_name(dir))) {
+++		for (entry = netdev_cpu_rules; entry; entry = entry->next) {
+++			struct netdev_cpu_rule *rule = entry->data;
+++
+++			if (fnmatch(rule->pattern, name, 0))
+++				continue;
+++			if (!(info->flags & IRQ_FLAG_CPUSET))
+++				cpus_setall(info->allowed_cpus);
+++			/* Multiple matching rules/devices restrict, never expand. */
+++			cpus_and(info->allowed_cpus, info->allowed_cpus, rule->cpus);
+++			info->flags |= IRQ_FLAG_CPUSET;
+++		}
+++	}
+++	g_dir_close(dir);
+++}
+++
+++/* Apply the per-IRQ pool after online filtering, respecting global bans. */
+++void restrict_irq_cpu_mask(struct irq_info *info, cpumask_t *mask)
+++{
+++	if (!(info->flags & IRQ_FLAG_CPUSET))
+++		return;
+++	cpus_and(*mask, *mask, info->allowed_cpus);
+++	cpus_and(*mask, *mask, unbanned_cpus);
+++}
+++
+++int irq_object_allowed(struct irq_info *info, cpumask_t *object_mask)
+++{
+++	cpumask_t mask;
+++
+++	if (!(info->flags & IRQ_FLAG_CPUSET))
+++		return 1;
+++	cpus_and(mask, *object_mask, cpu_online_map);
+++	restrict_irq_cpu_mask(info, &mask);
+++	return !cpus_empty(mask);
+++}
++--- a/placement.c
+++++ b/placement.c
++@@ -56,6 +56,9 @@ static void find_best_object(struct topo
++ 	    (!cpus_intersects(d->mask, unbanned_cpus)))
++ 		return;
++ 
+++	if (!irq_object_allowed(best->info, &d->mask))
+++		return;
+++
++ 	if (d->powersave_mode)
++ 		return;
++ 
++@@ -126,12 +129,23 @@ static void place_irq_in_node(struct irq
++ 	if ((info->level == BALANCE_NONE) && cpus_empty(banned_cpus))
++ 		return;
++ 
+++	if (!irq_object_allowed(info, &cpu_online_map)) {
+++		if (!(info->flags & IRQ_FLAG_CPUSET_WARNED))
+++			log(TO_ALL, LOG_WARNING,
+++			    "IRQ %d: no online CPU in netdev pool after global bans; "
+++			    "affinity unchanged\n", info->irq);
+++		info->flags |= IRQ_FLAG_CPUSET_WARNED;
+++		return;
+++	}
+++	info->flags &= ~IRQ_FLAG_CPUSET_WARNED;
+++
++ 	if (irq_numa_node(info)->number != NUMA_NO_NODE || !numa_avail) {
++ 		/*
++ 		 * Need to make sure this node is elligible for migration
++ 		 * given the banned cpu list
++ 		 */
++-		if (!cpus_intersects(irq_numa_node(info)->mask, unbanned_cpus)) {
+++		if (!cpus_intersects(irq_numa_node(info)->mask, unbanned_cpus) ||
+++		    !irq_object_allowed(info, &irq_numa_node(info)->mask)) {
++ 			log(TO_CONSOLE, LOG_WARNING, "There is no suitable CPU in node:%d.\n", irq_numa_node(info)->number);
++ 			log(TO_CONSOLE, LOG_WARNING, "Irqbalance dispatch irq:%d to other node.\n", info->irq);
++ 			goto find_placement;
++--- a/types.h
+++++ b/types.h
++@@ -35,6 +35,8 @@
++  * IRQ Internal tracking flags
++  */
++ #define IRQ_FLAG_BANNED                 (1ULL << 0)
+++#define IRQ_FLAG_CPUSET                 (1ULL << 1)
+++#define IRQ_FLAG_CPUSET_WARNED          (1ULL << 2)
++ 
++ enum obj_type_e {
++ 	OBJ_TYPE_CPU,
++@@ -67,6 +69,7 @@ struct irq_info {
++ 	int flags;
++ 	struct topo_obj *numa_node;
++ 	cpumask_t cpumask;
+++	cpumask_t allowed_cpus;
++ 	uint64_t irq_count;
++ 	uint64_t last_irq_count;
++ 	uint64_t load;
