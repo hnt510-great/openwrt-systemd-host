@@ -78,6 +78,20 @@ PyGObject, GTK4, libadwaita, GUdev, Notify and desktop-schema dependencies.
 See the [physical Tweaks validation](gnome-tweaks-validation.md) for the
 signed deployment and application checks.
 
+`openwrt-desktop` also includes Wayland clipboard utilities and core desktop
+applications:
+
+- `wl-clipboard` (`wl-copy`, `wl-paste`) for Wayland clipboard access,
+  including CLI tools that paste `image/png` data on Wayland.
+- Resources (`resources`, `net.nokyan.Resources`), a GTK4/libadwaita system
+  and process monitor built with offline locked Cargo dependencies.
+- GNOME Text Editor (`gnome-text-editor`) with GtkSourceView 5
+  (`gtksourceview`) and `libspelling`.
+- GNOME Image Viewer (`loupe`) backed by `glycin`.
+- GNOME Calculator (`gnome-calculator`), Disk Usage Analyzer (`baobab`),
+  Archive Manager (`file-roller` with `libarchive` and Nautilus actions) and
+  Document Viewer (`evince` with `poppler`).
+
 The desktop ships DejaVu Sans/Sans Mono as primary fonts and
 `noto-sans-symbols2` (Noto Sans Symbols 2, OFL-1.1) as a fontconfig fallback.
 DejaVu lacks several Miscellaneous Technical and pictograph code points, such

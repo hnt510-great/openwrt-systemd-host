@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openwrt-desktop
-PKG_RELEASE:=29
+PKG_RELEASE:=30
 PKG_CONFIG_DEPENDS:=CONFIG_OPENWRT_SYSTEMD
 PKG_LICENSE:=MIT
 
@@ -14,6 +14,8 @@ define Package/openwrt-desktop
   DEPENDS:=@TARGET_x86_64 @USE_GLIBC @OPENWRT_SYSTEMD +input-support +video-support +accel-support +systemd-udev +kmod +glibc-locale-utf8 +libpam \
 	+gnome-shell +gnome-session +gnome-settings-daemon +gnome-control-center \
 	+nautilus +gnome-terminal +gnome-tweaks +gnome-remote-desktop +gnome-keyring \
+	+wl-clipboard +resources +gnome-text-editor +loupe +gnome-calculator \
+	+baobab +file-roller +evince \
 	+xdg-desktop-portal-gnome +python3-gobject +glib2-utils +xwayland \
 	+kmod-input-evdev +dejavu-fonts-ttf-DejaVuSans +noto-sans-symbols2 \
 	+dejavu-fonts-ttf-DejaVuSansMono +openssl-util \

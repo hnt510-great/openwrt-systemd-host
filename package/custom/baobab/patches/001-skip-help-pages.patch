@@ -1,0 +1,11 @@
+Subject: Skip Yelp Mallard help pages during cross builds
+
+--- a/meson.build
++++ b/meson.build
+@@ -39,6 +39,5 @@ add_project_arguments(
+ )
+ 
+ subdir('data')
+-subdir('help')
+ subdir('po')
+ subdir('src')

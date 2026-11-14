@@ -1,0 +1,12 @@
+Subject: Skip Yelp Mallard help pages during cross builds
+
+--- a/meson.build
++++ b/meson.build
+@@ -122,7 +122,6 @@ configure_file(
+ 
+ subdir('data')
+ subdir('src')
+-subdir('help')
+ subdir('po')
+ 
+ gnome.post_install(

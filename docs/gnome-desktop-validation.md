@@ -286,3 +286,17 @@ Evidence: `/srv/openwrt-validation/grd-dmabuf-fd-validation-20261112/`, includin
 `r7-gdb-eglGetError.txt`, `r7-fds-at-failure.txt`,
 `r7-debug-session-full.log`, `r8-session.log`, the publication JSON reports
 and the `egl-probes/` sources.
+
+## Wayland clipboard and bundled GNOME applications — 2026-11-14
+
+`openwrt-desktop` r30 adds `wl-clipboard`, `resources`, `gnome-text-editor`
+(`gtksourceview`, `libspelling`), `loupe`, `gnome-calculator`, `baobab`,
+`file-roller` and `evince` (`poppler`).
+
+| Check | Result |
+| --- | --- |
+| Custom package registration | `python3 scripts/tests/test-custom-package-updates.py` passed 49 tests |
+| Package builds | `wl-clipboard-2.3.0-r1`, `resources-1.10.2-r1`, `gtksourceview-5.22.0-r1`, `libspelling-0.4.11-r1`, `gnome-text-editor-51.0-r1`, `loupe-51.2-r1`, `gnome-calculator-51.1-r1`, `baobab-50.0-r1`, `file-roller-44.7-r1`, `poppler-26.11.0-r1`, `evince-48.4-r1` and `openwrt-desktop-30` compiled and passed `elf-abi.py` and `merge-usr.py` |
+| Publication | `./scripts/publish-changed-feeds.sh --dry-run` and production publication passed router upgrade preflight (`snapshot /srv/openwrt-feeds/public/snapshots/20261114T023413.484582Z`) |
+| Router installation | `apk update && apk upgrade` installed all 13 packages cleanly on `192.0.2.1` |
+| Wayland image clipboard | `wl-copy --type image/png` and `wl-paste --type image/png` transferred a 70-byte PNG payload over `WAYLAND_DISPLAY=wayland-0` |
