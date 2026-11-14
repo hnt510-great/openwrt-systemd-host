@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+if [ "$(id -u)" = 0 ]; then
+	echo 'Start Google Chrome as an ordinary desktop user.' >&2
+	exit 1
+fi
+
+# Google's wrapper sets CHROME_WRAPPER/CHROME_VERSION_EXTRA and sanitizes stdio.
+exec /opt/google/chrome/google-chrome "$@"

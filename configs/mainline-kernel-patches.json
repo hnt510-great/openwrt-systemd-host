@@ -3551,9 +3551,10 @@
         "drivers/net/phy/sfp.c"
       ],
       "status": "rebased",
-      "source_sha256": "e39323578307c4905397f2d8d19bee715b2be98644d194bfc7c8e1851c53ba8d",
+      "source_sha256": "d9e49cda37435b0fa5b7ef1b24405208be38e9afa08a9820a016aed4e43fdc66",
       "ported": "target/linux/generic/pending-7.3/750-net-sfp-add-quirk-for-QINIYEK-BJ-SFP-10G-T-copper-SF.patch",
-      "ported_sha256": "d14c8f8c17e07c625ea7bc3b133ce639c3511d49f62c970e5ff8b9a837337f90"
+      "ported_sha256": "af868f8333453936b6677f5eaead84684fc0e37de339e7787c23752cda0c2fd4",
+      "reason": "Hunk offsets refreshed for the new 757/802 backports; Ported after upstream merge 24c13d794c; verified against hash-checked Linux 7.3.4 with zero-fuzz full-stack application"
     },
     {
       "source": "target/linux/generic/pending-6.18/751-net-sfp-add-quirk-for-TP-LINK-SM410U.patch",
@@ -3561,9 +3562,10 @@
         "drivers/net/phy/sfp.c"
       ],
       "status": "rebased",
-      "source_sha256": "e0c43a2f00bf474fa97699e041af81c4866be8b3811e739fa2ed97158141a7d1",
+      "source_sha256": "c251cdc13d010b3bfbdb7e08963a02ee72c4b2b9e9a3c127f59ca153aa3ff7e6",
       "ported": "target/linux/generic/pending-7.3/751-net-sfp-add-quirk-for-TP-LINK-SM410U.patch",
-      "ported_sha256": "83d91cd847df0f307144ef0bf6a24c723ec6f52947d4890924ae38e1b34c0425"
+      "ported_sha256": "71e6f199f300d29c75b9022039dd03b9158c1a8e8be05f321f4131b6c00c6f10",
+      "reason": "Hunk offsets refreshed for the new 757/802 backports; Ported after upstream merge 24c13d794c; verified against hash-checked Linux 7.3.4 with zero-fuzz full-stack application"
     },
     {
       "source": "target/linux/generic/pending-6.18/752-net-sfp-add-LED-triggers-for-module-state-and-faults.patch",
@@ -3571,9 +3573,10 @@
         "drivers/net/phy/sfp.c"
       ],
       "status": "rebased",
-      "source_sha256": "ab47e1a8523298f76f33d8727b14840c1e8596efdd45f57a977670c959ebd3c4",
+      "source_sha256": "cfe92b0c8fdbabcadf3ae1678688e8ad71b4ca1e07ed63cc42cc3b1304184c75",
       "ported": "target/linux/generic/pending-7.3/752-net-sfp-add-LED-triggers-for-module-state-and-faults.patch",
-      "ported_sha256": "41e66dbdd7bef7901bb939823050d15ef90ed3c98499bd03ac49ba4dcb4eb218"
+      "ported_sha256": "af21a6f4dabc5f45b2751f83e33301eca8c554c49b91733de675effdfa7072c5",
+      "reason": "Hunk offsets refreshed for the new 757/802 backports; Ported after upstream merge 24c13d794c; verified against hash-checked Linux 7.3.4 with zero-fuzz full-stack application"
     },
     {
       "source": "target/linux/generic/pending-6.18/760-00-net-dsa-mxl862xx-wait-for-firmware-boot-time-configu.patch",
@@ -3953,9 +3956,10 @@
         "include/linux/phy.h"
       ],
       "status": "rebased",
-      "source_sha256": "8670747cad058a8e0fb0868e2526035d3b7425811b66b7eea51d43fc91a3525e",
+      "source_sha256": "43b0b9e8b4c434f0b3dd1b1025859749dd2073b0d4542bf3f69bed0c5d35b8d9",
       "ported": "target/linux/generic/pending-7.3/801-01-net-phy-add-PHY_DETACH_NO_HW_RESET-PHY-flag.patch",
-      "ported_sha256": "b9f95b708b9df08182595c29ece2b6945d8b607e5c16b8278a0961594519fd88"
+      "ported_sha256": "81eb531a3428f3e7bdc111aef10ab549336bfaa164f8e049724c2513f0bf84f8",
+      "reason": "Hunk offsets refreshed for the new 757/802 backports; Ported after upstream merge 24c13d794c; verified against hash-checked Linux 7.3.4 with zero-fuzz full-stack application"
     },
     {
       "source": "target/linux/generic/pending-6.18/801-02-net-phy-as21xxx-add-flag-PHY_DETACH_NO_HW_RESET.patch",
@@ -4316,9 +4320,10 @@
         "net/ethtool/pse-pd.c"
       ],
       "status": "rebased",
-      "source_sha256": "37fc1f2e1770ca84e16b8e035a11089e852e2908cee9c97df9b820dd93df53d0",
+      "source_sha256": "8c4c39082b86bdfd0cf4e147edae836ed83c1f8099665a21ca17f08b78a317a8",
       "ported": "target/linux/generic/pending-7.3/896-03-net-phy-own-phydev-psec-via-PSE-notifier-and-remove-.patch",
-      "ported_sha256": "9640707260d50dd52da695f79e6db2b5c742b83eebd96f87beca234d35b81956"
+      "ported_sha256": "8ab4a2276df9765b7087c9942dca855591594bdd6c7aca4a179e7ce830e03e0f",
+      "reason": "Hunk offsets refreshed for the new 757/802 backports; Ported after upstream merge 24c13d794c; verified against hash-checked Linux 7.3.4 with zero-fuzz full-stack application"
     },
     {
       "source": "target/linux/generic/pending-6.18/897-00-dt-bindings-net-pse-pd-add-poll-interval-ms.patch",
@@ -5213,10 +5218,10 @@
         "drivers/net/phy/sfp.c"
       ],
       "status": "carried",
-      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
-      "source_sha256": "e011762d0d8437e10967c5b08e3fe797cb7855fa81835870645eaf301b3c590c",
+      "reason": "Hunk offsets refreshed for the new 757/802 backports; Ported after upstream merge 24c13d794c; verified against hash-checked Linux 7.3.4 with zero-fuzz full-stack application",
+      "source_sha256": "c9f3b8009b7b41b86241af71b55a407c8a613f444eb7dd87644d972517554d8e",
       "ported": "target/linux/generic/pending-7.3/753-net-sfp-add-quirk-for-ZYXEL-PMG3000-D20B.patch",
-      "ported_sha256": "e011762d0d8437e10967c5b08e3fe797cb7855fa81835870645eaf301b3c590c"
+      "ported_sha256": "7d0fb12ac6abd21ee7ff0ad8018660dc41c12ac92b47209813e74c65291da687"
     },
     {
       "source": "target/linux/generic/pending-6.18/793-01-net-ethernet-mtk_wed-skip-ring-reset-in-wdma_tx_ring.patch",
@@ -6195,6 +6200,61 @@
       "source_sha256": "eacdd35fd7eefafd5a0df79e045a36c3c16cc9381f70e847017ae668df9096bf",
       "ported": "target/linux/generic/hack-7.3/967-39-fix-mtk-yt922x-tx-checksum-offload.patch",
       "ported_sha256": "eacdd35fd7eefafd5a0df79e045a36c3c16cc9381f70e847017ae668df9096bf"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/757-v7.5-net-sfp-add-quirk-for-OEM-SFP-ONU-XGSPON.patch",
+      "files": [
+        "drivers/net/phy/sfp.c"
+      ],
+      "status": "refreshed",
+      "reason": "Upstream v7.4/v7.5 commit absent from Linux 7.3.4; Ported after upstream merge 24c13d794c; verified against hash-checked Linux 7.3.4 with zero-fuzz full-stack application",
+      "source_sha256": "b5d7ef0e2bb8711c6a1e3eb2cb7af3f276e1fe07d2a0cc56692ba5880a55cc2a",
+      "ported": "target/linux/generic/backport-7.3/757-v7.5-net-sfp-add-quirk-for-OEM-SFP-ONU-XGSPON.patch",
+      "ported_sha256": "692df5062017c17172a34f8cfb6ff18ce1be1c5622a863e053c963ae57a7a52b"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/802-01-v7.4-net-usb-lan78xx-register-the-PHY-interrupt-with-the-.patch",
+      "files": [
+        "drivers/net/usb/lan78xx.c"
+      ],
+      "status": "refreshed",
+      "reason": "Upstream v7.4/v7.5 commit absent from Linux 7.3.4; Ported after upstream merge 24c13d794c; verified against hash-checked Linux 7.3.4 with zero-fuzz full-stack application",
+      "source_sha256": "77a4cd1c6f6bde432a9106625c5f495e06c44686568cf0a5e74d199a28ed10e9",
+      "ported": "target/linux/generic/backport-7.3/802-01-v7.4-net-usb-lan78xx-register-the-PHY-interrupt-with-the-.patch",
+      "ported_sha256": "77a4cd1c6f6bde432a9106625c5f495e06c44686568cf0a5e74d199a28ed10e9"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/802-02-v7.4-net-usb-smsc95xx-register-the-PHY-interrupt-with-the.patch",
+      "files": [
+        "drivers/net/usb/smsc95xx.c"
+      ],
+      "status": "refreshed",
+      "reason": "Upstream v7.4/v7.5 commit absent from Linux 7.3.4; Ported after upstream merge 24c13d794c; verified against hash-checked Linux 7.3.4 with zero-fuzz full-stack application",
+      "source_sha256": "20635bb72516ebb35c83d80f48bf6a5a4a50767864a71d425d1b3f73df080c3e",
+      "ported": "target/linux/generic/backport-7.3/802-02-v7.4-net-usb-smsc95xx-register-the-PHY-interrupt-with-the.patch",
+      "ported_sha256": "93f74ccd2475fe43c570b7f6ce0ff8c3c7b049a4ba9cefaee484a315012e6efe"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/802-03-v7.4-net-phy-take-the-interrupt-back-from-the-bus-on-deta.patch",
+      "files": [
+        "drivers/net/phy/phy_device.c"
+      ],
+      "status": "refreshed",
+      "reason": "Upstream v7.4/v7.5 commit absent from Linux 7.3.4; Ported after upstream merge 24c13d794c; verified against hash-checked Linux 7.3.4 with zero-fuzz full-stack application",
+      "source_sha256": "7601d84e0e9a2339a830601667f0d7782d626d4ec1af02d1386b4bbc1547abd8",
+      "ported": "target/linux/generic/backport-7.3/802-03-v7.4-net-phy-take-the-interrupt-back-from-the-bus-on-deta.patch",
+      "ported_sha256": "3c95782c3ae782999da69c0ec48c6b50409aca2aa51d673ce084eba6eb0e2262"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/802-04-v7.4-net-phy-restore-the-interrupt-when-the-generic-bind-.patch",
+      "files": [
+        "drivers/net/phy/phy_device.c"
+      ],
+      "status": "refreshed",
+      "reason": "Upstream v7.4/v7.5 commit absent from Linux 7.3.4; Ported after upstream merge 24c13d794c; verified against hash-checked Linux 7.3.4 with zero-fuzz full-stack application",
+      "source_sha256": "aeaaed8335f9c640bf869e3c8c0d55c85d9d9252419b2644140f771a44bcea7f",
+      "ported": "target/linux/generic/backport-7.3/802-04-v7.4-net-phy-restore-the-interrupt-when-the-generic-bind-.patch",
+      "ported_sha256": "925bcb2b8d323b75e181756e0729e9259dcdb41acaaebf36bcfef90a71d6852c"
     }
   ],
   "additions": [

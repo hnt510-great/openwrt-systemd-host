@@ -1,0 +1,39 @@
+Subject: Use the Cargo cache populated from the locked source manifest and skip help pages
+
+--- a/meson.build
++++ b/meson.build
+@@ -45,7 +45,6 @@ datadir = prefix / get_option('datadir')
+ pkgdatadir = datadir / meson.project_name()
+ 
+ subdir('data')
+-subdir('help')
+ subdir('src')
+ subdir('po')
+ 
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -15,8 +15,14 @@ elif profile == 'release'
+   rust_target = 'release'
+ endif
+ 
++if meson.is_cross_build()
++  rust_artifact_dir = 'src' / meson.get_external_property('rust_target') / rust_target
++else
++  rust_artifact_dir = 'src' / rust_target
++endif
++
+ cargo_env = {
+-  'CARGO_HOME': build_root / 'cargo-home',
++  'CARGO_HOME': run_command('sh', '-c', 'printf %s "$CARGO_HOME"', check: true).stdout(),
+   'APP_ID': app_id,
+   'VERSION': version,
+   'LOCALEDIR': localedir,
+@@ -48,7 +54,7 @@ custom_target(
+   output: meson.project_name(),
+   command: [
+     'cp',
+-    'src' / rust_target / meson.project_name(),
++    rust_artifact_dir / meson.project_name(),
+     '@OUTPUT@',
+   ],
+ )

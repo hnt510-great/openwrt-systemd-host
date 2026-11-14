@@ -53,7 +53,7 @@ Signed-off-by: Daniel Golle <daniel@makrotopia.org>
  struct sfp {
  	struct device *dev;
  	struct i2c_adapter *i2c;
-@@ -315,6 +336,10 @@
+@@ -316,6 +337,10 @@
  
  #if IS_ENABLED(CONFIG_DEBUG_FS)
  	struct dentry *debugfs_dir;
@@ -64,7 +64,7 @@ Signed-off-by: Daniel Golle <daniel@makrotopia.org>
  #endif
  };
  
-@@ -2152,23 +2177,27 @@
+@@ -2156,23 +2181,27 @@
  	sfp_link_down(sfp->sfp_bus);
  }
  
@@ -99,7 +99,7 @@ Signed-off-by: Daniel Golle <daniel@makrotopia.org>
  		sfp_sm_next(sfp, SFP_S_WAIT_LOS, 0);
  	else
  		sfp_sm_link_up(sfp);
-@@ -3027,6 +3056,102 @@
+@@ -3031,6 +3060,102 @@
  	}
  }
  
@@ -202,7 +202,7 @@ Signed-off-by: Daniel Golle <daniel@makrotopia.org>
  static void __sfp_sm_event(struct sfp *sfp, unsigned int event)
  {
  	dev_dbg(sfp->dev, "SM: enter %s:%s:%s event %s\n",
-@@ -3043,6 +3168,8 @@
+@@ -3047,6 +3172,8 @@
  		mod_state_to_str(sfp->sm_mod_state),
  		dev_state_to_str(sfp->sm_dev_state),
  		sm_state_to_str(sfp->sm_state));
@@ -211,7 +211,7 @@ Signed-off-by: Daniel Golle <daniel@makrotopia.org>
  }
  
  static void sfp_sm_event(struct sfp *sfp, unsigned int event)
-@@ -3383,6 +3510,10 @@
+@@ -3387,6 +3514,10 @@
  	dev_info(sfp->dev, "Host maximum power %u.%uW\n",
  		 sfp->max_power_mW / 1000, (sfp->max_power_mW / 100) % 10);
  

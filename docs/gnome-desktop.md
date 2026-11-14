@@ -43,6 +43,14 @@ with `LANG=en_US.UTF-8` (or `LANG=en_us.utf-8`); installing locale data does
 not change the system or user language preference.
 First-boot cache initialization registers the SVG image loader as well as
 schemas, GIO modules and input modules, so GNOME application icons can load.
+GNOME Shell and GTK rescan an icon theme only when the theme's top directory
+or its `icon-theme.cache` changes, but packages add icons to size
+subdirectories such as `hicolor/48x48/apps`. The APK commit hook
+`/usr/lib/apk/commit_hooks.d/70-icon-theme-refresh` (from `openwrt-desktop`)
+therefore touches each theme whose subdirectories changed, refreshing an
+existing cache first. Applications installed into a running session, such as
+`google-chrome-bin`, then show their icons without logging out. Its host
+test is `scripts/tests/test-desktop-icon-theme-hook.py`.
 
 GNOME Shell depends on `libgio-gnutls` (built by the `glib-networking`
 recipe) and `ca-bundle` for HTTPS extension downloads. Extension Manager
@@ -69,6 +77,20 @@ modules install into the target Python site-packages directory, with explicit
 PyGObject, GTK4, libadwaita, GUdev, Notify and desktop-schema dependencies.
 See the [physical Tweaks validation](gnome-tweaks-validation.md) for the
 signed deployment and application checks.
+
+`openwrt-desktop` also includes Wayland clipboard utilities and core desktop
+applications:
+
+- `wl-clipboard` (`wl-copy`, `wl-paste`) for Wayland clipboard access,
+  including CLI tools that paste `image/png` data on Wayland.
+- Resources (`resources`, `net.nokyan.Resources`), a GTK4/libadwaita system
+  and process monitor built with offline locked Cargo dependencies.
+- GNOME Text Editor (`gnome-text-editor`) with GtkSourceView 5
+  (`gtksourceview`) and `libspelling`.
+- GNOME Image Viewer (`loupe`) backed by `glycin`.
+- GNOME Calculator (`gnome-calculator`), Disk Usage Analyzer (`baobab`),
+  Archive Manager (`file-roller` with `libarchive` and Nautilus actions) and
+  Document Viewer (`evince` with `poppler`).
 
 The desktop ships DejaVu Sans/Sans Mono as primary fonts and
 `noto-sans-symbols2` (Noto Sans Symbols 2, OFL-1.1) as a fontconfig fallback.
@@ -136,6 +158,29 @@ Mutter and starts remote listeners only when the root service has supplied a
 LAN address. LAN changes replace the listener environment and restart remote
 services without replacing GNOME. RDP does not negotiate another port or bind
 a wildcard address. The default is TCP 3389 on LAN IPv4 only.
+
+RDP shares the local monitor, so changing its mode or scale in Settings >
+Displays during a session closes Mutter's screen-cast stream. The server
+creates a new stream, resets the RDP graphics pipeline, and the client follows
+the new desktop size without reconnecting. Each new stream renegotiates its
+buffers right after it starts. Upstream 51.0 kept only PipeWire's borrowed
+dma-buf fd. If PipeWire closed it while a frame was still queued, the import
+used a dead or reused fd. The log then shows
+`Failed to import DMA buffer as EGL image: 12291` followed by
+`ERRINFO_GRAPHICS_SUBSYSTEM_FAILED`, and the client disconnects. Patch 007
+(`gnome-remote-desktop` 51.0-r8) keeps the server's own duplicate of each
+dma-buf fd for the buffer's lifetime. See the
+[r8 validation](gnome-desktop-validation.md#rdp-mode-changes-during-a-session--2026-11-12).
+
+`gnome-remote-desktop` requires a working Vulkan device before it initializes
+`GrdHwAccelVaapi` for hardware H.264 (AVC420/AVC444) RDP encoding. In `feeds/video`,
+`libmesa-virtualization` (26.2.2-r11, mirrored as
+`patches/feeds/0037-video-mesa-vulkan.patch` and `configs/mesa-vulkan-feeds.json`)
+builds and packages the `intel`, `intel_hasvk` and `virtio` Vulkan ICDs
+(`/usr/lib/libvulkan_*.so` and `/usr/share/vulkan/icd.d/*_icd.*.json`) alongside
+the shared GLVND/EGL/GBM/Gallium stack. `package/custom/freerdp` (3.33.1-r2)
+builds `libfreerdp3` and `libwinpr3` with `-O3`, `-DWITH_SIMD=ON`,
+`-DWITH_RDPEUDP=ON` and `-DWITH_VERBOSE_WINPR_ASSERT=OFF`.
 
 Sunshine retains its user's configuration, pairing state, PipeWire audio,
 uinput enrollment and the Intel 8086:4e61 H.264-only encoder workaround.

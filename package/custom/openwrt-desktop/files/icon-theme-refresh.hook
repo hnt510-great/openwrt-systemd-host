@@ -1,0 +1,18 @@
+#!/bin/sh
+# GNOME Shell and GTK rescan an icon theme only when its top directory or
+# icon-theme.cache changes. Packages add icons to size subdirectories, so mark
+# every theme whose subdirectories changed after an online transaction.
+[ "$1" = post-commit ] || exit 0
+[ -z "$IPKG_INSTROOT" ] || exit 0
+icons=${OPENWRT_ICON_THEME_DIR:-/usr/share/icons}
+for theme in "$icons"/*/; do
+	theme=${theme%/}
+	[ -f "$theme/index.theme" ] || continue
+	changed=$(find "$theme" -mindepth 1 -type d -newer "$theme" 2>/dev/null | head -n 1)
+	[ -n "$changed" ] || continue
+	if [ -f "$theme/icon-theme.cache" ] && command -v gtk4-update-icon-cache >/dev/null 2>&1; then
+		gtk4-update-icon-cache -q -f -t "$theme" >/dev/null 2>&1 || :
+	fi
+	touch "$theme" 2>/dev/null || :
+done
+exit 0

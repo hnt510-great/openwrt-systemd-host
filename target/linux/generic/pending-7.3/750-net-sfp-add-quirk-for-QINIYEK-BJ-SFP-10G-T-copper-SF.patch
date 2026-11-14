@@ -16,7 +16,7 @@ Signed-off-by: Daniel Golle <daniel@makrotopia.org>
 
 --- a/drivers/net/phy/sfp.c
 +++ b/drivers/net/phy/sfp.c
-@@ -632,6 +632,7 @@
+@@ -636,6 +636,7 @@
  	// match the part as a prefix.
  	SFP_QUIRK_F_PREFIX("OEM", "XGSPONST2001", sfp_fixup_potron),
  

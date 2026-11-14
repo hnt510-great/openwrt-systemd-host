@@ -574,3 +574,50 @@ current. The APK hook's queued worker finished without failing and its cached
 report was also complete with zero warnings. No service, container or
 configuration was changed and nothing was restarted. No timed rollback was
 prepared and no evidence workspace was retained.
+
+## Podman pod infra/helper and Chrome zygote sandbox correction: r14
+
+On 2026-11-14 the installed `r13` scanner on the physical router reported
+partial coverage over 227 processes with three groups of warnings:
+
+- `example-infra` (`000000000001`, `IsInfra: true`) is Podman's built-in rootfs
+  pause container for `example-pod.service` (`Image: ""`, `ImageName: ""`,
+  `Rootfs: "/run/user/1000/libpod/tmp/infra-container"`). Its bind-mounted
+  `/catatonit` executable is already verified by process scanning, but
+  `add_store()` treated the empty `ImageName` as a missing local image reference.
+- `PID 8710` (`/usr/bin/passt.avx2`) is the rootless network helper for
+  `example-pod.service`. Unlike standalone container services that place the
+  helper under `/<unit>/runtime`, Podman pod units place `conmon` and `passt`
+  directly in `/<unit>` (`/user.slice/user-1000.slice/user@1000.service/app.slice/example-pod.service`).
+- Sandboxed Google Chrome (`/opt/google/chrome/chrome`) zygote and renderer
+  processes chroot into `/proc/<sandbox-pid>/fdinfo` just like Firefox ESR, but
+  spawn through a two-level zygote hierarchy (`renderer -> zygote -> zygote ->
+  host-rooted browser`). `sandbox_host_browser()` previously only matched
+  `/usr/lib/firefox-esr/firefox-bin` and a single parent hop.
+
+`1.0.0-r14` marks image-less rootfs `IsInfra` containers as `current`, matches
+both `/<unit>/runtime` and `/<unit>` for verified user-unit container
+controllers in `sandbox_host_helper()`, and extends `sandbox_host_browser()` to
+`/opt/google/chrome/chrome` across up to four verified same-user,
+same-executable, same-chroot-or-host-root parent hops.
+
+| Check | Result |
+| --- | --- |
+| Compiled scanner fixture tests | 109 passed (7 new) |
+| Real ucode RPC backend tests | 7 passed |
+| LuCI DOM/RPC rendering tests | Passed |
+| C checkpatch | 0 errors, 0 warnings |
+| Unpackaged r14 scanner on the physical router, run from `/tmp` | Complete (exit 0), zero warnings, zero unreadable, 238–239 processes, kernel and all 8 containers current |
+
+| Final artifact | SHA-256 |
+| --- | --- |
+| openwrt-needrestart-1.0.0-r14.apk | 640f101cf593f7b015e6d05cc6739aeada6e423cb02357cdd8ede29bb5e20d9c |
+| Installed stripped scanner | ef3c0fa7b2d7e191821ba81c25c8020803fb773e3057eddb85a4e0e9f9438f9a |
+
+Published in snapshot `20261114T034551.200539Z` under ABI
+`7.3.4~ed87419856d1e94684def72e3f4520f8-r1`; only `openwrt-needrestart`
+(`1.0.0-r13` → `1.0.0-r14`) changed. On the physical router, both the APK
+simulation and live upgrade changed only `openwrt-needrestart`. Both the APK
+commit hook's queued worker report (`needrestart --cached`) and a fresh CLI
+scan returned `complete` (exit 0) over 232 processes, zero warnings, no restart
+advice, kernel `current`, and all eight containers `current`.

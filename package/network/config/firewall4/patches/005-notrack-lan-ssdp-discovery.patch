@@ -7,7 +7,7 @@ the rule as well, without replacing an existing user rule.
 
 Signed-off-by: coolsnowwolf <coolsnowwolf@gmail.com>
 ---
---- a/root/etc/uci-defaults/95-upnp-ssdp-notrack
+--- /dev/null
 +++ b/root/etc/uci-defaults/95-upnp-ssdp-notrack
 @@ -0,0 +1,30 @@
 +#!/bin/sh

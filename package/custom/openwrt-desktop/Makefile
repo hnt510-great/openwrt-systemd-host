@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openwrt-desktop
-PKG_RELEASE:=28
+PKG_RELEASE:=30
 PKG_CONFIG_DEPENDS:=CONFIG_OPENWRT_SYSTEMD
 PKG_LICENSE:=MIT
 
@@ -14,6 +14,8 @@ define Package/openwrt-desktop
   DEPENDS:=@TARGET_x86_64 @USE_GLIBC @OPENWRT_SYSTEMD +input-support +video-support +accel-support +systemd-udev +kmod +glibc-locale-utf8 +libpam \
 	+gnome-shell +gnome-session +gnome-settings-daemon +gnome-control-center \
 	+nautilus +gnome-terminal +gnome-tweaks +gnome-remote-desktop +gnome-keyring \
+	+wl-clipboard +resources +gnome-text-editor +loupe +gnome-calculator \
+	+baobab +file-roller +evince \
 	+xdg-desktop-portal-gnome +python3-gobject +glib2-utils +xwayland \
 	+kmod-input-evdev +dejavu-fonts-ttf-DejaVuSans +noto-sans-symbols2 \
 	+dejavu-fonts-ttf-DejaVuSansMono +openssl-util \
@@ -55,6 +57,8 @@ define Package/openwrt-desktop/install
 	$(INSTALL_DATA) ./files/desktop.keep $(1)/lib/upgrade/keep.d/desktop
 	$(INSTALL_DIR) $(1)/etc/hotplug.d/drm
 	$(INSTALL_BIN) ./files/desktop.hotplug $(1)/etc/hotplug.d/drm/95-desktop
+	$(INSTALL_DIR) $(1)/usr/lib/apk/commit_hooks.d
+	$(INSTALL_BIN) ./files/icon-theme-refresh.hook $(1)/usr/lib/apk/commit_hooks.d/70-icon-theme-refresh
 endef
 
 $(eval $(call BuildPackage,openwrt-desktop))

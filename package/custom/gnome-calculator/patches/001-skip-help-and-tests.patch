@@ -1,0 +1,60 @@
+Subject: Make libgee optional when gcalc is disabled and skip help and tests
+
+--- a/meson.build
++++ b/meson.build
+@@ -37,7 +37,7 @@ gobject = dependency('gobject-2.0', version: '>= ' + glib_min_version)
+ libxml = dependency('libxml-2.0')
+ libsoup = dependency('libsoup-3.0', version: '>= ' + libsoup_min_version)
+-gee = dependency('gee-0.8', version: '>= 0.20.0')
++gee = dependency('gee-0.8', version: '>= 0.20.0', required: get_option('gcalc'))
+ gobject_introspection = dependency('gobject-introspection-1.0', required: false)
+ 
+ introspection = not get_option('disable-introspection')
+ if not gobject_introspection.found()
+@@ -129,12 +129,9 @@ subdir('data')
+ subdir('lib')
+ subdir('src')
+ subdir('search-provider')
+-subdir('help')
+ endif
+ endif
+ 
+ if get_option('doc')
+ subdir('doc')
+ endif
+-
+-subdir('tests')
+--- a/lib/meson.build
++++ b/lib/meson.build
+@@ -23,6 +23,10 @@ libcalculator_c_flags = [
+   '-include', 'config.h',
+ ]
+ 
++libcalculator_vala_flags = [
++  '--vapidir=' + gcalc_vapi_dir,
++]
++
+ libcalculator_deps = [
+   gio,
+   glib,
+@@ -42,6 +46,7 @@ libcalculator = static_library('calculator', libcalculator_sources,
+   dependencies: libcalculator_deps,
+   c_args: libcalculator_c_flags,
++  vala_args: libcalculator_vala_flags,
+   include_directories: config_h_dir,
+   link_with: [ lib_mpfrg ],
+   install: false,
+ )
+--- a/src/gnome-calculator.vala
++++ b/src/gnome-calculator.vala
+@@ -329,8 +329,8 @@ public class Calculator : Adw.Application
+         if (get_windows ().length () > 1)
+         {
+             var dialog = new Adw.AlertDialog (_("Close All?"), _("Are you sure you want to close all open windows?"));
+-            dialog.add_responses ("cancel", _("_Cancel"),
+-                                  "close-all", _("Close _All"));
++            dialog.add_response ("cancel", _("_Cancel"));
++            dialog.add_response ("close-all", _("Close _All"));
+ 
+             dialog.set_response_appearance ("close-all", Adw.ResponseAppearance.DESTRUCTIVE);
+             dialog.set_default_response ("cancel");

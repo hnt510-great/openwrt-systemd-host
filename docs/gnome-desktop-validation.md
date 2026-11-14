@@ -249,3 +249,72 @@ This involved no physical desktop restart or router deployment.
 Evidence: `/srv/openwrt-validation/installer-validation-20261107/`, especially
 `manual-installed-diagnostic.log`, `manual-gnome-check.log` and
 `desktop-coldplug-tests.log`.
+
+## RDP mode changes during a session — 2026-11-12
+
+Changing the physical router's display mode in Settings > Displays during a
+Remmina session intermittently disconnected the client. The router has Intel
+Raptor Lake UHD graphics (i915, Mesa iris 26.2.2) and runs Mutter 51.1-r1 and
+PipeWire 1.6.11-r1. The RDP server used the GL view path; Vulkan did not
+initialize on this device. The 2560-wide modes came from a device-local EDID
+override that is not part of the firmware.
+
+| Check | Result |
+| --- | --- |
+| r7, mode switches that changed the width | 3 of 3 disconnected: 1920x1080 → 2560 wide (no debug logging), then 2560x1440 → 3840x2160 twice with debug logging. Each logged `Failed to import DMA buffer as EGL image: 12291` (`EGL_BAD_ALLOC`), then `ERRINFO_GRAPHICS_SUBSYSTEM_FAILED` |
+| r7, same-width switches | 5 stream rebuilds (2560x1440 ↔ 2560x1600 and scale changes) with no failure |
+| Stream sequence | A mode change closes Mutter's monitor stream, and the layout manager creates a new one. About 10 ms after a new stream starts, Mutter renegotiates its format with the device modifier list. Both failures logged with debug logging fell inside that renegotiation, after `clear buffers 8` and before the stream's `param_changed` |
+| Failing import, captured with `gdb` at `eglGetError` | Attributes 3840x2160 `XR24`, offset 0, pitch 15360, modifier `0x0100000000000002` (Y-tiled), all correct. The fd, 109, was an `anon_inode:syncobj_file`; the process had no dma-buf fd open at that moment |
+| EGL import probe on the router | Linear, X-tiled and Y-tiled buffers import at 1920x1080, 2560x1440, 2560x1600, 3840x2160 and 4096x2160, so size is not the cause. `EGL_BAD_ALLOC` is reproduced only when the declared width exceeds the buffer's (ruled out by the capture above) or when the fd is not a dma-buf |
+| Package build | `make package/custom/gnome-remote-desktop/{clean,compile}` passed with patch 007 applied |
+| Publication | Dry run and production publication each changed only `gnome-remote-desktop` 51.0-r7 → r8, with `same_version_rebuilds=[]`, the kernel channel unchanged and the router's full upgrade preflight passed. Snapshot `/srv/openwrt-feeds/public/snapshots/20261112T153501.894537Z` |
+| Router installation | `apk update` and `apk add -u gnome-remote-desktop` installed r8 from the feed; only the user `gnome-remote-desktop.service` was restarted |
+| r8, 2560x1440 → 3840x2160 → 2560x1440 in one Remmina session | 2 stream rebuilds; 0 import, graphics-subsystem or fd-duplication failures; the session stayed connected. The process held 16 dma-buf fds for 8 buffers (PipeWire's plus the server's duplicates) |
+
+Package SHA256:
+`e71d24062e661df4445eeb8f950063ed69a4acbc67b8619ff598344c31493a8a`.
+
+The failure is a race. r8 has been exercised for one widening and one
+narrowing switch, against 3 of 3 failures with r7. No Windows client was tested,
+and neither the Vulkan nor the NVIDIA path was exercised. Upstream's
+`on_stream_remove_buffer()` removes its table entry by the wrong key; stale
+entries are replaced when PipeWire reuses the buffer pointer. That behaviour is
+unchanged. The temporary debug drop-in and `gdb` attachment were removed after
+the run.
+
+Evidence: `/srv/openwrt-validation/grd-dmabuf-fd-validation-20261112/`, including
+`r7-gdb-eglGetError.txt`, `r7-fds-at-failure.txt`,
+`r7-debug-session-full.log`, `r8-session.log`, the publication JSON reports
+and the `egl-probes/` sources.
+
+## Wayland clipboard and bundled GNOME applications — 2026-11-14
+
+`openwrt-desktop` r30 adds `wl-clipboard`, `resources`, `gnome-text-editor`
+(`gtksourceview`, `libspelling`), `loupe`, `gnome-calculator`, `baobab`,
+`file-roller` and `evince` (`poppler`).
+
+| Check | Result |
+| --- | --- |
+| Custom package registration | `python3 scripts/tests/test-custom-package-updates.py` passed 49 tests |
+| Package builds | `wl-clipboard-2.3.0-r1`, `resources-1.10.2-r1`, `gtksourceview-5.22.0-r1`, `libspelling-0.4.11-r1`, `gnome-text-editor-51.0-r1`, `loupe-51.2-r1`, `gnome-calculator-51.1-r1`, `baobab-50.0-r1`, `file-roller-44.7-r1`, `poppler-26.11.0-r1`, `evince-48.4-r1` and `openwrt-desktop-30` compiled and passed `elf-abi.py` and `merge-usr.py` |
+| Publication | `./scripts/publish-changed-feeds.sh --dry-run` and production publication passed router upgrade preflight (`snapshot /srv/openwrt-feeds/public/snapshots/20261114T023413.484582Z`) |
+| Router installation | `apk update && apk upgrade` installed all 13 packages cleanly on `192.0.2.1` |
+| Wayland image clipboard | `wl-copy --type image/png` and `wl-paste --type image/png` transferred a 70-byte PNG payload over `WAYLAND_DISPLAY=wayland-0` |
+
+## RDP Vulkan ICD and VA-API H.264 hardware encoding — 2026-11-14
+
+`libmesa-virtualization` 26.2.2-r11 (`feeds/video`, mirrored as
+`patches/feeds/0037-video-mesa-vulkan.patch` and `configs/mesa-vulkan-feeds.json`)
+adds the `intel`, `intel_hasvk` and `virtio` Vulkan ICDs so
+`gnome-remote-desktop-daemon` can initialize Vulkan and `GrdHwAccelVaapi`
+instead of falling back to CPU `GrdRdpSwEncoderCa`. `freerdp` 3.33.1-r2 switches
+to `-O3`, enables `WITH_SIMD=ON` and `WITH_RDPEUDP=ON`, and disables
+`WITH_VERBOSE_WINPR_ASSERT`.
+
+| Check | Result |
+| --- | --- |
+| Package builds | `libmesa-virtualization-26.2.2-r11` (`363a867e30d22a2f70a7018b990c68bbf20a385a2fea465262a51693c7d8e4ab`), `libfreerdp3-3.33.1-r2` (`0e878bb80ab0a98924fc0a1daa5e3804aec1b7504fd169787eaebed881aca392`), `libwinpr3-3.33.1-r2` (`5a51a08f989f6f57eab0975e9c24a4a3dbee370748f645966380cca4475a09c3`) and `winpr-hash-3.33.1-r2` (`c1ba2892474226791923140f47e9cdd74513b3704fa267619022a76722c4be81`) compiled and passed `elf-abi.py` |
+| Publication | `./scripts/publish-changed-feeds.sh` passed router upgrade preflight and published snapshot `/srv/openwrt-feeds/public/snapshots/20261114T065751.094388Z` |
+| Router installation | `apk update && apk upgrade` installed all 4 packages on `192.0.2.1`, followed by `systemctl restart openwrt-desktop.service` |
+| Vulkan device & extensions | `vkCreateInstance` returned `0` (`VK_SUCCESS`) with 1 physical device and all 8 required extensions (`VK_KHR_synchronization2`, `VK_KHR_external_memory_fd`, `VK_EXT_external_memory_dma_buf`, `VK_EXT_image_drm_format_modifier`, `VK_KHR_format_feature_flags2`, `VK_KHR_zero_initialize_workgroup_memory`, `VK_EXT_physical_device_drm`, `VK_KHR_external_semaphore_fd`) |
+| Live RDP VA-API H.264 session | `gnome-remote-desktop-daemon` logged `[HWAccel.Vulkan] Initialization of Vulkan was successful` on startup and `[HWAccel.VAAPI] Successfully initialized VAAPI 1.24 with vendor: Intel iHD driver for Intel(R) Gen Graphics - 26.3.5 ()` when an H.264 RDPGFX client connected |

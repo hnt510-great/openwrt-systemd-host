@@ -1121,3 +1121,105 @@ live-router upgrade preflight simulation, and published userspace snapshot
 `luci-i18n-passwall-zh-cn-26.314.59753~596ca9c`, and
 `base-files-1755.9~89e69d9391`). No packages were installed onto the physical
 router. The optional MAP-E tunnel finding remains open.
+
+## Upstream synchronization review, 2026-11-13
+
+Merged OpenWrt through `24c13d794c` (37 incoming main-tree commits since
+`ada52cc7ed`), plus 4 packages-feed (`66689386b`), 2 LuCI (`326145c239`), 2
+video (`97137d9`) and 1 `passwall_luci` (`aada0ff4`) commits. Telephony,
+routing, taskplan and `passwall_packages` had nothing incoming. Backup branches
+are `backup/pre-upstream-20261113T141007Z` in the main tree, each feed and the
+argon theme submodule.
+
+### Kernel patches: 5 new and 6 changed 6.18 sources ported to Linux 7.3
+
+Two incoming main-tree commits (`0642965749` and `7b26f9c0d8`) touch
+`target/linux/generic/*-6.18/`:
+
+- Five new `backport-6.18` patches target upstream v7.4/v7.5 and are absent
+  from Linux 7.3.4 (`b11b6df8...fd1f`). All five are ported to
+  `target/linux/generic/backport-7.3/` with zero fuzz:
+  - `757-v7.5-net-sfp-add-quirk-for-OEM-SFP-ONU-XGSPON.patch` (`drivers/net/phy/sfp.c`)
+  - `802-01-v7.4-net-usb-lan78xx-register-the-PHY-interrupt-with-the-.patch` (`drivers/net/usb/lan78xx.c`)
+  - `802-02-v7.4-net-usb-smsc95xx-register-the-PHY-interrupt-with-the.patch` (`drivers/net/usb/smsc95xx.c`)
+  - `802-03-v7.4-net-phy-take-the-interrupt-back-from-the-bus-on-deta.patch` (`drivers/net/phy/phy_device.c`)
+  - `802-04-v7.4-net-phy-restore-the-interrupt-when-the-generic-bind-.patch` (`drivers/net/phy/phy_device.c`)
+- Six `pending-6.18` patches (`750`, `751`, `752`, `753`, `801-01`, `896-03`)
+  changed hunk line offsets only due to the new `757`/`802` backports; their
+  corresponding `pending-7.3` patches and `configs/mainline-kernel-patches.json`
+  entries are refreshed to match.
+- All 354 carried Linux 7.3 patches match their registered SHA-256 values and
+  apply to a fresh extraction of Linux 7.3.4 with `--fuzz=0`.
+  `update-mainline-kernel.py --check` reports `7.3.4` is `current`.
+
+### Main tree, feeds and custom packages
+
+- `main`: deduplicates `KernelPackage/hid-multitouch` in
+  `package/kernel/linux/modules/input.mk` in favor of upstream's `b0f96dc621`,
+  and refreshes `package/network/config/firewall4/patches/*` against
+  `firewall4` `2026-11-08` (`3722eadc`, which dropped the commented
+  `disable_ipv6` line from `root/etc/config/firewall`). `fstools` updates to
+  `2026-11-07` (`5e371ecf`) with both local overlay patches applying cleanly.
+- `packages`: updates `apache` to `2.4.71`, `git-lfs` to `3.8.1`, and
+  `ddns-scripts` (HTTPS URL settings and removal of `cnkuai.cn`).
+- `luci`: merges Weblate translation updates while retaining local `firewall`,
+  `ttyd`, `status`, `daed`, `needrestart` and `uci-history` views.
+- `video`: updates `wpewebkit` and accepts upstream `97137d9` dropping
+  `frameworks/wayland/files/video.hotplug` (`wayland` bumped to `1.26.0-r4`),
+  since both `hardware-support` (`30-video.json`/`35-accel.json`) and
+  `systemd-udevd` (`50-udev-default.rules`) already assign `video` to display
+  cards and preserve `render` on `renderD*` nodes; local `xdg-runtime-dir.profile`
+  login-session preservation remains intact.
+- `passwall_luci`: adds proxy warm-up before node latency tests.
+- `update-custom-packages.py` advances `tpm2-tss` (`4.2.1 -> 4.2.2`),
+  `luci-theme-argon` (`3.1.3 -> 3.1.4`, submodule `148cc76`), `cmake-bin`
+  (`4.4.5 -> 4.5.0`) and `libudisks2` (`2.11.2 -> 2.12.0`). The remaining 5
+  `review` entries (`flatpak` 1.19 prerelease, dual-slot `gcr3`/`libgtk3`, and
+  upstream tag noise in `intel-media-driver`/`libibus`) stay on their pinned
+  stable branches.
+
+Validation: `./scripts/feeds update -i -a`, `./scripts/feeds install -a` and
+`make defconfig` succeed with zero `.config` changes; `tpm2-tss`, `cmake-bin`,
+`libudisks2`, `fstools` and `firewall4` prepare/compile cleanly, and the
+mainline-kernel, custom-package and LuCI firewall test suites pass. No firmware
+or APK feed was published and no router was modified. The optional MAP-E tunnel
+finding remains open.
+
+## Upstream synchronization review, 2026-11-14
+
+Merged OpenWrt through `e2ed57b957` (7 incoming main-tree commits since
+`24c13d794c`) as `8fc9b983fd`, plus 1 packages-feed (`b986e7a60`) commit as
+`9c6a80d3c`. LuCI, video, telephony, routing, taskplan, `passwall_packages` and
+`passwall_luci` had nothing incoming. Backup branches are
+`backup/pre-upstream-20261114T035414Z` in the main tree, each feed and the
+argon theme submodule.
+
+### Kernel patches: no generic or x86 6.18 changes
+
+All 7 incoming main-tree commits (`ea807f4842..e2ed57b957`) touch only
+`target/linux/realtek/` (`files-6.18/drivers/net/pcs/pcs-rtl-otto.c` and
+`patches-6.18/744-net-phylink-pass-media-to-PCS-configuration.patch`):
+
+- All 580 present generic/x86 6.18 source patches and 5 recorded removed
+  entries in `configs/mainline-kernel-patches.json` match by SHA-256: no
+  generic or x86 6.18 patch was added, modified or removed.
+- All 354 carried Linux 7.3 patches match their registered SHA-256 values and
+  apply to a fresh extraction of Linux 7.3.4 (`b11b6df8...fd1f`) with
+  `--fuzz=0`. No new 6.18-to-7.3 backport is needed.
+- `update-mainline-kernel.py --check` reports `7.3.4` is `current`.
+
+### Feeds and custom packages
+
+- `packages`: adds host build support to `libjpeg-turbo` (`b986e7a60`) without
+  changing target package contents or version (`3.1.1-r3`, mapped to `3.1.1-r4`
+  in `configs/apk-elf-rebuilds.mk`).
+- `update-custom-packages.py` advances `libostree` (`2026.6 -> 2026.7`). The
+  remaining 5 `review` entries (`flatpak` 1.19 prerelease, dual-slot `gcr3` /
+  `libgtk3`, and upstream tag noise in `intel-media-driver` / `libibus`) stay
+  on their pinned stable branches.
+
+Validation: `./scripts/feeds update -i -a`, `./scripts/feeds install -a` and
+`make defconfig` succeed with zero `.config` changes; `libostree` and
+`libjpeg-turbo` prepare/compile cleanly, and the mainline-kernel and
+custom-package test suites pass. No firmware or APK feed was published and no
+router was modified. The optional MAP-E tunnel finding remains open.

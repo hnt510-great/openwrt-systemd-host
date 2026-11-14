@@ -257,6 +257,13 @@ color panels; router networking remains under LuCI/UCI/netifd. Firefox ESR
 runs as the desktop user; profiles, extensions and open tabs belong to that
 user.
 
+Google Chrome stable (`google-chrome-bin`) is also available, repackaged
+unchanged from Google's signed Debian archive under `/opt/google/chrome`.
+`google-chrome` runs natively on Wayland as the desktop user and uses Chrome's
+user-namespace sandbox; the setuid sandbox helper, Qt UI shims and Google's apt
+repository cron job are not installed. Chrome does not update itself on Linux:
+new stable builds arrive as APK upgrades from the LAN feed.
+
 Shell extension downloads use libsoup and GIO TLS. `libgio-gnutls`, built by
 the `glib-networking` recipe, provides the TLS backend; `ca-bundle` provides
 trusted certificates. Extension Manager delegates installation to Shell.

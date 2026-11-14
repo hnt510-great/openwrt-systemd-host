@@ -31,6 +31,13 @@
       "filename_pattern": "at\\-spi2\\-core\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/at-spi2-core/"
     },
+    "baobab": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/baobab/50/",
+      "filename_pattern": "baobab\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/baobab/"
+    },
     "blueprint-compiler": {
       "provider": "directory",
       "policy": "series",
@@ -95,6 +102,13 @@
       "index": "https://duktape.org/download",
       "filename_pattern": "duktape\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz"
     },
+    "evince": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/evince/48/",
+      "filename_pattern": "evince\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/evince/"
+    },
     "evolution-data-server": {
       "provider": "directory",
       "policy": "series",
@@ -129,6 +143,13 @@
       "policy": "series",
       "index": "https://download.fcitx-im.org/fcitx5/fcitx5-gtk/",
       "filename_pattern": "fcitx5-gtk-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.zst"
+    },
+    "file-roller": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/file-roller/44/",
+      "filename_pattern": "file\\-roller\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/file-roller/"
     },
     "firefox-esr-bin": {
       "provider": "firefox",
@@ -226,6 +247,13 @@
       "filename_pattern": "gnome\\-autoar-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/gnome-autoar/"
     },
+    "gnome-calculator": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/gnome-calculator/51/",
+      "filename_pattern": "gnome\\-calculator\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/gnome-calculator/"
+    },
     "gnome-control-center": {
       "provider": "directory",
       "policy": "series",
@@ -286,6 +314,13 @@
       "filename_pattern": "gnome\\-terminal-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.(?:xz|gz)",
       "series_index": "https://download.gnome.org/sources/gnome-terminal/"
     },
+    "gnome-text-editor": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/gnome-text-editor/51/",
+      "filename_pattern": "gnome\\-text\\-editor\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/gnome-text-editor/"
+    },
     "gnome-tweaks": {
       "provider": "directory",
       "policy": "series",
@@ -305,6 +340,11 @@
       "index": "https://download.gnome.org/sources/gobject-introspection/1.86/",
       "filename_pattern": "gobject\\-introspection\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/gobject-introspection/"
+    },
+    "google-chrome-bin": {
+      "provider": "chrome",
+      "policy": "stable",
+      "channel": "stable"
     },
     "gsettings-desktop-schemas": {
       "provider": "directory",
@@ -332,6 +372,13 @@
       "index": "https://download.gnome.org/sources/gtk/4.24/",
       "filename_pattern": "gtk\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/gtk/"
+    },
+    "gtksourceview": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/gtksourceview/5.22/",
+      "filename_pattern": "gtksourceview\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/gtksourceview/"
     },
     "gvfs": {
       "provider": "directory",
@@ -631,6 +678,13 @@
       "filename_pattern": "libsecret\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/libsecret/"
     },
+    "libspelling": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/libspelling/0.4/",
+      "filename_pattern": "libspelling\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/libspelling/"
+    },
     "libstartup-notification": {
       "provider": "directory",
       "policy": "series",
@@ -719,6 +773,13 @@
       "index": "https://xorg.freedesktop.org/archive/individual/lib/",
       "filename_pattern": "libxshmfence\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
       "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
+    },
+    "loupe": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.gnome.org/sources/loupe/51/",
+      "filename_pattern": "loupe\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
+      "series_index": "https://download.gnome.org/sources/loupe/"
     },
     "luci-app-daed": {
       "provider": "local",
@@ -882,6 +943,12 @@
       "project": "polkit-org/polkit",
       "catalog": "tags"
     },
+    "poppler": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://poppler.freedesktop.org/",
+      "filename_pattern": "poppler\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+    },
     "pycairo": {
       "provider": "pypi",
       "policy": "series",
@@ -903,6 +970,12 @@
       "provider": "follow",
       "recipe": "package/libs/libxml2/Makefile",
       "same_source": true
+    },
+    "resources": {
+      "provider": "github",
+      "policy": "series",
+      "project": "nokyan/resources",
+      "catalog": "tags"
     },
     "router-audit": {
       "provider": "local",
@@ -992,6 +1065,12 @@
       "provider": "github",
       "policy": "series",
       "project": "PipeWire/wireplumber",
+      "catalog": "tags"
+    },
+    "wl-clipboard": {
+      "provider": "github",
+      "policy": "series",
+      "project": "bugaevc/wl-clipboard",
       "catalog": "tags"
     },
     "xcb-proto": {
