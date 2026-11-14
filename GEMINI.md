@@ -111,6 +111,10 @@ python3 scripts/update-mainline-kernel.py --check|--update # Compare Linux 7.3 s
   - Publishes to `/srv/openwrt-feeds` (`configs/lan-apk-feeds.json`, served by nginx `lan-apk-feeds.service` for LAN (`192.0.2.0/24`) and WireGuard (`10.0.0.0/24`)).
   - Requires a reachable live router (`upgrade_preflight.ssh_target`, `router-admin@192.0.2.1` (empty in public example)), reads its APK database under lock, checks installed kmods against candidate kernel ABI, and runs `scripts/apk-upgrade-preflight.py` (`--plan-json`, `--userspace-only`) before exposing snapshots. Never pushes packages directly onto the router.
 
+- **VM scope**: Routine publication with no major behavior change or new functionality does not require VM validation. Run relevant source/package checks and all coordinated publisher gates; record why VM checks were not run. Major changes and new functionality need relevant runtime validation. The disabled scheduler retains its own exact-image VM gate. See `docs/publication-readiness.md`.
+- **Interrupted APK recovery**: APK r18 journals live commits under `/lib/apk/db/transaction/`; `apk-transaction-guard` isolates commits and resumes them at boot with `apk-resume`. A pending journal blocks publication and other commits. Never delete it to bypass recovery. See `docs/apk-transaction-recovery.md`.
+- **Current project index**: `docs/project-state-20261114.md` records the current architecture, recent desktop/virtualization/wireless additions and dated validation boundaries.
+
 ### 3.6 Router Configuration History (`uci-history`) & Observability (`router-audit`)
 - **`uci-history` (`package/custom/uci-history`, `luci-app-uci-history`, `docs/uci-history.md`)**:
   - Versions `/etc/config` and configured `extra_path`s (`/etc/sysupgrade.conf`, `/etc/nftables.d`, `/etc/crontabs`) in a bare Git repo (`/etc/uci-history/repo`, mode 0700) with automatic secret masking and timed rollback transactions (`uci-history-revert-ID.timer` + boot recovery `uci-history-boot.service`).

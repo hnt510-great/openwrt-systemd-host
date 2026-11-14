@@ -123,9 +123,13 @@ userspace and kernel snapshots before changing either active pointer. It then:
 Production receipts live in `<destination>/upgrade-receipts/` and bind the
 baseline and prepared snapshot hashes. They omit raw world/database contents.
 The exact prepared files are promoted; publication never rebuilds a second
-candidate from mutable `bin/`. Scheduled maintenance retains its exact-image
-boot/network VM gate and also uses this same upgrade gate. Neither process
-installs packages on the physical router.
+candidate from mutable `bin/`. Routine publication without major behavior changes
+or new functionality does not require VM validation; source/package checks and
+all upgrade gates above still apply. See [publication readiness](publication-readiness.md)
+for scope, runtime-validation requirements and recording skipped VM checks.
+The disabled scheduled-maintenance runner retains its own exact-image boot/network
+VM gate and also uses this same upgrade gate. Neither process installs packages
+on the physical router.
 
 ## Explicit empty-package migrations
 

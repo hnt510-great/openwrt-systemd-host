@@ -27,6 +27,15 @@ existing download cache, staging directories and build outputs. No second
 checkout is created or maintained. The HDD holds only backups, logs and disposable
 VM test disks. Free space is checked on both filesystems before a run.
 
+## Relationship to routine publication
+
+The VM gate below describes this runner's implementation, not a requirement for
+every publication. Changes without major behavior changes or new functionality
+may use the ordinary build/publish wrappers without a VM, while retaining all
+coordinated publication preflight checks. See [publication readiness](publication-readiness.md).
+This documentation update does not add a VM-skip switch to this runner or enable
+its disabled schedule.
+
 ## What a run does
 
 1. Audit the main repository, nested Git packages and configured Git feeds.

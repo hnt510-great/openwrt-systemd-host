@@ -60,6 +60,13 @@ native-systemd/glibc builds.
 
 ## Publish newly built packages
 
+VM validation is not required for routine publication without major behavior
+changes or new functionality. Relevant source/package checks and all coordinated
+publisher gates remain required. Major changes and new functionality need relevant
+runtime validation. Record why VM checks were not run; see
+[publication readiness](publication-readiness.md) for the policy and the separate
+disabled scheduled-maintenance VM workflow.
+
 Run on the build host, from this checkout, after the package build completes:
 
 ```sh
