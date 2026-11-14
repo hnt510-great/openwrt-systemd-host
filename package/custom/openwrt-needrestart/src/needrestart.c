@@ -557,7 +557,10 @@ static void add_store(uid_t uid, json_object *list, json_object *images)
 					ref))
 					local = image_id(img);
 		}
-		if (strchr(ref, '@')) {
+		if (json_object_get_boolean(get(c, "IsInfra")) && !*ref &&
+		    !*str(c, "Image") && *str(c, "Rootfs")) {
+			string(o, "image_status", "current");
+		} else if (strchr(ref, '@')) {
 			string(o, "image_status", "digest-pinned");
 		} else if (local && *local) {
 			const char *running = str(c, "Image");
@@ -909,24 +912,33 @@ static int different(int old, int current)
 	return result;
 }
 
-/* Firefox's chroot into a vanished /proc/PID/fdinfo is not a container.
+/* Firefox and Chrome children chroot into a vanished /proc/PID/fdinfo.
  * Host-path inspection requires the host mount namespace, a live same-user
- * parent rooted at the host filesystem, and the exact same executable object.
- * These checks also permit reporting an old, replaced browser executable.
+ * parent chain rooted at the host filesystem, and the exact same executable
+ * object. These checks also permit reporting an old, replaced browser
+ * executable.
  */
 static bool sandbox_host_browser(pid_t pid, const char *exe, int root)
 {
-	static const char binary[] = "/usr/lib/firefox-esr/firefox-bin";
+	static const char *const binaries[] = {
+	    "/usr/lib/firefox-esr/firefox-bin", "/opt/google/chrome/chrome", NULL};
 	struct stat child, parent, host, parent_root, ns, host_ns, parent_ns, a, b;
 	struct statfs fs;
-	char proc[96], target[PATH_MAX], *data, *end;
-	pid_t ppid, sandbox_pid;
+	char proc[96], target[PATH_MAX], parent_target[PATH_MAX], *data, *end;
+	pid_t current = pid, ppid, sandbox_pid;
 	uint64_t parent_start;
+	bool known = false;
 	int n = 0;
 	ssize_t len;
 
-	if (strncmp(exe, binary, strlen(binary)) ||
-	    (exe[strlen(binary)] && strcmp(exe + strlen(binary), " (deleted)")))
+	for (size_t i = 0; binaries[i]; i++) {
+		size_t m = strlen(binaries[i]);
+
+		if (!strncmp(exe, binaries[i], m) &&
+		    (!exe[m] || !strcmp(exe + m, " (deleted)")))
+			known = true;
+	}
+	if (!known)
 		return false;
 	if (fstatfs(root, &fs))
 		return false;
@@ -947,35 +959,14 @@ static bool sandbox_host_browser(pid_t pid, const char *exe, int root)
 	if (sscanf(target, "/proc/%d/fdinfo%n", &sandbox_pid, &n) != 1 ||
 	    sandbox_pid <= 0 || !n || target[n])
 		return false;
-	data = proc_read(pid, "stat", 65536);
-	end = data ? strrchr(data, ')') : NULL;
-	bool parsed = end && sscanf(end + 1, " %*c %d", &ppid) == 1 && ppid > 1;
-
-	free(data);
-	if (!parsed)
-		return false;
-	parent_start = start_time(ppid);
-	if (!parent_start)
-		return false;
 	snprintf(proc, sizeof(proc), "/proc/%d", pid);
 	if (stat(path(proc), &child) || !child.st_uid)
 		return false;
-	snprintf(proc, sizeof(proc), "/proc/%d", ppid);
-	if (stat(path(proc), &parent) || child.st_uid != parent.st_uid)
-		return false;
 	if (stat(path("/"), &host) || stat(path("/proc/self/ns/mnt"), &host_ns))
 		return false;
-	snprintf(proc, sizeof(proc), "/proc/%d/root", ppid);
-	if (stat(path(proc), &parent_root) || host.st_dev != parent_root.st_dev ||
-	    host.st_ino != parent_root.st_ino)
-		return false;
 	snprintf(proc, sizeof(proc), "/proc/%d/ns/mnt", pid);
-	if (stat(path(proc), &ns))
-		return false;
-	snprintf(proc, sizeof(proc), "/proc/%d/ns/mnt", ppid);
-	if (stat(path(proc), &parent_ns) || ns.st_dev != host_ns.st_dev ||
-	    ns.st_ino != host_ns.st_ino || parent_ns.st_dev != host_ns.st_dev ||
-	    parent_ns.st_ino != host_ns.st_ino)
+	if (stat(path(proc), &ns) || ns.st_dev != host_ns.st_dev ||
+	    ns.st_ino != host_ns.st_ino)
 		return false;
 #ifdef NEEDRESTART_TEST
 	const char *object = *test_root ? "test-exe" : "exe";
@@ -983,11 +974,48 @@ static bool sandbox_host_browser(pid_t pid, const char *exe, int root)
 	const char *object = "exe";
 #endif
 	snprintf(proc, sizeof(proc), "/proc/%d/%s", pid, object);
-	if (stat(path(proc), &a))
+	if (stat(path(proc), &a) || !S_ISREG(a.st_mode))
 		return false;
-	snprintf(proc, sizeof(proc), "/proc/%d/%s", ppid, object);
-	return !stat(path(proc), &b) && a.st_dev == b.st_dev && a.st_ino == b.st_ino &&
-	       S_ISREG(a.st_mode) && parent_start == start_time(ppid);
+	for (unsigned int depth = 0; depth < 4; depth++, current = ppid) {
+		uint64_t current_start = start_time(current);
+
+		data = proc_read(current, "stat", 65536);
+		end = data ? strrchr(data, ')') : NULL;
+		bool parsed = end && sscanf(end + 1, " %*c %d", &ppid) == 1 && ppid > 1;
+
+		free(data);
+		if (!current_start || !parsed || current_start != start_time(current))
+			return false;
+		parent_start = start_time(ppid);
+		if (!parent_start)
+			return false;
+		snprintf(proc, sizeof(proc), "/proc/%d", ppid);
+		if (stat(path(proc), &parent) || child.st_uid != parent.st_uid)
+			return false;
+		snprintf(proc, sizeof(proc), "/proc/%d/ns/mnt", ppid);
+		if (stat(path(proc), &parent_ns) || parent_ns.st_dev != host_ns.st_dev ||
+		    parent_ns.st_ino != host_ns.st_ino)
+			return false;
+		snprintf(proc, sizeof(proc), "/proc/%d/%s", ppid, object);
+		if (stat(path(proc), &b) || a.st_dev != b.st_dev || a.st_ino != b.st_ino)
+			return false;
+		snprintf(proc, sizeof(proc), "/proc/%d/root", ppid);
+		if (!stat(path(proc), &parent_root) && host.st_dev == parent_root.st_dev &&
+		    host.st_ino == parent_root.st_ino)
+			return parent_start == start_time(ppid);
+		len = readlink(path(proc), parent_target, sizeof(parent_target) - 1);
+		if (len < 0)
+			return false;
+		parent_target[len] = 0;
+#ifdef NEEDRESTART_TEST
+		if (*test_root && !strncmp(parent_target, test_root, strlen(test_root)))
+			memmove(parent_target, parent_target + strlen(test_root),
+				strlen(parent_target + strlen(test_root)) + 1);
+#endif
+		if (strcmp(parent_target, target) || parent_start != start_time(ppid))
+			return false;
+	}
+	return false;
 }
 
 /* Podman's bridge networks share one pasta process outside container units.
@@ -1096,11 +1124,13 @@ static bool sandbox_host_helper(pid_t pid, const char *cg, const char *exe, int 
 		if (json_object_get_int64(get(c, "uid")) != uid || !valid_name(unit) ||
 		    !json_object_get_boolean(get(c, "controller_is_user_unit")))
 			continue;
-		snprintf(suffix, sizeof(suffix), "/%s/runtime", unit);
-		size_t n = strlen(cg), m = strlen(suffix);
+		for (unsigned int j = 0; j < 2; j++) {
+			snprintf(suffix, sizeof(suffix), j ? "/%s" : "/%s/runtime", unit);
+			size_t n = strlen(cg), m = strlen(suffix);
 
-		if (n >= m && !strcmp(cg + n - m, suffix))
-			controller = true;
+			if (n >= m && !strcmp(cg + n - m, suffix))
+				controller = true;
+		}
 	}
 	if (!controller && !shared_network_helper(pid, uid, cg))
 		return false;

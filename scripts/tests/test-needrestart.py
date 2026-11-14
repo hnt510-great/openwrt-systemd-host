@@ -283,6 +283,13 @@ class NeedrestartTests(unittest.TestCase):
         self.sandbox_helper(executable='usr/bin/pasta.avx2')
         self.assertEqual(self.scan()['warnings'], [])
 
+    def test_sandboxed_pod_unit_passt_helper(self):
+        self.sandbox_helper(executable='usr/bin/passt.avx2')
+        uid = os.getuid()
+        self.write('proc/123/cgroup', f'0::/user.slice/user-{uid}.slice/'
+                   f'user@{uid}.service/app.slice/example.service\n')
+        self.assertEqual(self.scan()['warnings'], [])
+
     def test_sandboxed_passt_lookalike_still_partial(self):
         self.sandbox_helper(executable='usr/bin/passt-unverified')
         self.assertFalse(self.scan(2)['complete'])
@@ -531,6 +538,73 @@ class NeedrestartTests(unittest.TestCase):
         root = self.root / 'other-chroot'
         root.mkdir()
         child.joinpath('root').symlink_to(root)
+        self.assertFalse(self.scan(2)['complete'])
+
+    def chrome_sandbox(self, changed=False):
+        binary = 'opt/google/chrome/chrome'
+        scope = '/user.slice/user-1000.slice/user@1000.service/app.slice/app-gnome-google\\x2dchrome-200.scope'
+        current, old, renderer = self.process(pid=123, file=binary, deleted=False,
+                                              changed=changed, cgroup=scope)
+        _, _, zygote2 = self.process(pid=124, file=binary, deleted=False,
+                                     changed=False, cgroup=scope)
+        _, _, zygote1 = self.process(pid=125, file=binary, deleted=False,
+                                     changed=False, cgroup=scope)
+        _, _, browser = self.process(pid=126, file=binary, deleted=False,
+                                     changed=False, cgroup=scope)
+        for pid in (124, 125, 126):
+            self.write(f'proc/{pid}/maps', '')
+        for proc in (renderer, zygote2, zygote1, browser):
+            (proc / 'test-exe').symlink_to(old)
+        for pid, ppid in ((123, 124), (124, 125), (125, 126)):
+            stat_path = self.root / f'proc/{pid}/stat'
+            prefix, fields = stat_path.read_text().rsplit(') ', 1)
+            fields = fields.split()
+            fields[1] = str(ppid)
+            stat_path.write_text(prefix + ') ' + ' '.join(fields))
+        sandbox = self.root / 'proc/900/fdinfo'
+        sandbox.mkdir(parents=True)
+        for proc in (renderer, zygote2, zygote1):
+            proc.joinpath('root').unlink()
+            proc.joinpath('root').symlink_to(sandbox)
+        marker = self.write('proc/self/ns/mnt', 'mount-namespace')
+        for proc in (renderer, zygote2, zygote1, browser):
+            (proc / 'ns').mkdir()
+            os.link(marker, proc / 'ns/mnt')
+        self.json('ownership.json', {str(pid): {'unit': 'app-gnome-google\\x2dchrome-200.scope'}
+                                     for pid in (123, 124, 125, 126)})
+        return current, old, renderer, zygote2, zygote1, browser
+
+    def test_chrome_zygote_proc_chroot_is_host_application(self):
+        self.chrome_sandbox()
+        r = self.scan()
+        self.assertEqual(r['warnings'], [])
+        self.assertEqual(r['services'], [])
+
+    def test_chrome_zygote_proc_chroot_retains_stale_library_advice(self):
+        _, _, renderer, _, _, _ = self.chrome_sandbox()
+        self.write('usr/lib/chrome.so', b'\x7fELFnew-library')
+        old = self.write('old-chrome.so', b'\x7fELFold-library')
+        self.write('proc/123/maps', '1000-2000 r-xp 00000000 00:01 999 /usr/lib/chrome.so\n')
+        (renderer / 'map_files/1000-2000').unlink()
+        (renderer / 'map_files/1000-2000').symlink_to(old)
+        s = self.scan()['services'][0]
+        self.assertEqual(s['kind'], 'session')
+        self.assertEqual(s['processes'][0]['files'][0]['path'], '/usr/lib/chrome.so')
+
+    def test_chrome_replaced_executable_still_detected(self):
+        _, _, renderer, _, _, _ = self.chrome_sandbox(changed=True)
+        renderer.joinpath('exe').unlink()
+        renderer.joinpath('exe').symlink_to('/opt/google/chrome/chrome (deleted)')
+        s = self.scan()['services'][0]
+        self.assertEqual(s['kind'], 'session')
+        self.assertEqual(s['processes'][0]['files'][0]['reason'], 'replaced')
+
+    def test_chrome_mismatched_zygote_chroot_stays_partial(self):
+        _, _, _, zygote2, _, _ = self.chrome_sandbox()
+        other = self.root / 'proc/901/fdinfo'
+        other.mkdir(parents=True)
+        zygote2.joinpath('root').unlink()
+        zygote2.joinpath('root').symlink_to(other)
         self.assertFalse(self.scan(2)['complete'])
 
     def flatpak(self, extensions=True):
@@ -845,6 +919,24 @@ class NeedrestartTests(unittest.TestCase):
     def test_missing_local_reference_is_unknown(self):
         store = self.store()
         store['images'] = []
+        self.json('podman.json', [store])
+        self.assertEqual(self.scan(2)['containers'][0]['image_status'], 'unknown')
+
+    def test_podman_rootfs_infra_container_is_current(self):
+        store = self.store(ref='', local='b' * 64)
+        store['containers'][0]['Image'] = ''
+        store['containers'][0]['IsInfra'] = True
+        store['containers'][0]['Rootfs'] = '/run/user/1000/libpod/tmp/infra-container'
+        self.json('podman.json', [store])
+        r = self.scan()
+        self.assertEqual(r['warnings'], [])
+        self.assertEqual(r['containers'][0]['image_status'], 'current')
+
+    def test_podman_non_infra_without_image_remains_unknown(self):
+        store = self.store(ref='', local='b' * 64)
+        store['containers'][0]['Image'] = ''
+        store['containers'][0]['IsInfra'] = False
+        store['containers'][0]['Rootfs'] = '/run/user/1000/libpod/tmp/infra-container'
         self.json('podman.json', [store])
         self.assertEqual(self.scan(2)['containers'][0]['image_status'], 'unknown')
 

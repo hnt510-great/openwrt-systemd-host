@@ -97,19 +97,24 @@ A configured local tag resolving to a different image ID is `changed`:
 **recreation through the deployment controller** is needed to use that image.
 Restarting an existing container does not substitute its image. Identity
 differences do not prove chronological or security version ordering.
-Digest-pinned references remain pinned. There are no registry queries or pulls.
+Digest-pinned references remain pinned. Podman built-in rootfs infra containers
+(`IsInfra: true` with no image reference and a local `Rootfs`) are marked
+`current`, while their bind-mounted host pause executable remains checked for
+code replacement. There are no registry queries or pulls.
 Other runtimes/unverified isolated roots have explicitly incomplete coverage.
 Sandboxed `slirp4netns` and `passt`/`pasta` processes (including their AVX2
 variants) are inspected as host helpers only when their
 executable matches the installed host binary and their owning user unit
-controls an inventoried container. Their host code remains checked for stale
-libraries; an unverified helper retains incomplete coverage.
+(either `/<unit>/runtime` or pod-level `/<unit>`) controls an inventoried
+container. Their host code remains checked for stale libraries; an unverified
+helper retains incomplete coverage.
 
-Firefox ESR children chrooted into `/proc/<pid>/fdinfo` are inspected through
-host paths only after verifying their host mount namespace, live same-user
-parent rooted at the host filesystem, and shared executable object. The browser
-sandbox stays enabled; findings belong to the owning application/session.
-Other private roots and unverified parents retain incomplete coverage.
+Firefox ESR and Google Chrome children chrooted into `/proc/<pid>/fdinfo` are
+inspected through host paths only after verifying their host mount namespace,
+live same-user parent or zygote ancestor chain rooted at the host filesystem,
+and shared executable object. The browser sandbox stays enabled; findings belong
+to the owning application/session. Other private roots and unverified parents
+retain incomplete coverage.
 
 Native systemd services can chroot after loading their code; `rtkit-daemon`
 enters `/proc`. Their mappings are resolved from the root of the service's own
