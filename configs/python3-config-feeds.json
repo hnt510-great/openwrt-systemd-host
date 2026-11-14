@@ -1,0 +1,8 @@
+{
+  "packages": {
+    "url": "https://github.com/openwrt/packages.git",
+    "base": "89847b73389b4f0751d49e52beb3e37c1881db73",
+    "commit": "2044748732fd363d9c705b15b268d43ee3c1e552",
+    "patch": "patches/feeds/0038-packages-python3-config-prefix.patch"
+  }
+}

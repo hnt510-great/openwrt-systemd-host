@@ -1,0 +1,29 @@
+From 2044748732fd363d9c705b15b268d43ee3c1e552 Mon Sep 17 00:00:00 2001
+From: hnt510 <hnt510@gmail.com>
+Date: Sat, 14 Nov 2026 22:10:05 +0800
+Subject: [PATCH] python3: fix python-config prefix_real rewrite for 3.14.10
+
+CPython 3.14.10 changed Misc/python-config.sh.in from a single-line prefix_real=$(installed_prefix "$0") assignment to a multi-line '|| { ... }' error-handling block. The single-line $(SED) in Build/InstallDev left the trailing 'printf ...; exit 1 }' lines behind in staging_dir/host/bin/python3.14-config, causing downstream callers such as newt to fail with 'cannot determine the installation prefix'.
+
+Replace both multi-line 'prefix_real=...{' ... '}' blocks and single-line 'prefix_real=...' lines with prefix_real="$(PYTHON3_DIR)".
+---
+ lang/python/python3/Makefile | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/lang/python/python3/Makefile b/lang/python/python3/Makefile
+index 258a5685a..cdfbaea18 100644
+--- a/lang/python/python3/Makefile
++++ b/lang/python/python3/Makefile
+@@ -227,7 +227,8 @@ define Build/InstallDev
+ 		$(PKG_INSTALL_DIR)/usr/bin/python$(PYTHON3_VERSION)-config \
+ 		$(2)/bin/
+ 	$(SED) \
+-		's|^prefix_real=.*$$$$|prefix_real="$(PYTHON3_DIR)"|' \
++		'/^prefix_real=.*{[[:space:]]*$$$$/,/^}[[:space:]]*$$$$/c\prefix_real="$(PYTHON3_DIR)"' \
++		-e 's|^prefix_real=.*$$$$|prefix_real="$(PYTHON3_DIR)"|' \
+ 		$(2)/bin/python$(PYTHON3_VERSION)-config
+ endef
+ 
+-- 
+2.56.1
+
