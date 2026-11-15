@@ -311,3 +311,8 @@ Use [GNOME validation](gnome-desktop-validation.md) for the required build,
 VM, session, audio, input and persistence checks. Package builds alone do not
 establish a working graphical session. VM rendering/encoding results do not
 establish physical GPU stability or target streaming performance.
+
+Device-unit visibility and OpenWrt ownership are described in
+[device management boundary](systemd-udev-boundary.md). The reviewed udev rules
+restore TPM device notifications while retaining the bounded desktop coldplug
+probe; they do not restore the former hard-coded TPM device dependency.

@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=systemd
 PKG_VERSION:=262
-PKG_RELEASE:=13
+PKG_RELEASE:=14
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/systemd/systemd/tar.gz/refs/tags/v$(PKG_VERSION)?
 PKG_HASH:=6aa77506c0644aa67f940a48e3d3a7368601f787e4f249139516d353f107bcab
@@ -157,13 +157,14 @@ define Package/systemd-udev/install
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/udevadm $(1)/usr/bin/
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/systemd/systemd-udevd $(1)/usr/lib/systemd/
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/systemd/system/systemd-udev* $(1)/usr/lib/systemd/system/
-	# procd remains responsible for network names, module loading and firmware.
-	# Install only desktop identification, permissions and seat rules.
+	# OpenWrt retains network naming, module and firmware policy.
+	# Generic device visibility is provided by the reviewed distribution subset.
 	for rule in 50-udev-default 60-drm 60-input-id 60-persistent-input 60-sensor \
 		60-serial 70-uaccess 71-seat 73-seat-late; do \
 		[ ! -f $(PKG_INSTALL_DIR)/usr/lib/udev/rules.d/$$$$rule.rules ] || \
 			$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/lib/udev/rules.d/$$$$rule.rules $(1)/usr/lib/udev/rules.d/; \
 	done
+	$(INSTALL_DATA) ./files/99-systemd.rules $(1)/usr/lib/udev/rules.d/
 	$(INSTALL_DIR) $(1)/usr/lib/systemd/system/sysinit.target.wants
 	$(LN) ../systemd-udevd-kernel.socket $(1)/usr/lib/systemd/system/sysinit.target.wants/
 	$(LN) ../systemd-udevd-control.socket $(1)/usr/lib/systemd/system/sysinit.target.wants/
