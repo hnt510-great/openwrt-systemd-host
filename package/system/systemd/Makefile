@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=systemd
 PKG_VERSION:=262
-PKG_RELEASE:=12
+PKG_RELEASE:=13
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/systemd/systemd/tar.gz/refs/tags/v$(PKG_VERSION)?
 PKG_HASH:=6aa77506c0644aa67f940a48e3d3a7368601f787e4f249139516d353f107bcab
@@ -31,7 +31,7 @@ define Package/systemd
   SECTION:=base
   CATEGORY:=Base system
   TITLE:=systemd system and service manager
-  DEPENDS:=@OPENWRT_SYSTEMD +libsystemd +libpam +libacl +libpcre2 +mount-utils +swap-utils
+  DEPENDS:=@OPENWRT_SYSTEMD +libsystemd +libpam +libacl +libpcre2 +mount-utils +swap-utils +tpm2-tss
   USERID:=:systemd-journal=190
 endef
 
@@ -114,7 +114,7 @@ MESON_ARGS += \
 	-Dnspawn=$(if $(CONFIG_PACKAGE_systemd-nspawn),enabled,disabled) -Dvmspawn=disabled \
 	-Dfirstboot=false -Dhibernate=false -Dbacklight=false -Drfkill=false \
 	-Dvconsole=false -Dxdg-autostart=false -Dbinfmt=false -Dquotacheck=false \
-	-Dbootloader=disabled -Dukify=disabled -Defi=false -Dtpm=false \
+	-Dbootloader=disabled -Dukify=disabled -Defi=false -Dtpm=false -Dtpm2=enabled \
 	-Dkernel-install=false -Dbpf-framework=disabled -Danalyze=true -Dpcre2=enabled \
 	-Dtests=false -Dfuzz-tests=false -Dinstall-tests=false \
 	-Dman=disabled -Dhtml=disabled -Dtranslations=false \
