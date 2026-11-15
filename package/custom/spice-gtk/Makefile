@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=spice-gtk
 PKG_VERSION:=0.43
-PKG_RELEASE:=2
+PKG_RELEASE:=3
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=https://www.spice-space.org/download/gtk
 PKG_HASH:=cee26e5b2d22909f35b40a94398d1e863ca3962ee46494ca97aab206abc3203b

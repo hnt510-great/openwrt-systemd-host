@@ -1,0 +1,22 @@
+--- a/src/spice-widget.c
++++ b/src/spice-widget.c
+@@ -3353,6 +3353,19 @@ void spice_display_widget_gl_scanout(Spi
+         if (!spice_egl_update_scanout(display, scanout, &err)) {
+             g_critical("update scanout failed: %s", err->message);
+             g_clear_error(&err);
++            return;
++        }
++
++        /* A reconnect may deliver an existing scanout without a GL draw.
++         * Importing the DMA-BUF does not repaint an already-ready widget.
++         */
++        if (d->ready) {
++            GtkWidget *area = gtk_stack_get_visible_child(d->stack);
++
++            if (GTK_IS_GL_AREA(area))
++                gtk_gl_area_queue_render(GTK_GL_AREA(area));
++            else
++                gtk_widget_queue_draw(area);
+         }
+     }
+ }
