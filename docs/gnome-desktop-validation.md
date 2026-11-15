@@ -361,3 +361,25 @@ Observed live-restart caveat: when `openwrt-desktop-ime` installs the persistent
 loaded, so a manual `/etc/init.d/desktop restart` while running requires
 clearing `/run/systemd/transient/openwrt-desktop.service` and running
 `systemctl daemon-reload` before `start`. Cold boot is unaffected.
+
+### Coldplug TPM ordering follow-up (`openwrt-desktop` r33) — 2026-11-15
+
+Boot-log inspection on `192.0.2.1` after rebooting showed `openwrt-desktop.service`
+first starting via DRM hotplug at `18.15s` (before `S10boot` `kmodloader` loaded
+`tpm_crb` and `tpm_tis` at `19.90s`), causing the initial attempt to exit
+`243/CREDENTIALS` (`Failed to open specified TCTI device file /dev/tpmrm0: No
+such file or directory`) before `Restart=on-failure` (`RestartSec=5s`) succeeded
+at `23:00:50` (`org.freedesktop.Secret.Collection.Locked` = `(<false>,)`).
+
+`openwrt-desktop` r33 probes `tpm_crb`/`tpm_tis` in `desktop-gpu-coldplug` when
+`/dev/tpmrm0` is absent, adds `--subsystem-match=tpm --subsystem-match=tpmrm` to
+`openwrt-desktop-coldplug.service`, and appends `dev-tpmrm0.device` to
+`Requires=`/`After=` in `desktop.init` whenever `.cred` (`LoadCredentialEncrypted`)
+is selected. Host unit tests (`test-gnome-keyring.py` `1/1`,
+`test-custom-package-updates.py` `49/49`, `test_init_keyring_credential_selection`
+in `test-rtkit-desktop.py`) passed, `openwrt-desktop-33` published cleanly
+(`/srv/openwrt-feeds/public/snapshots/20261115T151029.839788Z`), and upgrading
+`192.0.2.1` to `openwrt-desktop-33` plus restarting
+`openwrt-desktop-coldplug.service` left `openwrt-desktop.service` `active
+(running)` with `org.freedesktop.Secret.Collection.Locked` = `(<false>,)`.
+Zero-retry cold-boot timing of r33 awaits the next router reboot.
