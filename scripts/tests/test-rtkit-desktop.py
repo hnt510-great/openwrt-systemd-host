@@ -101,7 +101,7 @@ class DesktopIntegration(unittest.TestCase):
         text = (DESKTOP / 'files/desktop.config').read_text()
         self.assertIn("\toption kms_scheduling 'high-priority'\n", text)
 
-    def run_init(self, kms_scheduling):
+    def run_init(self, kms_scheduling, encrypted=False):
         run = self.path / 'run'
         native = self.path / 'native'
         native.mkdir(exist_ok=True)
@@ -109,7 +109,13 @@ class DesktopIntegration(unittest.TestCase):
         session.write_text('')
         session.chmod(0o755)
         secret = self.path / 'secret'
-        secret.write_text('x')
+        cred = Path(str(secret) + '.cred')
+        secret.unlink(missing_ok=True)
+        cred.unlink(missing_ok=True)
+        if encrypted:
+            cred.write_text('x')
+        else:
+            secret.write_text('x')
         common = self.path / 'common.sh'
         common.write_text(
             'desktop_error() { printf "%s\\n" "$*" >&2; return 1; }\n'
@@ -177,6 +183,15 @@ class DesktopIntegration(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIsNone(arguments)
                 self.assertIn('Invalid kms_scheduling', result.stderr)
+
+    def test_init_keyring_credential_selection(self):
+        result, arguments = self.run_init(None, encrypted=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"--property=LoadCredential=keyring-passphrase:{self.path / 'secret'}", arguments)
+
+        result, arguments = self.run_init(None, encrypted=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"--property=LoadCredentialEncrypted=keyring-passphrase:{self.path / 'secret.cred'}", arguments)
 
     def run_session(self, kms_scheduling, inherited=None):
         import socket
