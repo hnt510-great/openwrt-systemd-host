@@ -200,3 +200,6 @@ guest checks are separate from signed publication or physical deployment.
 
 The [validation record](needrestart-validation.md) identifies the accepted image,
 signed APKs, automated checks, live guest results, and remaining validation limits.
+
+The LuCI scan status banner centers its text, including the completed, queued,
+running and error states.
