@@ -49,11 +49,11 @@ The earlier ACPI-only driver-path assumption was corrected by discovering the
 actual TPM parent driver. These fixture failures are retained in their receipts.
 
 This is a targeted rule-overlay test on the existing image, not a new firmware
-build or an installed-r14 APK transaction. Publication and physical-router
-installation/reboot are not performed. Real TPM, WAN/LAN hardware, Wi-Fi/rfkill,
+build or an installed-r14 APK transaction. At the VM stage, publication and physical-router
+installation/reboot had not been performed; see the deployment record below. Real TPM, WAN/LAN hardware, Wi-Fi/rfkill,
 backlight, smartcard, printer and complete GNOME/keyring acceptance are separate.
 
-Not covered: physical device acceptance, actual GNOME startup with the new rules,
+Not covered by the VM stage: physical device acceptance, actual GNOME startup with the new rules,
 removable data-disk hotplug, sound replay, and configfs late loading. These remain
 promotion checks where the corresponding hardware/function is in use.
 
@@ -61,3 +61,48 @@ The no-TPM client received the rule overlay after boot; a candidate-image
 no-TPM cold boot is not established by that result. The r8 suite validates
 virtual Ethernet only, not physical NIC/PPPoE/Wi-Fi behavior. No test guests
 or swtpm processes from this validation were left running.
+
+## Publication and physical installation — 2026-11-16
+
+Source commit: `8a8ca70f09` (`systemd: restore device visibility within OpenWrt
+policy boundaries`). The coordinated wrapper dry run and production run both
+passed signatures, retained-artifact ABI/dependency checks, immutable identities,
+router baseline checks and upgrade simulations. Only the nine systemd-family
+262-r14 packages changed; `same_version_rebuilds=[]`. Kernel publication was
+unchanged at `7.3.4-64-openwrt`.
+
+Published userspace snapshot:
+`/srv/openwrt-feeds/public/snapshots/20261115T162551.003264Z` (UTC timestamp).
+Every deployed APK SHA256 matched that immutable snapshot. Evidence is in
+`build_dir/udev-boundary-deployment-20261116/`: publication receipts, exact package
+manifest, signature/hash checks, offline simulation, install and acceptance logs.
+
+Access used shell SSH to `router-admin@192.0.2.1` with `sudo -n`, not a remote-access
+MCP. No UCI setting was changed. An exact offline simulation preceded installation
+of the identical nine signed files with repository/network access disabled.
+Bare package names were retained in the add transaction, preserving the original
+APK world byte-for-byte rather than leaving local-file checksum constraints.
+
+| Physical check | Result |
+| --- | --- |
+| Installed package set | libsystemd, libudev-systemd, systemd, systemd-udev, coredump, hostnamed, machined, nspawn and oomd upgraded from 262-r13 to 262-r14 |
+| APK journal | Transaction completed; `apk-resume --status` reported no interrupted transaction |
+| Rule | Target syntax check passed; SHA256 `7f82a9d1dc74347bb234182c40149fbaf6383452212fa438a5b2123de619f657` equals source |
+| Activation | Reloaded manager/rules and issued only TPM/net `change` events; no full add replay |
+| Device state | dev-tpmrm0.device, dev-tpm0.device and tpm2.target active; current non-lo network aliases active |
+| Credential and keyring | TPM decryption matched the existing desktop runtime credential without printing it; login collection Locked=false |
+| Routing | LAN and PPPoE WAN up; default route present; local DNS resolution and outbound HTTPS returned successfully |
+| Preservation | Boot ID, APK world, network/firewall/DHCP/fstab/desktop configuration hashes, desktop/procd/udevd main PIDs unchanged |
+| Running executables | PID 1 and udevd executable hashes equal the installed files; no restart/reexec required for changed executable bytes |
+| Health | No failed units; needrestart complete, 203 processes scanned, zero unreadable processes, no warnings or applications/services requiring restart |
+
+The package retained the existing machine-id and generated a conffile
+`/etc/machine-id.apk-new`; it was not substituted for the host identity. APK also
+warned that interruption recovery might require network inputs; the transaction
+completed and no pending journal remained. No service/session restart, firmware
+flash, kernel installation or router reboot was performed.
+
+This establishes live TPM/device integration and router-side connectivity after
+installation. It does not establish a physical cold boot, a new GNOME session,
+real LAN-client forwarding/throughput, removable-disk/sound replay, or configfs
+late loading. Existing sessions remained running throughout.
