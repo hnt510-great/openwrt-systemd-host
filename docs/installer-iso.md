@@ -45,8 +45,42 @@ The squashfs payload is stored once. Rufus ISO mode and Ventoy remain unsupporte
 
 Attach this ISO as a **SATA CD-ROM** and put the CD-ROM first in the boot
 order, with the writable target disk second. BIOS and UEFI are supported.
-Standard VGA is the validated display model for the installer console. Select
-the normal installer entry for the graphical console.
+Standard VGA and VirtIO video with SPICE OpenGL are validated display paths.
+Select the normal installer entry for the graphical console. For VirtIO 3D,
+keep 3D acceleration enabled and use a local SPICE connection with a render node
+belonging to the host GPU. A minimal graphics/video configuration is:
+
+```xml
+<graphics type='spice'>
+  <listen type='none'/>
+  <image compression='off'/>
+  <gl enable='yes' rendernode='/dev/dri/renderD128'/>
+</graphics>
+<video>
+  <model type='virtio' heads='1' primary='yes'>
+    <acceleration accel3d='yes'/>
+  </model>
+</video>
+```
+
+The host's SPICE client needs EGL/DMA-BUF support and correct initial-frame
+repainting. Keep `<listen type='none'/>` (removing `autoport='yes'` and
+`<listen type='address'/>`): in QEMU 11.1+ with SPICE >= 0.15.3, a non-zero
+SPICE TCP port sets `spice_remote_client`, routing GL scanouts through a
+linear/blit texture path that produced black `(0, 0, 0, 255)` DMA-BUF textures
+from SeaBIOS onward on a Fedora 45 / QEMU 11.1.3 / AMD `renderD128` host even
+for local `openGraphicsFD` clients. An unpatched host `spice-gtk` may also show
+black when opening or reconnecting to an already idle menu until a guest key
+triggers a draw. A running guest and QMP `screendump` returning `no surface` do
+not prove a failed boot: VirtIO GL can have no CPU surface for QMP to capture.
+Check the actual SPICE window and serial console separately. See the
+[SPICE client validation](spice-egl-build-validation.md) for the repaint checks.
+Replacing a guest ISO does not update the host's SPICE client library.
+
+An offline installer can boot without a network adapter. Missing preinit network
+cleanup is nonfatal, so it does not divert the installer into procd recovery.
+The installer limits console printk output to errors to keep kernel warnings
+from overwriting forms; the messages remain available in the kernel log.
 
 Attaching the ISO as a **read-only raw USB disk** also remains supported. For
 libvirt, use either `device='cdrom'` with a SATA target, or `device='disk'` with a

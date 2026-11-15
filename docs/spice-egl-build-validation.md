@@ -56,3 +56,50 @@ The backup of APK world and the VM XML is in
 `/srv/libvirt/diagnostics/spice-egl-fix-20261030/` on the physical host.
 The user's concurrent VM media, boot-order, and power operations were
 preserved. No feed publication or full runtime smoke suite was performed.
+
+## Installer GL reconnect follow-up — 2026-11-15
+
+A local QEMU 11.1.2/SeaBIOS guest booted the existing installer from SATA
+CD-ROM with VirtIO VGA GL. A Debian host SPICE client could reconnect to an
+already idle installer and show a blank window until guest input caused a new
+GL draw. QMP `screendump` returned `no surface` even when SPICE displayed the
+guest correctly. This is a GL client rendering issue, not an optical boot test.
+
+The existing r2 patch queues a render when monitor readiness changes. Release
+r3 additionally queues a render after importing a scanout into an already-ready
+widget, including the X11 drawing-area branch. Scanout notification itself does
+not require a draw acknowledgement. Failed imports return without scheduling a
+render of an invalid image.
+
+`make package/custom/spice-gtk/compile -j3 V=s` passed. The patch was maintained
+with quilt and `make package/custom/spice-gtk/refresh`. The new runtime helper is
+`scripts/tests/spice-gl-console.py`. It captures the actual GTK GL framebuffer,
+sends only Down/Up through SPICE, then reconnects twice without sending input,
+resizing, or forcing a render. It rejects blank captures and unchanged input.
+
+The rebuilt target r3 libraries passed that helper in a private client chroot:
+three GL scanouts, two guest draw messages, and both passive reconnect images
+identical to the final menu image. The chroot used target GTK/SPICE libraries
+with a private copy of the host's Mesa graphics stack for the AMD render node;
+the firmware's Intel/VirtIO Mesa selection does not supply a host radeonsi
+driver. No host libraries or running applications were replaced.
+
+On Fedora 45 (`spice-gtk3` `0.43-5.fc45`, QEMU `11.1.3-1.fc45`, AMD
+`renderD128`), isolated `<listen type='none'/>` clones confirmed the same
+client behavior against the live host stack: stock Fedora `spice-gtk3`
+rendered normally when connected at boot, stayed blank on an idle-menu
+connect until a `Down`/`Up` draw arrived, whereas the privately loaded r3
+library rendered `initial`, `Down`/`Up`, and two passive reconnects without
+extra input. Note separately that libvirt `<listen type='address'/>` on
+QEMU 11.1 triggers `spice_remote_client = 1` and exports black `(0, 0, 0, 255)`
+DMA-BUF textures regardless of client `spice-gtk3` version; see
+[installer validation](installer-iso-validation.md).
+
+Evidence: `/srv/openwrt-validation/installer-spice3d-validation-20261115/`, including
+`spice-build.log`, `spice-r3-client.log`, `spice-r3/receipt.json` and its PNGs,
+and `fedora/linux2024-verified/`.
+The exact rebuilt ISO matrix is recorded in
+[installer validation](installer-iso-validation.md). These are local and
+isolated-remote VM/client checks. System host packages on Fedora were not
+replaced, and an external host must update its own SPICE client to receive the
+client-side idle-reconnect fix.
