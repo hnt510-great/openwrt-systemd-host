@@ -5,6 +5,7 @@ ConditionKernelCommandLine=openwrt.installer=1
 Conflicts=openwrt-console@%i.service
 
 [Service]
+ExecStartPre=/usr/bin/dmesg -n 4
 ExecStart=/usr/sbin/openwrt-installer
 StandardInput=tty
 StandardOutput=tty
