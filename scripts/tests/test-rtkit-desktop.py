@@ -188,10 +188,13 @@ class DesktopIntegration(unittest.TestCase):
         result, arguments = self.run_init(None, encrypted=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(f"--property=LoadCredential=keyring-passphrase:{self.path / 'secret'}", arguments)
+        self.assertIn("--property=Requires=systemd-logind.service openwrt-desktop-coldplug.service", arguments)
 
         result, arguments = self.run_init(None, encrypted=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(f"--property=LoadCredentialEncrypted=keyring-passphrase:{self.path / 'secret.cred'}", arguments)
+        self.assertIn("--property=Requires=systemd-logind.service openwrt-desktop-coldplug.service dev-tpmrm0.device", arguments)
+        self.assertIn("--property=After=systemd-logind.service openwrt-desktop-coldplug.service dev-tpmrm0.device", arguments)
 
     def run_session(self, kms_scheduling, inherited=None):
         import socket

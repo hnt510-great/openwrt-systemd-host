@@ -10,3 +10,9 @@ for device in /sys/bus/pci/devices/*; do
 		0x03*) /usr/sbin/modprobe --use-blacklist "$(cat "$device/modalias")" ;;
 	esac
 done
+# Sealed keyring credentials need /dev/tpmrm0 before S10boot runs kmodloader.
+if [ ! -e /dev/tpmrm0 ]; then
+	for mod in tpm_crb tpm_tis; do
+		/usr/sbin/modprobe -q --use-blacklist "$mod" 2>/dev/null || :
+	done
+fi

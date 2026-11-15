@@ -45,8 +45,12 @@ start_service() {
 	}
 	secret="/etc/desktop/gnome/$DESKTOP_USER_UID.keyring-passphrase"
 	cred="$secret.cred"
+	requires='systemd-logind.service openwrt-desktop-coldplug.service'
+	after='systemd-logind.service openwrt-desktop-coldplug.service'
 	if desktop_valid_credential "$cred"; then
 		credential_prop="LoadCredentialEncrypted=keyring-passphrase:$cred"
+		requires="$requires dev-tpmrm0.device"
+		after="$after dev-tpmrm0.device"
 	elif desktop_valid_credential "$secret"; then
 		credential_prop="LoadCredential=keyring-passphrase:$secret"
 	else
@@ -57,8 +61,8 @@ start_service() {
 		--uid="$user" --property=PAMName=openwrt-desktop --property=Type=exec \
 		--property=Restart=on-failure --property=RestartSec=5s \
 		--property=StandardOutput=journal --property=StandardError=journal \
-		--property=Requires='systemd-logind.service openwrt-desktop-coldplug.service' \
-		--property=After='systemd-logind.service openwrt-desktop-coldplug.service' \
+		--property=Requires="$requires" \
+		--property=After="$after" \
 		--property="$credential_prop" \
 		--setenv=HOME="$DESKTOP_USER_HOME" --setenv=USER="$user" --setenv=LOGNAME="$user" \
 		--setenv=SHELL="$DESKTOP_USER_SHELL" --setenv=XDG_SESSION_TYPE=wayland --setenv=XDG_SESSION_CLASS=user \
