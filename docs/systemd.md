@@ -172,6 +172,14 @@ their payload layout is incompatible. Serve repositories from this build's
 Use matching native APKs for installation and upgrades. Keep the signing
 key private; the firmware includes the public verification key.
 
+From `systemd` `262-r13`, `-Dtpm2=enabled` (`+tpm2-tss`) is built in and the
+x86_64 desktop snapshot selects `kmod-tpm-crb` and `kmod-tpm-tis`, enabling
+`systemd-creds --with-key=tpm2` and `LoadCredentialEncrypted=` on hardware TPM
+2.0. Because `/lib/upgrade/keep.d/systemd` keeps `/etc/systemd/` rather than
+`/var/lib/systemd/credential.secret`, persistent disk credentials meant to
+survive `sysupgrade` and kernel upgrades should seal with `--with-key=tpm2`
+and an empty PCR mask (`--tpm2-pcrs=""`) instead of `host` or fixed PCRs.
+
 ## Administration and recovery
 
 Install native units in `/etc/systemd/system`, then use `systemctl daemon-reload`

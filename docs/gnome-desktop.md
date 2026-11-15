@@ -156,8 +156,17 @@ Sunshine enrollment also enables desktop audio. For an RDP-only setup, run
 GNOME keyring unlock, enables the desktop service and starts the user's
 session on VT7 through native PAM/logind. An existing login keyring prompts
 for its current passphrase; a new keyring receives a random passphrase.
-The bootstrap secret is stored root-only under `/etc/desktop/gnome/` and
-passed to the transient session through systemd `LoadCredential`. The
+The bootstrap secret is stored root-only under `/etc/desktop/gnome/`: when TPM2
+is available (`systemd-analyze has-tpm2`), `desktop-setup` seals the passphrase
+with `systemd-creds encrypt --with-key=tpm2 --tpm2-pcrs=""` (SRK-only, no PCR
+mask and no `host` key dependency on `/var/lib/systemd/credential.secret`) into
+`UID.keyring-passphrase.cred` (`0600`), verifies decryption and unlock, and
+shreds any legacy plaintext file. This keeps unattended unlock working across
+kernel upgrades and `sysupgrade` (which retains `/etc/desktop/` via
+`/lib/upgrade/keep.d/desktop` without retaining `/var/lib/systemd/`). On
+non-TPM2 targets or pre-migration nodes, `desktop.init` falls back to legacy
+plaintext `LoadCredential`. Re-running `desktop-setup USER` on a TPM2 host
+automatically migrates an existing legacy plaintext file to `.cred`. The
 bootstrap unlock addresses the existing keyring daemon's control socket;
 it does not launch another daemon with `gnome-keyring-daemon --unlock`.
 RDP's separate password is read without terminal echo or through

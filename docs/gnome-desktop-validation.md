@@ -335,3 +335,29 @@ default XDG user directories (`~/.config/user-dirs.dirs`, `~/Pictures`,
 | Publication | `./scripts/publish-changed-feeds.sh --dry-run` and production publication passed router upgrade preflight (`snapshot /srv/openwrt-feeds/public/snapshots/20261114T083002.746364Z`) |
 | Router installation & session restart | `apk update && apk upgrade` installed/upgraded all 10 packages on `192.0.2.1`; after `systemctl restart openwrt-desktop.service`, `desktop-session` generated `~/.config/user-dirs.dirs`, `~/Pictures` and `~/Videos`, and `pipewire.service`, `gnome-shell`, `org.gnome.Shell.Screenshot` and `org.gnome.Shell.Screencast` were active on the user bus |
 | Live GStreamer & D-Bus screencast | `gst-inspect-1.0` verified `pipewiresrc`, `vp8enc`, `webmmux`, `videoconvertscale` and `glupload`; `org.gnome.Shell.Screencast.Screencast` recorded a `63837`-byte valid EBML/WebM capture file (cleaned up afterward). Direct interactive keyboard (`Print`) / GUI pointer screenshot triggering was not run in this automated pass |
+
+## TPM2 keyring credential sealing and router validation — 2026-11-15
+
+`systemd` 262-r13 enables `-Dtpm2=enabled` (`+tpm2-tss`) alongside
+`kmod-tpm-crb` and `kmod-tpm-tis` in `configs/x86-64-systemd-desktop.config`
+(kernel sequence 64, Linux `7.3.4-64-openwrt`), and `openwrt-desktop` r32 seals
+unattended GNOME keyring bootstrap secrets with
+`systemd-creds encrypt --with-key=tpm2 --tpm2-pcrs=""` (SRK-only, no PCR or
+host-key binding) into `/etc/desktop/gnome/<uid>.keyring-passphrase.cred` while
+retaining `LoadCredential` fallback for unmigrated plaintext secrets and
+non-TPM2 test VMs.
+
+| Check | Result |
+| --- | --- |
+| Syntax & formatting | `sh -n` on `desktop.init` and `desktop-setup` and `git diff --check` passed |
+| Host unit tests | `scripts/tests/test-gnome-keyring.py` passed (`1/1`); `scripts/tests/test-custom-package-updates.py` passed (`49/49`); `scripts/tests/test-rtkit-desktop.py` passed `9/13` (including `test_init_keyring_credential_selection` covering plaintext fallback and `.cred` `LoadCredentialEncrypted`); `4` unrelated subtests in pre-existing `test_session_imports_override_only_for_non_default_modes` failed (`/usr/libexec/desktop-user-setup: not found` in mock) |
+| Package & feed publication | `openwrt-desktop-32` compiled cleanly; `./scripts/publish-changed-feeds.sh --dry-run` and production publication passed router upgrade preflight (`/srv/openwrt-feeds/public/snapshots/20261115T145434.252344Z`) |
+| Router upgrade & sealing | On `192.0.2.1` (`7.3.4-64-openwrt`, `systemd 262` `+TPM2`, `systemd-analyze has-tpm2` -> `yes`), `apk upgrade` installed `openwrt-desktop-32`; `32769.keyring-passphrase` was sealed to `.cred`, verified byte-for-byte with `systemd-creds decrypt ... | cmp -s`, verified live with `LoadCredentialEncrypted`, and the legacy plaintext file was removed with `shred -u` |
+| Post-migration desktop & persistence | After restarting `openwrt-desktop.service` without the plaintext file, `/run/systemd/transient/openwrt-desktop.service` carried `LoadCredentialEncrypted=keyring-passphrase:/etc/desktop/gnome/32769.keyring-passphrase.cred`, `org.freedesktop.Secret.Collection.Locked` reported `(<false>,)`, `gnome-keyring-daemon.service` and `openwrt-gnome-remotes.service` were `active`, `sysupgrade -l` included `/etc/desktop/gnome/32769.keyring-passphrase.cred`, and `systemctl --failed` listed `0` units |
+
+Observed live-restart caveat: when `openwrt-desktop-ime` installs the persistent
+`/etc/systemd/system/openwrt-desktop.service.d/50-fcitx5.conf` drop-in, stopping
+`openwrt-desktop.service` leaves `/run/systemd/transient/openwrt-desktop.service`
+loaded, so a manual `/etc/init.d/desktop restart` while running requires
+clearing `/run/systemd/transient/openwrt-desktop.service` and running
+`systemctl daemon-reload` before `start`. Cold boot is unaffected.
