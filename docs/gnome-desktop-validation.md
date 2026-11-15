@@ -383,3 +383,23 @@ in `test-rtkit-desktop.py`) passed, `openwrt-desktop-33` published cleanly
 `openwrt-desktop-coldplug.service` left `openwrt-desktop.service` `active
 (running)` with `org.freedesktop.Secret.Collection.Locked` = `(<false>,)`.
 Zero-retry cold-boot timing of r33 awaits the next router reboot.
+
+### VM cold-boot validation (`openwrt-desktop` r34) — 2026-11-15
+
+Rebooting `192.0.2.1` on `openwrt-desktop` r33 revealed that `dev-tpmrm0.device`
+never reaches `active` on OpenWrt because `package/system/systemd/Makefile`
+(`systemd-udev`) intentionally omits `99-systemd.rules` (so udev does not add
+`TAG+="systemd"` to `/dev/tpmrm0`), causing systemd's device dependency job to
+time out after ~90 s (`Job dev-tpmrm0.device/start failed with result 'timeout'`).
+
+`openwrt-desktop` r34 removes `dev-tpmrm0.device` from `desktop.init` and keeps
+TPM loading (`tpm_crb`, `tpm_tis`, plus up to a 5 s poll for `/dev/tpmrm0` only
+when `/sys/firmware/acpi/tables/TPM2` or `/sys/class/tpm/tpm0` exists) inside
+`desktop-gpu-coldplug` within the synchronous `openwrt-desktop-coldplug.service`
+dependency.
+
+| Check | Result |
+| --- | --- |
+| Host unit tests & builds | `test-gnome-keyring.py` (`1/1`) and `test-custom-package-updates.py` (`49/49`) passed; `test_init_keyring_credential_selection` in `test-rtkit-desktop.py` passed (`9/13`, same 4 unrelated `run_session` mock failures); `openwrt-desktop-34` compiled |
+| QEMU + `swtpm` UEFI cold-boot VM | Booted `openwrt-x86-64-generic-squashfs-combined-efi.img`, installed `openwrt-desktop-34.apk`, provisioned `vmtest` via `desktop-setup vmtest` (`32771.keyring-passphrase.cred` created, no plaintext), powered off cleanly, and cold-booted with persisted `swtpm` state: `openwrt-desktop-coldplug.service` completed within 1 s, `openwrt-desktop.service` reached `ActiveState=active` / `SubState=running` with `NRestarts=0`, `ExecMainStatus=0`, `LoadCredentialEncrypted=keyring-passphrase:/etc/desktop/gnome/32771.keyring-passphrase.cred`, zero `243/CREDENTIALS` or device timeout messages, and `org.freedesktop.Secret.Collection.Locked` = `(<false>,)` |
+| Feed publication & router upgrade | `./scripts/publish-changed-feeds.sh --dry-run` and production publication passed (`/srv/openwrt-feeds/public/snapshots/20261115T153455.438291Z`); `192.0.2.1` upgraded to `openwrt-desktop-34`, restarted `openwrt-desktop-coldplug.service` and `openwrt-desktop.service` cleanly (`Locked` = `(<false>,)`, `systemctl --failed` = `0` units) |
