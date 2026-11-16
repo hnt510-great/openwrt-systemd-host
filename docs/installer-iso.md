@@ -4,6 +4,10 @@ The optional x86_64 native-systemd installer creates a fresh whole-disk GPT and
 installs the same clean squashfs that runs the live environment. UEFI and BIOS
 boot are supported; UEFI uses the removable boot path without NVRAM changes.
 
+Future work: [optional component installation plan and source findings](installer-components-plan.md)
+records a deferred proposal for selecting desktop, audio, virtualization and container
+packages during installation. It is not implemented; this guide describes the current installer.
+
 ## Build
 
 Preserve the current configuration, merge `configs/installer-iso.config`, then
