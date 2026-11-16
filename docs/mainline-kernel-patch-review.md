@@ -1223,3 +1223,73 @@ Validation: `./scripts/feeds update -i -a`, `./scripts/feeds install -a` and
 `libjpeg-turbo` prepare/compile cleanly, and the mainline-kernel and
 custom-package test suites pass. No firmware or APK feed was published and no
 router was modified. The optional MAP-E tunnel finding remains open.
+
+## Upstream synchronization review, 2026-11-16
+
+Merged 131 incoming main-tree commits through `7424e2ca30` as `7a085bfd72`,
+plus 7 packages, 1 LuCI, 8 telephony, 3 Passwall LuCI and 1 Passwall packages
+commits. Routing, taskplan and video were already current. Preservation
+snapshots and backup branches cover all 11 repositories, including the Argon
+submodule and retired Argon configuration repository. Evidence is under
+`.git/pull-preserve/20261116T013030Z/` and the `.git/*current.log` /
+`.git/sync-package-*.log` logs.
+
+### Kernel: no new backport required for the selected x86/64 configuration
+
+OpenWrt commit `b828f58d67` adds three generic 6.18 patches, `799-01` through
+`799-03`, fixing MediaTek WED stale freed pointers, reset buffer leaks and
+failed receive-buffer initialization. All changes target
+`drivers/net/ethernet/mediatek/mtk_wed.c`. Its Kconfig requires the MediaTek
+SoC platform or `COMPILE_TEST`; this x86/64 configuration enables neither.
+The changed existing `799-net-ethernet-mtk_wed-attach-*` patch only refreshes
+hunk offsets. There are no incoming x86/64 kernel patch changes; the Geode
+image feed-package adjustment concerns a different subtarget.
+
+These three WED fixes remain optional 7.3 port candidates if MediaTek SoC
+support or compile testing is enabled later. No kernel patch was changed by
+this check. The registry is intentionally unchanged: the current inventory
+has 583 generic/x86 6.18 source patches, three unregistered new WED sources,
+one changed source hash (the offset-only `799` refresh), and five previously
+recorded removed sources. Do not treat the registry as hash-current for the
+new 6.18 stack. All 354 carried 7.3 patches, including four additions, still
+match their registered hashes and apply with `--fuzz=0` to a fresh extraction
+of SHA256-verified Linux 7.3.4 (`b11b6df8...fd1f`). The release checker reports
+7.3.4 current. Hash and application receipts are in `kernel-*-audit.json`
+and `kernel-apply-result.json` within the preservation directory.
+
+Incoming wireless fixes are carried by the separate mac80211 backports and
+hostapd packages. Both packages prepare successfully with the existing local
+patches; they do not require duplicate patches in the native 7.3 stack.
+
+### Integration repairs and custom packages
+
+- Resolve the FFmpeg release conflict as `9.0.1-r9`, retaining local GNOME,
+  VA-API and library selections while accepting upstream patches. FFmpeg
+  preparation passes with the merged patch stack.
+- Refresh both local ubox patches using `make package/system/ubox/refresh`.
+  Preserve upstream's bounded whitespace trim and kernel-line truncation in
+  the mutable syslog input path before entering the const journal-compatible
+  storage API. Journal reader, forwarding/reconnect and versioned kernel
+  autoload support remain present. The target ubox/logd build passes.
+- Make the logd test choose the recipe's exact source archive, allowing old
+  and new downloads to coexist, and update its event-loop stub to match
+  current libubox headers. All three tests execute and pass without skips.
+- Strict Kconfig exposed an existing QEMU io_uring/package dependency cycle.
+  Move the AIO options outside the emulator package guard, following the
+  existing graphics/audio option arrangement. Strict validation passes with
+  zero selected-symbol differences from the preserved `.config`. The feed
+  edit is mirrored by `configs/qemu-aio-kconfig-feeds.json` and
+  `patches/feeds/0039-packages-qemu-aio-kconfig.patch`.
+- Custom update report `logs/custom-package-updates/20261116T013124.749290Z/report.json`
+  passes for all 188 entries: 147 current, 36 locally maintained and 5 review
+  entries; no eligible custom recipe update is available.
+
+Validation: mainline updater (20), kernel build inputs (7), custom updater
+(49), package metadata/Kconfig (4), and logd journal (3) tests pass. Feed
+update/install, metadata generation, all nine nonempty indexes, generated
+link checks and preservation checks pass. The preserved `.config`, overlays,
+stashes and original untracked contents are unchanged; every original
+repository HEAD remains an ancestor. Integration repairs and this report are
+left uncommitted for review. No full firmware build or runtime test was run:
+this request covers source synchronization and patch applicability. No feed
+publication, Git push, router installation, service restart or reboot occurred.

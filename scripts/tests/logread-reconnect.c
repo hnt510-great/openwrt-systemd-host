@@ -8,7 +8,7 @@
 #include "logread.c"
 #undef main
 
-bool uloop_cancelled;
+volatile sig_atomic_t uloop_cancelled;
 static int freed_streams;
 
 int uloop_timeout_cancel(struct uloop_timeout *timeout)

@@ -2,7 +2,7 @@ Subject: [PATCH] kmodloader: load rules for the running kernel generation
 
 --- a/kmodloader.c
 +++ b/kmodloader.c
-@@ -1172,6 +1172,12 @@
+@@ -1172,6 +1172,12 @@ static int main_loader(int argc, char **
  	if (argc > 1)
  		dir = argv[1];
  
@@ -15,11 +15,10 @@ Subject: [PATCH] kmodloader: load rules for the running kernel generation
  	path = malloc(strlen(dir) + 2);
  	if (!path) {
  		ULOG_ERR("out of memory\n");
-@@ -1195,6 +1201,21 @@
- 
+@@ -1196,6 +1202,21 @@ static int main_loader(int argc, char **
  	if (glob(path, gl_flags, NULL, &gl) < 0)
  		goto out;
-+
+ 
 +	/* Before first adoption (and during preinit), add the running image's
 +	 * immutable autoload rules without requiring Python or a writable root.
 +	 * Retain the global rules, including local and systemd boot additions. */
@@ -34,6 +33,7 @@ Subject: [PATCH] kmodloader: load rules for the running kernel generation
 +		glob(generation, gl_flags | GLOB_APPEND, NULL, &gl);
 +		free(generation);
 +	}
- 
++
  	for (j = 0; j < gl.gl_pathc; j++) {
  		FILE *fp = fopen(gl.gl_pathv[j], "r");
+ 		size_t mod_len = 0;
