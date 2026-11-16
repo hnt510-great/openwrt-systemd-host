@@ -3233,8 +3233,8 @@ ELF_REBUILD_ubox_2025.10.30~6f78fa49-r10:=2025.10.30~6f78fa49-r12
 ELF_DEP_ubox_2025.10.30~6f78fa49-r10:=ubox=2025.10.30~6f78fa49-r12
 ELF_REBUILD_uhttpd-mod-ubus_2026.10.19~ca796d7d-r3:=2026.10.19~ca796d7d-r5
 ELF_DEP_uhttpd-mod-ubus_2026.10.19~ca796d7d-r3:=uhttpd-mod-ubus=2026.10.19~ca796d7d-r5
-ELF_REBUILD_wifi-scripts_1.0-r5:=1.0-r6
-ELF_DEP_wifi-scripts_1.0-r5:=wifi-scripts=1.0-r6
+ELF_REBUILD_wifi-scripts_1.0-r5:=1.0-r7
+ELF_DEP_wifi-scripts_1.0-r5:=wifi-scripts=1.0-r7
 ELF_REBUILD_xdg-desktop-portal-gnome_51.0-r1:=51.0-r2
 ELF_DEP_xdg-desktop-portal-gnome_51.0-r1:=xdg-desktop-portal-gnome=51.0-r2
 ELF_REBUILD_xdg-desktop-portal-gtk_1.15.3-r3:=1.15.3-r4
@@ -3337,3 +3337,6 @@ ELF_DEP_samba4-utils_4.24.5-r5:=samba4-utils=4.24.5-r6
 # 2026-11-11 automatic same-version rebuild allocations
 ELF_REBUILD_daed_2.1.1-r8:=2.1.1-r9
 ELF_DEP_daed_2.1.1-r8:=daed=2.1.1-r9
+# 2026-11-16 automatic same-version rebuild allocations
+ELF_REBUILD_wpad-mbedtls_2026.08.07~831364bf-r6:=2026.08.07~831364bf-r7
+ELF_DEP_wpad-mbedtls_2026.08.07~831364bf-r6:=wpad-mbedtls=2026.08.07~831364bf-r7

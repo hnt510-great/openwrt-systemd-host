@@ -80,6 +80,11 @@ def eligible(entry, accept=()):
     return entry['verdict'] in (DIAGNOSE.CHANGE, *accept) or entry['so_changed']
 
 
+def normalize_packageinfo_version(version):
+    """Match rules.mk version_abbrev when DUMP=1 leaves full git commit hashes."""
+    return re.sub(r'~([0-9a-f]{40,})(?=-r\d+$|$)', lambda m: '~' + m[1][:8], version)
+
+
 def recipe_versions(tree):
     """Map package name -> (recipe version, Source-Makefile) from tmp/.packageinfo."""
     result, makefile, name = {}, None, None
@@ -89,7 +94,7 @@ def recipe_versions(tree):
         elif line.startswith('Package: '):
             name = line.removeprefix('Package: ')
         elif name and line.startswith('Version: '):
-            result[name] = (line.removeprefix('Version: '), makefile)
+            result[name] = (normalize_packageinfo_version(line.removeprefix('Version: ')), makefile)
             name = None
     return result
 
