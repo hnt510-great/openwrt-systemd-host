@@ -70,11 +70,7 @@ def sfdisk_script(disk, plan):
     return '\n'.join(lines) + '\n'
 
 
-def validate_answers(answers, existing_users=()):
-    a = copy.deepcopy(answers)
-    if not re.fullmatch(r'/dev/[a-zA-Z0-9_.-]+', a['disk']):
-        raise ValueError('Invalid disk path')
-    net = a['network']; lan = net['lan']; wan = net['wan']
+def validate_lan(lan):
     subnet = ipaddress.IPv4Network((lan['ipaddr'], lan['netmask']), strict=False)
     address = ipaddress.IPv4Address(lan['ipaddr'])
     if address in (subnet.network_address, subnet.broadcast_address):
@@ -83,15 +79,21 @@ def validate_answers(answers, existing_users=()):
         start, count = lan['start'], lan['limit']
         if type(start) is not int or type(count) is not int or start < 1 or count < 1 or start + count > subnet.num_addresses - 1:
             raise ValueError('DHCP pool must fit inside LAN subnet')
-    ports = net['lan_ports'] + ([net['wan_port']] if net.get('wan_port') else [])
-    if not net['lan_ports'] or len(set(ports)) != len(ports) or any(not re.fullmatch(r'[a-zA-Z0-9_.-]{1,15}', p) for p in ports):
-        raise ValueError('Choose distinct physical LAN and WAN ports')
+
+
+def validate_wan(net):
+    lan = net['lan']; wan = net['wan']
+    subnet = ipaddress.IPv4Network((lan['ipaddr'], lan['netmask']), strict=False)
     if wan['proto'] not in ('dhcp', 'pppoe', 'static', 'none'):
         raise ValueError('Invalid WAN protocol')
     if not net.get('wan_port') and wan['proto'] != 'none':
         raise ValueError('WAN protocol requires a WAN port')
     if wan['proto'] == 'static':
-        ipaddress.IPv4Network((wan['ipaddr'], wan['netmask']), strict=False)
+        wan_subnet = ipaddress.IPv4Network((wan['ipaddr'], wan['netmask']), strict=False)
+        if ipaddress.IPv4Address(wan['ipaddr']) in (wan_subnet.network_address, wan_subnet.broadcast_address):
+            raise ValueError('WAN address must be a host address')
+        if wan_subnet.overlaps(subnet):
+            raise ValueError('LAN and WAN subnets must not overlap')
         ipaddress.IPv4Address(wan['gateway'])
         for dns in wan['dns']:
             ipaddress.ip_address(dns)
@@ -99,6 +101,18 @@ def validate_answers(answers, existing_users=()):
         for key in ('username', 'password'):
             if not wan.get(key):
                 raise ValueError('PPPoE requires username and password')
+
+
+def validate_answers(answers, existing_users=()):
+    a = copy.deepcopy(answers)
+    if not re.fullmatch(r'/dev/[a-zA-Z0-9_.-]+', a['disk']):
+        raise ValueError('Invalid disk path')
+    net = a['network']; lan = net['lan']; wan = net['wan']
+    validate_lan(lan)
+    ports = net['lan_ports'] + ([net['wan_port']] if net.get('wan_port') else [])
+    if not net['lan_ports'] or len(set(ports)) != len(ports) or any(not re.fullmatch(r'[a-zA-Z0-9_.-]{1,15}', p) for p in ports):
+        raise ValueError('Choose distinct physical LAN and WAN ports')
+    validate_wan(net)
     accounts = a['accounts']; user = accounts.get('user')
     hashes = [accounts['root_password_hash']]
     if user:

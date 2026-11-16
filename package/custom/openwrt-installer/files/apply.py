@@ -7,6 +7,7 @@ import secrets
 import shutil
 import stat
 import subprocess
+import sys
 import time
 
 import core
@@ -46,7 +47,7 @@ def live_media(sysfs=Path('/sys')):
 
 def discover():
     rom, media = live_media()
-    data = json.loads(run('lsblk', '-J', '-b', '-o', 'NAME,PATH,SIZE,MODEL,TRAN,RO,RM,TYPE'))
+    data = json.loads(run('lsblk', '-J', '-b', '-o', 'NAME,PATH,SIZE,MODEL,SERIAL,TRAN,RO,RM,TYPE'))
     return rom, media, core.disks(data, [media])
 
 
@@ -89,7 +90,8 @@ def install(a, manifest, payload_dir, progress=lambda n, text: None, dry_run=Fal
     a, plan, source, media = prepare(a, manifest)
     if dry_run:
         return {'summary': json.loads(core.summary(a)), 'layout': plan,
-                'sfdisk': core.sfdisk_script(a['disk'], plan)}
+                'sfdisk': core.sfdisk_script(a['disk'], plan),
+                'disk': next(d for d in discover()[2] if d['path'] == a['disk'])}
     disk = a['disk']
     if digest(source, manifest['squashfs_size']) != manifest['squashfs_sha256']:
         raise ValueError('Installer payload checksum mismatch')
@@ -166,6 +168,7 @@ def install(a, manifest, payload_dir, progress=lambda n, text: None, dry_run=Fal
         progress(95, 'Synchronizing disks')
     finally:
         # Keep cleanup failures visible and attempt every unmount.
+        original_error = sys.exc_info()[1]
         errors = []
         for path in reversed(mounted):
             try:
@@ -174,6 +177,9 @@ def install(a, manifest, payload_dir, progress=lambda n, text: None, dry_run=Fal
                 errors.append(str(exc))
         os.sync()
         if errors:
-            raise RuntimeError('; '.join(errors))
+            cleanup_error = 'Unmount cleanup failed: ' + '; '.join(errors)
+            if original_error is None:
+                raise RuntimeError(cleanup_error)
+            raise RuntimeError(str(original_error) + '\n' + cleanup_error) from original_error
     progress(100, 'Installation complete')
     return plan

@@ -186,14 +186,14 @@ def ports(a):
             apply.run('ip', 'link', 'set', nic['name'], 'up')
         interfaces = core.nics()
         items = [(n['name'], f"{n['mac']} {n['driver']} link={n['carrier']}") for n in interfaces]
-        wan = menu('Choose WAN port', [('none', 'None — LAN only'), *items, ('refresh', 'Refresh link status')], default='eth1' if any(n['name'] == 'eth1' for n in interfaces) else 'none')
+        wan = menu('Choose WAN port', [('none', 'None — LAN only'), *items, ('refresh', 'Refresh link status')], default=a['network'].get('wan_port') or 'none')
         if wan == 'refresh':
             continue
         a['network']['wan_port'] = None if wan == 'none' else wan
         options = []
         for name, label in items:
             if name != wan:
-                options.extend([name, label, 'ON'])
+                options.extend([name, label, 'ON' if name in a['network']['lan_ports'] else 'OFF'])
         import shlex
         a['network']['lan_ports'] = shlex.split(dialog('checklist', 'Choose LAN ports', options))
         return
@@ -204,32 +204,48 @@ def lan(a):
     while True:
         key = menu('LAN settings', [(k, str(v)) for k, v in l.items()] + [('continue', 'Continue')])
         if key == 'continue':
+            try:
+                core.validate_lan(l)
+            except ValueError as exc:
+                dialog('msgbox', str(exc)); continue
             return
         if key == 'dhcp':
-            l[key] = yes('Enable DHCP server?')
+            l[key] = yes('Enable DHCP server?', l[key])
         else:
             v = dialog('inputbox', key, default=l[key])
-            l[key] = int(v) if key in ('start', 'limit') else v
+            try:
+                l[key] = int(v) if key in ('start', 'limit') else v
+            except ValueError:
+                dialog('msgbox', 'Enter a whole number.'); continue
 
 
 def wan(a):
     n = a['network']
-    proto = menu('WAN connection', [(p, p.upper()) for p in ('dhcp', 'pppoe', 'static', 'none')]) if n.get('wan_port') else 'none'
-    w = {'proto': proto}
-    if proto == 'pppoe':
-        w['username'] = dialog('inputbox', 'PPPoE username')
-        w['password'] = dialog('passwordbox', 'PPPoE password')
-    if proto == 'static':
-        for key in ('ipaddr', 'netmask', 'gateway'):
-            w[key] = dialog('inputbox', 'WAN ' + key)
-        w['dns'] = dialog('inputbox', 'DNS addresses separated by spaces').split()
-    n['wan'] = w; n['ipv6'] = yes('Enable IPv6?')
+    while True:
+        proto = menu('WAN connection', [(p, p.upper()) for p in ('dhcp', 'pppoe', 'static', 'none')],
+                     default=n['wan']['proto']) if n.get('wan_port') else 'none'
+        old = n['wan']
+        w = {'proto': proto}
+        if proto == 'pppoe':
+            w['username'] = dialog('inputbox', 'PPPoE username', default=old.get('username', ''))
+            w['password'] = old.get('password') or dialog('passwordbox', 'PPPoE password')
+        if proto == 'static':
+            for key in ('ipaddr', 'netmask', 'gateway'):
+                w[key] = dialog('inputbox', 'WAN ' + key, default=old.get(key, ''))
+            w['dns'] = dialog('inputbox', 'DNS addresses separated by spaces', default=' '.join(old.get('dns', []))).split()
+        n['wan'] = w
+        try:
+            core.validate_wan(n)
+        except ValueError as exc:
+            dialog('msgbox', str(exc)); continue
+        n['ipv6'] = yes('Enable IPv6?', n['ipv6'])
+        return
 
 
 def firewall(a):
     import shlex
     selected = shlex.split(dialog('checklist', 'LAN: accept input/output/forward\nWAN: reject input/forward, accept output',
-                                 ['masq', 'WAN NAT masquerade', 'ON', 'fullcone', 'Full-cone NAT (requires masquerade)', 'OFF', 'lan_to_wan', 'LAN to WAN forwarding', 'ON']))
+                                 [value for key, label in [('masq', 'WAN NAT masquerade'), ('fullcone', 'Full-cone NAT (requires masquerade)'), ('lan_to_wan', 'LAN to WAN forwarding')] for value in (key, label, 'ON' if a['firewall'][key] else 'OFF')]))
     a['firewall'] = {key: key in selected for key in ('masq', 'fullcone', 'lan_to_wan')}
 
 
@@ -242,9 +258,12 @@ def accounts(a):
     a['accounts'] = {'root_password_hash': root, 'user': user}
 
 
-def show_summary(a, plan):
+def show_summary(a, plan, disk=None):
     with tempfile.NamedTemporaryFile(mode='w') as f:
-        f.write(core.display_summary(a, plan)); f.flush()
+        f.write(core.display_summary(a, plan))
+        if disk:
+            f.write('Disk: ' + str(disk.get('model') or 'unknown model') + '  ' + str(int(disk['size']) // core.MIB) + ' MiB  serial: ' + str(disk.get('serial') or 'unavailable') + '\n')
+        f.flush()
         dialog('textbox', f.name)
 
 
@@ -291,7 +310,7 @@ def main(manifest, payload):
                 accounts(a)
             elif step == 8:
                 validated = apply.install(a, manifest, payload, dry_run=True)
-                show_summary(a, validated['layout'])
+                show_summary(a, validated['layout'], validated['disk'])
                 if not yes('ALL DATA ON ' + a['disk'] + ' WILL BE ERASED. Install?', False):
                     continue
                 try:
@@ -303,10 +322,10 @@ def main(manifest, payload):
                     if menu('Installation failed', [('summary', 'Back to summary'), ('shell', 'Open shell')]) == 'shell':
                         subprocess.run(['/bin/sh'])
                     continue
-                dialog('msgbox', 'Installation complete. Remove the USB stick and press Enter to reboot.')
+                dialog('msgbox', 'Installation complete. LAN: ' + a['network']['lan']['ipaddr'] + '. Remove the installation media and press Enter to reboot.')
                 apply.run('systemctl', 'reboot'); return
             step += 1
         except Back:
             step = max(0, step - 1)
         except (ValueError, KeyError, RuntimeError) as exc:
-            dialog('msgbox', str(exc)); step = max(1, step - 1)
+            dialog('msgbox', str(exc))
