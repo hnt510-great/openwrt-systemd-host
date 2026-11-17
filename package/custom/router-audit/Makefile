@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=router-audit
 PKG_VERSION:=1.0.0
-PKG_RELEASE:=5
+PKG_RELEASE:=6
 PKG_LICENSE:=GPL-2.0-only
 PKG_FILE_DEPENDS:=$(TOPDIR)/docs/router-audit.md
 
@@ -16,12 +16,20 @@ define Package/router-audit
   PKGARCH:=all
 endef
 
+define Package/router-audit/conffiles
+/etc/config/router-audit
+endef
+
 define Build/Compile
 endef
 
 define Package/router-audit/install
 	$(INSTALL_DIR) $(1)/usr/libexec $(1)/usr/sbin $(1)/usr/share/router-audit $(1)/usr/share/doc/router-audit
 	$(INSTALL_BIN) ./files/router-audit ./files/router-audit-read ./files/router-audit-ssh $(1)/usr/libexec/
+	$(INSTALL_BIN) ./files/router-audit-enabled $(1)/usr/libexec/
+	$(INSTALL_DIR) $(1)/etc/config $(1)/etc/init.d
+	$(INSTALL_CONF) ./files/router-audit.config $(1)/etc/config/router-audit
+	$(INSTALL_BIN) ./files/router-audit.init $(1)/etc/init.d/router-audit
 	$(LN) /usr/libexec/router-audit-read $(1)/usr/sbin/router-audit-export
 	$(INSTALL_DATA) ./files/normalize.py $(1)/usr/libexec/router-audit-normalize.py
 	$(INSTALL_BIN) ./files/pull.py ./files/analyze.py ./files/explain.py ./files/mcp_server.py $(1)/usr/share/router-audit/
@@ -47,10 +55,16 @@ chmod 0700 /srv/router-audit
 rm -f /usr/libexec/__pycache__/router-audit-normalize.*.pyc
 rmdir /usr/libexec/__pycache__ 2>/dev/null || true
 [ -d /run/systemd/system ] || exit 0
+/etc/init.d/router-audit enable
 systemctl daemon-reload
 systemctl enable router-audit-collect.service
-# restart (not only start) so an upgrade runs the new collector
-systemctl restart router-audit-collect.service
+if /usr/libexec/router-audit-enabled; then
+	# Run the new collector on upgrades only when explicitly enabled.
+	systemctl restart router-audit-collect.service
+else
+	# Also stop a collector started by a previous, always-on package.
+	systemctl stop router-audit-collect.service
+fi
 exit 0
 endef
 

@@ -3,6 +3,7 @@ Description=Router audit minute collection
 After=openwrt-services.service
 
 [Service]
+ExecCondition=/usr/libexec/router-audit-enabled
 ExecStart=/usr/libexec/router-audit --collect
 Restart=on-failure
 RestartSec=15

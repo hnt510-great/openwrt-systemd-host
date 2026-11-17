@@ -1,0 +1,31 @@
+#!/bin/sh /etc/rc.common
+
+USE_PROCD=1
+START=99
+STOP=10
+
+start_service() {
+	if /usr/libexec/router-audit-enabled; then
+		# The native unit starts After=openwrt-services.service; do not
+		# wait for it while this rc script is running inside that service.
+		systemctl --no-block start router-audit-collect.service
+	else
+		systemctl stop router-audit-collect.service
+	fi
+}
+
+stop_service() {
+	systemctl stop router-audit-collect.service
+}
+
+reload_service() {
+	if /usr/libexec/router-audit-enabled; then
+		systemctl restart router-audit-collect.service
+	else
+		stop_service
+	fi
+}
+
+service_triggers() {
+	procd_add_reload_trigger router-audit
+}

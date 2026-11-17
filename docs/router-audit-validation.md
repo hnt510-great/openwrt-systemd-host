@@ -1,5 +1,70 @@
 # Router audit validation — 2026-11-06
 
+## Default-off collection switch — 2026-11-17
+
+Source changes retain `CONFIG_PACKAGE_router-audit=y` and add the preserved UCI
+option `router-audit.main.enabled`, default `0`. A shared fail-closed helper gates
+the systemd collector and dnsmasq/daed event producers. The init script applies
+start/stop/reload and registers a configuration reload trigger; upgrades stop a
+previous always-on collector unless the option is explicitly `1`.
+
+| Check | Result |
+| --- | --- |
+| `python3 scripts/tests/test-router-audit-config.py` | 4 tests passed: gate values/missing configuration, start/reload/stop, upgrade behavior, and producer environment changes; shell/systemctl/UCI mocks, no host services changed |
+| `python3 scripts/tests/test-router-audit.py` | 29 tests passed; the existing HTTP timeout fixture logged a server-side BrokenPipeError while its client timeout test passed |
+| `python3 scripts/tests/test-router-audit-connections.py` | 8 tests passed |
+| `sh -n` on the audit helper/init and daed/dnsmasq init scripts | Passed |
+| Package builds | router-audit 1.0.0-r6, daed 2.1.1-r10 and dnsmasq-full 2.93-r15 passed |
+| `git diff --check` | Passed |
+
+Package build evidence is `/tmp/router-audit-opt-in-build.log` on the build host.
+The final audit init refinement is rebuilt separately with `NO_DEPS=1` after the
+dependency-inclusive build, logged in `/tmp/router-audit-opt-in-final-build.log`.
+Boot uses an asynchronous native start because the collector is ordered after
+the OpenWrt services runner; synchronously waiting inside that runner would
+block startup. Staged helper, config, init and unit files are checked against
+source, including executable modes and the config preservation manifest.
+daed r9 is reserved by the existing ELF migration ledger, so the changed recipe
+uses r10. No feed publication, physical-router configuration change, installation
+or restart was performed. No VM/image boot was run: this record covers local
+source and package validation; actual systemd/procd reload, DNS/proxy behavior
+and boot acceptance on a running target remain unverified. Historical physical
+results below apply to their recorded always-on versions.
+
+## Default-off publication and physical installation — 2026-11-17
+
+At the user's request, the coordinated dry run and publication passed, including
+signed immutable identities, retained APK/ELF checks and router upgrade preflight.
+Published snapshot: `/srv/openwrt-feeds/public/snapshots/20261117T090904.634384Z`.
+Only five packages changed: router-audit 1.0.0-r6, dnsmasq-full 2.93-r15, and
+daed/daed-geoip/daed-geosite 2.1.1-r10. No same-version rebuilds; the kernel
+channel and running `7.3.4-66-openwrt` were unchanged.
+
+Used SSH to `router-admin@192.0.2.1` with existing `sudo -n` access. All five
+downloaded APK SHA-256 values matched the published snapshot. An exact offline
+file simulation and a repository-name simulation selected only those five
+upgrades. Installation used bare package names, adding no exact-version or
+checksum constraints. A protected UCI history transaction covered installation
+and was confirmed after network/service checks (revision 70, only the new
+`router-audit` configuration changed). Existing daed and DHCP config hashes
+were unchanged; package `.apk-new` defaults were left unapplied. APK rewrote
+world during the named-package transaction; no byte-for-byte world preservation
+is claimed.
+
+Physical checks passed: installed gates/config/unit/init scripts match source;
+`enabled=0`; audit reload leaves the collector inactive; even an explicit native
+start is skipped by ExecCondition (exit 1, MainPID 0). daed and dnsmasq are
+running with NRestarts 0 and no `ROUTER_AUDIT_*` environment. A build-host query
+to router DNS resolved `example.com`; router-originated HTTPS returned 204 from
+`www.gstatic.com/generate_204`. These checks do not establish every LAN client's
+proxy routing. Historical audit spool was retained.
+
+Evidence: `/srv/openwrt-validation/router-audit-opt-in-validation-20261117/`.
+No VM was run for this narrow gate around existing collection; the disabled
+state and native start guard were checked on the physical target. Enabled-mode
+startup and reboot acceptance remain untested. No router reboot or Git push
+was performed.
+
 ## Delivered state
 
 Build host: Debian checkout `/srv/openwrt`. Physical target: N5105 OpenWrt Systemd Host, kernel `7.3.1-51-openwrt`, systemd 262.
