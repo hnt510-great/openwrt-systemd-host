@@ -1293,3 +1293,60 @@ repository HEAD remains an ancestor. Integration repairs and this report are
 left uncommitted for review. No full firmware build or runtime test was run:
 this request covers source synchronization and patch applicability. No feed
 publication, Git push, router installation, service restart or reboot occurred.
+
+## Upstream synchronization review, 2026-11-17
+
+OpenWrt through `393efd7d74ce` adds two generic SDIO initialization fixes
+(`445-01` and `445-02`, upstream v7.5). Both are absent from Linux 7.3.4
+and apply to the full local stack with zero fuzz and no offsets. MMC/SDHCI
+is enabled in the x86 kernel, so these are recommended backport candidates
+for SDIO correctness. No affected physical card was verified, and the
+7.3 patch stack was not changed by this applicability check. There are no
+incoming x86-specific patches. All 354 current 7.3 patches apply cleanly;
+the registry remains intentionally behind the two SDIO and three earlier
+WED source additions. See [the synchronization report](upstream-sync-20261117.md)
+for exact inventory, integration repairs, tests and limitations.
+
+### SDIO backports completed, 2026-11-17
+
+The requested follow-up now carries both `445-01` and `445-02` in
+`target/linux/generic/backport-7.3/`, byte-identical to their upstream
+6.18 copies, including commit provenance. No patch regeneration was needed.
+The registry records both source/ported SHA-256 values. Its three earlier
+WED additions and offset-only source-hash change remain outstanding outside
+this x86 scope; the SDIO entries are current.
+
+All 356 carried patches apply with zero fuzz to a fresh extraction of the
+SHA256-verified Linux 7.3.4 archive plus current generic/x86 overlays. The
+resulting patched `drivers/mmc/core/sdio.c` compiles successfully using the
+existing selected x86 kernel's recorded compiler command and generated headers,
+with its output/dependency file redirected to the isolated evidence directory.
+The normal prepared kernel tree, full kernel image and generation number were
+not rebuilt or changed. This proves patch application and compilation, not
+SDIO/UHS/1.8 V behavior on physical hardware.
+
+Evidence: `.git/sdio-bridge-20261117T023432Z/kernel-result.json` and
+`sdio-compile.log`. No publication, installation, restart or reboot occurred.
+
+Mainline updater tests pass all 20 cases. Checkpatch reports zero errors for
+both carried patches and one inherited warning on the long quoted kernel-log
+line in patch 445-02's upstream commit description; upstream patch bytes are
+preserved.
+
+### Subsequent full build and publication, 2026-11-17
+
+The authorized full `-j16` build and coordinated publication completed as
+`7.3.4-66-openwrt`. The fresh staged rootfs passes all 27 bridge tests, and
+publication preflight passes. No VM or physical installation/reboot occurred.
+See [the publication record](build-publication-20261117.md) for snapshot IDs,
+artifact hashes, preservation checks and runtime limits.
+
+### Subsequent physical boot confirmation, 2026-11-17
+
+After the user completed installation and reboot, a read-only SSH check found
+`7.3.4-66-openwrt` running and selected as both default and known-good.
+The trial counter is cleared, fallback remains `7.3.4-65-openwrt`,
+`kernelctl check` returns 0 and systemd reports no failed units.
+The agent did not initiate this installation or reboot. This confirms the
+physical boot and built-in health checks, not SDIO voltage/UHS behavior,
+Wi-Fi schedule execution or desktop/client acceptance.

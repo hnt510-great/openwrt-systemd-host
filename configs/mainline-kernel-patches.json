@@ -119,6 +119,28 @@
       "reason": "Backport targets upstream v7.4; included by the Linux 7.3.4 stable release (the 7.3 port reverse-applies cleanly), so the 7.3 copy was dropped"
     },
     {
+      "source": "target/linux/generic/backport-6.18/445-01-v7.5-mmc-core-sdio-retry-without-UHS-if-UHS-init-fails.patch",
+      "files": [
+        "drivers/mmc/core/sdio.c"
+      ],
+      "status": "refreshed",
+      "reason": "SDIO initialization fixes absent from Linux 7.3.4; applies unchanged with zero fuzz and offsets; MMC core is enabled on x86/64",
+      "source_sha256": "223fa8c13b05bd6e418df05a3ca8ab107a4d8a01e36209e6425554746a0a74fb",
+      "ported": "target/linux/generic/backport-7.3/445-01-v7.5-mmc-core-sdio-retry-without-UHS-if-UHS-init-fails.patch",
+      "ported_sha256": "223fa8c13b05bd6e418df05a3ca8ab107a4d8a01e36209e6425554746a0a74fb"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/445-02-v7.5-mmc-core-sdio-skip-CMD11-if-signalling-is-already-1.8V.patch",
+      "files": [
+        "drivers/mmc/core/sdio.c"
+      ],
+      "status": "refreshed",
+      "reason": "SDIO initialization fixes absent from Linux 7.3.4; applies unchanged with zero fuzz and offsets; MMC core is enabled on x86/64",
+      "source_sha256": "bc95fa81c1e1990fa5c9e11149f610457a6190dab43548e4df0662da9a1ef372",
+      "ported": "target/linux/generic/backport-7.3/445-02-v7.5-mmc-core-sdio-skip-CMD11-if-signalling-is-already-1.8V.patch",
+      "ported_sha256": "bc95fa81c1e1990fa5c9e11149f610457a6190dab43548e4df0662da9a1ef372"
+    },
+    {
       "source": "target/linux/generic/backport-6.18/500-v6.19-ksmbd-server-avoid-busy-polling-in-accept-loop.patch",
       "files": [
         "fs/smb/server/transport_tcp.c"
