@@ -16,6 +16,7 @@ sunshine-permissions task
 sysctl task
 sysfsutils task
 wgserver task
+wifi_schedule task
 sysstat procd-task
 urandom_seed procd-task
 zram zram

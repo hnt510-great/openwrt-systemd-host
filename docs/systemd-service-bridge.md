@@ -21,7 +21,10 @@ below. This version generates no units that need removal.
 The existing openwrt-services.service still executes enabled rc scripts in
 their original order. The bridge discovers executable init scripts on demand,
 without sourcing or running them for discovery. It excludes dbus and sshd
-(use native dbus.service and sshd.service) and recovery-only umount. It generates no proxy
+(use native dbus.service and sshd.service), apk-resume (use native
+apk-resume.service), and recovery-only umount. The apk-resume init script
+is a compatibility path for procd/recovery boots; its start action does
+nothing under native systemd. It generates no proxy
 service units and starts no per-service observer processes.
 
 ## Commands
@@ -96,6 +99,9 @@ Status comes from current procd instance data or an explicit adapter:
 
 Setup completion records do not assert that configuration remains healthy
 forever. The explicit task list covers the setup scripts in the current image.
+This includes wifi_schedule: startup applies the configured Wi-Fi time window
+and exits. Its setup receipt reports action completion, not radio health,
+client connectivity or future schedule execution.
 For procd-managed setup tasks such as sysstat and urandom_seed, completion
 requires successful instance exit, rather than just successful registration.
 Firewall status checks the live inet fw4 nftables table. Zram checks active
@@ -151,6 +157,10 @@ x86_64/glibc toolchain and target libraries. It builds a separate test binary
 with explicit temporary-root and snapshot fixtures; production builds contain
 neither override. It tests the actual binary, Unix transport, init actions,
 state parsing, enablement, concurrency, and absence of proxy/generator actions.
+The staged-image coverage check scans `build_dir/target-x86_64_glibc/root-x86-systemd/etc/init.d`
+and requires every script to declare procd ownership, have an explicit health
+adapter, or be a documented native/recovery-only exclusion. It checks source
+classification against the staged root, not service execution or router health.
 
 The guest smoke test requires an explicit disposable-VM flag. Package and
 host-test success do not establish complete-image or physical-router success.

@@ -298,6 +298,36 @@ with open(root / 'fixture.lock', 'a') as lock:
             self.assertIn('sshd.service', result.stderr + result.stdout)
         self.assertEqual(self.actions(), [])
 
+    def test_apk_resume_uses_native_unit_without_running_compatibility_script(self):
+        self.make_script('apk-resume', procd=False)
+        for action in ('start', 'stop', 'restart', 'reload', 'enable', 'disable',
+                       'status', 'is-active', 'is-enabled'):
+            result = self.call(action, 'openwrt@apk-resume')
+            self.assertEqual(result.returncode, 4)
+            self.assertIn('use native apk-resume.service', result.stderr)
+            reply = self.request(action=action, name='apk-resume')
+            self.assertEqual(reply['code'], 4)
+            self.assertIn('use native apk-resume.service', reply['error'])
+        self.assertEqual(self.call('hint', 'apk-resume').stdout, '')
+        self.assertEqual(self.actions(), [])
+        self.assertFalse((self.root / 'native-actions').exists())
+
+    def test_wifi_schedule_reports_setup_completion_and_failure(self):
+        self.make_script('wifi_schedule', procd=False)
+        before = self.call('status', 'openwrt@wifi_schedule')
+        self.assertEqual(before.returncode, 4)
+        self.assertIn('no completion observed', before.stdout)
+        self.assertEqual(self.call('start', 'openwrt@wifi_schedule').returncode, 0)
+        self.set_snapshot({})
+        completed = self.call('status', 'openwrt@wifi_schedule')
+        self.assertEqual(completed.returncode, 0)
+        self.assertIn('setup action completed; no daemon expected', completed.stdout)
+        (self.root / 'fail-wifi_schedule').touch()
+        self.assertEqual(self.call('restart', 'openwrt@wifi_schedule').returncode, 9)
+        failed = self.call('status', 'openwrt@wifi_schedule')
+        self.assertEqual(failed.returncode, 3)
+        self.assertIn('setup action failed', failed.stdout)
+
     def test_concurrent_actions_are_serialized(self):
         (self.root / 'slow').touch()
         a = subprocess.Popen(self.command('systemctl', 'restart', 'openwrt@sample'))
@@ -320,7 +350,7 @@ with open(root / 'fixture.lock', 'a') as lock:
         kinds = dict(line.split() for line in (SOURCE / 'files/service-kinds').read_text().splitlines()
                      if line.strip() and not line.startswith('#'))
         missing = [p.name for p in (root / 'etc/init.d').iterdir()
-                   if p.is_file() and p.name not in ('dbus', 'sshd', 'umount')
+                   if p.is_file() and p.name not in ('dbus', 'sshd', 'umount', 'apk-resume')
                    and 'USE_PROCD=' not in p.read_text()
                    and p.name not in kinds]
         self.assertEqual(missing, [])
