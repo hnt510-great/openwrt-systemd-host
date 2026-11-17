@@ -101,6 +101,8 @@ static bool valid_name(const char *s)
 
 static const char *exclusion_reason(const char *name)
 {
+	if (!strcmp(name, "samba4"))
+		return "use native samba4.service; the init script delegates to systemd";
 	if (!strcmp(name, "apk-resume"))
 		return "use native apk-resume.service; "
 			"the init script is for procd/recovery boots";

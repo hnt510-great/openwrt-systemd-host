@@ -20,8 +20,8 @@ below. This version generates no units that need removal.
 
 The existing openwrt-services.service still executes enabled rc scripts in
 their original order. The bridge discovers executable init scripts on demand,
-without sourcing or running them for discovery. It excludes dbus and sshd
-(use native dbus.service and sshd.service), apk-resume (use native
+without sourcing or running them for discovery. It excludes dbus, sshd and samba4
+(use native dbus.service, sshd.service and samba4.service), apk-resume (use native
 apk-resume.service), and recovery-only umount. The apk-resume init script
 is a compatibility path for procd/recovery boots; its start action does
 nothing under native systemd. It generates no proxy
