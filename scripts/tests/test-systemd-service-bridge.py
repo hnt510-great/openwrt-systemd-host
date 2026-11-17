@@ -297,6 +297,15 @@ with open(root / 'fixture.lock', 'a') as lock:
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('samba4.service', result.stderr + result.stdout)
 
+    def test_native_nas_services_are_excluded_from_bridge(self):
+        for name, unit in (('wsdd2', 'wsdd2.service'), ('avahi-daemon', 'avahi-daemon.service')):
+            self.make_script(name)
+            for action in ('start', 'stop', 'restart', 'reload', 'enable', 'disable', 'status'):
+                result = self.call(action, f'openwrt@{name}')
+                self.assertEqual(result.returncode, 4)
+                self.assertIn(unit, result.stderr + result.stdout)
+        self.assertEqual(self.actions(), [])
+
     def test_native_ssh_is_excluded_from_bridge(self):
         self.make_script('sshd')
         for action in ('start', 'stop', 'restart', 'reload', 'enable', 'disable', 'status'):
@@ -357,7 +366,7 @@ with open(root / 'fixture.lock', 'a') as lock:
         kinds = dict(line.split() for line in (SOURCE / 'files/service-kinds').read_text().splitlines()
                      if line.strip() and not line.startswith('#'))
         missing = [p.name for p in (root / 'etc/init.d').iterdir()
-                   if p.is_file() and p.name not in ('dbus', 'sshd', 'samba4', 'umount', 'apk-resume')
+                   if p.is_file() and p.name not in ('dbus', 'sshd', 'samba4', 'wsdd2', 'avahi-daemon', 'umount', 'apk-resume')
                    and 'USE_PROCD=' not in p.read_text()
                    and p.name not in kinds]
         self.assertEqual(missing, [])

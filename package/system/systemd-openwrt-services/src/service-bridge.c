@@ -103,6 +103,10 @@ static const char *exclusion_reason(const char *name)
 {
 	if (!strcmp(name, "samba4"))
 		return "use native samba4.service; the init script delegates to systemd";
+	if (!strcmp(name, "wsdd2"))
+		return "use native wsdd2.service; the init script delegates to systemd";
+	if (!strcmp(name, "avahi-daemon"))
+		return "use native avahi-daemon.service; the init script delegates to systemd";
 	if (!strcmp(name, "apk-resume"))
 		return "use native apk-resume.service; "
 			"the init script is for procd/recovery boots";
