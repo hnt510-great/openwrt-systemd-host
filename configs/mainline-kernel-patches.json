@@ -95,10 +95,9 @@
       "files": [
         "drivers/mtd/spi-nor/macronix.c"
       ],
-      "status": "rebased",
+      "status": "upstream",
       "source_sha256": "0e89758d19027f18a869be802bf6e49dd5ab80b1164a3ced5be3d8923a26c47f",
-      "ported": "target/linux/generic/backport-7.3/439-v7.4-mtd-spi-nor-macronix-Restore-fallback-parameters-for.patch",
-      "ported_sha256": "cc2dee38db8c9475b5e789573d93cbfd71cbd936df85751b1ed0fd00afe4fb1b"
+      "reason": "Backport targets upstream v7.4, absorbed by v7.3.5 stable (commit 01739ccea21b)"
     },
     {
       "source": "target/linux/generic/backport-6.18/440-v7.0-mtd-physmap-core-Prioritize-ofparts-for-OF-probe.patch",
