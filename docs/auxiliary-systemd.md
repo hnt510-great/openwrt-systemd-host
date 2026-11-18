@@ -64,10 +64,14 @@ systemd units in the top-level `auxiliary.slice` (`CPUWeight=100`, sibling of
 - `openwrt@cron.service`, `openwrt@nlbwmon.service`, and `openwrt@ddns-go.service`
   are excluded in `systemd-openwrt-services` and direct callers to the native
   units.
-- Package upgrades (`PKG_UPGRADE=1`) run `systemctl daemon-reload` and
-  `systemctl try-restart`, never starting a second daemon alongside an active
-  `procd` instance. Fresh offline images enable the native units and path
-  watchers.
+- Package upgrades (`PKG_UPGRADE=1`) run `systemctl daemon-reload`, preserve any
+  existing systemd enablement once `/etc/systemd/openwrt-migrated/<service>` is
+  recorded, and on first-time migration from `procd` (when the stamp is absent
+  and `/etc/rc.d/S[0-9][0-9]<service>` is enabled) run `systemctl enable`
+  for the native unit and path watcher so the service starts automatically on
+  reboot, then run `systemctl try-restart` (never starting a second daemon
+  alongside an active `procd` instance). Fresh offline images enable the native
+  units and path watchers and pre-create the migration stamp.
 
 ## Tests
 

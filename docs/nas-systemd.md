@@ -38,7 +38,11 @@ See [Samba file sharing](samba4.md) for the `samba4` unit model.
 - `openwrt@wsdd2.service` and `openwrt@avahi-daemon.service` are excluded in
   `systemd-openwrt-services` and direct callers to the native units.
 - Package upgrades (`PKG_UPGRADE=1`) never start a second daemon alongside an
-  active `procd` listener; fresh offline images enable the native units.
+  active `procd` listener; on first-time migration without
+  `/etc/systemd/openwrt-migrated/<service>`, they enable the systemd unit when
+  `/etc/rc.d/S[0-9][0-9]<service>` is present, then record the stamp so
+  subsequent upgrades preserve manual `systemctl disable` choices. Fresh offline
+  images enable the native units and pre-create the migration stamp.
 
 ## Tests
 

@@ -188,6 +188,19 @@ fi
 
         self.native_wsdd2()
         self.native_avahi()
+        (self.root / 'etc/rc.d').mkdir(parents=True, exist_ok=True)
+        (self.root / 'etc/rc.d/S99wsdd2').symlink_to('../init.d/wsdd2')
+        (self.root / 'etc/rc.d/S61avahi-daemon').symlink_to('../init.d/avahi-daemon')
+        self.assertEqual(self.run_script(WSDD2_FILES, 'wsdd2-package', 'postinst', PKG_UPGRADE='1').returncode, 0)
+        self.assertEqual(self.run_script(AVAHI_FILES, 'avahi-daemon-package', 'postinst', PKG_UPGRADE='1').returncode, 0)
+        self.assertEqual(self.actions(), [
+            'daemon-reload', 'enable wsdd2.service wsdd2-config.path', 'try-restart wsdd2.service',
+            'daemon-reload', 'enable avahi-daemon.service', 'try-restart avahi-daemon.service',
+        ])
+        self.assertTrue((self.root / 'etc/systemd/openwrt-migrated/wsdd2').is_file())
+        self.assertTrue((self.root / 'etc/systemd/openwrt-migrated/avahi-daemon').is_file())
+
+        (self.root / 'commands').unlink()
         self.assertEqual(self.run_script(WSDD2_FILES, 'wsdd2-package', 'postinst', PKG_UPGRADE='1').returncode, 0)
         self.assertEqual(self.run_script(AVAHI_FILES, 'avahi-daemon-package', 'postinst', PKG_UPGRADE='1').returncode, 0)
         self.assertEqual(self.actions(), [

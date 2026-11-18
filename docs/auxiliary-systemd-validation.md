@@ -74,3 +74,14 @@ Evidence directory: `/srv/openwrt-validation/auxiliary-systemd-validation-202611
 (`native-boot1.json`, `native-delayed-rc.json`, `upstream-health.json`,
 `aux-guest-results.json`, `nas-guest-results.json`, `procd-recovery.json`,
 `systemd-analyze-verify.txt`, `serial.log`).
+
+## Online procd-to-systemd upgrade migration follow-up — 2026-11-18
+
+Fixed a `PKG_UPGRADE=1` gap where first-time online APK upgrades from `procd`-supervised packages left native units `disabled` after reboot because `post-upgrade` skipped `systemctl enable`. Added `/etc/systemd/openwrt-migrated/<service>` tracking (`cron`, `nlbwmon`, `ddns-go`, `samba4`, `wsdd2`, `avahi-daemon`) so first migration checks `/etc/rc.d/S[0-9][0-9]<service>` and enables the systemd units without starting duplicate processes before reboot, while subsequent upgrades preserve manual `systemctl disable`.
+
+- Host checks after fix: `test-auxiliary-systemd.py` (6/6), `test-nas-systemd.py` (8/8), `test-samba4-systemd.py` (14/14), `test-systemd-service-bridge.py` (29/29) all PASS.
+- Disposable KVM/UEFI VM online-upgrade + reboot validation (upgrading `busybox-1.38.0-r14`, `nlbwmon-2025.06.02~29236be6-r7`, `ddns-go-6.17.1-r5`, `samba4-*-4.24.5-r10`, `wsdd2-2023.12.21~b676d8ac-r6`, `avahi-*-0.9_rc5-r5` from a simulated pre-migration state with `/etc/rc.d/S*` present, no `wants/` symlinks, and no migration stamps):
+  - Pre-reboot: all 11 units enabled, all 6 migration stamps written, 0 native services prematurely started alongside `procd`.
+  - Post-reboot: `systemctl is-system-running` = `running`, 0 failed units, all 11 units `enabled`, all 6 services (`cron`, `nlbwmon`, `ddns-go`, `samba4`, `wsdd2`, `avahi-daemon`) `active`.
+  - Subsequent `PKG_UPGRADE=1` after `systemctl disable nlbwmon.service nlbwmon-config.path`: `nlbwmon.service` remained `disabled`.
+  - Evidence directory: `/srv/openwrt-validation/auxiliary-systemd-validation-20261118/vm-upgrade-test/` (`vm/serial.log`).

@@ -3,16 +3,34 @@
 set -eu
 
 root=${IPKG_INSTROOT:-}
+stamp=/etc/systemd/openwrt-migrated/cron
+
+rc_enabled() {
+	for link in "$1/etc/rc.d/S"[0-9][0-9]cron; do
+		if [ -L "$link" ] || [ -x "$link" ]; then
+			return 0
+		fi
+	done
+	return 1
+}
+
 case "${1:-}" in
 postinst)
 	if [ -n "$root" ]; then
-		[ "${PKG_UPGRADE:-0}" != 1 ] || exit 0
-		[ "$(readlink "$root/etc/systemd/system/cron.service" 2>/dev/null || :)" != /dev/null ] || exit 0
-		wants=$root/etc/systemd/system/multi-user.target.wants
-		mkdir -p "$wants"
-		if [ ! -e "$wants/cron.service" ] && [ ! -L "$wants/cron.service" ]; then
-			ln -s /usr/lib/systemd/system/cron.service "$wants/cron.service"
-			ln -s /usr/lib/systemd/system/cron-config.path "$wants/cron-config.path"
+		if [ "${PKG_UPGRADE:-0}" != 1 ] ||
+		   { [ ! -e "$root$stamp" ] && rc_enabled "$root"; }; then
+			if [ "$(readlink "$root/etc/systemd/system/cron.service" 2>/dev/null || :)" != /dev/null ]; then
+				wants=$root/etc/systemd/system/multi-user.target.wants
+				mkdir -p "$wants"
+				if [ ! -e "$wants/cron.service" ] && [ ! -L "$wants/cron.service" ]; then
+					ln -s /usr/lib/systemd/system/cron.service "$wants/cron.service"
+				fi
+				if [ ! -e "$wants/cron-config.path" ] && [ ! -L "$wants/cron-config.path" ]; then
+					ln -s /usr/lib/systemd/system/cron-config.path "$wants/cron-config.path"
+				fi
+			fi
+			mkdir -p "$root/etc/systemd/openwrt-migrated"
+			: >"$root$stamp"
 		fi
 		exit 0
 	fi
@@ -21,10 +39,12 @@ postinst)
 	for mask in /etc/systemd/system/cron.service /run/systemd/system/cron.service; do
 		[ "$(readlink "$mask" 2>/dev/null || :)" != /dev/null ] || exit 0
 	done
-	if [ "${PKG_UPGRADE:-0}" != 1 ] &&
-	   [ "$(readlink /etc/systemd/system/cron.service 2>/dev/null || :)" != /dev/null ]; then
+	if [ "${PKG_UPGRADE:-0}" != 1 ] ||
+	   { [ ! -e "$stamp" ] && rc_enabled ""; }; then
 		systemctl enable cron.service cron-config.path
 	fi
+	mkdir -p /etc/systemd/openwrt-migrated
+	: >"$stamp"
 	systemctl try-restart cron.service
 	;;
 prerm)
@@ -32,6 +52,7 @@ prerm)
 	[ "${PKG_UPGRADE:-0}" != 1 ] || exit 0
 	systemctl stop cron-config.path cron-reconfigure.service cron.service
 	systemctl disable cron.service cron-config.path
+	rm -f "$stamp"
 	;;
 *)
 	exit 2

@@ -158,6 +158,15 @@ if [ "$1" = is-active ]; then test "${ACTIVE:-1}" = 1; fi
 
     def test_online_upgrade_does_not_start_inactive_native_units(self):
         self.native()
+        (self.root / 'etc/rc.d').mkdir(parents=True, exist_ok=True)
+        (self.root / 'etc/rc.d/S98samba4').symlink_to('../init.d/samba4')
+        self.assertEqual(self.run_script('samba4-package', 'postinst', PKG_UPGRADE='1').returncode, 0)
+        self.assertEqual(self.actions(), [
+            'daemon-reload', 'enable samba4.service samba4-config.path', 'try-restart samba4.service',
+        ])
+        self.assertTrue((self.root / 'etc/systemd/openwrt-migrated/samba4').is_file())
+
+        (self.root / 'commands').unlink()
         self.assertEqual(self.run_script('samba4-package', 'postinst', PKG_UPGRADE='1').returncode, 0)
         self.assertEqual(self.actions(), ['daemon-reload', 'try-restart samba4.service'])
 
