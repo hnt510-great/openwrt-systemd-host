@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=systemd-openwrt-services
-PKG_RELEASE:=9
+PKG_RELEASE:=10
 PKG_LICENSE:=GPL-2.0-only
 PKG_BUILD_DEPENDS:=libubus libubox systemd json-c
 

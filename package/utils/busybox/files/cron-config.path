@@ -1,0 +1,10 @@
+[Unit]
+Description=Watch Cron configuration inputs
+
+[Path]
+PathChanged=/etc/crontabs
+PathChanged=/etc/config/system
+Unit=cron-reconfigure.service
+
+[Install]
+WantedBy=multi-user.target

@@ -21,9 +21,10 @@ below. This version generates no units that need removal.
 The existing openwrt-services.service still executes enabled rc scripts in
 their original order. The bridge discovers executable init scripts on demand,
 without sourcing or running them for discovery. It excludes `dbus`, `sshd`, `samba4`,
-`wsdd2` and `avahi-daemon` (use native `dbus.service`, `sshd.service`,
-`samba4.service`, `wsdd2.service` and `avahi-daemon.service`), `apk-resume` (use
-native `apk-resume.service`), and recovery-only `umount`. The `apk-resume` init script
+`wsdd2`, `avahi-daemon`, `cron`, `nlbwmon` and `ddns-go` (use native
+`dbus.service`, `sshd.service`, `samba4.service`, `wsdd2.service`,
+`avahi-daemon.service`, `cron.service`, `nlbwmon.service` and `ddns-go.service`),
+`apk-resume` (use native `apk-resume.service`), and recovery-only `umount`. The `apk-resume` init script
 is a compatibility path for procd/recovery boots; its start action does
 nothing under native systemd. It generates no proxy
 service units and starts no per-service observer processes.
@@ -37,9 +38,9 @@ Use the reserved openwrt@NAME.service namespace:
     sudo systemctl restart openwrt@passwall.service
     systemctl status openwrt@dnsmasq.service
     systemctl is-active openwrt@dnsmasq.service
-    sudo systemctl enable --now openwrt@cron.service
-    sudo systemctl disable openwrt@cron.service
-    systemctl is-enabled openwrt@cron.service
+    sudo systemctl enable --now openwrt@irqbalance.service
+    sudo systemctl disable openwrt@irqbalance.service
+    systemctl is-enabled openwrt@irqbalance.service
     systemctl list-units --all 'openwrt*.scope' 'openwrt*.slice'
 
 Changes require root/sudo; status queries do not. The .service suffix is

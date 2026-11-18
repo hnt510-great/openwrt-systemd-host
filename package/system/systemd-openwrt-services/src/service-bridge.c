@@ -107,6 +107,12 @@ static const char *exclusion_reason(const char *name)
 		return "use native wsdd2.service; the init script delegates to systemd";
 	if (!strcmp(name, "avahi-daemon"))
 		return "use native avahi-daemon.service; the init script delegates to systemd";
+	if (!strcmp(name, "cron"))
+		return "use native cron.service; the init script delegates to systemd";
+	if (!strcmp(name, "nlbwmon"))
+		return "use native nlbwmon.service; the init script delegates to systemd";
+	if (!strcmp(name, "ddns-go"))
+		return "use native ddns-go.service; the init script delegates to systemd";
 	if (!strcmp(name, "apk-resume"))
 		return "use native apk-resume.service; "
 			"the init script is for procd/recovery boots";

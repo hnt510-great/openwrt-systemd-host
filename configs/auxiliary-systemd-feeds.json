@@ -1,0 +1,12 @@
+{
+  "packages": {
+    "base": "75f99c3e2d3f32ce8664952f2add9bca1b9c0b70",
+    "patch": "patches/feeds/0042-packages-nlbwmon-native-systemd.patch",
+    "commit": "2e1f5cb296d372abe049274960c70586bfec2298"
+  },
+  "taskplan": {
+    "base": "7092e6de6ad9fe3f7d327f70468dfd19e00d6f0e",
+    "patch": "patches/feeds/0043-taskplan-ddns-go-native-systemd.patch",
+    "commit": "9e6fffd2390987d18e3eb18d327ff73e54060b01"
+  }
+}
