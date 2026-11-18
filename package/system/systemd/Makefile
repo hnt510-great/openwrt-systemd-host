@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=systemd
 PKG_VERSION:=262
-PKG_RELEASE:=14
+PKG_RELEASE:=15
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/systemd/systemd/tar.gz/refs/tags/v$(PKG_VERSION)?
 PKG_HASH:=6aa77506c0644aa67f940a48e3d3a7368601f787e4f249139516d353f107bcab
@@ -10,28 +10,31 @@ PKG_LICENSE:=LGPL-2.1-or-later
 PKG_LICENSE_FILES:=LICENSES/LGPL-2.1-or-later.txt
 PKG_INSTALL:=1
 PKG_BUILD_PARALLEL:=1
-PKG_BUILD_DEPENDS:=python-jinja2/host
+PKG_BUILD_DEPENDS:=python-jinja2/host HAS_BPF_TOOLCHAIN:bpftool/host
 PKG_CONFIG_DEPENDS:=CONFIG_PACKAGE_libudev-systemd CONFIG_PACKAGE_systemd-udev CONFIG_PACKAGE_systemd-machined CONFIG_PACKAGE_systemd-nspawn \
-	CONFIG_PACKAGE_systemd-coredump CONFIG_PACKAGE_systemd-oomd CONFIG_PACKAGE_systemd-hostnamed
+	CONFIG_PACKAGE_systemd-coredump CONFIG_PACKAGE_systemd-oomd CONFIG_PACKAGE_systemd-hostnamed \
+	CONFIG_HAS_BPF_TOOLCHAIN CONFIG_USE_LLVM_HOST CONFIG_USE_LLVM_BUILD CONFIG_USE_LLVM_PREBUILT CONFIG_BPF_TOOLCHAIN_HOST_PATH
 
 MESON_USE_STAGING_PYTHON:=1
 include $(INCLUDE_DIR)/package.mk
 include $(INCLUDE_DIR)/meson.mk
+include $(INCLUDE_DIR)/bpf.mk
 
-MESON_VARS += PATH="$(STAGING_DIR_HOSTPKG)/bin:$(TARGET_PATH)"
+MESON_VARS += PATH="$(if $(CONFIG_HAS_BPF_TOOLCHAIN),$(dir $(CLANG)):$(STAGING_DIR_HOST)/usr/sbin:)$(STAGING_DIR_HOSTPKG)/bin:$(TARGET_PATH)"
 
 define Package/libsystemd
   SECTION:=libs
   CATEGORY:=Libraries
   TITLE:=systemd public API library
-  DEPENDS:=+libopenssl +libseccomp +libmount +libblkid
+  DEPENDS:=+libopenssl +libseccomp +libmount +libblkid +libzstd +liblz4
 endef
 
 define Package/systemd
   SECTION:=base
   CATEGORY:=Base system
   TITLE:=systemd system and service manager
-  DEPENDS:=@OPENWRT_SYSTEMD +libsystemd +libpam +libacl +libpcre2 +mount-utils +swap-utils +tpm2-tss
+  DEPENDS:=@OPENWRT_SYSTEMD +libsystemd +libpam +libacl +libpcre2 +mount-utils +swap-utils +tpm2-tss \
+	+libdw +HAS_BPF_TOOLCHAIN:libbpf +@HAS_BPF_TOOLCHAIN:NEED_BPF_TOOLCHAIN
   USERID:=:systemd-journal=190
 endef
 
@@ -94,11 +97,14 @@ define Package/systemd-oomd
   TITLE:=systemd memory pressure monitor and oomctl
 endef
 
+# Cross builds must not derive vmlinux.h from the build host's running kernel.
+# The interface and socket filters do not require that header.
 MESON_ARGS += \
 	--prefix=/usr --libdir=lib --libexecdir=lib/systemd \
 	-Dmode=release -Dsplit-bin=true -Dlibc=glibc -Dvcs-tag=false \
 	-Dauto_features=disabled -Dlibmount=enabled -Dblkid=enabled \
 	-Dseccomp=enabled -Dopenssl=enabled -Dnss-systemd=true \
+	-Dzstd=enabled -Dlz4=enabled -Ddefault-compression=zstd -Delfutils=enabled -Dkmod=disabled \
 	-Dsysusers=true -Dtmpfiles=true -Dhwdb=false \
 	-Dlogind=true -Duserdb=false -Dpam=enabled -Dpolkit=enabled -Dacl=enabled -Dlibcrypt=disabled \
 	-Dpamlibdir=/usr/lib/security -Dpamconfdir=/etc/pam.d \
@@ -115,7 +121,8 @@ MESON_ARGS += \
 	-Dfirstboot=false -Dhibernate=false -Dbacklight=false -Drfkill=false \
 	-Dvconsole=false -Dxdg-autostart=false -Dbinfmt=false -Dquotacheck=false \
 	-Dbootloader=disabled -Dukify=disabled -Defi=false -Dtpm=false -Dtpm2=enabled \
-	-Dkernel-install=false -Dbpf-framework=disabled -Danalyze=true -Dpcre2=enabled \
+	-Dkernel-install=false -Dbpf-framework=$(if $(CONFIG_HAS_BPF_TOOLCHAIN),enabled,disabled) \
+	-Dvmlinux-h=disabled -Danalyze=true -Dpcre2=enabled \
 	-Dtests=false -Dfuzz-tests=false -Dinstall-tests=false \
 	-Dman=disabled -Dhtml=disabled -Dtranslations=false \
 	-Djournal-storage-default=volatile -Dfallback-default-target=multi-user.target \
