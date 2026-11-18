@@ -26,7 +26,6 @@ write_lan_environment() {
 start_service() {
 	local enabled user secret kms_scheduling
 	. /usr/libexec/desktop-common.sh
-	[ -d /run/systemd/system ] || { logger -t openwrt-desktop 'GNOME is disabled in procd recovery'; return 0; }
 	config_load desktop
 	config_get_bool enabled main enabled 0
 	[ "$enabled" = 1 ] || return 0
@@ -80,7 +79,6 @@ reload_service() {
 
 stop_service() {
 	local session user
-	[ -d /run/systemd/system ] || return 0
 	user="$(uci -q get desktop.main.user || :)"
 	if [ -n "$user" ]; then
 		su -s /bin/sh -c /usr/libexec/desktop-user-stop "$user" 2>/dev/null || :

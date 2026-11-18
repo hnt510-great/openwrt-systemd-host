@@ -97,12 +97,13 @@ read-only.
  		printf("failed to initialize hotplug subsystems from %s\n", HOTPLUG_BASEDIR);
 --- a/plug/coldplug.c
 +++ b/plug/coldplug.c
-@@ -17,6 +17,7 @@
+@@ -17,7 +17,8 @@
  #include <sys/mount.h>
  #include <sys/sysmacros.h>
  
 +#include <fcntl.h>
  #include <stdlib.h>
+ #include <string.h>
  #include <unistd.h>
  
 @@ -44,10 +45,93 @@

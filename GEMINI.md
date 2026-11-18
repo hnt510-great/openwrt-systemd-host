@@ -10,14 +10,13 @@ This repository is a heavily customized OpenWrt fork tracking `openwrt/openwrt` 
 
 - **C Library (`glibc`)**: Uses `glibc` instead of `musl` (`CONFIG_LIBC_USE_GLIBC=y`, `CONFIG_USE_GLIBC=y`), with Debian multiarch compatibility (`/lib/x86_64-linux-gnu`, `/usr/lib/x86_64-linux-gnu`) via `glibc-distro-compat`.
 - **Package Manager (`APK`)**: Uses signed APK packages (`CONFIG_USE_APK=y`, `CONFIG_SIGNED_PACKAGES=y`) with explicit ELF SONAME (`so:<SONAME>=0`) and ucode ABI contracts instead of `opkg`.
-- **Init & Supervision (`native systemd` + `procd`)**: Runs native `systemd` as PID 1 (`CONFIG_OPENWRT_SYSTEMD=y`) with a merged `/usr` filesystem (`scripts/merge-usr.py`) and reviewed `99-systemd.rules` device boundaries (`docs/systemd-udev-boundary.md`), while retaining `procd` as the OpenWrt ubus/hotplug/rc service API and as a GRUB recovery init (`openwrt.init=procd`). `samba4`, `wsdd2`, and `avahi-daemon` run natively in `nas.slice`.
+- **Init & Supervision (`native systemd` + `procd`)**: Runs native `systemd` as PID 1 (`CONFIG_OPENWRT_SYSTEMD=y`) with a merged `/usr` filesystem (`scripts/merge-usr.py`) and reviewed `99-systemd.rules` device boundaries (`docs/systemd-udev-boundary.md`), while retaining `procd` as the OpenWrt ubus/hotplug/rc service API. `samba4`, `wsdd2`, and `avahi-daemon` run natively in `nas.slice`.
 - **Kernel (`Mainline Linux 7.3`)**: Target `x86/64` runs mainline Linux 7.3 (`CONFIG_LINUX_7_3=y`, currently 7.3.4, with `CONFIG_GRUB_BOOTOPTS="split_lock_detect=off"`); `6.18` kernel configs/patches are retained alongside it. Kernels ship as parallel, ABI-pinned distribution packages (`linux-image-<kver>-<gen>-openwrt`) managed on-device by `kernelctl` (generation 66 published on 2026-11-17; working `.config` sequence 67).
 - **Desktop Session (`GNOME 51`)**: Shared-user GNOME Wayland desktop on VT7 (`package/custom/openwrt-desktop` r34, TPM2-sealed keyring credentials) started via PAM/logind without a display manager, shared over LAN IPv4 RDP (`gnome-remote-desktop`) and Sunshine/Moonlight, with Fcitx5 (`openwrt-desktop-ime`), PipeWire (`openwrt-desktop-audio`), and `google-chrome-bin`.
 - **Core Build-System Surgery**: Directly modifies upstream build and core files (`include/kernel.mk`, `include/package-pack.mk`, `include/package.mk`, `include/rootfs.mk`, `package/base-files`, `package/system/{apk,procd,systemd}`, `package/network/{services/dnsmasq,utils/nftables,config/firewall4}`, `package/libs/libnftnl`, `target/linux/x86/image`).
 
 Build outputs:
 - **Native systemd firmware & APK feeds**: `bin/systemd/` (e.g., `bin/systemd/targets/x86/64-glibc/`).
-- **Stock images**: `bin/targets/`.
 
 ---
 
@@ -67,17 +66,17 @@ python3 scripts/update-mainline-kernel.py --check|--update # Compare Linux 7.3 s
 ## 3. Architecture & Subsystems
 
 ### 3.1 Dual-Init & Native Systemd Supervision
-- **Boot path**: `/sbin/init` mounts early filesystems, runs preinit, and mounts overlayfs. GRUB default passes `openwrt.init=systemd` to exec `systemd` as PID 1 (falling back to `procd` if preflight fails); the `procd recovery` GRUB entry passes `openwrt.init=procd`.
+- **Boot path**: OpenWrt preinit mounts the overlay and hands PID 1 to systemd. The native failsafe console uses `failsafe=true`.
 - **Integration (`package/system/systemd-openwrt/`)**:
   - `openwrt-ubusd.service`: Runs `ubusd`.
   - `openwrt-procd.service`: Runs `procd --systemd=units`. `procd` remains the ubus service/system/hotplug API and runs `/etc/hotplug.d` and `/etc/rc.button` handlers fed by `systemd-udevd`, while each normal service instance registered via `procd.sh` becomes a transient `openwrt-SERVICE@INSTANCE.service` under `openwrt-SERVICE.slice` (procd patch `130-systemd-transient-units.patch`). Instances requiring `vrf`, `trace`, `bundle`, or descriptor passing fall back to procd children in `openwrt-*.scope`.
   - `openwrt-services.service`: Runs enabled `/etc/init.d/*` rc scripts in sequence.
   - `openwrt-network-wait-online.service`: Holds `network-online.target` until `netifd` brings up autostart static local interfaces (e.g., `lan`), up to 120s.
 - **CLI Service Bridge (`package/system/systemd-openwrt-services/`)**:
-  - Maps `systemctl start|stop|restart|reload|enable|status openwrt@NAME.service` onto `/etc/init.d/NAME`. Excludes `dbus`, `sshd`, `samba4`, `wsdd2`, `avahi-daemon`, `apk-resume` (which use native units), and recovery-only `umount`, while classifying `wifi_schedule` and other one-shot setup scripts in `files/service-kinds`. PID 1 refuses direct start/stop/restart/reload jobs on transient `openwrt-SERVICE@INSTANCE.service` units from non-procd clients so init script hooks are not bypassed.
+  - Maps `systemctl start|stop|restart|reload|enable|status openwrt@NAME.service` onto `/etc/init.d/NAME`. Excludes `dbus`, `sshd`, `samba4`, `wsdd2`, `avahi-daemon`, `apk-resume` (which use native units), and the old `umount` script, while classifying `wifi_schedule` and other one-shot setup scripts in `files/service-kinds`. PID 1 refuses direct start/stop/restart/reload jobs on transient `openwrt-SERVICE@INSTANCE.service` units from non-procd clients so init script hooks are not bypassed.
 - **Device & NAS Supervision Boundaries**:
   - `systemd-udev` 262-r14 installs a reviewed subset (`package/system/systemd/files/99-systemd.rules`) restoring `.device` units (including `dev-tpmrm0.device`) without moving network, mount, or driver-loading policy from `netifd`/`fstools`/`blockd` (`docs/systemd-udev-boundary.md`).
-  - `samba4`, `wsdd2`, and `avahi-daemon` run as native static systemd units under `nas.slice` (`CPUWeight=100`, sibling of `openwrt.slice`), with procd init scripts retained for recovery boots (`docs/samba4.md`, `docs/nas-systemd.md`).
+  - `samba4`, `wsdd2`, and `avahi-daemon` run as native static systemd units under `nas.slice` (`CPUWeight=100`, sibling of `openwrt.slice`), with systemd lifecycle adapters (`docs/samba4.md`, `docs/nas-systemd.md`).
 - **Merged `/usr` (`scripts/merge-usr.py`)**:
   - Invoked from `include/package-pack.mk` and `include/rootfs.mk` to rewrite `/bin`, `/sbin`, `/lib` into `/usr/...`. `ALTERNATIVE_COMMANDS` handles BusyBox applet collisions (`dmesg`, `mount`, `passwd`, `ping`, `reboot`, etc.).
 
@@ -104,7 +103,7 @@ python3 scripts/update-mainline-kernel.py --check|--update # Compare Linux 7.3 s
 - **Distribution-style kernel packaging**:
   - `scripts/kernel-package.py` and `package/kernel-bundle` (`scripts/kernel-bundle.py`) package each build `N` into `linux-image-<kver>-N-openwrt` (kernel + all selected `.ko` modules) and `linux-headers-<release>`, plus metapackages `linux-image-openwrt` and `kernel-dev-headers`. `kmod-*` packages contain only autoload/modprobe configs and are kernel-independent.
   - On the router, `/usr/sbin/kernelctl` (`package/custom/openwrt-kernel-upgrade`, state schema 2 in `/etc/openwrt-kernel/`) installs new kernels alongside the running kernel, updates GRUB with a 3-attempt boot counter, blesses healthy boots via `openwrt-kernel-boot.service`, and prunes kernels other than default, fallback, and rescue.
-  - Firmware flashing via `sysupgrade` is blocked under native systemd; boot the GRUB **procd recovery** entry to flash full images.
+  - Use installation media or offline disk imaging to replace firmware. `sysupgrade` is for configuration archives.
 
 ### 3.5 ELF ABI, Signed APKs & Publication Gate
 - **ABI scanning**: `scripts/elf-abi.py` generates `/usr/lib/apk/packages/<name>.elf.json` (`so:<SONAME>=0` providers/requires; private loader paths in `configs/elf-abi-policy.json`). `scripts/ucode-abi.py` locks ucode interpreter/module ABI.

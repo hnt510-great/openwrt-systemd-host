@@ -8,7 +8,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=rpcd
-PKG_RELEASE:=7
+PKG_RELEASE:=8
 
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL=$(PROJECT_GIT)/project/rpcd.git
@@ -51,6 +51,8 @@ define Package/rpcd/conffiles
 /etc/config/rpcd
 endef
 
+PKG_CONFIG_DEPENDS += CONFIG_OPENWRT_SYSTEMD
+TARGET_CFLAGS += $(if $(CONFIG_OPENWRT_SYSTEMD),-DOPENWRT_SYSTEMD)
 TARGET_LDFLAGS += -lcrypt
 
 define Package/rpcd/install

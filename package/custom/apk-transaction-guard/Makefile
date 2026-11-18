@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=apk-transaction-guard
 PKG_VERSION:=1
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 PKG_LICENSE:=GPL-2.0-only
 
 include $(INCLUDE_DIR)/package.mk
@@ -11,7 +11,7 @@ define Package/apk-transaction-guard
   SECTION:=base
   CATEGORY:=Base system
   TITLE:=Finish interrupted APK transactions at boot
-  DEPENDS:=@USE_APK
+  DEPENDS:=@OPENWRT_SYSTEMD @USE_APK
   EXTRA_DEPENDS:=apk (>=3.0.5-r18)
 endef
 
@@ -29,7 +29,6 @@ endef
 define Package/apk-transaction-guard/install
 	$(INSTALL_DIR) $(1)/usr/sbin $(1)/etc/init.d $(1)/lib/apk/commit_hooks.d
 	$(INSTALL_BIN) ./files/apk-resume $(1)/usr/sbin/apk-resume
-	$(INSTALL_BIN) ./files/apk-resume.init $(1)/etc/init.d/apk-resume
 	$(INSTALL_BIN) ./files/transaction-scope.hook $(1)/lib/apk/commit_hooks.d/00-transaction-scope
 	$(INSTALL_DIR) $(1)/usr/lib/systemd/system $(1)/etc/systemd/system/multi-user.target.wants
 	$(INSTALL_DATA) ./files/apk-resume.service $(1)/usr/lib/systemd/system/

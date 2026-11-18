@@ -1,21 +1,15 @@
 # Native systemd on OpenWrt
 
-This experimental variant targets x86_64, glibc and APK. Enable
-`CONFIG_OPENWRT_SYSTEMD=y`, run `make defconfig`, then build with `make`.
-Firmware and APK repositories go to `bin/systemd`; the normal `bin/targets`
-images remain available. Native and stock images use separate root staging
-directories and rootfs caches, while sharing the cross-toolchain and downloaded
-sources. Native x86 images use sparse padding and streaming gzip so image
-generation does not allocate memory proportional to the padded disk-image size.
+The formal x86/64 target uses glibc, APK and systemd. Firmware and packages
+are built under `bin/systemd`. See the [implementation plan](systemd-only-plan.md)
+and [validation record](systemd-only-validation.md).
 
 ## Boot and service ownership
 
-OpenWrt `/sbin/init` still mounts the early filesystems, runs preinit and mounts
-the overlay. The normal GRUB entry passes `openwrt.init=systemd`, then init
-checks the filesystem layout and executes systemd as PID 1. A failed preflight
-falls back to procd. The `procd recovery` entry passes `openwrt.init=procd`;
-the failsafe entry also retains procd. A command line without the selector
-defaults to procd.
+OpenWrt `/sbin/init` mounts early filesystems, runs preinit and mounts the
+overlay before executing systemd as PID 1. GRUB's `failsafe=true` entry starts
+an OpenWrt preinit console. Use `mount_root` there to access persistent settings.
+An unsuccessful handoff stops early and reports the failure to the console.
 
 Systemd owns the system manager, native units, timers, sockets, journald,
 device events (udevd) and the hardware watchdog. `openwrt-ubusd.service` owns
@@ -50,18 +44,17 @@ Native units should use explicit paths and service dependencies.
 Journald owns `/dev/log` and collects syslog, kernel messages and native unit
 output. In systemd mode, the log init script starts `logd -J` as a journal-backed compatibility
 reader: `logread`, the existing LuCI System Log page and UCI log forwarding
-continue to work. Recovery boots retain logd's original syslog/kernel readers.
+continue to work.
 Journald uses persistent storage on root/extroot with bounded disk usage; see
 [journal storage and cleanup](journald.md). The systemd manager owns the
-hardware watchdog (`RuntimeWatchdogSec=30s`); procd recovery keeps its own.
+hardware watchdog (`RuntimeWatchdogSec=30s`).
 
 The package excludes networkd, resolved and timesyncd. Native mode includes
 polkit, PAM login sessions, logind and systemd user managers; see
 [ordinary-user authorization and sessions](systemd-permissions.md). The SSH
 generator is removed; the PAM variant of OpenWrt OpenSSH runs under
 `sshd.service`, retaining its configuration and PAM integration. Lifecycle and
-normal-boot enablement use systemctl; procd recovery retains its independent
-rc.d SSH setting. See [native OpenSSH](systemd-sshd.md).
+enablement use systemctl. See [native OpenSSH](systemd-sshd.md).
 Display and input device access uses udev tags and logind seats.
 
 ### Network readiness
@@ -152,12 +145,8 @@ metadata. OPENWRT_FEATURES lists the capabilities built into the image:
 router, plus desktop, virtualization, flatpak and containers when
 their corresponding packages are selected.
 
-Agents should read the OPENWRT_* identity fields before choosing administrative
-commands: this host uses glibc and matching native APK repositories, systemd
-for the default init and process supervision, and UCI/netifd/procd init
-scripts for router service configuration. Firmware flashing
-requires procd recovery. OPENWRT_DEFAULT_INIT describes the default boot mode;
-check /proc/1/comm for the current mode, since recovery runs procd.
+Agents should read the OPENWRT_* identity fields for package and service
+commands. Read `/proc/1/comm` to verify that systemd started.
 
 Package payloads and root overlays are normalized to merged `/usr`: `/bin`,
 `/sbin` and `/lib` become relative aliases for `/usr/bin`, `/usr/sbin` and
@@ -186,16 +175,10 @@ Install native units in `/etc/systemd/system`, then use `systemctl daemon-reload
 and `systemctl enable --now example.service`. Keep router service configuration
 in UCI. Avoid adding a second native unit for an existing procd service; its
 daemon already runs as `openwrt-NAME@INSTANCE.service`.
-Reboot, halt, poweroff and `ubus call system reboot` delegate to systemd in
-native mode and retain the usual behavior in recovery.
-
-`sysupgrade -l`, backup creation and `sysupgrade -T` remain available under
-systemd. Actual flashing is rejected by both the sysupgrade shell entry point
-and procd's ubus method. Boot the GRUB procd recovery entry to flash firmware.
-`/etc/machine-id` is kept across upgrades. Test recovery access before deploying
-to hardware.
-The native variant loads the VFAT codepage modules during early boot so x86
-preinit can retrieve the saved configuration from the EFI partition.
+Reboot, halt and poweroff use systemd in a normal boot. Native preinit
+failsafe provides a local reboot path.
+Use `sysupgrade -b`, `-l` and `-r` to save, list and restore configuration.
+Replace firmware using installation media or offline disk imaging.
 
 ## Updating the source tree and feeds
 
@@ -259,11 +242,11 @@ make V=s
 
 Validate a fresh firmware boot, PID 1, cgroup controllers, native units/timers/
 sockets, journald and logread, ubus, router services, LuCI, APK transactions,
-reboot and persistent machine ID. Separately boot procd recovery and failsafe.
+reboot and persistent machine ID. Separately boot with `failsafe=true`.
 QEMU user networking can validate VM service/network behavior, but cannot
 prove physical NIC behavior, PPPoE or a hardware watchdog.
 
-### Verified on 2026-10-10
+### Historical validation of the 2026-10-10 image
 
 The full build passed with a 4 GiB memory and 1 GiB swap limit. Original active
 configuration selections, unrelated source changes and the normal firmware

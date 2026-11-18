@@ -1,0 +1,13 @@
+#!/bin/sh
+# OpenWrt native service adapter
+case "$1" in
+	boot|shutdown|depends) exit 0 ;;
+esac
+if [ -n "${IPKG_INSTROOT:-}" ]; then
+	case "$1" in
+		enabled) exec systemctl --root="$IPKG_INSTROOT" is-enabled cron.service ;;
+		enable|disable) exec systemctl --root="$IPKG_INSTROOT" "$1" cron.service ;;
+		*) exit 0 ;;
+	esac
+fi
+exec /usr/libexec/cron-systemd "$@"

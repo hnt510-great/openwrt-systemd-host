@@ -1,0 +1,14 @@
+{
+  "packages": {
+    "base": "5622b544e2418a3e47d61a121322dc5e370b5996",
+    "patch": "patches/feeds/0046-packages-systemd-only.patch"
+  },
+  "luci": {
+    "base": "a8585af452bfd34c9c8db8cce0b075710dd88959",
+    "patch": "patches/feeds/0047-luci-systemd-only.patch"
+  },
+  "taskplan": {
+    "base": "42eb44d0751148495fe5659ac4b0421f755d6f63",
+    "patch": "patches/feeds/0048-taskplan-systemd-only.patch"
+  }
+}

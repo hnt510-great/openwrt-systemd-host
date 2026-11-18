@@ -113,11 +113,12 @@ static const char *exclusion_reason(const char *name)
 		return "use native nlbwmon.service; the init script delegates to systemd";
 	if (!strcmp(name, "ddns-go"))
 		return "use native ddns-go.service; the init script delegates to systemd";
+	if (!strcmp(name, "podman"))
+		return "use native podman.socket";
 	if (!strcmp(name, "apk-resume"))
-		return "use native apk-resume.service; "
-			"the init script is for procd/recovery boots";
+		return "use native apk-resume.service";
 	if (!strcmp(name, "dbus") || !strcmp(name, "sshd") || !strcmp(name, "umount"))
-		return "use native dbus.service or sshd.service; umount is recovery-only";
+		return "use native dbus.service or sshd.service; systemd owns filesystem shutdown";
 	return NULL;
 }
 

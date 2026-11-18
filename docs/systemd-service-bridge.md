@@ -1,5 +1,9 @@
 # OpenWrt service controls through systemctl
 
+> Systemd is the sole normal init on current x86/64 images. References below
+> to procd recovery or firmware flashing from the running system describe
+> older images. See [current boot and migration guidance](systemd-only-plan.md).
+
 This default-on compatibility bridge adds individual systemctl controls while
 retaining procd supervision, UCI, LuCI, init scripts, and OpenWrt boot ordering.
 It sends lifecycle actions through init scripts and procd, which creates native

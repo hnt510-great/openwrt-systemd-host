@@ -234,6 +234,7 @@ default_prerm() {
 
 	local shell="$(command -v bash)"
 	for i in $(grep -s "^/etc/init.d/" "$filelist"); do
+		grep -Fxq "# OpenWrt native service adapter" "$root$i" && continue
 		if [ -n "$root" ]; then
 			${shell:-/bin/sh} "$root/etc/rc.common" "$root$i" disable
 		else
@@ -385,6 +386,7 @@ default_postinst() {
 
 	local shell="$(command -v bash)"
 	for i in $(grep -s "^/etc/init.d/" "$filelist"); do
+		grep -Fxq "# OpenWrt native service adapter" "$root$i" && continue
 		if [ -n "$root" ]; then
 			${shell:-/bin/sh} "$root/etc/rc.common" "$root$i" enable
 		else

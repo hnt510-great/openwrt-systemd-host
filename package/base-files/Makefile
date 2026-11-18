@@ -13,7 +13,7 @@ include $(INCLUDE_DIR)/feeds.mk
 
 PKG_NAME:=base-files
 PKG_FLAGS:=nonshared
-PKG_RELEASE:=$(COMMITCOUNT).17
+PKG_RELEASE:=$(COMMITCOUNT).18
 
 PKG_FILE_DEPENDS:= \
 	./os-release.systemd ./openwrt-release.systemd ./banner.systemd \
@@ -82,7 +82,7 @@ define Package/base-files/conffiles
 /etc/ethers
 /etc/group
 /etc/hosts
-/etc/inittab
+$(if $(CONFIG_OPENWRT_SYSTEMD),,/etc/inittab)
 /etc/iproute2/rt_protos
 /etc/iproute2/rt_tables
 /etc/passwd
@@ -215,6 +215,8 @@ ifeq ($(CONFIG_USE_APK),y)
 endif
 
 ifeq ($(CONFIG_OPENWRT_SYSTEMD),y)
+	sed -i '/^# BEGIN_FIRMWARE_ONLY$$$$/,/^# END_FIRMWARE_ONLY$$$$/d; 2i BACKUP_ONLY=1' $(1)/sbin/sysupgrade
+	rm -f $(1)/usr/libexec/validate_firmware_image $(1)/lib/upgrade/do_stage2 $(1)/lib/upgrade/stage2 $(1)/lib/upgrade/platform.sh $(1)/lib/upgrade/fwtool.sh $(1)/etc/init.d/umount
 	$(INSTALL_DATA) ./os-release.systemd $(1)/usr/lib/os-release
 	$(INSTALL_DATA) ./openwrt-release.systemd $(1)/etc/openwrt_release
 	$(INSTALL_DATA) ./banner.systemd $(1)/etc/banner
@@ -287,6 +289,7 @@ endif
 
 	$(call ImageConfigOptions,$(1))
 	$(call Package/base-files/install-target,$(1))
+	$(if $(CONFIG_OPENWRT_SYSTEMD),rm -f $(1)/etc/inittab)
 	for conffile in $(1)/etc/config/*; do \
 		if [ -f "$$$$conffile" ]; then \
 			grep "$$$${conffile##$(1)}" $(1)/CONTROL/conffiles || \

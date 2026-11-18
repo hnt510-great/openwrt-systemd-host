@@ -3,15 +3,6 @@
 
 START=50
 
-# The native manager owns the daemon. rc.d remains for recovery boots.
-if [ -z "$IPKG_INSTROOT" ] && [ -d /run/systemd/system ] &&
-   [ -f /usr/lib/systemd/system/cron.service ]; then
-	case "$action" in
-		boot|shutdown) exit 0 ;;
-		help|depends) ;;
-		*) exec /usr/libexec/cron-systemd "$action" "$@" ;;
-	esac
-fi
 
 USE_PROCD=1
 PROG=/usr/sbin/crond

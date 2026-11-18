@@ -391,9 +391,11 @@ OpenWrt rootfs/overlay and sysupgrade conventions still apply. Inspect `mount`
 and `/etc/config/fstab` to determine the actual persistent storage and extroot
 layout; `/var` may point into `/tmp`.
 
-The supported firmware flashing path is the GRUB **procd recovery** entry.
-`sysupgrade` permits image checks and configuration backups under native
-systemd but blocks flashing there. Boot recovery before firmware flashing.
+Systemd is the sole normal init. The GRUB failsafe entry starts the native
+OpenWrt preinit console, where `mount_root` allows manual overlay access.
+Use `sysupgrade -b`, `-l` and `-r` for configuration backups, lists and
+restores. Use installation media or offline disk imaging to replace the
+firmware, then restore the selected configuration.
 
 With `openwrt-kernel-upgrade`, kernels are installed like a distribution's:
 every kernel build is a separate `linux-image-<release>` package carrying its
@@ -451,5 +453,5 @@ restore hook. The English installer creates a fresh GPT with a FAT ESP, read-onl
 system partition and separate ext4, btrfs or xfs overlay, configures LAN/WAN and
 firewall policy, and sets account password hashes. Optional regular-user and
 GNOME setup runs after OpenWrt first-boot defaults under systemd. The installed
-boot tree supports kernelctl and retains BIOS, UEFI and procd recovery paths.
+boot tree supports kernelctl and retains BIOS and UEFI boot with native OpenWrt failsafe.
 Personal untracked image overlays are excluded from the installer payload.

@@ -297,12 +297,12 @@ fi
             f'-l :9876 -f 300 -cacheTimes 5 -dns 223.5.5.5 -noweb -skipVerify',
         )
 
-    def test_native_init_and_recovery_modes(self):
+    def test_native_init_adapters(self):
         self.install_configs()
         for name, directory, init_name, helper in (
-            ('cron', CRON_FILES, 'cron', 'cron-systemd'),
-            ('nlbwmon', NLBWMON_FILES, 'nlbwmon.init', 'nlbwmon-systemd'),
-            ('ddns-go', DDNS_GO_FILES, 'ddns-go.init', 'ddns-go-systemd'),
+            ('cron', CRON_FILES, 'cron-native.init', 'cron-systemd'),
+            ('nlbwmon', NLBWMON_FILES, 'nlbwmon-native.init', 'nlbwmon-systemd'),
+            ('ddns-go', DDNS_GO_FILES, 'ddns-go-native.init', 'ddns-go-systemd'),
         ):
             self.native_mode()
             self.clear_actions()
@@ -310,19 +310,11 @@ fi
             init = self.script(directory, init_name)
             for action in ('boot', 'shutdown', 'start', 'stop', 'reload', 'running', 'enable', 'enabled'):
                 done = subprocess.run(
-                    ['sh', '-c', 'action=$1; script=$2; shift 2; . "$script"', 'test', action, str(init)],
+                    ['sh', str(init), action],
                     capture_output=True, text=True, env=self.env,
                 )
                 self.assertEqual(done.returncode, 0, f'{name} {action}: {done.stderr}')
             self.assertEqual(self.actions(), ['start', 'stop', 'reload', 'running', 'enable', 'enabled'])
-
-            (self.root / 'run/systemd/system').rmdir()
-            done = subprocess.run(
-                ['sh', '-c', '. "$1"; test "$USE_PROCD" = 1; '
-                 'command -v start_service; command -v service_triggers', 'test', str(init)],
-                capture_output=True, text=True, env=self.env,
-            )
-            self.assertEqual(done.returncode, 0, f'{name} recovery: {done.stderr}')
 
     def test_offline_and_upgrade_package_hooks(self):
         (self.root / 'etc/rc.d').mkdir(parents=True, exist_ok=True)
@@ -351,7 +343,7 @@ fi
                 self.assertEqual(done.returncode, 0, done.stderr)
                 for rel in wants:
                     self.assertEqual((root / 'etc/systemd/system' / rel).is_symlink(), upgrade == '0')
-                self.assertEqual((root / 'etc/systemd/openwrt-migrated' / name).is_file(), upgrade == '0')
+                self.assertFalse((root / 'etc/systemd/openwrt-migrated' / name).exists())
 
             migrated_root = self.root / f'{name}-offline-migrated'
             (migrated_root / 'etc/init.d').mkdir(parents=True)
@@ -367,8 +359,7 @@ fi
             )
             self.assertEqual(done.returncode, 0, done.stderr)
             for rel in wants:
-                self.assertTrue((migrated_root / 'etc/systemd/system' / rel).is_symlink())
-            self.assertTrue((migrated_root / 'etc/systemd/openwrt-migrated' / name).is_file())
+                self.assertFalse((migrated_root / 'etc/systemd/system' / rel).is_symlink())
         self.assertEqual(self.actions(), [])
 
         self.native_mode()
@@ -377,34 +368,9 @@ fi
             ('nlbwmon', NLBWMON_FILES, 'nlbwmon-package', 'S60nlbwmon', ('nlbwmon.service', 'nlbwmon-config.path')),
             ('ddns-go', DDNS_GO_FILES, 'ddns-go-package', 'S99ddns-go', ('ddns-go.service', 'ddns-go-config.path')),
         ):
-            # Upgrade when disabled in rc.d: skips enable and records migration stamp.
             self.clear_actions()
             self.assertEqual(self.run_script(directory, pkg, 'postinst', PKG_UPGRADE='1').returncode, 0)
             self.assertEqual(self.actions(), ['daemon-reload', f'try-restart {units[0]}'])
-            stamp = self.root / 'etc/systemd/openwrt-migrated' / name
-            self.assertTrue(stamp.is_file())
-
-            # Simulate pre-systemd router with enabled rc.d link and no migration stamp.
-            stamp.unlink()
-            (self.root / 'etc/rc.d' / rc_link).write_text('#!/bin/sh\n')
-            (self.root / 'etc/rc.d' / rc_link).chmod(0o755)
-            self.clear_actions()
-            self.assertEqual(self.run_script(directory, pkg, 'postinst', PKG_UPGRADE='1').returncode, 0)
-            self.assertEqual(self.actions(), [
-                'daemon-reload',
-                f'enable {units[0]} {units[1]}',
-                f'try-restart {units[0]}',
-            ])
-            self.assertTrue(stamp.is_file())
-
-            # Subsequent upgrade keeps stamp and preserves manual systemctl disable.
-            self.clear_actions()
-            self.assertEqual(self.run_script(directory, pkg, 'postinst', PKG_UPGRADE='1').returncode, 0)
-            self.assertEqual(self.actions(), ['daemon-reload', f'try-restart {units[0]}'])
-
-            # Uninstall clears stamp.
-            self.assertEqual(self.run_script(directory, pkg, 'prerm', PKG_UPGRADE='0').returncode, 0)
-            self.assertFalse(stamp.exists())
 
     def test_unit_properties_and_slice_placement(self):
         self.assertIn('CPUWeight=100', SLICE_FILE.read_text())

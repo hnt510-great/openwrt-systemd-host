@@ -365,12 +365,15 @@ with open(root / 'fixture.lock', 'a') as lock:
         root = TREE / 'build_dir/target-x86_64_glibc/root-x86-systemd'
         if not (root / 'etc/init.d').is_dir():
             self.skipTest('No staged image available')
+        identity = root / 'usr/lib/os-release'
+        if not identity.is_file() or 'OPENWRT_FAILSAFE_MODE="preinit"' not in identity.read_text():
+            self.skipTest('Staged rootfs predates the systemd-only image')
         kinds = dict(line.split() for line in (SOURCE / 'files/service-kinds').read_text().splitlines()
                      if line.strip() and not line.startswith('#'))
         missing = [p.name for p in (root / 'etc/init.d').iterdir()
                    if p.is_file() and p.name not in (
                        'dbus', 'sshd', 'samba4', 'wsdd2', 'avahi-daemon',
-                       'cron', 'nlbwmon', 'ddns-go', 'umount', 'apk-resume')
+                       'cron', 'nlbwmon', 'ddns-go', 'umount', 'apk-resume', 'podman')
                    and 'USE_PROCD=' not in p.read_text()
                    and p.name not in kinds]
         self.assertEqual(missing, [])

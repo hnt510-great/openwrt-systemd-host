@@ -74,9 +74,7 @@ define Build/grub-config
 		-e 's#@CMDLINE@#$(BOOTOPTS) $(GRUB_CONSOLE_CMDLINE)#g' \
 		-e 's#@TIMEOUT@#$(GRUB_TIMEOUT)#g' \
 		-e 's#@TITLE@#$(GRUB_TITLE)#g' \
-		-e 's#@INIT@#$(if $(CONFIG_OPENWRT_SYSTEMD),openwrt.init=systemd,)#g' \
 		./grub-$(1).cfg > $@.boot/boot/grub/grub.cfg
-	$(if $(CONFIG_OPENWRT_SYSTEMD),sed -i '/menuentry .* (failsafe)/i menuentry "$(GRUB_TITLE) (procd recovery)" {\n\tlinux /boot/vmlinuz $(if $(filter iso,$(1)),root=/dev/sr0 rootfstype=iso9660,$(if $(filter efi,$(1)),root=$(GPT_ROOTPART),root=$(ROOTPART))) rootwait $(BOOTOPTS) $(GRUB_CONSOLE_CMDLINE) openwrt.init=procd noinitrd\n}' $@.boot/boot/grub/grub.cfg)
 endef
 
 define Build/grub-install

@@ -1,5 +1,9 @@
 # Ordinary-user authorization, sessions and services
 
+> Systemd is the sole normal init on current x86/64 images. References below
+> to procd recovery or firmware flashing from the running system describe
+> older images. See [current boot and migration guidance](systemd-only-plan.md).
+
 The native x86_64/glibc/APK image includes systemd with polkit and PAM,
 logind, PAM-enabled OpenSSH, BusyBox PAM console login, and a user D-Bus
 service. The base packages create no ordinary account, password, key or

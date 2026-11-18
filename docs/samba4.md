@@ -1,5 +1,9 @@
 # Samba file sharing
 
+> Systemd is the sole normal init on current x86/64 images. References below
+> to procd recovery or firmware flashing from the running system describe
+> older images. See [current boot and migration guidance](systemd-only-plan.md).
+
 The x86_64 native-systemd desktop profile includes Samba 4, its client and
 diagnostic utilities, LuCI Network Shares, and the Simplified Chinese
 translation. `configs/samba4.config` contains the reusable selections.

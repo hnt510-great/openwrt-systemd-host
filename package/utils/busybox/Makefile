@@ -6,7 +6,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=busybox
 PKG_VERSION:=1.38.0
-PKG_RELEASE:=14
+PKG_RELEASE:=15
 PKG_FLAGS:=essential
 
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.bz2
@@ -163,7 +163,7 @@ endif
 ifneq ($(CONFIG_BUSYBOX_$(BUSYBOX_SYM)_CROND),)
 	$(INSTALL_DIR) $(1)/usr/libexec $(1)/etc/crontabs
 	$(INSTALL_DATA) ./files/cron-config.sh $(1)/usr/libexec/cron-config.sh
-	$(INSTALL_BIN) ./files/cron $(1)/etc/init.d/cron
+	$(INSTALL_BIN) ./files/$(if $(CONFIG_OPENWRT_SYSTEMD),cron-native.init,cron) $(1)/etc/init.d/cron
 	$(if $(CONFIG_OPENWRT_SYSTEMD),$(call Package/busybox/install-systemd-cron,$(1)))
 endif
 ifneq ($(CONFIG_BUSYBOX_$(BUSYBOX_SYM)_NTPD),)

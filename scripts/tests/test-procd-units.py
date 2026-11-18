@@ -71,10 +71,11 @@ def forwards(rules, event, dirs):
 
 
 class ProcdUnitsTest(unittest.TestCase):
-    def test_patch_is_last_in_series(self):
+    def test_patch_precedes_systemd_only_changes(self):
         patches = sorted(p.name for p in (PROCD / 'patches').glob('*.patch'))
-        self.assertEqual(patches[-1], '130-systemd-transient-units.patch')
-        text = (PROCD / 'patches' / patches[-1]).read_text()
+        units_patch = '130-systemd-transient-units.patch'
+        self.assertLess(patches.index(units_patch), patches.index('140-systemd-no-firmware.patch'))
+        text = (PROCD / 'patches' / units_patch).read_text()
         for needle in ('StartTransientUnit', '"procd.udev"', '--systemd=units',
                        'hotplug_units', 'udevadm'):
             self.assertIn(needle, text)
@@ -111,9 +112,12 @@ class ProcdUnitsTest(unittest.TestCase):
 
     def test_package_installs_units_mode_files(self):
         makefile = (PROCD / 'Makefile').read_text()
-        block = makefile.split('ifneq ($(CONFIG_OPENWRT_SYSTEMD),)', 1)[1].split('endif', 1)[0]
+        block = makefile.split('ifeq ($(CONFIG_OPENWRT_SYSTEMD),)', 1)[1].split('endif', 1)[0]
+        legacy, native = block.split('\nelse\n', 1)
+        self.assertIn('usr/sbin/upgraded', legacy)
+        self.assertNotIn('usr/sbin/upgraded', native)
         for name in ('openwrt-udev-forward', '90-openwrt-hotplug.rules', 'hotplug-systemd.json'):
-            self.assertIn(name, block)
+            self.assertIn(name, native)
         self.assertNotIn('hotplug*.json', makefile)
 
     def test_systemd_owns_watchdog_and_procd_runs_units(self):

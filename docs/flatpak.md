@@ -1,5 +1,9 @@
 # Flatpak on the native systemd desktop
 
+> Systemd is the sole normal init on current x86/64 images. References below
+> to procd recovery or firmware flashing from the running system describe
+> older images. See [current boot and migration guidance](systemd-only-plan.md).
+
 This package supports ordinary-user Flatpak applications on the
 x86_64/glibc/native-systemd GNOME desktop. The GNOME and GTK portal backends
 are packaged with the desktop integration. Applications retain their normal

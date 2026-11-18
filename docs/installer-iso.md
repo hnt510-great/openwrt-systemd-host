@@ -82,7 +82,7 @@ Check the actual SPICE window and serial console separately. See the
 Replacing a guest ISO does not update the host's SPICE client library.
 
 An offline installer can boot without a network adapter. Missing preinit network
-cleanup is nonfatal, so it does not divert the installer into procd recovery.
+cleanup is nonfatal.
 The installer limits console printk output to errors to keep kernel warnings
 from overwriting forms; the messages remain available in the kernel log.
 
@@ -146,8 +146,7 @@ The overlay already contains `upper`, `work`, and `.fs_state -> 2`, preserving
 installation settings on first boot. Network is written from scratch; stock DHCP
 and firewall defaults are edited by UCI. The selected IPv6 policy survives the
 stock odhcpd first-boot defaults. The installed GRUB uses the unique FAT
-UUID rather than the shared `kernel` label. Recovery and failsafe entries use the
-new root PARTUUID too.
+UUID rather than the shared `kernel` label. The failsafe entry uses the new root PARTUUID too.
 
 The firstboot unit runs after OpenWrt defaults create the sudo group. It creates
 the optional user and invokes `desktop-setup` under the running systemd instance.
@@ -168,8 +167,7 @@ plaintext as required by UCI.
 After success remove the USB or eject the virtual CD-ROM, then reboot. The target disk contains its own BIOS
 and UEFI boot files, kernel, root filesystem and overlay, so later boots do not
 need the USB. For installation trouble use the tty2
-shell and log. For an installed system use the GRUB procd recovery or failsafe
-entry. This installer erases the target immediately after confirmation; an
+shell and log. For an installed system use the native OpenWrt failsafe entry in GRUB. This installer erases the target immediately after confirmation; an
 interrupted install can be restarted from the USB.
 
 Validation results and remaining acceptance gaps are recorded in

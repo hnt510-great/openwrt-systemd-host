@@ -1,0 +1,125 @@
+diff --git a/ddns-go/Makefile b/ddns-go/Makefile
+index 6196113d1690971cedea1ab4831a604ff0292384..fd6a8bbc401e5c043c6032450bfd87380a63c189 100644
+--- a/ddns-go/Makefile
++++ b/ddns-go/Makefile
+@@ -7,7 +7,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=ddns-go
+ PKG_VERSION:=6.17.1
+-PKG_RELEASE:=5
++PKG_RELEASE:=6
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
+ PKG_SOURCE_URL:=https://codeload.github.com/jeessy2/ddns-go/tar.gz/v$(PKG_VERSION)?
+@@ -55,7 +55,7 @@ define Package/ddns-go/install
+ 	
+ 	$(INSTALL_DIR) $(1)/usr/libexec $(1)/etc/init.d $(1)/etc/config
+ 	$(INSTALL_DATA) $(CURDIR)/files/ddns-go-config.sh $(1)/usr/libexec/ddns-go-config.sh
+-	$(INSTALL_BIN) $(CURDIR)/files/ddns-go.init $(1)/etc/init.d/ddns-go
++	$(INSTALL_BIN) $(CURDIR)/files/$(if $(CONFIG_OPENWRT_SYSTEMD),ddns-go-native.init,ddns-go.init) $(1)/etc/init.d/ddns-go
+ 	$(INSTALL_CONF) $(CURDIR)/files/ddns-go.conf $(1)/etc/config/ddns-go
+ 	$(if $(CONFIG_OPENWRT_SYSTEMD),$(call Package/ddns-go/install-systemd,$(1)))
+ endef
+diff --git a/ddns-go/files/ddns-go-native.init b/ddns-go/files/ddns-go-native.init
+new file mode 100644
+index 0000000000000000000000000000000000000000..7df377bf485c7086efb72652ea1c5bd840c825e8
+--- /dev/null
++++ b/ddns-go/files/ddns-go-native.init
+@@ -0,0 +1,13 @@
++#!/bin/sh
++# OpenWrt native service adapter
++case "$1" in
++	boot|shutdown|depends) exit 0 ;;
++esac
++if [ -n "${IPKG_INSTROOT:-}" ]; then
++	case "$1" in
++		enabled) exec systemctl --root="$IPKG_INSTROOT" is-enabled ddns-go.service ;;
++		enable|disable) exec systemctl --root="$IPKG_INSTROOT" "$1" ddns-go.service ;;
++		*) exit 0 ;;
++	esac
++fi
++exec /usr/libexec/ddns-go-systemd "$@"
+diff --git a/ddns-go/files/ddns-go-package b/ddns-go/files/ddns-go-package
+index 2f8622648399e2e5a0e4ef0a8c51cae715e05105..fd03750866fe4f1268aab04c9ade798d5842d1c9 100644
+--- a/ddns-go/files/ddns-go-package
++++ b/ddns-go/files/ddns-go-package
+@@ -1,24 +1,11 @@
+ #!/bin/sh
+-# Package lifecycle only; never transfers a running daemon out of procd.
+ set -eu
+ 
+ root=${IPKG_INSTROOT:-}
+-stamp=/etc/systemd/openwrt-migrated/ddns-go
+-
+-rc_enabled() {
+-	for link in "$1/etc/rc.d/S"[0-9][0-9]ddns-go; do
+-		if [ -L "$link" ] || [ -x "$link" ]; then
+-			return 0
+-		fi
+-	done
+-	return 1
+-}
+-
+ case "${1:-}" in
+ postinst)
+ 	if [ -n "$root" ]; then
+-		if [ "${PKG_UPGRADE:-0}" != 1 ] ||
+-		   { [ ! -e "$root$stamp" ] && rc_enabled "$root"; }; then
++		if [ "${PKG_UPGRADE:-0}" != 1 ]; then
+ 			if [ "$(readlink "$root/etc/systemd/system/ddns-go.service" 2>/dev/null || :)" != /dev/null ]; then
+ 				wants=$root/etc/systemd/system/multi-user.target.wants
+ 				mkdir -p "$wants"
+@@ -29,8 +16,6 @@ postinst)
+ 					ln -s /usr/lib/systemd/system/ddns-go-config.path "$wants/ddns-go-config.path"
+ 				fi
+ 			fi
+-			mkdir -p "$root/etc/systemd/openwrt-migrated"
+-			: >"$root$stamp"
+ 		fi
+ 		exit 0
+ 	fi
+@@ -39,20 +24,18 @@ postinst)
+ 	for mask in /etc/systemd/system/ddns-go.service /run/systemd/system/ddns-go.service; do
+ 		[ "$(readlink "$mask" 2>/dev/null || :)" != /dev/null ] || exit 0
+ 	done
+-	if [ "${PKG_UPGRADE:-0}" != 1 ] ||
+-	   { [ ! -e "$stamp" ] && rc_enabled ""; }; then
++	if [ "${PKG_UPGRADE:-0}" != 1 ]; then
+ 		systemctl enable ddns-go.service ddns-go-config.path
++		systemctl --no-block start ddns-go.service
++	else
++		systemctl try-restart ddns-go.service
+ 	fi
+-	mkdir -p /etc/systemd/openwrt-migrated
+-	: >"$stamp"
+-	systemctl try-restart ddns-go.service
+ 	;;
+ prerm)
+ 	[ -z "$root" ] && [ -d /run/systemd/system ] || exit 0
+ 	[ "${PKG_UPGRADE:-0}" != 1 ] || exit 0
+ 	systemctl stop ddns-go-config.path ddns-go-reconfigure.service ddns-go.service
+ 	systemctl disable ddns-go.service ddns-go-config.path
+-	rm -f "$stamp"
+ 	;;
+ *)
+ 	exit 2
+diff --git a/ddns-go/files/ddns-go.init b/ddns-go/files/ddns-go.init
+index ccd505b3fdd4e97947d27159fc855d9698947e01..04c32ac7a699b2b7c4735128d2be1f4ccacc9460 100644
+--- a/ddns-go/files/ddns-go.init
++++ b/ddns-go/files/ddns-go.init
+@@ -9,15 +9,6 @@
+ 
+ START=99
+ 
+-# The native manager owns the daemon. rc.d remains for recovery boots.
+-if [ -z "$IPKG_INSTROOT" ] && [ -d /run/systemd/system ] &&
+-   [ -f /usr/lib/systemd/system/ddns-go.service ]; then
+-	case "$action" in
+-		boot|shutdown) exit 0 ;;
+-		help|depends) ;;
+-		*) exec /usr/libexec/ddns-go-systemd "$action" "$@" ;;
+-	esac
+-fi
+ 
+ USE_PROCD=1
+ NAME=ddns-go

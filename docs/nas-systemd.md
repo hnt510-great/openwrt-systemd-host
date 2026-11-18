@@ -1,5 +1,9 @@
 # Native systemd supervision for NAS discovery services (`wsdd2` and `avahi-daemon`)
 
+> Systemd is the sole normal init on current x86/64 images. References below
+> to procd recovery or firmware flashing from the running system describe
+> older images. See [current boot and migration guidance](systemd-only-plan.md).
+
 Alongside `samba4` (`samba4.service` and `samba4@.service`), `wsdd2` and
 `avahi-daemon` run as native static systemd units in `nas.slice` on
 native-systemd boots rather than as procd transient units under `openwrt.slice`.

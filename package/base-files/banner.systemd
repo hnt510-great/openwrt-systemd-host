@@ -1,7 +1,7 @@
  -----------------------------------------------------
  OpenWrt Systemd Host %V, %C
  Router and general-purpose Linux host
- Native systemd / glibc / APK; UCI / netifd / procd
+ systemd PID 1 / glibc / APK; OpenWrt preinit failsafe
  Features: @OPENWRT_FEATURES@
  System identity and capabilities: /etc/os-release
  Agent discovery guide:

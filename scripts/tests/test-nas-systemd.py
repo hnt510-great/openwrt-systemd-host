@@ -120,23 +120,15 @@ fi
         )
         self.assertEqual(self.actions()[-1], '--no-block stop wsdd2.service')
 
-    def test_wsdd2_native_init_and_recovery_mode(self):
+    def test_wsdd2_native_init_adapter(self):
         self.native_wsdd2()
         self.write('usr/libexec/wsdd2-systemd', '#!/bin/sh\necho "$*" >> "$TEST_ROOT/commands"\n')
-        init = self.script(WSDD2_FILES, 'wsdd2.init')
+        init = self.script(WSDD2_FILES, 'wsdd2-native.init')
         for action in ('boot', 'shutdown', 'start', 'stop', 'reload', 'enable', 'enabled'):
-            done = subprocess.run(['sh', '-c', 'action=$1; script=$2; shift 2; . "$script"', 'test', action, str(init)],
+            done = subprocess.run(['sh', str(init), action],
                                   capture_output=True, text=True, env=self.env)
             self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(self.actions(), ['start', 'stop', 'reload', 'enable', 'enabled'])
-
-        (self.root / 'run/systemd/system').rmdir()
-        (self.root / 'usr/libexec/wsdd2-config.sh').write_text(
-            self.script(WSDD2_FILES, 'wsdd2-config.sh').read_text())
-        done = subprocess.run(['sh', '-c', '. "$1"; test "$USE_PROCD" = 1; '
-                               'command -v start_service; command -v service_triggers', 'test', str(init)],
-                              capture_output=True, text=True, env=self.env)
-        self.assertEqual(done.returncode, 0, done.stderr)
 
     def test_wsdd2_hotplug_only_acts_on_active_lan(self):
         self.native_wsdd2()
@@ -152,21 +144,15 @@ fi
         )
         self.assertEqual(self.actions()[-1], '--no-block start wsdd2-reconfigure.service')
 
-    def test_avahi_native_init_and_recovery_mode(self):
+    def test_avahi_native_init_adapter(self):
         self.native_avahi()
         self.write('usr/libexec/avahi-daemon-systemd', '#!/bin/sh\necho "$*" >> "$TEST_ROOT/commands"\n')
-        init = self.script(AVAHI_FILES, 'avahi-daemon.init')
+        init = self.script(AVAHI_FILES, 'avahi-daemon-native.init')
         for action in ('boot', 'shutdown', 'start', 'stop', 'reload', 'running', 'enable', 'enabled'):
-            done = subprocess.run(['sh', '-c', 'action=$1; script=$2; shift 2; . "$script"', 'test', action, str(init)],
+            done = subprocess.run(['sh', str(init), action],
                                   capture_output=True, text=True, env=self.env)
             self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(self.actions(), ['start', 'stop', 'reload', 'running', 'enable', 'enabled'])
-
-        (self.root / 'run/systemd/system').rmdir()
-        done = subprocess.run(['sh', '-c', '. "$1"; test "$USE_PROCD" = 1; '
-                               'command -v start_service; command -v reload_service', 'test', str(init)],
-                              capture_output=True, text=True, env=self.env)
-        self.assertEqual(done.returncode, 0, done.stderr)
 
     def test_offline_and_upgrade_package_hooks(self):
         for name, directory, pkg, wants in (
@@ -194,11 +180,9 @@ fi
         self.assertEqual(self.run_script(WSDD2_FILES, 'wsdd2-package', 'postinst', PKG_UPGRADE='1').returncode, 0)
         self.assertEqual(self.run_script(AVAHI_FILES, 'avahi-daemon-package', 'postinst', PKG_UPGRADE='1').returncode, 0)
         self.assertEqual(self.actions(), [
-            'daemon-reload', 'enable wsdd2.service wsdd2-config.path', 'try-restart wsdd2.service',
-            'daemon-reload', 'enable avahi-daemon.service', 'try-restart avahi-daemon.service',
+            'daemon-reload', 'try-restart wsdd2.service',
+            'daemon-reload', 'try-restart avahi-daemon.service',
         ])
-        self.assertTrue((self.root / 'etc/systemd/openwrt-migrated/wsdd2').is_file())
-        self.assertTrue((self.root / 'etc/systemd/openwrt-migrated/avahi-daemon').is_file())
 
         (self.root / 'commands').unlink()
         self.assertEqual(self.run_script(WSDD2_FILES, 'wsdd2-package', 'postinst', PKG_UPGRADE='1').returncode, 0)

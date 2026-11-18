@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 """Exact-image KVM gate on disposable router/client disks; never targets SSH hosts.
 
-The supplied image must already contain the feature. --sysupgrade-image tests
-kept-config upgrade in the router VM too; without it the receipt is incomplete.
+The supplied image must contain UCI history and configuration backup support.
 """
 import argparse
 import gzip
 import importlib.util
 import json
 import re
-import shutil
 from pathlib import Path
 import shlex
 import socket
@@ -25,7 +23,7 @@ CLI = 'uci-history --json '
 REQUIRED = {'installed', 'cli-change-captured', 'luci-attribution', 'rpcd-timeout-rollback',
             'client-access-lost', 'automatic-revert', 'client-luci-restored', 'restore-diff',
             'init-reload-scenario', 'init-reload-revert', 'firewall-abort-runtime',
-            'boot-revert', 'kept-config-sysupgrade'}
+            'boot-revert', 'fresh-disk-backup-restore'}
 
 
 class PacedSocket:
@@ -90,18 +88,6 @@ def wait_reboot_console(guest, timeout=360):
     raise TimeoutError('sysupgrade did not reach a fresh serial shell')
 
 
-def serve_image(image):
-    # Invoked by QEMU guestfwd. Only this exact immutable input is served.
-    while sys.stdin.buffer.readline() not in (b'\r\n', b'\n', b''):
-        pass
-    size = image.stat().st_size
-    sys.stdout.buffer.write(f'HTTP/1.1 200 OK\r\nContent-Length: {size}\r\nConnection: close\r\n\r\n'.encode())
-    with image.open('rb') as f:
-        while block := f.read(1024 * 1024):
-            sys.stdout.buffer.write(block)
-    sys.stdout.buffer.flush()
-
-
 def wait(guest, command, timeout=90):
     return guest.run(f'for n in $(seq 1 {timeout // 2}); do if {command}; then exit 0; fi; sleep 2; done; exit 1', timeout=timeout + 30)
 
@@ -130,16 +116,13 @@ def ubus(guest, obj, method, args):
     return json.loads(output or '{}')
 
 
-def validate(image, work, upgrade=None):
+def validate(image, work):
     work.mkdir(parents=True, exist_ok=False)
     work.chmod(0o700)
     image = image.resolve()
     digest = NET.sha256(image)
     receipt = dict(schema_version=1, status='running', image=str(image), image_sha256=digest,
                    checks={}, scope='Disposable KVM router and LAN client; no physical device was flashed', started_at=time.time())
-    if upgrade:
-        upgrade = upgrade.resolve()
-        receipt.update(sysupgrade_image=str(upgrade), sysupgrade_sha256=NET.sha256(upgrade))
     result_file = work / 'validation.json'
 
     class Checks(dict):
@@ -168,9 +151,6 @@ def validate(image, work, upgrade=None):
             port = sock.getsockname()[1]
             sock.close()
             wan = 'user,id=wan,net=10.203.0.0/24,host=10.203.0.2,dns=10.203.0.3,ipv6=off,restrict=on'
-            if upgrade:
-                responder = shlex.join([sys.executable, str(HERE), '--serve-image', str(upgrade)])
-                wan += ',guestfwd=tcp:10.203.0.100:8080-cmd:' + responder
             router_net = ['-netdev', f'socket,id=lan,listen=127.0.0.1:{port}',
                           '-device', 'virtio-net-pci,netdev=lan,mac=52:54:00:ec:01:01',
                           '-netdev', wan, '-device', 'virtio-net-pci,netdev=wan,mac=52:54:00:ec:01:02']
@@ -278,36 +258,30 @@ def validate(image, work, upgrade=None):
             router = boot_router()
             wait(router, 'test "$(uci get system.@system[0].hostname)" = history-cli', 180)
             checks['boot-revert'] = cli(router, 'status')['transaction'] is None
-            if upgrade:
-                wait(router, 'ubus call network.interface.wan status | grep -q \'"up": true\'', 120)
-                # Image is downloaded to disk-backed overlay, not RAM. Exact hash is checked.
-                router.run('curl --noproxy "*" -fsS --max-time 300 http://10.203.0.100:8080/image -o /overlay/history-sysupgrade.img.gz', timeout=330)
-                router.run('echo ' + shlex.quote(receipt['sysupgrade_sha256'] + '  /overlay/history-sysupgrade.img.gz') + ' | sha256sum -c -')
-                # Native systemd permits checks/backups; flashing uses the
-                # supported one-shot procd recovery entry, without bypassing its guard.
-                router.run('grep -q -- "--id=owrt-rescue-procd" /boot/grub/grub.cfg; grub-editenv /boot/grub/grubenv set next_entry=owrt-rescue-procd; sync')
-                router.close()
-                guests.remove(router)
-                router = boot_router()
-                router.run('test "$(cat /proc/1/comm)" = procd; test ! -d /run/systemd/system')
-                receipt['sysupgrade_via'] = 'procd-recovery'
-                wait(router, 'ubus call network.interface.wan status | grep -q \'"up": true\'', 120)
-                router.run('echo ' + shlex.quote(receipt['sysupgrade_sha256'] + '  /overlay/history-sysupgrade.img.gz') + ' | sha256sum -c -')
-                before = cli(router, 'snapshot')['revision']
-                before_oid = cli(router, 'log --limit 1')['revisions'][0]['oid']
-                receipt['upgrade_checkpoint'] = dict(revision=before, oid=before_oid)
-                (work / 'validation.json').write_text(json.dumps(receipt, indent=2) + '\n')
-                router.run('sysupgrade -l | grep -q etc/uci-history/repo; sysupgrade -T /overlay/history-sysupgrade.img.gz', timeout=180)
-                router.run("nohup sh -c 'sleep 2; exec /sbin/sysupgrade /overlay/history-sysupgrade.img.gz' >/dev/console 2>&1 </dev/null &")
-                # Reconnect to the rebooted serial shell without terminating QEMU mid-upgrade.
-                wait_reboot_console(router)
-                router.console_ready = False
-                wait(router, 'test -x /usr/sbin/uci-history && ubus call system board >/dev/null', 120)
-                router.run('test "$(cat /proc/1/comm)" = systemd')
-                retained = cli(router, 'log --limit 100')['revisions']
-                permissions = router.run('stat -c %a /etc/uci-history')
-                checks['kept-config-sysupgrade'] = (cli(router, 'status')['head'] >= before and
-                                                      any(r['oid'] == before_oid for r in retained) and permissions == '700')
+            before = cli(router, 'snapshot')['revision']
+            oid = cli(router, 'log --limit 1')['revisions'][0]['oid']
+            router.run('sysupgrade -l | grep -q etc/uci-history/repo')
+            router.run('sysupgrade -b /tmp/history-backup.tar.gz')
+            digest_backup = router.run('sha256sum /tmp/history-backup.tar.gz').split()[0]
+            blocks = int(router.run("wc -c </tmp/history-backup.tar.gz"))
+            # Transfer via bounded serial frames into a clean disk booted from the same image.
+            payload = [router.run(f'dd if=/tmp/history-backup.tar.gz bs=1024 skip={i} count=1 2>/dev/null | base64 | tr -d "\\n"')
+                       for i in range((blocks + 1023) // 1024)]
+            router.close()
+            guests.remove(router)
+            router = Guest('restored', work, runtime, base, router_net, 3072)
+            guests.append(router)
+            router.run('umask 077; : >/tmp/history-backup.tar.gz')
+            for block in payload:
+                for offset in range(0, len(block), 256):
+                    router.run(f'printf %s {shlex.quote(block[offset:offset + 256])} | base64 -d >>/tmp/history-backup.tar.gz')
+            router.run(f'echo {shlex.quote(digest_backup + "  /tmp/history-backup.tar.gz")} | sha256sum -c -')
+            router.run('systemctl stop uci-history.path uci-history-events.service uci-history-sweep.timer')
+            router.run('sysupgrade -r /tmp/history-backup.tar.gz && rm -f /tmp/history-backup.tar.gz')
+            restored = cli(router, 'log --limit 100')['revisions']
+            checks['fresh-disk-backup-restore'] = (cli(router, 'status')['head'] >= before and
+                                                   any(row['oid'] == oid for row in restored) and
+                                                   router.run('stat -c %a /etc/uci-history') == '700')
             if not all(checks.values()):
                 raise AssertionError('Failed checks: ' + str([k for k, v in checks.items() if not v]))
             missing = REQUIRED - checks.keys()
@@ -321,8 +295,6 @@ def validate(image, work, upgrade=None):
                 guest.run('ip -br -4 address; ip -4 route; '
                           'systemctl --no-pager --full status uci-history-boot.service uci-history-events.service uci-history.path || true; systemctl --no-pager list-units "openwrt-uhttpd@*" || true; '
                           'cat /tmp/history-luci.headers 2>/dev/null || true; '
-                          'tail -n 80 /tmp/history-upgrade.log 2>/dev/null || true; '
-                          'journalctl -b -u history-vm-sysupgrade.service -t upgrade -n 100 --no-pager || true; '
                           'journalctl -b -u uci-history-boot.service -u uci-history-events.service -u uci-history-snapshot.service -n 30 --no-pager || true', timeout=30)
             except Exception:
                 pass
@@ -333,91 +305,7 @@ def validate(image, work, upgrade=None):
         receipt['completed_at'] = time.time()
         (work / 'validation.json').write_text(json.dumps(receipt, indent=2) + '\n')
         if receipt['status'] != 'failed':
-            for name in ('router.qcow2', 'client.qcow2', 'router.vars.fd', 'client.vars.fd', 'base.img'):
-                (work / name).unlink(missing_ok=True)
-    return receipt
-
-
-def resume_upgrade_verification(image, work, fresh_firmware=False):
-    """Recheck an already-flashed, retained failed guest after console failure."""
-    file = work / 'validation.json'
-    receipt = json.loads(file.read_text())
-    required = REQUIRED - {'kept-config-sysupgrade'}
-    if (receipt.get('status') != 'failed' or receipt.get('sysupgrade_via') != 'procd-recovery' or
-            not all(receipt['checks'].get(k) for k in required) or
-            NET.sha256(image.resolve()) != receipt['image_sha256']):
-        raise ValueError('Resume requires matching image and completed pre-upgrade checks')
-    if not all((work / name).is_file() for name in ('base.img', 'router.qcow2')):
-        raise ValueError('Failed guest disk was not retained')
-    checkpoint = receipt.get('upgrade_checkpoint')
-    if not checkpoint:
-        # Older receipts can be reconstructed from the last pre-flash log reply.
-        for line in (work / 'router.commands.log').read_text().splitlines():
-            try:
-                data = json.loads(line)
-            except ValueError:
-                continue
-            revisions = data.get('revisions', []) if isinstance(data, dict) else []
-            if len(revisions) == 1:
-                checkpoint = {k: revisions[0][k] for k in ('revision', 'oid')}
-        if not checkpoint:
-            raise ValueError('Pre-upgrade checkpoint evidence is missing')
-        receipt['checkpoint_evidence'] = 'Last pre-flash log --limit 1 reply in router.commands.log'
-    (work / ('validation-before-resume-' + str(time.time_ns()) + '.json')).write_text(file.read_text())
-    if fresh_firmware:
-        previous = work / ('firmware-before-resume-' + str(time.time_ns()) + '.fd')
-        shutil.copy2(work / 'router.vars.fd', previous)
-        shutil.copy2('/usr/share/OVMF/OVMF_VARS_4M.fd', work / 'router.vars.fd')
-        receipt['verification_firmware'] = 'Fresh OVMF variables; original saved as ' + previous.name
-    receipt['previous_error'] = receipt.pop('error', None)
-    receipt['resumed_at'] = time.time()
-    receipt['upgrade_checkpoint'] = checkpoint
-    receipt['status'] = 'running'
-    file.write_text(json.dumps(receipt, indent=2) + '\n')
-    guest = None
-    try:
-        with tempfile.TemporaryDirectory(prefix='uci-history-resume-') as tmp:
-            sock = socket.socket()
-            sock.bind(('127.0.0.1', 0))
-            port = sock.getsockname()[1]
-            sock.close()
-            # Preserve PCI device topology and MACs so the saved UEFI disk path
-            # remains valid; a one-NIC verifier can shift the virtio boot disk.
-            net = ['-netdev', f'socket,id=lan,listen=127.0.0.1:{port}',
-                   '-device', 'virtio-net-pci,netdev=lan,mac=52:54:00:ec:01:01',
-                   '-netdev', 'user,id=wan,net=10.203.0.0/24,host=10.203.0.2,dns=10.203.0.3,ipv6=off,restrict=on',
-                   '-device', 'virtio-net-pci,netdev=wan,mac=52:54:00:ec:01:02']
-            guest = Guest('router', work, Path(tmp), work / 'base.img', net, 3072)
-            guest.run('dmesg -n 1; test "$(cat /proc/1/comm)" = systemd')
-            isolate(guest)
-            wait(guest, 'systemctl is-active --quiet uci-history-boot.service && '
-                 'systemctl is-active --quiet uci-history.path && '
-                 'systemctl is-active --quiet uci-history-events.service', 180)
-            actual = guest.run('sha256sum /usr/sbin/uci-history').split()[0]
-            if actual != receipt['cli_sha256']:
-                raise AssertionError('Post-upgrade CLI hash does not match')
-            revisions = cli(guest, 'log --limit 100')['revisions']
-            status = cli(guest, 'status')
-            mode = guest.run('stat -c %a /etc/uci-history')
-            if not (status['head'] >= checkpoint['revision'] and
-                    any(r['oid'] == checkpoint['oid'] for r in revisions) and mode == '700'):
-                raise AssertionError('Kept history or permissions were not preserved')
-            receipt['checks']['kept-config-sysupgrade'] = True
-            receipt['post_upgrade_head'] = status['head']
-            receipt['post_upgrade_permissions'] = mode
-            receipt['post_upgrade_verification'] = 'Additional native boot of the already-flashed guest'
-            receipt['missing_checks'] = sorted(REQUIRED - receipt['checks'].keys())
-            receipt['status'] = 'passed'
-    except BaseException as error:
-        receipt.update(status='failed', error=str(error))
-        raise
-    finally:
-        if guest:
-            guest.close()
-        receipt['completed_at'] = time.time()
-        file.write_text(json.dumps(receipt, indent=2) + '\n')
-        if receipt['status'] == 'passed':
-            for name in ('router.qcow2', 'client.qcow2', 'router.vars.fd', 'client.vars.fd', 'base.img'):
+            for name in ('router.qcow2', 'client.qcow2', 'router.vars.fd', 'client.vars.fd', 'restored.qcow2', 'restored.vars.fd', 'base.img'):
                 (work / name).unlink(missing_ok=True)
     return receipt
 
@@ -426,18 +314,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--image', type=Path)
     parser.add_argument('--work-dir', type=Path)
-    parser.add_argument('--sysupgrade-image', type=Path)
-    parser.add_argument('--resume-upgrade-verification', action='store_true')
-    parser.add_argument('--fresh-firmware', action='store_true', help='Reset disposable OVMF variables when resuming, keeping a backup')
-    parser.add_argument('--serve-image', type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()
-    if args.serve_image:
-        serve_image(args.serve_image)
-    elif not args.image or not args.work_dir:
+    if not args.image or not args.work_dir:
         parser.error('--image and --work-dir are required')
-    else:
-        result = (resume_upgrade_verification(args.image, args.work_dir.resolve(), args.fresh_firmware)
-                  if args.resume_upgrade_verification else
-                  validate(args.image, args.work_dir.resolve(), args.sysupgrade_image))
-        print(json.dumps(result, indent=2))
-        sys.exit(0 if result['status'] == 'passed' else 1)
+    result = validate(args.image, args.work_dir.resolve())
+    print(json.dumps(result, indent=2))
+    sys.exit(0 if result['status'] == 'passed' else 1)

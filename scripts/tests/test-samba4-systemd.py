@@ -129,20 +129,12 @@ if [ "$1" = is-active ]; then test "${ACTIVE:-1}" = 1; fi
         self.script('samba4-systemd')
         (self.root / 'usr/libexec/samba4-systemd').write_text('#!/bin/sh\necho "$*" >> "$TEST_ROOT/commands"\n')
         (self.root / 'usr/libexec/samba4-systemd').chmod(0o755)
-        init = self.script('samba.init')
+        init = self.script('samba4-native.init')
         for action in ('boot', 'shutdown', 'start', 'stop', 'reload', 'enable', 'enabled'):
-            done = subprocess.run(['sh', '-c', 'action=$1; script=$2; shift 2; . "$script"', 'test', action, str(init)],
+            done = subprocess.run(['sh', str(init), action],
                                   capture_output=True, text=True, env=self.env)
             self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(self.actions(), ['start', 'stop', 'reload', 'enable', 'enabled'])
-
-    def test_recovery_retains_procd(self):
-        init = self.script('samba.init')
-        done = subprocess.run(['sh', '-c', '. "$1"; test "$USE_PROCD" = 1; '
-                               'command -v start_service; command -v service_triggers', 'test', str(init)],
-                              capture_output=True, text=True, env=self.env)
-        self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual(self.actions(), [])
 
     def test_offline_install_and_upgrade(self):
         for upgrade in ('0', '1'):
@@ -162,9 +154,8 @@ if [ "$1" = is-active ]; then test "${ACTIVE:-1}" = 1; fi
         (self.root / 'etc/rc.d/S98samba4').symlink_to('../init.d/samba4')
         self.assertEqual(self.run_script('samba4-package', 'postinst', PKG_UPGRADE='1').returncode, 0)
         self.assertEqual(self.actions(), [
-            'daemon-reload', 'enable samba4.service samba4-config.path', 'try-restart samba4.service',
+            'daemon-reload', 'try-restart samba4.service',
         ])
-        self.assertTrue((self.root / 'etc/systemd/openwrt-migrated/samba4').is_file())
 
         (self.root / 'commands').unlink()
         self.assertEqual(self.run_script('samba4-package', 'postinst', PKG_UPGRADE='1').returncode, 0)

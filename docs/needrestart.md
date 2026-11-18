@@ -1,5 +1,9 @@
 # Restart advice on native-systemd OpenWrt
 
+> Systemd is the sole normal init on current x86/64 images. References below
+> to procd recovery or firmware flashing from the running system describe
+> older images. See [current boot and migration guidance](systemd-only-plan.md).
+
 Select `openwrt-needrestart` under Utilities and optionally
 `luci-app-needrestart` under LuCI applications. These packages target the
 x86_64/glibc/APK native-systemd variant. Neither package changes service lifecycle

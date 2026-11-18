@@ -42,8 +42,8 @@ REQUIRED = {
     'route-direct', 'route-proxy', 'dns-through-dae', 'flow-offloading',
     'passwall-reload-stops-daed', 'stop-cleanup', 'restart', 'wan-dashboard-closed',
     'send-redirects-off', 'luci-acl-read', 'luci-log', 'luci-acl-denies-other-exec',
-    'luci-toggle', 'luci-restart', 'luci-default-lan-interface', 'luci-view-served', 'procd-init', 'procd-daed-autostart', 'procd-routes',
-    'procd-stop-cleanup',
+    'luci-toggle', 'luci-restart', 'luci-default-lan-interface', 'luci-view-served', 'reboot-daed-autostart', 'reboot-routes',
+    'reboot-stop-cleanup',
 }
 
 
@@ -363,29 +363,14 @@ def test_daed(image, work):
             menu = router.run('cat /usr/share/luci/menu.d/luci-app-daed.json')
             checks['luci-view-served'] = 'dashboardURL' in view_js and 'admin/services/daed' in menu
 
-            # procd recovery boot: daed is an rc service, so the same enabled
-            # configuration must come up when procd is PID 1. Make GRUB's
-            # "procd recovery" entry the default on this disposable disk and
-            # power-cycle both guests on their persistent overlays.
-            # kernelctl owns grub.cfg; use its one-shot next_entry, like a trial boot.
-            grub = router.run('cat /boot/grub/grub.cfg')
-            entry = 'owrt-rescue-procd'
-            if f'--id={entry} ' not in grub:
-                raise AssertionError('No procd recovery GRUB entry: ' + grub)
-            router.run(f'grub-editenv /boot/grub/grubenv set next_entry={entry}; '
-                       'grub-editenv /boot/grub/grubenv list; sync')
-            receipt['grub_next_entry'] = entry
             client.close()
             router.close()
             guests.clear()
             router = NET.Guest('router', work, runtime, base, router_net, 2048)
             guests.append(router)
             router.run('dmesg -n 1')
-            receipt['recovery_cmdline'] = router.run('cat /proc/cmdline')
-            checks['procd-init'] = (router.run('cat /proc/1/comm') == 'procd' and
-                                    'openwrt.init=procd' in receipt['recovery_cmdline'])
             wait(router, f'[ "$({TCX_LAN})" -gt 0 ]', 120)
-            checks['procd-daed-autostart'] = int(router.run(TCX_LAN)) > 0
+            checks['reboot-daed-autostart'] = int(router.run(TCX_LAN)) > 0
             client = NET.Guest('client', work, runtime, base, client_net, 1536)
             guests.append(client)
             client.run('dmesg -n 1')
@@ -398,12 +383,12 @@ def test_daed(image, work):
             assert client.run(f'curl -4 --noproxy "*" -fsS --max-time 15 http://{DIRECT}:8080/{token}') == token
             proxied = client.run(f'for n in $(seq 1 30); do curl -4 --noproxy "*" -fsS --max-time 10 '
                                  f'http://{PROXIED}:8080/{token} && exit 0; sleep 2; done; exit 1', timeout=150)
-            checks['procd-routes'] = proxied == f'proxied:{PROXIED}:8080/{token}'
+            checks['reboot-routes'] = proxied == f'proxied:{PROXIED}:8080/{token}'
             router.run('/etc/init.d/daed stop')
             wait(router, '! busybox pgrep -x daed >/dev/null', 30)
             leftovers = router.run(TCX_LAN + '; ip link show dae0 2>/dev/null | wc -l')
             client.run(f'! curl -4 --noproxy "*" -fsS --max-time 5 http://{PROXIED}:8080/{token}')
-            checks['procd-stop-cleanup'] = leftovers.split() == ['0', '0']
+            checks['reboot-stop-cleanup'] = leftovers.split() == ['0', '0']
 
             missing = REQUIRED - set(checks)
             failed = [name for name, value in checks.items() if not value]

@@ -58,20 +58,11 @@ systemd units in the top-level `auxiliary.slice` (`CPUWeight=100`, sibling of
   on `boot` and `shutdown` under native systemd so `openwrt-rcS` never spawns
   duplicate procd instances, and delegate `start`/`stop`/`restart`/`reload`/`status`/`running`/`enable`/`disable`/`enabled`
   to `/usr/libexec/<service>-systemd`.
-- In `procd` recovery boots (`openwrt.init=procd`), all three init scripts retain
-  their `USE_PROCD=1` implementation and shared `/usr/libexec/<service>-config.sh`
-  helpers.
 - `openwrt@cron.service`, `openwrt@nlbwmon.service`, and `openwrt@ddns-go.service`
   are excluded in `systemd-openwrt-services` and direct callers to the native
   units.
-- Package upgrades (`PKG_UPGRADE=1`) run `systemctl daemon-reload`, preserve any
-  existing systemd enablement once `/etc/systemd/openwrt-migrated/<service>` is
-  recorded, and on first-time migration from `procd` (when the stamp is absent
-  and `/etc/rc.d/S[0-9][0-9]<service>` is enabled) run `systemctl enable`
-  for the native unit and path watcher so the service starts automatically on
-  reboot, then run `systemctl try-restart` (never starting a second daemon
-  alongside an active `procd` instance). Fresh offline images enable the native
-  units and path watchers and pre-create the migration stamp.
+- Package upgrades preserve systemd enablement and restart only an active unit.
+  Fresh offline installs create native unit links without contacting the host manager.
 
 ## Tests
 

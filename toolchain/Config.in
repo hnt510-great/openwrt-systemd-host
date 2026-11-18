@@ -73,7 +73,7 @@ menuconfig TARGET_OPTIONS
 
 menuconfig EXTERNAL_TOOLCHAIN
 	bool
-	prompt "Use external toolchain"  if DEVEL
+	prompt "Use external toolchain"  if DEVEL && !TARGET_x86_64
 	help
 	  If enabled, the buildroot will compile using an existing toolchain instead of
 	  compiling one.
@@ -296,7 +296,8 @@ comment "C Library"
 	depends on TOOLCHAINOPTS
 
 choice
-	prompt "C Library implementation" if TOOLCHAINOPTS
+	prompt "C Library implementation" if TOOLCHAINOPTS || TARGET_x86_64
+	default LIBC_USE_GLIBC if TARGET_x86_64
 	default LIBC_USE_MUSL
 	help
 	  Select the C library implementation.
@@ -306,6 +307,7 @@ choice
 		select USE_GLIBC
 
 	config LIBC_USE_MUSL
+		depends on !TARGET_x86_64
 		select USE_MUSL
 		bool "Use musl"
 
@@ -505,7 +507,7 @@ config USE_GLIBC
 	bool
 
 config USE_MUSL
-	default y if !TOOLCHAINOPTS && !EXTERNAL_TOOLCHAIN && !NATIVE_TOOLCHAIN
+	default y if !TARGET_x86_64 && !TOOLCHAINOPTS && !EXTERNAL_TOOLCHAIN && !NATIVE_TOOLCHAIN
 	bool
 
 config SSP_SUPPORT

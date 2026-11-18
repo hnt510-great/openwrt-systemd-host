@@ -1,8 +1,6 @@
-Subject: [PATCH] procd: add opt-in systemd handoff and daemon compatibility
+Subject: [PATCH] procd: add systemd handoff and daemon compatibility
 
-Preserve preinit and procd recovery while supporting a systemd-managed
-service and hotplug daemon. Delegate reboot and reject firmware upgrades
-outside procd recovery.
+Preserve preinit and use systemd as the service manager.
 
 ---
 --- a/CMakeLists.txt
@@ -31,7 +29,7 @@ outside procd recovery.
  	RUNTIME DESTINATION ${CMAKE_INSTALL_SBINDIR}
 --- /dev/null
 +++ b/systemd.h
-@@ -0,0 +1,23 @@
+@@ -0,0 +1,16 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +#ifndef PROCD_SYSTEMD_H
 +#define PROCD_SYSTEMD_H
@@ -42,14 +40,7 @@ outside procd recovery.
 +static inline bool openwrt_systemd_requested(void)
 +{
 +#ifdef OPENWRT_SYSTEMD
-+	char mode[16], failsafe[8];
-+
-+	if (!access("/tmp/failsafe", F_OK) ||
-+	    !access("/tmp/.failsafe", F_OK) ||
-+	    get_cmdline_val("failsafe", failsafe, sizeof(failsafe)))
-+		return false;
-+	return get_cmdline_val("openwrt.init", mode, sizeof(mode)) &&
-+	       !strcmp(mode, "systemd");
++	return true;
 +#else
 +	return false;
 +#endif
@@ -127,12 +118,16 @@ outside procd recovery.
  
  static struct uloop_process preinit_proc;
  static struct uloop_process plugd_proc;
-@@ -102,6 +105,30 @@
+@@ -102,6 +105,36 @@
  
++#ifndef OPENWRT_SYSTEMD
  	check_sysupgrade();
++#endif
  
 +#ifdef OPENWRT_SYSTEMD
-+	if (!ret && openwrt_systemd_requested()) {
++	if (!ret && !access("/tmp/.failsafe", F_OK))
++		return;
++	if (!ret) {
 +		int status;
 +		pid_t child = fork();
 +		pid_t waited = -1;
@@ -152,8 +147,10 @@ outside procd recovery.
 +			unsetenv("WDTFD");
 +			execl("/usr/lib/systemd/systemd", "systemd", NULL);
 +		}
-+		ERROR("systemd handoff failed; booting procd recovery\n");
 +	}
++	ERROR("systemd handoff failed; reboot and select OpenWrt failsafe\n");
++	for (;;)
++		pause();
 +#endif
  	DEBUG(2, "Exec to real procd now\n");
  	if (wdt_fd)
@@ -349,7 +346,7 @@ outside procd recovery.
  
 +	if (procd_systemd) {
 +		sysupgrade_error(ctx, req,
-+				 "Boot the procd recovery entry before flashing firmware");
++				 "Firmware flashing is unavailable");
 +		return UBUS_STATUS_NOT_SUPPORTED;
 +	}
  	service_stop_all();

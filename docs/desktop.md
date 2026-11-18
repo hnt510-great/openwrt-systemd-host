@@ -1,5 +1,9 @@
 # Shared GNOME desktop
 
+> Systemd is the sole normal init on current x86/64 images. References below
+> to procd recovery or firmware flashing from the running system describe
+> older images. See [current boot and migration guidance](systemd-only-plan.md).
+
 The x86_64/glibc native-systemd image runs one ordinary user's GNOME 51
 Wayland session on VT7. Local display, GNOME Remote Desktop LAN RDP and
 Sunshine/Moonlight share that session. OpenWrt continues to manage routing,

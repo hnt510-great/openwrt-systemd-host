@@ -1,5 +1,9 @@
 # Desktop-style Podman on the native-systemd image
 
+> Systemd is the sole normal init on current x86/64 images. References below
+> to procd recovery or firmware flashing from the running system describe
+> older images. See [current boot and migration guidance](systemd-only-plan.md).
+
 The x86_64/glibc desktop image builds Podman with the upstream `systemd` Go
 tag, builds conmon with `libsystemd` (journald container logs) and installs the
 upstream systemd units, Quadlet generator and tmpfiles fragment. crun already

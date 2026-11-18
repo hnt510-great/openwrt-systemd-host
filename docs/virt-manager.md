@@ -1,5 +1,9 @@
 # Virtual Machine Manager on GNOME
 
+> Systemd is the sole normal init on current x86/64 images. References below
+> to procd recovery or firmware flashing from the running system describe
+> older images. See [current boot and migration guidance](systemd-only-plan.md).
+
 The x86_64/glibc native-systemd desktop includes virt-manager as an
 ordinary-user application. It connects to local modular libvirt daemons using
 `qemu:///system`. GNOME provides the graphical session; OpenWrt owns host

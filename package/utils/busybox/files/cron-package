@@ -1,24 +1,11 @@
 #!/bin/sh
-# Package lifecycle only; never transfers a running daemon out of procd.
 set -eu
 
 root=${IPKG_INSTROOT:-}
-stamp=/etc/systemd/openwrt-migrated/cron
-
-rc_enabled() {
-	for link in "$1/etc/rc.d/S"[0-9][0-9]cron; do
-		if [ -L "$link" ] || [ -x "$link" ]; then
-			return 0
-		fi
-	done
-	return 1
-}
-
 case "${1:-}" in
 postinst)
 	if [ -n "$root" ]; then
-		if [ "${PKG_UPGRADE:-0}" != 1 ] ||
-		   { [ ! -e "$root$stamp" ] && rc_enabled "$root"; }; then
+		if [ "${PKG_UPGRADE:-0}" != 1 ]; then
 			if [ "$(readlink "$root/etc/systemd/system/cron.service" 2>/dev/null || :)" != /dev/null ]; then
 				wants=$root/etc/systemd/system/multi-user.target.wants
 				mkdir -p "$wants"
@@ -29,8 +16,6 @@ postinst)
 					ln -s /usr/lib/systemd/system/cron-config.path "$wants/cron-config.path"
 				fi
 			fi
-			mkdir -p "$root/etc/systemd/openwrt-migrated"
-			: >"$root$stamp"
 		fi
 		exit 0
 	fi
@@ -39,20 +24,18 @@ postinst)
 	for mask in /etc/systemd/system/cron.service /run/systemd/system/cron.service; do
 		[ "$(readlink "$mask" 2>/dev/null || :)" != /dev/null ] || exit 0
 	done
-	if [ "${PKG_UPGRADE:-0}" != 1 ] ||
-	   { [ ! -e "$stamp" ] && rc_enabled ""; }; then
+	if [ "${PKG_UPGRADE:-0}" != 1 ]; then
 		systemctl enable cron.service cron-config.path
+		systemctl --no-block start cron.service
+	else
+		systemctl try-restart cron.service
 	fi
-	mkdir -p /etc/systemd/openwrt-migrated
-	: >"$stamp"
-	systemctl try-restart cron.service
 	;;
 prerm)
 	[ -z "$root" ] && [ -d /run/systemd/system ] || exit 0
 	[ "${PKG_UPGRADE:-0}" != 1 ] || exit 0
 	systemctl stop cron-config.path cron-reconfigure.service cron.service
 	systemctl disable cron.service cron-config.path
-	rm -f "$stamp"
 	;;
 *)
 	exit 2

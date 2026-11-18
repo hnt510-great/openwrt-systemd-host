@@ -157,10 +157,10 @@ Validate the complete `multi-user.target` graph when changing these units.
 Post-install starts the boot capture, path unit, sweep timer and event listener
 on a running systemd target. APK image construction skips live hooks. Removal
 first aborts a pending transaction and then stops the units. The history itself
-is retained; `/lib/upgrade/keep.d/uci-history` preserves it across kept-config
-sysupgrade. This tree requires the procd recovery boot entry for actual firmware
-flashing; native systemd permits image checks and backups. Return to native
-systemd for normal automatic history capture and timed transactions. No pruning runs automatically; choose an explicit retention policy.
+is retained. `/lib/upgrade/keep.d/uci-history` includes it in configuration
+archives created by `sysupgrade -b`. Install full images offline and restore
+the selected configuration. Automatic capture and timed transactions run
+under systemd. Pruning follows an explicit retention policy.
 
 LuCI separates read (`status`, `log`, `diff`) and write (`restore`, `confirm`,
 `abort`) ACLs. Its fixed-command backend validates arguments and caps responses

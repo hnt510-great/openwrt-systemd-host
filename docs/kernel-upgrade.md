@@ -14,7 +14,7 @@ distributions do it:
 - userspace no longer depends on the kernel version.
 
 The image's original kernel (`/boot/vmlinuz`) is never written. It stays as the
-rescue entry, together with procd recovery and failsafe entries. GRUB's core is
+rescue entry, with a separate native failsafe entry. GRUB's core is
 not reinstalled, and no disk is flashed.
 
 Validation of this model is recorded in
@@ -112,7 +112,7 @@ hook runs `kernelctl apk-post`, which does the following for each new kernel pac
 3. writes `/boot/kernels/<release>/microcode.cpio` with the running CPU's
    microcode for early loading (see [early CPU microcode](early-microcode.md));
 4. writes GRUB entries for every installed kernel, newest first, each with
-   systemd, procd and failsafe variants;
+   normal systemd and native failsafe variants;
 5. makes the newest kernel the default and arms the boot counter.
 
 Nothing changes for the running system until you reboot. `needrestart` and
@@ -234,7 +234,7 @@ kernel packages until adoption is complete; offline image assembly is allowed.
 ## Recovery
 
 - In the GRUB menu, choose another installed kernel, or the original kernel
-  (rescue, procd recovery or failsafe).
+  (normal rescue boot or native failsafe).
 - From a running system, use `kernelctl set-default <release>` or `kernelctl rollback`.
 - The rescue entries are parsed before any mutable file. If
   `/boot/grub/openwrt.cfg` is missing or broken, the rescue entries still boot.

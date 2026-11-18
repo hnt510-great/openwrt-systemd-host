@@ -1,5 +1,9 @@
 # Desktop kernel support
 
+> Systemd is the sole normal init on current x86/64 images. References below
+> to procd recovery or firmware flashing from the running system describe
+> older images. See [current boot and migration guidance](systemd-only-plan.md).
+
 The x86-64 native-systemd desktop image includes the selections in
 `configs/desktop-kernel.config`. They are also merged into the existing
 `configs/x86-64-systemd-desktop.config` and build `.config`; existing package

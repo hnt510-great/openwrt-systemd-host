@@ -208,6 +208,23 @@ class RuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(K.KernelError, 'not mounted'):
             self.manager.check()
 
+    def test_migrate_replaces_old_grub_entries_and_preserves_counting(self):
+        self.adopt()
+        name = self.install(2)
+        self.environment.update(saved_entry=f'owrt-{name}-procd',
+                                fallback_entry='owrt-rescue-procd',
+                                next_entry='owrt-rescue-procd', boot_left='2')
+        self.manager.migrate()
+        self.assertEqual(self.environment['saved_entry'], f'owrt-{name}')
+        self.assertEqual(self.environment['fallback_entry'], 'owrt-rescue')
+        self.assertEqual(self.environment['boot_left'], '2')
+        self.assertNotIn('next_entry', self.environment)
+        for name in ('grub.cfg', 'openwrt.cfg'):
+            menu = (self.root / 'boot/grub' / name).read_text()
+            self.assertIn('failsafe=true', menu)
+            self.assertNotIn('openwrt.init=', menu)
+            self.assertNotIn('-procd', menu)
+
     # -- installing kernels ------------------------------------------------------
 
     def test_new_kernel_package_becomes_the_counted_default(self):
@@ -223,8 +240,9 @@ class RuntimeTests(unittest.TestCase):
         self.assertTrue((boot / 'initramfs.gz').is_file())
         self.assertIn(['depmod', '-a', name], self.calls)
         menu = (self.root / 'boot/grub/openwrt.cfg').read_text()
-        self.assertIn(f"--id=owrt-{name} {{\n linux /boot/kernels/{name}/vmlinuz root=PARTUUID=abcd-02 openwrt.init=systemd", menu)
-        self.assertIn(f"--id=owrt-{name}-procd", menu)
+        self.assertIn(f"--id=owrt-{name} {{\n linux /boot/kernels/{name}/vmlinuz root=PARTUUID=abcd-02\n", menu)
+        self.assertNotIn(f"--id=owrt-{name}-procd", menu)
+        self.assertIn(f"--id=owrt-{name}-failsafe", menu)
         self.assertNotIn('firmware_class.path', menu)
         protected = (self.manager.policy / 'protected').read_text()
         self.assertIn('linux-image-' + name + '>', protected)
@@ -309,7 +327,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual([p.name for p in (extracted / 'kernel/x86/microcode').iterdir()], ['GenuineIntel.bin'])
         menu = (self.root / 'boot/grub/openwrt.cfg').read_text()
         self.assertIn(f' initrd /boot/kernels/{name}/microcode.cpio /boot/kernels/{name}/initramfs.gz\n', menu)
-        self.assertEqual(menu.count('microcode.cpio'), 3)
+        self.assertEqual(menu.count('microcode.cpio'), 2)
         self.assertNotIn('microcode', (self.root / 'boot/grub/grub.cfg').read_text())
         self.assertIn(K.MICROCODE, json.loads((self.root / 'boot/kernels' / name / 'boot.json').read_text())['boot_files'])
         self.manager.check()
@@ -599,7 +617,7 @@ class RuntimeTests(unittest.TestCase):
         self.manager.check()
         menu = self.manager.grub_config(state)
         self.assertIn(f'linux /boot/kernels/{GEN}/vmlinuz root=PARTUUID=abcd-02 '
-                      f'firmware_class.path=/usr/lib/openwrt-kernel/{GEN}/firmware openwrt.init=systemd', menu)
+                      f'firmware_class.path=/usr/lib/openwrt-kernel/{GEN}/firmware', menu)
         self.manager.prepare()
         link = self.root / 'run/openwrt-kernel/modules.d/30-nic'
         self.assertEqual(link.resolve(), (self.root / 'usr/lib/modules' / GEN / 'openwrt/modules.d/30-nic').resolve())
