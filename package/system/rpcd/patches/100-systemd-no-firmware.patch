@@ -1,0 +1,50 @@
+--- a/sys.c
++++ b/sys.c
+@@ -37,6 +37,7 @@
+ 	[RPC_P_PASSWORD] = { .name = "password", .type = BLOBMSG_TYPE_STRING },
+ };
+ 
++#ifndef OPENWRT_SYSTEMD
+ enum {
+ 	RPC_UPGRADE_KEEP,
+ 	__RPC_UPGRADE_MAX
+@@ -45,6 +46,8 @@
+ static const struct blobmsg_policy rpc_upgrade_policy[__RPC_UPGRADE_MAX] = {
+ 	[RPC_UPGRADE_KEEP] = { .name = "keep",    .type = BLOBMSG_TYPE_BOOL },
+ };
++
++#endif
+ 
+ enum {
+ 	RPC_PACKAGELIST_ALL,
+@@ -391,6 +394,7 @@
+ 	return 0;
+ }
+ 
++#ifndef OPENWRT_SYSTEMD
+ static int
+ rpc_sys_upgrade_test(struct ubus_context *ctx, struct ubus_object *obj,
+                        struct ubus_request_data *req, const char *method,
+@@ -435,6 +439,8 @@
+ 
+ 	return 0;
+ }
++
++#endif
+ 
+ static int
+ rpc_sys_factory(struct ubus_context *ctx, struct ubus_object *obj,
+@@ -474,10 +480,13 @@
+ 	static const struct ubus_method sys_methods[] = {
+ 		UBUS_METHOD("packagelist", rpc_sys_packagelist, rpc_packagelist_policy),
+ 		UBUS_METHOD("password_set", rpc_cgi_password_set, rpc_password_policy),
++#ifndef OPENWRT_SYSTEMD
+ 		UBUS_METHOD_NOARG("upgrade_test", rpc_sys_upgrade_test),
+ 		UBUS_METHOD("upgrade_start",      rpc_sys_upgrade_start,
+ 		                                  rpc_upgrade_policy),
+ 		UBUS_METHOD_NOARG("upgrade_clean", rpc_sys_upgrade_clean),
++#endif
++
+ 		UBUS_METHOD_NOARG("factory", rpc_sys_factory),
+ 		UBUS_METHOD_NOARG("reboot", rpc_sys_reboot),
+ 	};

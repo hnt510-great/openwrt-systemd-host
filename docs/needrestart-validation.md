@@ -621,3 +621,46 @@ simulation and live upgrade changed only `openwrt-needrestart`. Both the APK
 commit hook's queued worker report (`needrestart --cached`) and a fresh CLI
 scan returned `complete` (exit 0) over 232 processes, zero warnings, no restart
 advice, kernel `current`, and all eight containers `current`.
+
+
+## LuCI scan banner alignment — 2026-11-15
+
+The scan status paragraph now uses `text-align: center`; this survives the
+polling updates that replace its status class and text. The LuCI package
+release is incremented to 2.
+
+- Existing `node scripts/tests/test-luci-needrestart.js`: passed.
+- `make package/custom/luci-app-needrestart/compile V=s -j3`: passed;
+  build log: `/tmp/luci-needrestart-center-build.log` on the build host.
+- Physical router: changed only the installed view through shell SSH to
+  `openwrt`, retaining the original at
+  `/var/tmp/needrestart.js.before-center-20261115-011830` on the router.
+  HTTP retrieval confirmed the centered style and the served JavaScript parsed.
+  Served file SHA-256:
+  `c8235c036ebeb321332521ae4ad2a01bf594661d1e352210320304af5a048b2a`.
+- Browser appearance has not been observed after the change. No VM was run
+  for this presentation-only adjustment. No feed publication, APK installation,
+  service restart or reboot was performed; the live view is a direct file edit.
+
+
+### Follow-up: theme rule and cache refresh
+
+The user reported no visible change from the view-only edit. On the same day,
+added a page-scoped Argon rule for the scan button's adjacent status paragraph
+(`display: block !important; text-align: center !important`) to the LESS source
+and generated stylesheet. The theme release is now `20261115`. The rule also
+covers browsers still loading the old view JS. The root cause of the first
+attempt's visible failure has not been established.
+
+Applied only this rule to the physical router's stylesheet over shell SSH,
+with backup `/var/tmp/argon-cascade.css.before-needrestart-center-20261115-012302`.
+HTTP retrieval verified the rule and the stylesheet URL changed from
+`v=0-1794586766-296338` to `v=1794676982-1794676982-296474`, so a page reload
+requests a new CSS URL. The LuCI view test passed; Argon theme behavior tests
+passed 13/13 with staged host tools in PATH. The initial theme test invocation
+lacked `ucode` in PATH; the corrected invocation passed.
+
+The browser tool's access host is unavailable, so actual browser appearance
+remains unverified. No service restart, publication or APK installation occurred.
+
+Argon package build (`make package/custom/luci-theme-argon/compile V=s -j3 NO_DEPS=1`) passed; log: `/tmp/argon-needrestart-center-build.log`.

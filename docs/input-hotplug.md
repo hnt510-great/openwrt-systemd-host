@@ -1,5 +1,9 @@
 # Input hotplug in the GNOME desktop
 
+> Systemd is the sole normal init on current x86/64 images. References below
+> to procd recovery or firmware flashing from the running system describe
+> older images. See [current boot and migration guidance](systemd-only-plan.md).
+
 The native-systemd profile uses systemd-udevd, native libudev and logind seat
 handling. GNOME/Mutter receives input through its normal libinput/logind path.
 The x86/64 kernel provides USB HID support; the desktop also selects

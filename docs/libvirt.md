@@ -1,5 +1,9 @@
 # Libvirt and virsh on native-systemd OpenWrt
 
+> Systemd is the sole normal init on current x86/64 images. References below
+> to procd recovery or firmware flashing from the running system describe
+> older images. See [current boot and migration guidance](systemd-only-plan.md).
+
 This package targets x86_64/glibc with CONFIG_OPENWRT_SYSTEMD=y. It provides
 libvirt 12.9.0, virsh, modular QEMU/secret/directory-storage daemons, the
 node-device and network-filter daemons, virtlogd and virtlockd, plus UEFI

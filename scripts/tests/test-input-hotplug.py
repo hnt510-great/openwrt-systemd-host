@@ -49,7 +49,7 @@ def main():
     parser.add_argument("--identity", type=Path, required=True)
     parser.add_argument("--qmp", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--no-desktop", action="store_true", help="Probe procd recovery without Weston")
+    parser.add_argument("--no-desktop", action="store_true", help="Probe the guest without requiring a desktop session")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     ssh = [

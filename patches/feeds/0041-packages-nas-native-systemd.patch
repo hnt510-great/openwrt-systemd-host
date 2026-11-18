@@ -1,0 +1,621 @@
+diff --git a/libs/avahi/Makefile b/libs/avahi/Makefile
+index 8274ddf9e..df0d99881 100644
+--- a/libs/avahi/Makefile
++++ b/libs/avahi/Makefile
+@@ -7,7 +7,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=avahi
+ PKG_VERSION:=0.9_rc5
+-PKG_RELEASE:=1
++PKG_RELEASE:=4
+ 
+ PKG_SOURCE:=$(PKG_NAME)-0.9-rc5.tar.gz
+ PKG_SOURCE_URL:=https://codeload.github.com/avahi/avahi/tar.gz/v0.9-rc5?
+@@ -25,6 +25,8 @@ PKG_BUILD_PARALLEL:=1
+ 
+ include $(INCLUDE_DIR)/package.mk
+ 
++PKG_CONFIG_DEPENDS:=CONFIG_OPENWRT_SYSTEMD
++
+ define Package/avahi/Default
+   SECTION:=net
+   CATEGORY:=Network
+@@ -348,8 +350,29 @@ define Package/avahi-daemon/install
+ 	$(INSTALL_DIR) $(1)/etc/avahi/services
+ 	$(INSTALL_DIR) $(1)/etc/init.d
+ 	$(INSTALL_BIN) ./files/avahi-daemon.init $(1)/etc/init.d/avahi-daemon
++	$(if $(CONFIG_OPENWRT_SYSTEMD),$(call Package/avahi-daemon/install-systemd,$(1)))
++endef
++
++define Package/avahi-daemon/install-systemd
++	$(INSTALL_DIR) $(1)/usr/lib/systemd/system $(1)/usr/libexec
++	$(INSTALL_DATA) $(if $(filter nodbus,$(BUILD_VARIANT)),./files/avahi-daemon-nodbus.service,./files/avahi-daemon.service) \
++		$(1)/usr/lib/systemd/system/avahi-daemon.service
++	$(INSTALL_BIN) ./files/avahi-daemon-systemd ./files/avahi-daemon-package $(1)/usr/libexec/
++endef
++
++define Package/avahi-dbus-daemon/postinst
++#!/bin/sh
++[ ! -x "$${IPKG_INSTROOT}/usr/libexec/avahi-daemon-package" ] || "$${IPKG_INSTROOT}/usr/libexec/avahi-daemon-package" postinst
++endef
++
++define Package/avahi-dbus-daemon/prerm
++#!/bin/sh
++[ ! -x "$${IPKG_INSTROOT}/usr/libexec/avahi-daemon-package" ] || "$${IPKG_INSTROOT}/usr/libexec/avahi-daemon-package" prerm
+ endef
+ 
++Package/avahi-nodbus-daemon/postinst=$(Package/avahi-dbus-daemon/postinst)
++Package/avahi-nodbus-daemon/prerm=$(Package/avahi-dbus-daemon/prerm)
++
+ Package/avahi-dbus-daemon/install=$(Package/avahi-daemon/install)
+ Package/avahi-nodbus-daemon/install=$(Package/avahi-daemon/install)
+ 
+diff --git a/libs/avahi/files/avahi-daemon-nodbus.service b/libs/avahi/files/avahi-daemon-nodbus.service
+new file mode 100644
+index 000000000..56392f6f5
+--- /dev/null
++++ b/libs/avahi/files/avahi-daemon-nodbus.service
+@@ -0,0 +1,20 @@
++[Unit]
++Description=Avahi mDNS/DNS-SD Stack
++After=network-online.target
++Wants=network-online.target
++Before=samba4.service
++StartLimitIntervalSec=60
++StartLimitBurst=5
++
++[Service]
++Type=simple
++Slice=nas.slice
++ExecStart=/usr/sbin/avahi-daemon -s
++ExecReload=/bin/kill -HUP $MAINPID
++Restart=on-failure
++RestartSec=5s
++KillMode=control-group
++TimeoutStopSec=30s
++
++[Install]
++WantedBy=multi-user.target
+diff --git a/libs/avahi/files/avahi-daemon-package b/libs/avahi/files/avahi-daemon-package
+new file mode 100644
+index 000000000..0b0cd1208
+--- /dev/null
++++ b/libs/avahi/files/avahi-daemon-package
+@@ -0,0 +1,38 @@
++#!/bin/sh
++# Package lifecycle only; never transfers a running listener out of procd.
++set -eu
++
++root=${IPKG_INSTROOT:-}
++case "${1:-}" in
++postinst)
++	if [ -n "$root" ]; then
++		[ "${PKG_UPGRADE:-0}" != 1 ] || exit 0
++		[ "$(readlink "$root/etc/systemd/system/avahi-daemon.service" 2>/dev/null || :)" != /dev/null ] || exit 0
++		wants=$root/etc/systemd/system/multi-user.target.wants
++		mkdir -p "$wants"
++		if [ ! -e "$wants/avahi-daemon.service" ] && [ ! -L "$wants/avahi-daemon.service" ]; then
++			ln -s /usr/lib/systemd/system/avahi-daemon.service "$wants/avahi-daemon.service"
++		fi
++		exit 0
++	fi
++	[ -d /run/systemd/system ] || exit 0
++	systemctl daemon-reload
++	for mask in /etc/systemd/system/avahi-daemon.service /run/systemd/system/avahi-daemon.service; do
++		[ "$(readlink "$mask" 2>/dev/null || :)" != /dev/null ] || exit 0
++	done
++	if [ "${PKG_UPGRADE:-0}" != 1 ] &&
++	   [ "$(readlink /etc/systemd/system/avahi-daemon.service 2>/dev/null || :)" != /dev/null ]; then
++		systemctl enable avahi-daemon.service
++	fi
++	systemctl try-restart avahi-daemon.service
++	;;
++prerm)
++	[ -z "$root" ] && [ -d /run/systemd/system ] || exit 0
++	[ "${PKG_UPGRADE:-0}" != 1 ] || exit 0
++	systemctl stop avahi-daemon.service
++	systemctl disable avahi-daemon.service
++	;;
++*)
++	exit 2
++	;;
++esac
+diff --git a/libs/avahi/files/avahi-daemon-systemd b/libs/avahi/files/avahi-daemon-systemd
+new file mode 100644
+index 000000000..819df1851
+--- /dev/null
++++ b/libs/avahi/files/avahi-daemon-systemd
+@@ -0,0 +1,17 @@
++#!/bin/sh
++# Native lifecycle adapter; systemd supervises avahi-daemon.
++
++case "$1" in
++start|stop|restart|reload|status|enable|disable)
++	exec systemctl "$1" avahi-daemon.service
++	;;
++running)
++	exec systemctl is-active --quiet avahi-daemon.service
++	;;
++enabled)
++	exec systemctl is-enabled --quiet avahi-daemon.service
++	;;
++*)
++	exit 2
++	;;
++esac
+diff --git a/libs/avahi/files/avahi-daemon.init b/libs/avahi/files/avahi-daemon.init
+index f580a31d8..2b351c024 100644
+--- a/libs/avahi/files/avahi-daemon.init
++++ b/libs/avahi/files/avahi-daemon.init
+@@ -2,6 +2,16 @@
+ # Copyright (C) 2006 OpenWrt.org
+ START=61
+ 
++# The native manager owns the daemon. rc.d remains for recovery boots.
++if [ -z "$IPKG_INSTROOT" ] && [ -d /run/systemd/system ] &&
++   [ -f /usr/lib/systemd/system/avahi-daemon.service ]; then
++	case "$action" in
++		boot|shutdown) exit 0 ;;
++		help|depends) ;;
++		*) exec /usr/libexec/avahi-daemon-systemd "$action" "$@" ;;
++	esac
++fi
++
+ USE_PROCD=1
+ PROG=avahi-daemon
+ 
+diff --git a/libs/avahi/files/avahi-daemon.service b/libs/avahi/files/avahi-daemon.service
+new file mode 100644
+index 000000000..d357b8c7c
+--- /dev/null
++++ b/libs/avahi/files/avahi-daemon.service
+@@ -0,0 +1,22 @@
++[Unit]
++Description=Avahi mDNS/DNS-SD Stack
++Requires=dbus.socket
++After=dbus.service network-online.target
++Wants=network-online.target
++Before=samba4.service
++StartLimitIntervalSec=60
++StartLimitBurst=5
++
++[Service]
++Type=dbus
++BusName=org.freedesktop.Avahi
++Slice=nas.slice
++ExecStart=/usr/sbin/avahi-daemon -s
++ExecReload=/bin/kill -HUP $MAINPID
++Restart=on-failure
++RestartSec=5s
++KillMode=control-group
++TimeoutStopSec=30s
++
++[Install]
++WantedBy=multi-user.target
+diff --git a/net/wsdd2/Makefile b/net/wsdd2/Makefile
+index 7fde40c39..3ac911ca1 100644
+--- a/net/wsdd2/Makefile
++++ b/net/wsdd2/Makefile
+@@ -1,7 +1,7 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=wsdd2
+-PKG_RELEASE:=2
++PKG_RELEASE:=5
+ 
+ PKG_SOURCE_PROTO:=git
+ PKG_SOURCE_URL:=https://github.com/Netgear/wsdd2.git
+@@ -14,6 +14,8 @@ PKG_LICENSE_FILES:=COPYING
+ 
+ include $(INCLUDE_DIR)/package.mk
+ 
++PKG_CONFIG_DEPENDS:=CONFIG_OPENWRT_SYSTEMD
++
+ define Package/wsdd2
+   SECTION:=net
+   CATEGORY:=Network
+@@ -36,10 +38,29 @@ define Build/Compile
+ endef
+ 
+ define Package/wsdd2/install
+-	$(INSTALL_DIR) $(1)/usr/bin
++	$(INSTALL_DIR) $(1)/usr/bin $(1)/usr/libexec $(1)/etc/init.d
+ 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/wsdd2 $(1)/usr/bin/
+-	$(INSTALL_DIR) $(1)/etc/init.d
++	$(INSTALL_DATA) ./files/wsdd2-config.sh $(1)/usr/libexec/wsdd2-config.sh
+ 	$(INSTALL_BIN) ./files/wsdd2.init $(1)/etc/init.d/wsdd2
++	$(if $(CONFIG_OPENWRT_SYSTEMD),$(call Package/wsdd2/install-systemd,$(1)))
++endef
++
++define Package/wsdd2/install-systemd
++	$(INSTALL_DIR) $(1)/usr/lib/systemd/system $(1)/usr/libexec $(1)/etc/hotplug.d/iface
++	$(INSTALL_DATA) ./files/wsdd2.service ./files/wsdd2-config.path \
++		./files/wsdd2-reconfigure.service $(1)/usr/lib/systemd/system/
++	$(INSTALL_BIN) ./files/wsdd2-systemd ./files/wsdd2-package $(1)/usr/libexec/
++	$(INSTALL_DATA) ./files/wsdd2.hotplug $(1)/etc/hotplug.d/iface/65-wsdd2
++endef
++
++define Package/wsdd2/postinst
++#!/bin/sh
++[ ! -x "$${IPKG_INSTROOT}/usr/libexec/wsdd2-package" ] || "$${IPKG_INSTROOT}/usr/libexec/wsdd2-package" postinst
++endef
++
++define Package/wsdd2/prerm
++#!/bin/sh
++[ ! -x "$${IPKG_INSTROOT}/usr/libexec/wsdd2-package" ] || "$${IPKG_INSTROOT}/usr/libexec/wsdd2-package" prerm
+ endef
+ 
+ $(eval $(call BuildPackage,wsdd2))
+diff --git a/net/wsdd2/files/wsdd2-config.path b/net/wsdd2/files/wsdd2-config.path
+new file mode 100644
+index 000000000..225c4a437
+--- /dev/null
++++ b/net/wsdd2/files/wsdd2-config.path
+@@ -0,0 +1,14 @@
++[Unit]
++Description=Watch WSDD2 configuration inputs
++
++[Path]
++PathChanged=/var/etc/smb.conf
++PathChanged=/etc/samba/smb.conf
++PathChanged=/etc/ksmbd/ksmbd.conf
++PathChanged=/etc/config/system
++PathChanged=/etc/config/dhcp
++PathChanged=/etc/config/ksmbd
++Unit=wsdd2-reconfigure.service
++
++[Install]
++WantedBy=multi-user.target
+diff --git a/net/wsdd2/files/wsdd2-config.sh b/net/wsdd2/files/wsdd2-config.sh
+new file mode 100644
+index 000000000..f0092ed81
+--- /dev/null
++++ b/net/wsdd2/files/wsdd2-config.sh
+@@ -0,0 +1,68 @@
++#!/bin/sh
++# Shared SMB/ksmbd discovery and CLI argument helper for wsdd2.
++
++wsdd2_find_conf() {
++	WS_CONF=""
++
++	if [ -e /etc/ksmbd/ksmbd.conf ] && [ -e /etc/init.d/ksmbd ] && /etc/init.d/ksmbd running; then
++		WS_CONF="/etc/ksmbd/ksmbd.conf"
++	fi
++
++	if [ -z "$WS_CONF" ] && [ -e /etc/samba/smb.conf ]; then
++		if [ -z "${IPKG_INSTROOT:-}" ] && [ -d /run/systemd/system ] &&
++		   [ -f /usr/lib/systemd/system/samba4.service ]; then
++			if systemctl is-active --quiet samba4.service; then
++				WS_CONF="/etc/samba/smb.conf"
++			fi
++		elif [ -e /etc/init.d/samba4 ] && /etc/init.d/samba4 running; then
++			WS_CONF="/etc/samba/smb.conf"
++		elif [ -e /etc/init.d/samba ] && /etc/init.d/samba running; then
++			WS_CONF="/etc/samba/smb.conf"
++		fi
++	fi
++
++	[ -n "$WS_CONF" ]
++}
++
++wsdd2_resolve_params() {
++	local smb_conf nb_name nb_option wg_name
++	local board_vendor board_model board_sku
++
++	WS_NB="$(sed 's/\..*//' /proc/sys/kernel/hostname)"
++	WS_WG="WORKGROUP"
++	WS_BI=""
++	WS_IFNAME=""
++
++	smb_conf="$(grep '^[[:blank:]]*[^[:blank:]#;]' "$WS_CONF")"
++
++	nb_name="$(echo "$smb_conf" | grep -i 'netbios name' | awk -F'=' '{print $2}' | tr -d ' \n')"
++	[ -n "$nb_name" ] && WS_NB="$nb_name"
++
++	# use uppercase for none mdns option
++	nb_option="$(echo "$smb_conf" | grep -i 'mdns name' | awk -F'=' '{print $2}' | tr -d ' \n')"
++	[ "$nb_option" != "mdns" ] && WS_NB="$(echo "$WS_NB" | awk '{print toupper($0)}')"
++
++	wg_name="$(echo "$smb_conf" | grep -i 'workgroup' | awk -F'=' '{print $2}' | tr -d ' \n')"
++	[ -n "$wg_name" ] && WS_WG="$wg_name"
++
++	. /lib/functions.sh
++	. /lib/functions/network.sh
++	network_get_device WS_IFNAME lan
++
++	[ -e /tmp/sysinfo/board_name ] && {
++		board_vendor="$(awk -F',' '{print $1}' /tmp/sysinfo/board_name | tr ' ' '_' | tr ',' '-' | tr -d ' \n')"
++		board_sku="$(awk -F',' '{print $2}' /tmp/sysinfo/board_name | tr ' ' '_' | tr ',' '-' | tr -d ' \n')"
++	}
++
++	[ -e /tmp/sysinfo/model ] && {
++		board_model="$(awk -F':' '{print $1}' /tmp/sysinfo/model | tr ' ' '_' | tr ',' '-' | tr -d ' \n')"
++	}
++
++	[ -n "$board_vendor" ] && [ -n "$board_model" ] && {
++		if [ -n "$board_sku" ]; then
++			WS_BI="vendor:$board_vendor,model:$board_model,sku:$board_sku"
++		else
++			WS_BI="vendor:$board_vendor,model:$board_model"
++		fi
++	}
++}
+diff --git a/net/wsdd2/files/wsdd2-package b/net/wsdd2/files/wsdd2-package
+new file mode 100644
+index 000000000..a89464666
+--- /dev/null
++++ b/net/wsdd2/files/wsdd2-package
+@@ -0,0 +1,43 @@
++#!/bin/sh
++# Package lifecycle only; never transfers a running listener out of procd.
++set -eu
++
++root=${IPKG_INSTROOT:-}
++case "${1:-}" in
++postinst)
++	if [ -n "$root" ]; then
++		[ "${PKG_UPGRADE:-0}" != 1 ] || exit 0
++		[ "$(readlink "$root/etc/systemd/system/wsdd2.service" 2>/dev/null || :)" != /dev/null ] || exit 0
++		wants=$root/etc/systemd/system/multi-user.target.wants
++		samba_wants=$root/etc/systemd/system/samba4.service.wants
++		mkdir -p "$wants" "$samba_wants"
++		if [ ! -e "$wants/wsdd2.service" ] && [ ! -L "$wants/wsdd2.service" ]; then
++			ln -s /usr/lib/systemd/system/wsdd2.service "$wants/wsdd2.service"
++			ln -s /usr/lib/systemd/system/wsdd2-config.path "$wants/wsdd2-config.path"
++		fi
++		if [ ! -e "$samba_wants/wsdd2.service" ] && [ ! -L "$samba_wants/wsdd2.service" ]; then
++			ln -s /usr/lib/systemd/system/wsdd2.service "$samba_wants/wsdd2.service"
++		fi
++		exit 0
++	fi
++	[ -d /run/systemd/system ] || exit 0
++	systemctl daemon-reload
++	for mask in /etc/systemd/system/wsdd2.service /run/systemd/system/wsdd2.service; do
++		[ "$(readlink "$mask" 2>/dev/null || :)" != /dev/null ] || exit 0
++	done
++	if [ "${PKG_UPGRADE:-0}" != 1 ] &&
++	   [ "$(readlink /etc/systemd/system/wsdd2.service 2>/dev/null || :)" != /dev/null ]; then
++		systemctl enable wsdd2.service wsdd2-config.path
++	fi
++	systemctl try-restart wsdd2.service
++	;;
++prerm)
++	[ -z "$root" ] && [ -d /run/systemd/system ] || exit 0
++	[ "${PKG_UPGRADE:-0}" != 1 ] || exit 0
++	systemctl stop wsdd2-config.path wsdd2-reconfigure.service wsdd2.service
++	systemctl disable wsdd2.service wsdd2-config.path
++	;;
++*)
++	exit 2
++	;;
++esac
+diff --git a/net/wsdd2/files/wsdd2-reconfigure.service b/net/wsdd2/files/wsdd2-reconfigure.service
+new file mode 100644
+index 000000000..dbd13d75e
+--- /dev/null
++++ b/net/wsdd2/files/wsdd2-reconfigure.service
+@@ -0,0 +1,10 @@
++[Unit]
++Description=Apply changed WSDD2 configuration
++After=network-online.target
++# File edits must not permanently disable the path watcher.
++StartLimitIntervalSec=0
++
++[Service]
++Type=oneshot
++Slice=nas.slice
++ExecStart=/usr/libexec/wsdd2-systemd reconcile
+diff --git a/net/wsdd2/files/wsdd2-systemd b/net/wsdd2/files/wsdd2-systemd
+new file mode 100644
+index 000000000..c59d43b13
+--- /dev/null
++++ b/net/wsdd2/files/wsdd2-systemd
+@@ -0,0 +1,53 @@
++#!/bin/sh
++# Native lifecycle adapter and foreground exec; systemd supervises wsdd2.
++. /usr/libexec/wsdd2-config.sh
++
++case "$1" in
++condition)
++	if wsdd2_find_conf; then
++		exit 0
++	fi
++	logger -p daemon.info -t 'wsdd2' "samba36/4 or ksmbd is not running"
++	exit 1
++	;;
++run)
++	wsdd2_find_conf || {
++		logger -p daemon.info -t 'wsdd2' "samba36/4 or ksmbd is not running"
++		exit 1
++	}
++	wsdd2_resolve_params
++	set -- /usr/bin/wsdd2
++	[ -n "$WS_IFNAME" ] && set -- "$@" -i "$WS_IFNAME"
++	set -- "$@" -N "$WS_NB" -G "$WS_WG"
++	[ -z "$WS_BI" ] || set -- "$@" -b "$WS_BI"
++	exec "$@"
++	;;
++start|stop|restart|status)
++	exec systemctl "$1" wsdd2.service
++	;;
++reload)
++	systemctl is-active --quiet wsdd2.service || exit 0
++	systemctl reset-failed wsdd2.service || exit 1
++	exec systemctl restart wsdd2.service
++	;;
++reconcile)
++	systemctl is-active --quiet wsdd2.service || exit 0
++	if wsdd2_find_conf; then
++		systemctl reset-failed wsdd2.service || exit 1
++		exec systemctl --no-block restart wsdd2.service
++	fi
++	exec systemctl --no-block stop wsdd2.service
++	;;
++running)
++	exec systemctl is-active --quiet wsdd2.service
++	;;
++enable|disable)
++	exec systemctl "$1" wsdd2.service wsdd2-config.path
++	;;
++enabled)
++	exec systemctl is-enabled --quiet wsdd2.service
++	;;
++*)
++	exit 2
++	;;
++esac
+diff --git a/net/wsdd2/files/wsdd2.hotplug b/net/wsdd2/files/wsdd2.hotplug
+new file mode 100644
+index 000000000..2145a1296
+--- /dev/null
++++ b/net/wsdd2/files/wsdd2.hotplug
+@@ -0,0 +1,9 @@
++#!/bin/sh
++[ -d /run/systemd/system ] && [ -f /usr/lib/systemd/system/wsdd2.service ] || exit 0
++case "$ACTION" in
++	ifup|ifdown|ifupdate)
++		[ "$INTERFACE" = lan ] || exit 0
++		systemctl is-active --quiet wsdd2.service || exit 0
++		systemctl --no-block start wsdd2-reconfigure.service
++		;;
++esac
+diff --git a/net/wsdd2/files/wsdd2.init b/net/wsdd2/files/wsdd2.init
+index 7b8930e06..b356fc2a3 100644
+--- a/net/wsdd2/files/wsdd2.init
++++ b/net/wsdd2/files/wsdd2.init
+@@ -1,88 +1,39 @@
+ #!/bin/sh /etc/rc.common
+ 
+ START=99
+-USE_PROCD=1
+-
+-SMB_CONF=""
+-BIND_IF_PARM=""
+-NB_PARM="$(sed 's/\..*//' /proc/sys/kernel/hostname)"
+-WG_PARM="WORKGROUP"
+-BI_PARM=""
+ 
+-start_service() {
++# The native manager owns the daemon. rc.d remains for recovery boots.
++if [ -z "$IPKG_INSTROOT" ] && [ -d /run/systemd/system ] &&
++   [ -f /usr/lib/systemd/system/wsdd2.service ]; then
++	case "$action" in
++		boot|shutdown) exit 0 ;;
++		help|depends) ;;
++		*) exec /usr/libexec/wsdd2-systemd "$action" "$@" ;;
++	esac
++fi
+ 
+-	. /lib/functions/network.sh
++USE_PROCD=1
++. "$IPKG_INSTROOT/usr/libexec/wsdd2-config.sh"
+ 
++start_service() {
+ 	# needs long delay, otherwise service may not register correctly on stratup/reboot (not sure what the issues is?)
+ 	sleep 5
+ 
+-	if [ -e /etc/ksmbd/ksmbd.conf ] && [ -e /etc/init.d/ksmbd ] && /etc/init.d/ksmbd running; then
+-		SMB_CONF="/etc/ksmbd/ksmbd.conf"
+-	fi
+-
+-	[ -e /etc/samba/smb.conf ] && {
+-		if [ -e /etc/init.d/samba4 ] && /etc/init.d/samba4 running; then
+-			SMB_CONF="/etc/samba/smb.conf"
+-		elif [ -e /etc/init.d/samba ] && /etc/init.d/samba running; then
+-			SMB_CONF="/etc/samba/smb.conf"
+-		fi
+-	}
+-
+-	[ -z "$SMB_CONF" ] && {
++	wsdd2_find_conf || {
+ 		logger -p daemon.info -t 'wsdd2' "samba36/4 or ksmbd is not running"
+ 		return
+ 	}
+-	
+-	# cleanup comments
+-	local smb_conf
+-	smb_conf="$(grep '^[[:blank:]]*[^[:blank:]#;]' $SMB_CONF)"
+-
+-	local nb_name
+-	nb_name="$(echo "$smb_conf" | grep -i 'netbios name' | awk -F'=' '{print $2}' | tr -d ' \n')"
+-	[ -n "$nb_name" ] && NB_PARM="$nb_name"
+-
+-	# use uppercase for none mdns option
+-	local nb_option
+-	nb_option="$(echo "$smb_conf" | grep -i 'mdns name' | awk -F'=' '{print $2}' | tr -d ' \n')"
+-	[ "$nb_option" != "mdns" ] && NB_PARM="$(echo "$nb_name" | awk '{print toupper($0)}')"
+-
+-	local wg_name
+-	wg_name="$(echo "$smb_conf" | grep -i 'workgroup' | awk -F'=' '{print $2}' | tr -d ' \n')"
+-	[ -n "$wg_name" ] && WG_PARM="$wg_name"
+-
+-	# resolve lan interface (BUG: No multi-interface binds atm)
+-	local ifname
+-	network_get_device ifname lan
+-
+-	local board_vendor
+-	local board_model
+-	local board_sku
+-
+-	[ -e /tmp/sysinfo/board_name ] && {
+-		board_vendor="$(awk -F',' '{print $1}' /tmp/sysinfo/board_name | tr ' ' '_' | tr ',' '-' | tr -d ' \n')"
+-		board_sku="$(awk -F',' '{print $2}' /tmp/sysinfo/board_name | tr ' ' '_' | tr ',' '-' |  tr -d ' \n')"
+-	}
+-
+-	[ -e /tmp/sysinfo/model ] && {
+-		board_model="$(awk -F':' '{print $1}' /tmp/sysinfo/model | tr ' ' '_' | tr ',' '-' |  tr -d ' \n')"
+-	}
+ 
+-	[ -n "$board_vendor" ] && [ -n "$board_model" ] && {
+-		if [ -n "$board_sku" ]; then
+-			BI_PARM="vendor:$board_vendor,model:$board_model,sku:$board_sku"
+-		else
+-			BI_PARM="vendor:$board_vendor,model:$board_model"
+-		fi
+-	}
++	wsdd2_resolve_params
+ 
+ 	procd_open_instance
+ 	procd_set_param command /usr/bin/wsdd2
+-	[ -n "$ifname" ] && procd_append_param command -i "$ifname"
+-	procd_append_param command -N "$NB_PARM"
+-	procd_append_param command -G "$WG_PARM"
+-	[ "x${BI_PARM}" = "x" ] || procd_append_param command -b "$BI_PARM"
++	[ -n "$WS_IFNAME" ] && procd_append_param command -i "$WS_IFNAME"
++	procd_append_param command -N "$WS_NB"
++	procd_append_param command -G "$WS_WG"
++	[ -z "$WS_BI" ] || procd_append_param command -b "$WS_BI"
+ 	procd_set_param respawn
+-	procd_set_param file "$SMB_CONF"
++	procd_set_param file "$WS_CONF"
+ 	procd_close_instance
+ }
+ 
+diff --git a/net/wsdd2/files/wsdd2.service b/net/wsdd2/files/wsdd2.service
+new file mode 100644
+index 000000000..08abbae44
+--- /dev/null
++++ b/net/wsdd2/files/wsdd2.service
+@@ -0,0 +1,22 @@
++[Unit]
++Description=Web Services for Devices (WSD) daemon
++After=network-online.target samba4.service samba4@smbd.service samba4@samba.service
++Wants=network-online.target
++PartOf=samba4.service
++StartLimitIntervalSec=60
++StartLimitBurst=5
++
++[Service]
++Type=simple
++Slice=nas.slice
++ExecCondition=/usr/libexec/wsdd2-systemd condition
++ExecStart=/usr/libexec/wsdd2-systemd run
++ExecReload=/bin/kill -HUP $MAINPID
++Restart=on-failure
++RestartSec=5s
++KillMode=control-group
++TimeoutStopSec=30s
++
++[Install]
++WantedBy=multi-user.target samba4.service
++Also=wsdd2-config.path

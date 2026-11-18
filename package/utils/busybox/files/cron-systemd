@@ -1,0 +1,83 @@
+#!/bin/sh
+# Native lifecycle adapter and foreground exec; systemd supervises crond.
+. /lib/functions.sh
+. /usr/libexec/cron-config.sh
+
+EMPTY_STAMP=/run/cron-systemd.empty-stopped
+
+cron_noblock_if_rc_booting() {
+	if [ "$(systemctl show -p ActiveState --value openwrt-services.service 2>/dev/null)" = activating ]; then
+		printf '%s' --no-block
+	fi
+}
+
+case "$1" in
+condition)
+	cron_has_entries
+	;;
+run)
+	cron_has_entries || exit 1
+	cron_resolve_loglevel || exit 1
+	cron_prepare_spool
+	exec /usr/sbin/crond -f -c /etc/crontabs -l "$CRON_LOGLEVEL"
+	;;
+start|stop|restart)
+	rm -f "$EMPTY_STAMP"
+	noblock=$(cron_noblock_if_rc_booting)
+	# shellcheck disable=SC2086
+	exec systemctl $noblock "$1" cron.service
+	;;
+status)
+	exec systemctl status cron.service
+	;;
+reload)
+	noblock=$(cron_noblock_if_rc_booting)
+	if cron_has_entries; then
+		cron_resolve_loglevel || exit 1
+		rm -f "$EMPTY_STAMP"
+		systemctl reset-failed cron.service || exit 1
+		# shellcheck disable=SC2086
+		exec systemctl $noblock restart cron.service
+	fi
+	if systemctl is-active --quiet cron.service; then
+		touch "$EMPTY_STAMP"
+		# shellcheck disable=SC2086
+		exec systemctl $noblock stop cron.service
+	fi
+	exit 0
+	;;
+reconcile)
+	if systemctl is-active --quiet cron.service; then
+		if cron_has_entries; then
+			cron_resolve_loglevel || exit 1
+			rm -f "$EMPTY_STAMP"
+			systemctl reset-failed cron.service || exit 1
+			exec systemctl --no-block restart cron.service
+		fi
+		touch "$EMPTY_STAMP"
+		exec systemctl --no-block stop cron.service
+	fi
+	if cron_has_entries; then
+		if [ -e "$EMPTY_STAMP" ] ||
+		   [ "$(systemctl show -p ExecMainStartTimestampMonotonic --value cron.service 2>/dev/null)" = 0 ]; then
+			cron_resolve_loglevel || exit 1
+			rm -f "$EMPTY_STAMP"
+			systemctl reset-failed cron.service || exit 1
+			exec systemctl --no-block start cron.service
+		fi
+	fi
+	exit 0
+	;;
+running)
+	exec systemctl is-active --quiet cron.service
+	;;
+enable|disable)
+	exec systemctl "$1" cron.service cron-config.path
+	;;
+enabled)
+	exec systemctl is-enabled --quiet cron.service
+	;;
+*)
+	exit 2
+	;;
+esac

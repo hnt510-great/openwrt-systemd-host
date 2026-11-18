@@ -5,7 +5,7 @@ the installed prefix, while build executables retain the staging RUNPATH.
 
 --- a/meson.build
 +++ b/meson.build
-@@ -160,10 +160,11 @@
+@@ -160,10 +160,11 @@ endif
  
  have_asan_tests = get_option('b_sanitize') == 'address'
  
@@ -21,7 +21,7 @@ the installed prefix, while build executables retain the staging RUNPATH.
  cc = meson.get_compiler('c')
 --- a/js/dbusServices/meson.build
 +++ b/js/dbusServices/meson.build
-@@ -22,7 +22,7 @@
+@@ -22,7 +22,7 @@ foreach service, dir : dbus_services
  
    serviceconf = configuration_data()
    serviceconf.set('service', service)
@@ -32,7 +32,7 @@ the installed prefix, while build executables retain the staging RUNPATH.
    configure_file(
 --- a/src/meson.build
 +++ b/src/meson.build
-@@ -99,7 +99,7 @@
+@@ -99,7 +99,7 @@ libshell_menu = library('gnome-shell-men
    sources: libshell_menu_sources,
    dependencies: [gio_dep, clutter_dep, mtk_dep],
    include_directories: conf_inc,
@@ -41,7 +41,7 @@ the installed prefix, while build executables retain the staging RUNPATH.
    install_rpath: mutter_typelibdir,
    install_dir: pkglibdir,
    install: true
-@@ -240,7 +240,7 @@
+@@ -240,7 +240,7 @@ libshell = library('shell-' + mutter_api
    include_directories: [conf_inc, include_directories('tray')],
    c_args: gnome_shell_cflags,
    link_with: libshell_link_with,
@@ -50,7 +50,7 @@ the installed prefix, while build executables retain the staging RUNPATH.
    install_rpath: install_rpath,
    install_dir: pkglibdir,
    install: true
-@@ -283,7 +283,7 @@
+@@ -283,7 +283,7 @@ gnome_shell_binary = executable('gnome-s
    c_args: gnome_shell_cflags + typelib_cflags,
    dependencies: gnome_shell_deps + [libshell_dep, libst_dep, mutter_dep],
    include_directories: [conf_inc],
@@ -59,11 +59,10 @@ the installed prefix, while build executables retain the staging RUNPATH.
    install_rpath: install_rpath,
    install: true
  )
-@@ -310,5 +310,5 @@
+@@ -310,5 +310,5 @@ run_test = executable('run-js-test', 'ru
    dependencies: [gio_dep, gi_dep, gjs_dep, libshell_dep],
    c_args: typelib_cflags,
    include_directories: [conf_inc],
 -  build_rpath: mutter_typelibdir,
--)
 +  build_rpath: mutter_build_typelibdir,
-+)
+ )

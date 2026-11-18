@@ -1,0 +1,96 @@
+From 42eb44d0751148495fe5659ac4b0421f755d6f63 Mon Sep 17 00:00:00 2001
+From: hnt510 <hnt510@gmail.com>
+Date: Wed, 18 Nov 2026 15:25:56 +0800
+Subject: [PATCH] ddns-go: enable systemd unit on first procd-to-systemd
+ upgrade
+
+---
+ ddns-go/Makefile              |  2 +-
+ ddns-go/files/ddns-go-package | 39 +++++++++++++++++++++++++++--------
+ 2 files changed, 31 insertions(+), 10 deletions(-)
+
+diff --git a/ddns-go/Makefile b/ddns-go/Makefile
+index 15b13a2..6196113 100644
+--- a/ddns-go/Makefile
++++ b/ddns-go/Makefile
+@@ -7,7 +7,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=ddns-go
+ PKG_VERSION:=6.17.1
+-PKG_RELEASE:=4
++PKG_RELEASE:=5
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
+ PKG_SOURCE_URL:=https://codeload.github.com/jeessy2/ddns-go/tar.gz/v$(PKG_VERSION)?
+diff --git a/ddns-go/files/ddns-go-package b/ddns-go/files/ddns-go-package
+index 4c67571..2f86226 100644
+--- a/ddns-go/files/ddns-go-package
++++ b/ddns-go/files/ddns-go-package
+@@ -3,16 +3,34 @@
+ set -eu
+ 
+ root=${IPKG_INSTROOT:-}
++stamp=/etc/systemd/openwrt-migrated/ddns-go
++
++rc_enabled() {
++	for link in "$1/etc/rc.d/S"[0-9][0-9]ddns-go; do
++		if [ -L "$link" ] || [ -x "$link" ]; then
++			return 0
++		fi
++	done
++	return 1
++}
++
+ case "${1:-}" in
+ postinst)
+ 	if [ -n "$root" ]; then
+-		[ "${PKG_UPGRADE:-0}" != 1 ] || exit 0
+-		[ "$(readlink "$root/etc/systemd/system/ddns-go.service" 2>/dev/null || :)" != /dev/null ] || exit 0
+-		wants=$root/etc/systemd/system/multi-user.target.wants
+-		mkdir -p "$wants"
+-		if [ ! -e "$wants/ddns-go.service" ] && [ ! -L "$wants/ddns-go.service" ]; then
+-			ln -s /usr/lib/systemd/system/ddns-go.service "$wants/ddns-go.service"
+-			ln -s /usr/lib/systemd/system/ddns-go-config.path "$wants/ddns-go-config.path"
++		if [ "${PKG_UPGRADE:-0}" != 1 ] ||
++		   { [ ! -e "$root$stamp" ] && rc_enabled "$root"; }; then
++			if [ "$(readlink "$root/etc/systemd/system/ddns-go.service" 2>/dev/null || :)" != /dev/null ]; then
++				wants=$root/etc/systemd/system/multi-user.target.wants
++				mkdir -p "$wants"
++				if [ ! -e "$wants/ddns-go.service" ] && [ ! -L "$wants/ddns-go.service" ]; then
++					ln -s /usr/lib/systemd/system/ddns-go.service "$wants/ddns-go.service"
++				fi
++				if [ ! -e "$wants/ddns-go-config.path" ] && [ ! -L "$wants/ddns-go-config.path" ]; then
++					ln -s /usr/lib/systemd/system/ddns-go-config.path "$wants/ddns-go-config.path"
++				fi
++			fi
++			mkdir -p "$root/etc/systemd/openwrt-migrated"
++			: >"$root$stamp"
+ 		fi
+ 		exit 0
+ 	fi
+@@ -21,10 +39,12 @@ postinst)
+ 	for mask in /etc/systemd/system/ddns-go.service /run/systemd/system/ddns-go.service; do
+ 		[ "$(readlink "$mask" 2>/dev/null || :)" != /dev/null ] || exit 0
+ 	done
+-	if [ "${PKG_UPGRADE:-0}" != 1 ] &&
+-	   [ "$(readlink /etc/systemd/system/ddns-go.service 2>/dev/null || :)" != /dev/null ]; then
++	if [ "${PKG_UPGRADE:-0}" != 1 ] ||
++	   { [ ! -e "$stamp" ] && rc_enabled ""; }; then
+ 		systemctl enable ddns-go.service ddns-go-config.path
+ 	fi
++	mkdir -p /etc/systemd/openwrt-migrated
++	: >"$stamp"
+ 	systemctl try-restart ddns-go.service
+ 	;;
+ prerm)
+@@ -32,6 +52,7 @@ prerm)
+ 	[ "${PKG_UPGRADE:-0}" != 1 ] || exit 0
+ 	systemctl stop ddns-go-config.path ddns-go-reconfigure.service ddns-go.service
+ 	systemctl disable ddns-go.service ddns-go-config.path
++	rm -f "$stamp"
+ 	;;
+ *)
+ 	exit 2
+-- 
+2.53.0
+

@@ -1,5 +1,9 @@
 # Rootless Podman on the native-systemd image
 
+> Systemd is the sole normal init on current x86/64 images. References below
+> to procd recovery or firmware flashing from the running system describe
+> older images. See [current boot and migration guidance](systemd-only-plan.md).
+
 The x86_64/glibc desktop configuration includes Podman, matching glibc
 `shadow-newuidmap` and `shadow-newgidmap` packages, the TUN kernel module,
 and `openwrt-podman-rootless`. The UID/GID helpers are root-owned setuid

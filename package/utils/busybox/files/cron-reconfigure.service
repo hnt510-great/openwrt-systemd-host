@@ -1,0 +1,10 @@
+[Unit]
+Description=Apply changed Cron configuration
+After=openwrt-services.service
+# File edits must not permanently disable the path watcher.
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+Slice=auxiliary.slice
+ExecStart=/usr/libexec/cron-systemd reconcile

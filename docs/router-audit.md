@@ -4,9 +4,29 @@
 
 ## Build and installation
 
-Enable `CONFIG_PACKAGE_router-audit=y` (selected in the desktop snapshot). Build `package/custom/router-audit/compile`, `package/custom/daed/compile` and `package/network/services/dnsmasq/compile`. The daemon releases are bumped for the audit hooks. The init scripts enable hooks only while `/usr/libexec/router-audit` is installed (daed gets `ROUTER_AUDIT_DNS=1` and, from daed r7, `ROUTER_AUDIT_CONN=1`). dnsmasq mounts the audit runtime directory into ujail. No query/debug file logging is enabled.
+Enable `CONFIG_PACKAGE_router-audit=y` (selected in the desktop snapshot). Build `package/custom/router-audit/compile`, `package/custom/daed/compile` and `package/network/services/dnsmasq/compile`. From router-audit r6, daed r10 and dnsmasq r15, collection is opt-in through `/etc/config/router-audit`:
 
-The package supplies `/usr/sbin/router-audit-export`, `/usr/libexec/router-audit*` (including the shared parser module `router-audit-normalize.py`), `router-audit-collect.service` and Debian companion scripts and prompts under `/usr/share/router-audit/`. Collector activation is intentional for this image. Package removal stops it; DNS forwarding tolerates absent collectors.
+```uci
+config router-audit 'main'
+        option enabled '0'
+```
+
+Only `router-audit.main.enabled=1` enables collection; missing configuration and other values disable it. The package preserves this file across upgrades. The collector unit checks the switch before starting, and package upgrades stop an old collector when disabled. dnsmasq and daed use the same check before enabling event hooks (`ROUTER_AUDIT_DNS=1`, plus `ROUTER_AUDIT_CONN=1` for daed). dnsmasq mounts the audit runtime directory into ujail only when enabled. No query/debug file logging is enabled.
+
+The package supplies `/usr/sbin/router-audit-export`, `/usr/libexec/router-audit*` (including the shared parser module `router-audit-normalize.py`), `router-audit-collect.service` and Debian companion scripts and prompts under `/usr/share/router-audit/`. It remains installed in the desktop image, with background collection disabled by default. Manual exports and previously stored samples remain available. Package removal stops collection; DNS forwarding tolerates absent collectors.
+
+To enable collection on the router, begin a protected UCI transaction, then apply the switch:
+
+```sh
+sudo -n uci-history --json begin --timeout 300 --note 'Enable router audit collection'
+sudo -n uci set router-audit.main.enabled='1'
+sudo -n uci commit router-audit
+sudo -n /etc/init.d/router-audit reload
+sudo -n /etc/init.d/dnsmasq reload
+sudo -n /etc/init.d/daed reload
+```
+
+Reload daed only if it is in use. Reloading the producers applies their new environment and can restart the corresponding daemon. Verify LAN connectivity, DNS/proxy behavior and `systemctl status router-audit-collect.service`, then confirm with `sudo -n uci-history --json confirm`. To disable, use the same transaction/apply sequence with `enabled='0'` and an appropriate note; verify that the collector is inactive. The service reload triggers also watch `router-audit` when using `reload_config`. Upgrading an always-on installation with no existing audit configuration installs the disabled default; reload the producers to clear any old audit environment. This switch preserves historical spool data and does not disable off-router pullers or analysis services.
 
 ## Commands
 

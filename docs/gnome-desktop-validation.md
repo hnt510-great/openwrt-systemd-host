@@ -318,3 +318,88 @@ to `-O3`, enables `WITH_SIMD=ON` and `WITH_RDPEUDP=ON`, and disables
 | Router installation | `apk update && apk upgrade` installed all 4 packages on `192.0.2.1`, followed by `systemctl restart openwrt-desktop.service` |
 | Vulkan device & extensions | `vkCreateInstance` returned `0` (`VK_SUCCESS`) with 1 physical device and all 8 required extensions (`VK_KHR_synchronization2`, `VK_KHR_external_memory_fd`, `VK_EXT_external_memory_dma_buf`, `VK_EXT_image_drm_format_modifier`, `VK_KHR_format_feature_flags2`, `VK_KHR_zero_initialize_workgroup_memory`, `VK_EXT_physical_device_drm`, `VK_KHR_external_semaphore_fd`) |
 | Live RDP VA-API H.264 session | `gnome-remote-desktop-daemon` logged `[HWAccel.Vulkan] Initialization of Vulkan was successful` on startup and `[HWAccel.VAAPI] Successfully initialized VAAPI 1.24 with vendor: Intel iHD driver for Intel(R) Gen Graphics - 26.3.5 ()` when an H.264 RDPGFX client connected |
+
+## Built-in GNOME Shell screenshot and screencast UI — 2026-11-14
+
+`gnome-shell` 51.1-r4 adds `002-screenshot-search-and-screencast-service.patch`
+and GStreamer runtime dependencies, `pipewire` 1.6.11-r2 enables the PipeWire
+GStreamer plugin (`libgstpipewire.so`), `configs/gnome-desktop.config` selects
+`gst1-mod-vpx` and `gst1-mod-matroska`, and `openwrt-desktop` r31 initializes
+default XDG user directories (`~/.config/user-dirs.dirs`, `~/Pictures`,
+`~/Videos`) on `desktop-user-setup` and `desktop-session` startup.
+
+| Check | Result |
+| --- | --- |
+| Custom package registration & hygiene | `python3 scripts/tests/test-custom-package-updates.py` passed 49 tests; `git diff --check` and `sh -n` passed; temporary-`HOME` smoke check verified `desktop-user-setup --xdg-dirs` creates defaults without overwriting an existing `user-dirs.dirs` |
+| Package builds & archive checks | `gnome-shell-51.1-r4`, `openwrt-desktop-31`, `pipewire-1.6.11-r2` (with subpackages), `gst1-mod-vpx-1.28.7-r6`, `gst1-mod-matroska-1.28.7-r6` and `libvpx1.17-1.17.0-r1` compiled and passed `merge-usr.py` and `elf-abi.py`; `gresource` inspection confirmed the patched `systemActions.js` in `libshell-51.so` and `main.js` in `org.gnome.Shell.Screencast.src.gresource` |
+| Publication | `./scripts/publish-changed-feeds.sh --dry-run` and production publication passed router upgrade preflight (`snapshot /srv/openwrt-feeds/public/snapshots/20261114T083002.746364Z`) |
+| Router installation & session restart | `apk update && apk upgrade` installed/upgraded all 10 packages on `192.0.2.1`; after `systemctl restart openwrt-desktop.service`, `desktop-session` generated `~/.config/user-dirs.dirs`, `~/Pictures` and `~/Videos`, and `pipewire.service`, `gnome-shell`, `org.gnome.Shell.Screenshot` and `org.gnome.Shell.Screencast` were active on the user bus |
+| Live GStreamer & D-Bus screencast | `gst-inspect-1.0` verified `pipewiresrc`, `vp8enc`, `webmmux`, `videoconvertscale` and `glupload`; `org.gnome.Shell.Screencast.Screencast` recorded a `63837`-byte valid EBML/WebM capture file (cleaned up afterward). Direct interactive keyboard (`Print`) / GUI pointer screenshot triggering was not run in this automated pass |
+
+## TPM2 keyring credential sealing and router validation — 2026-11-15
+
+`systemd` 262-r13 enables `-Dtpm2=enabled` (`+tpm2-tss`) alongside
+`kmod-tpm-crb` and `kmod-tpm-tis` in `configs/x86-64-systemd-desktop.config`
+(kernel sequence 64, Linux `7.3.4-64-openwrt`), and `openwrt-desktop` r32 seals
+unattended GNOME keyring bootstrap secrets with
+`systemd-creds encrypt --with-key=tpm2 --tpm2-pcrs=""` (SRK-only, no PCR or
+host-key binding) into `/etc/desktop/gnome/<uid>.keyring-passphrase.cred` while
+retaining `LoadCredential` fallback for unmigrated plaintext secrets and
+non-TPM2 test VMs.
+
+| Check | Result |
+| --- | --- |
+| Syntax & formatting | `sh -n` on `desktop.init` and `desktop-setup` and `git diff --check` passed |
+| Host unit tests | `scripts/tests/test-gnome-keyring.py` passed (`1/1`); `scripts/tests/test-custom-package-updates.py` passed (`49/49`); `scripts/tests/test-rtkit-desktop.py` passed `9/13` (including `test_init_keyring_credential_selection` covering plaintext fallback and `.cred` `LoadCredentialEncrypted`); `4` unrelated subtests in pre-existing `test_session_imports_override_only_for_non_default_modes` failed (`/usr/libexec/desktop-user-setup: not found` in mock) |
+| Package & feed publication | `openwrt-desktop-32` compiled cleanly; `./scripts/publish-changed-feeds.sh --dry-run` and production publication passed router upgrade preflight (`/srv/openwrt-feeds/public/snapshots/20261115T145434.252344Z`) |
+| Router upgrade & sealing | On `192.0.2.1` (`7.3.4-64-openwrt`, `systemd 262` `+TPM2`, `systemd-analyze has-tpm2` -> `yes`), `apk upgrade` installed `openwrt-desktop-32`; `32769.keyring-passphrase` was sealed to `.cred`, verified byte-for-byte with `systemd-creds decrypt ... | cmp -s`, verified live with `LoadCredentialEncrypted`, and the legacy plaintext file was removed with `shred -u` |
+| Post-migration desktop & persistence | After restarting `openwrt-desktop.service` without the plaintext file, `/run/systemd/transient/openwrt-desktop.service` carried `LoadCredentialEncrypted=keyring-passphrase:/etc/desktop/gnome/32769.keyring-passphrase.cred`, `org.freedesktop.Secret.Collection.Locked` reported `(<false>,)`, `gnome-keyring-daemon.service` and `openwrt-gnome-remotes.service` were `active`, `sysupgrade -l` included `/etc/desktop/gnome/32769.keyring-passphrase.cred`, and `systemctl --failed` listed `0` units |
+
+Observed live-restart caveat: when `openwrt-desktop-ime` installs the persistent
+`/etc/systemd/system/openwrt-desktop.service.d/50-fcitx5.conf` drop-in, stopping
+`openwrt-desktop.service` leaves `/run/systemd/transient/openwrt-desktop.service`
+loaded, so a manual `/etc/init.d/desktop restart` while running requires
+clearing `/run/systemd/transient/openwrt-desktop.service` and running
+`systemctl daemon-reload` before `start`. Cold boot is unaffected.
+
+### Coldplug TPM ordering follow-up (`openwrt-desktop` r33) — 2026-11-15
+
+Boot-log inspection on `192.0.2.1` after rebooting showed `openwrt-desktop.service`
+first starting via DRM hotplug at `18.15s` (before `S10boot` `kmodloader` loaded
+`tpm_crb` and `tpm_tis` at `19.90s`), causing the initial attempt to exit
+`243/CREDENTIALS` (`Failed to open specified TCTI device file /dev/tpmrm0: No
+such file or directory`) before `Restart=on-failure` (`RestartSec=5s`) succeeded
+at `23:00:50` (`org.freedesktop.Secret.Collection.Locked` = `(<false>,)`).
+
+`openwrt-desktop` r33 probes `tpm_crb`/`tpm_tis` in `desktop-gpu-coldplug` when
+`/dev/tpmrm0` is absent, adds `--subsystem-match=tpm --subsystem-match=tpmrm` to
+`openwrt-desktop-coldplug.service`, and appends `dev-tpmrm0.device` to
+`Requires=`/`After=` in `desktop.init` whenever `.cred` (`LoadCredentialEncrypted`)
+is selected. Host unit tests (`test-gnome-keyring.py` `1/1`,
+`test-custom-package-updates.py` `49/49`, `test_init_keyring_credential_selection`
+in `test-rtkit-desktop.py`) passed, `openwrt-desktop-33` published cleanly
+(`/srv/openwrt-feeds/public/snapshots/20261115T151029.839788Z`), and upgrading
+`192.0.2.1` to `openwrt-desktop-33` plus restarting
+`openwrt-desktop-coldplug.service` left `openwrt-desktop.service` `active
+(running)` with `org.freedesktop.Secret.Collection.Locked` = `(<false>,)`.
+Zero-retry cold-boot timing of r33 awaits the next router reboot.
+
+### VM cold-boot validation (`openwrt-desktop` r34) — 2026-11-15
+
+Rebooting `192.0.2.1` on `openwrt-desktop` r33 revealed that `dev-tpmrm0.device`
+never reaches `active` on OpenWrt because `package/system/systemd/Makefile`
+(`systemd-udev`) intentionally omits `99-systemd.rules` (so udev does not add
+`TAG+="systemd"` to `/dev/tpmrm0`), causing systemd's device dependency job to
+time out after ~90 s (`Job dev-tpmrm0.device/start failed with result 'timeout'`).
+
+`openwrt-desktop` r34 removes `dev-tpmrm0.device` from `desktop.init` and keeps
+TPM loading (`tpm_crb`, `tpm_tis`, plus up to a 5 s poll for `/dev/tpmrm0` only
+when `/sys/firmware/acpi/tables/TPM2` or `/sys/class/tpm/tpm0` exists) inside
+`desktop-gpu-coldplug` within the synchronous `openwrt-desktop-coldplug.service`
+dependency.
+
+| Check | Result |
+| --- | --- |
+| Host unit tests & builds | `test-gnome-keyring.py` (`1/1`) and `test-custom-package-updates.py` (`49/49`) passed; `test_init_keyring_credential_selection` in `test-rtkit-desktop.py` passed (`9/13`, same 4 unrelated `run_session` mock failures); `openwrt-desktop-34` compiled |
+| QEMU + `swtpm` UEFI cold-boot VM | Booted `openwrt-x86-64-generic-squashfs-combined-efi.img`, installed `openwrt-desktop-34.apk`, provisioned `vmtest` via `desktop-setup vmtest` (`32771.keyring-passphrase.cred` created, no plaintext), powered off cleanly, and cold-booted with persisted `swtpm` state: `openwrt-desktop-coldplug.service` completed within 1 s, `openwrt-desktop.service` reached `ActiveState=active` / `SubState=running` with `NRestarts=0`, `ExecMainStatus=0`, `LoadCredentialEncrypted=keyring-passphrase:/etc/desktop/gnome/32771.keyring-passphrase.cred`, zero `243/CREDENTIALS` or device timeout messages, and `org.freedesktop.Secret.Collection.Locked` = `(<false>,)` |
+| Feed publication & router upgrade | `./scripts/publish-changed-feeds.sh --dry-run` and production publication passed (`/srv/openwrt-feeds/public/snapshots/20261115T153455.438291Z`); `192.0.2.1` upgraded to `openwrt-desktop-34`, restarted `openwrt-desktop-coldplug.service` and `openwrt-desktop.service` cleanly (`Locked` = `(<false>,)`, `systemctl --failed` = `0` units) |

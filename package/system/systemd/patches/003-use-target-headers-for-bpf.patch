@@ -1,0 +1,23 @@
+Use the OpenWrt target include directories when compiling BPF objects.
+The cross compiler has no multiarch tuple, so the upstream fallback can
+select the build host headers and fail to find asm/types.h.
+
+--- a/src/bpf/meson.build
++++ b/src/bpf/meson.build
+@@ -191,7 +191,15 @@
+                 # does not match multiarch. Query gcc instead.
+                 target_triplet_cmd = run_command('gcc', '-print-multiarch', check: false)
+         endif
+-        if target_triplet_cmd.returncode() == 0
++        if meson.is_cross_build()
++                # OpenWrt's cross file supplies the target libc and UAPI include
++                # directories explicitly. The cross GCC has no multiarch tuple.
++                foreach opt : c_args
++                        if opt.startswith('-I/')
++                                bpf_o_unstripped_cmd += ['-isystem', opt.substring(2)]
++                        endif
++                endforeach
++        elif target_triplet_cmd.returncode() == 0
+                 sysroot = meson.get_external_property('sys_root', '/')
+                 target_triplet = target_triplet_cmd.stdout().strip()
+                 target_include_dir = sysroot / 'usr' / 'include'

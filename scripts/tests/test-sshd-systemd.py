@@ -131,19 +131,17 @@ echo "procd $*" >> "$TEST_ROOT/commands"
         self.assertEqual(self.config.read_text(), self.original)
         self.assertNotIn('reload sshd.service', self.actions())
 
-    def test_native_init_rejects_runtime_actions(self):
+    def test_native_init_delegates_runtime_actions(self):
         self.native()
-        script = self.script(OPENSSH / 'sshd.init')
-        for action in ('boot', 'shutdown', 'start', 'stop', 'restart', 'reload', 'status', 'running'):
-            done = subprocess.run(['sh', '-c', 'action=$1; . "$2"', 'test', action, str(script)],
-                                  env=self.env, capture_output=True, text=True)
-            self.assertNotEqual(done.returncode, 0, action)
-            self.assertIn('systemctl', done.stderr)
-        for action in ('enable', 'disable', 'enabled'):
-            done = subprocess.run(['sh', '-c', 'action=$1; . "$2"', 'test', action, str(script)],
-                                  env=self.env, capture_output=True, text=True)
+        (self.root / 'usr/bin/systemctl').symlink_to(self.root / 'bin/systemctl')
+        script = OPENSSH / 'sshd-native.init'
+        for action in ('boot', 'shutdown', 'start', 'stop', 'restart', 'reload', 'status', 'running',
+                       'enable', 'disable', 'enabled'):
+            done = self.run_script(script, action)
             self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual(self.actions(), [])
+        self.assertEqual(self.actions(), [f'{action} sshd.service' for action in
+                                          ('start', 'stop', 'restart', 'reload', 'status', 'is-active',
+                                           'enable', 'disable', 'is-enabled')])
 
     def test_rc_queue_skips_ssh_only_when_native_unit_is_installed(self):
         rc = self.root / 'etc/rc.d'

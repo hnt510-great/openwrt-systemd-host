@@ -26,7 +26,6 @@ write_lan_environment() {
 start_service() {
 	local enabled user secret kms_scheduling
 	. /usr/libexec/desktop-common.sh
-	[ -d /run/systemd/system ] || { logger -t openwrt-desktop 'GNOME is disabled in procd recovery'; return 0; }
 	config_load desktop
 	config_get_bool enabled main enabled 0
 	[ "$enabled" = 1 ] || return 0
@@ -40,10 +39,18 @@ start_service() {
 	write_lan_environment || return 1
 	systemctl is-active --quiet openwrt-desktop.service && return 0
 	[ -x /usr/bin/gnome-session ] || { desktop_error 'GNOME is not installed'; return 1; }
-	secret="/etc/desktop/gnome/$DESKTOP_USER_UID.keyring-passphrase"
-	[ -f "$secret" ] && [ ! -L "$secret" ] && [ "$(stat -c %u:%a "$secret")" = 0:600 ] || {
-		desktop_error 'Run desktop-setup to provision unattended keyring access'; return 1;
+	desktop_valid_credential() {
+		[ -f "$1" ] && [ ! -L "$1" ] && [ -s "$1" ] && [ "$(stat -c %u:%a "$1")" = 0:600 ]
 	}
+	secret="/etc/desktop/gnome/$DESKTOP_USER_UID.keyring-passphrase"
+	cred="$secret.cred"
+	if desktop_valid_credential "$cred"; then
+		credential_prop="LoadCredentialEncrypted=keyring-passphrase:$cred"
+	elif desktop_valid_credential "$secret"; then
+		credential_prop="LoadCredential=keyring-passphrase:$secret"
+	else
+		desktop_error 'Run desktop-setup to provision unattended keyring access'; return 1;
+	fi
 	desktop_select_output "$(uci -q get desktop.main.output || printf auto)" >/dev/null || return 1
 	set -- systemd-run --quiet --collect --unit=openwrt-desktop.service \
 		--uid="$user" --property=PAMName=openwrt-desktop --property=Type=exec \
@@ -51,7 +58,7 @@ start_service() {
 		--property=StandardOutput=journal --property=StandardError=journal \
 		--property=Requires='systemd-logind.service openwrt-desktop-coldplug.service' \
 		--property=After='systemd-logind.service openwrt-desktop-coldplug.service' \
-		--property="LoadCredential=keyring-passphrase:$secret" \
+		--property="$credential_prop" \
 		--setenv=HOME="$DESKTOP_USER_HOME" --setenv=USER="$user" --setenv=LOGNAME="$user" \
 		--setenv=SHELL="$DESKTOP_USER_SHELL" --setenv=XDG_SESSION_TYPE=wayland --setenv=XDG_SESSION_CLASS=user \
 		--setenv=OPENWRT_DESKTOP_KMS_SCHEDULING="$kms_scheduling"
@@ -72,7 +79,6 @@ reload_service() {
 
 stop_service() {
 	local session user
-	[ -d /run/systemd/system ] || return 0
 	user="$(uci -q get desktop.main.user || :)"
 	if [ -n "$user" ]; then
 		su -s /bin/sh -c /usr/libexec/desktop-user-stop "$user" 2>/dev/null || :

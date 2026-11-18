@@ -1,0 +1,43 @@
+#!/bin/sh
+set -eu
+
+root=${IPKG_INSTROOT:-}
+case "${1:-}" in
+postinst)
+	if [ -n "$root" ]; then
+		if [ "${PKG_UPGRADE:-0}" != 1 ]; then
+			if [ "$(readlink "$root/etc/systemd/system/cron.service" 2>/dev/null || :)" != /dev/null ]; then
+				wants=$root/etc/systemd/system/multi-user.target.wants
+				mkdir -p "$wants"
+				if [ ! -e "$wants/cron.service" ] && [ ! -L "$wants/cron.service" ]; then
+					ln -s /usr/lib/systemd/system/cron.service "$wants/cron.service"
+				fi
+				if [ ! -e "$wants/cron-config.path" ] && [ ! -L "$wants/cron-config.path" ]; then
+					ln -s /usr/lib/systemd/system/cron-config.path "$wants/cron-config.path"
+				fi
+			fi
+		fi
+		exit 0
+	fi
+	[ -d /run/systemd/system ] || exit 0
+	systemctl daemon-reload
+	for mask in /etc/systemd/system/cron.service /run/systemd/system/cron.service; do
+		[ "$(readlink "$mask" 2>/dev/null || :)" != /dev/null ] || exit 0
+	done
+	if [ "${PKG_UPGRADE:-0}" != 1 ]; then
+		systemctl enable cron.service cron-config.path
+		systemctl --no-block start cron.service
+	else
+		systemctl try-restart cron.service
+	fi
+	;;
+prerm)
+	[ -z "$root" ] && [ -d /run/systemd/system ] || exit 0
+	[ "${PKG_UPGRADE:-0}" != 1 ] || exit 0
+	systemctl stop cron-config.path cron-reconfigure.service cron.service
+	systemctl disable cron.service cron-config.path
+	;;
+*)
+	exit 2
+	;;
+esac

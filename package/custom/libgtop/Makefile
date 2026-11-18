@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=libgtop
-PKG_VERSION:=2.41.3
+PKG_VERSION:=2.41.4
 PKG_RELEASE:=1
-PKG_SOURCE:=libgtop-2.41.3.tar.xz
+PKG_SOURCE:=libgtop-2.41.4.tar.xz
 PKG_SOURCE_URL:=https://download.gnome.org/sources/libgtop/2.41/
-PKG_HASH:=775676df958e2ea2452f7568f28b2ea581063d312773dd5c0b7624c1b9b2da8c
+PKG_HASH:=d3c18158549218835a00517d9c454a2de825ac7808efe84101a8b7e2a8ab6663
 PKG_BUILD_DIR:=$(BUILD_DIR)/libgtop-$(PKG_VERSION)
 PKG_LICENSE:=GPL-2.0-or-later
 PKG_INSTALL:=1

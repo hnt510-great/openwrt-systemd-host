@@ -1,8 +1,0 @@
-#!/bin/sh /etc/rc.common
-START=09
-start() {
-	if [ -f /etc/openwrt-kernel/state.json ]; then
-		/usr/sbin/kernelctl prepare
-		/usr/sbin/kernelctl retain || true
-	fi
-}

@@ -16,6 +16,41 @@ The October 30 failures had three causes:
   being selected. Their exact provenance was checked before restoring bare names;
   versioned generation payload protection pins were preserved.
 
+## VM validation policy (updated 2026-11-14)
+
+VM validation is not a blanket prerequisite for publication. When a change
+introduces no major behavior change and no new functionality, do not require
+or run a VM solely to publish it. Examples include documentation changes,
+routine compatible package updates, release/ELF metadata corrections and
+small fixes within an already validated behavior. Classify the actual diff
+and dependency impact: a version bump alone does not prove a change is small.
+
+Major behavior changes or new functionality need relevant runtime validation
+before publication. Use a disposable VM for boot/init, kernel/module,
+installer/storage, APK transaction/recovery and routing/firewall changes that
+it can exercise. For hardware or desktop/client behavior a VM cannot cover,
+record the appropriate device/client checks and any remaining gaps instead
+of treating a generic boot/network VM pass as acceptance. Follow explicit
+user-requested checks and applicable feature validation procedures.
+
+For routine publication, run the relevant source checks and package builds,
+then the coordinated publication preflight. Signature, ELF/ucode and dependency
+checks, immutable package identities, retained-APK auditing, reachable-router
+baseline checks and both upgrade simulations remain mandatory where applicable.
+Skipping a VM does not bypass any of these gates.
+
+Record the change scope, checks performed and why VM validation was unnecessary
+(for example, “VM not run: routine compatible package update; no major behavior
+change or new functionality”). Keep source/build results, VM results, feed
+publication, physical installation, reboot and client acceptance separate.
+Historical VM results describe their dated artifacts, not a newly built image.
+
+The ordinary `build-and-publish.sh` and `publish-changed-feeds.sh` paths do not
+invoke a VM. The disabled scheduled-maintenance workflow has its own implemented
+exact-image VM gate; it is not the required route for routine publication.
+This policy update does not change that runner or enable its schedule. See
+[scheduled maintenance](scheduled-maintenance.md).
+
 ## Build and validate
 
 For a complete build followed by publication:

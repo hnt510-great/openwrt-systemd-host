@@ -1,5 +1,9 @@
 # Native OpenSSH supervision
 
+> Systemd is the sole normal init on current x86/64 images. References below
+> to procd recovery or firmware flashing from the running system describe
+> older images. See [current boot and migration guidance](systemd-only-plan.md).
+
 With `CONFIG_OPENWRT_SYSTEMD=y`, the OpenSSH server package installs a native
 `sshd.service`. Systemd supervises the foreground listener, handles crash
 restarts, and waits for OpenSSH's startup/reload notifications. Procd retains

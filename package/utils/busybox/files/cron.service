@@ -1,0 +1,19 @@
+[Unit]
+Description=BusyBox Periodic Command Scheduler
+After=openwrt-services.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+Slice=auxiliary.slice
+ExecCondition=/usr/libexec/cron-systemd condition
+ExecStart=/usr/libexec/cron-systemd run
+Restart=on-failure
+RestartSec=5s
+KillMode=control-group
+TimeoutStopSec=30s
+
+[Install]
+WantedBy=multi-user.target
+Also=cron-config.path

@@ -370,3 +370,116 @@ untested; see [Remaining hardware acceptance](#remaining-hardware-acceptance).
 
 Evidence (same directory): `publish-rejected-daed-benign.log`,
 `daed-2.1.1-r7.rebuilt-benign.apk`, `publish.log`.
+
+## VirtIO/SPICE 3D follow-up — 2026-11-15
+
+The separately named, locally verified artifact is:
+`bin/systemd/targets/x86/64-glibc/openwrt-x86-64-generic-installer-spice3d.iso`.
+SHA-256: `5cd77086f22f62411bb5bcb3f29563f6d6346087f045fe86bff4315430d14844`.
+Its adjacent `.iso.sha256` checks this exact file. The normal installer ISO,
+combined image and their existing build manifests were retained unchanged.
+
+This was a focused package build and ISO assembly, not a full firmware build.
+The original clean squashfs was extracted privately, and the built APKs for
+`base-files 1761.16~e2ed57b957`, `openwrt-installer 1-r3` and
+`spice-gtk 0.43-r3` were applied using the build host APK tool with an offline
+root and package scripts disabled. The normal ISO builder generated the new
+hybrid optical/USB image and payload manifest. Its kernel remains
+`7.3.4-63-openwrt`, byte-identical to the input ISO kernel; no kernel or module
+generation was changed. The working configuration still matches the tracked
+desktop snapshot.
+
+### Diagnosis and changes
+
+- With no NIC, the final preinit network cleanup returned 1. Instrumented init
+  recorded a preinit exit status of 256 and skipped its systemd handoff. The
+  cleanup is now explicitly nonfatal. The old image with a VirtIO NIC did boot
+  the installer locally; the offline failure is a separate reproduced case.
+- Kernel warnings could overwrite the whiptail menu. The installer service
+  now sets the console log level to 4 before starting the form. Kernel messages
+  remain in the log.
+- An unpatched Debian SPICE client could leave a passive GL reconnect blank
+  until guest input produced a draw. The repository client already had the
+  monitor-ready redraw patch; r3 additionally repaints newly imported scanouts
+  on already-ready widgets. See [client validation](spice-egl-build-validation.md).
+  This client change belongs on the virtualization host. A guest ISO cannot
+  update a separate Fedora/Debian host's client libraries.
+- QMP `screendump` reported `no surface` on an otherwise working GL console.
+  Acceptance therefore uses actual GTK GL framebuffer captures and SPICE input,
+  rather than treating QMP's CPU-surface capture as a GL display test.
+
+### Checks
+
+| Check | Result |
+| --- | --- |
+| Preinit cleanup/handoff regression | 3 passed with actual BusyBox ash hook execution |
+| Installer host suite | 9 tests, one host-UCI case skipped because no host UCI is staged |
+| Optical bootstrap suite with the prepared root/config | 2 passed, including real frozen-tool execution and determinism |
+| base-files, installer and spice-gtk package builds | Passed; new package releases allocated |
+| Fresh spice-gtk patch application | Zero fuzz; resulting source byte-identical to compiled source |
+| Exact ISO hybrid boot, bootstrap, payload hash and clean-root checks | Passed |
+| BIOS / SATA CD-ROM / VirtIO disk + VirtIO NIC | Installer menu, keyboard and GL checks passed |
+| BIOS / SATA CD-ROM / VirtIO disk / no NIC | Installer menu and systemd handoff passed; same GL/input checks passed |
+| OVMF / SATA CD-ROM / VirtIO disk + VirtIO NIC | Installer menu, keyboard and GL checks passed |
+| Each VM's SPICE client | Initial frame and Down/Up passed; two passive reconnects displayed the same final menu without input, resize or a forced render |
+| Each VM's actual 3D rendering | `GL_RENDERER=virgl (AMD Radeon RX 6600 XT …)`; shader readback `17,204,51,255`; software renderers rejected |
+| Each VM's console/service state | tty1 active, printk level 4, installer active, no failed units, read-only optical loop root |
+| Working configuration and unrelated source changes | Preserved; `git diff --check` passed |
+
+The test QEMU is 11.1.2, q35, KVM, host CPU, 4 vCPUs and 4 GiB RAM. Video is
+`virtio-vga-gl` with SPICE GL over a private Unix socket and the local render
+node. The client used the rebuilt target GTK/SPICE libraries in a private
+chroot with host Mesa support for the local AMD GPU. The client read back the
+actual GL framebuffer; the Down/Up events went through SPICE. Each VM received
+only a newly created disposable 16 GiB disk. No install/format confirmation was
+invoked, and these checks do not repeat the historical installed-system/network
+matrix or prove GNOME installation acceptance.
+
+Evidence: `/srv/openwrt-validation/installer-spice3d-validation-20261115/`.
+`final-receipt.json`, `final-vm-tests.log`, `final-{bios,offline,uefi}.*` and
+`final-{bios,offline,uefi}-spice/` record the exact-image checks. Source/build
+receipts include `packages-build.log`, `spice-build.log`, `spice-zero-fuzz.log`,
+`installer-tests.log`, `optical-full-tests.log`, `final-root-squashfs.log` and
+`final-iso-build.log`. `verify-final.py`, `start-vm.py` and
+`final-assemble-command.json` retain the reproduction inputs.
+
+All VM and client changes were local and disposable. No remote VM, physical
+router, host desktop service, production feed or Git remote was modified.
+
+### Fedora host follow-up — 2026-11-15
+
+Testing the `5cd77086…4844` ISO on the remote Fedora 45 host (`linux2024`,
+QEMU `11.1.3-1.fc45`, libvirt `12.6.0-4.fc45`, `spice-gtk3` `0.43-5.fc45`,
+`spice-server` `0.16.0-9.fc45`, Mesa `26.2.6-1.fc45`, AMD `renderD128`,
+SELinux enforcing) initially showed a black screen while tty1 already held the
+whiptail menu. Single-variable clones and direct QEMU probes isolated two
+separate host-side factors without changing the guest ISO:
+
+- **Primary cause (`<listen type='address'/>`)**: with `autoport='yes'` and
+  `<listen type='address'/>`, libvirt passes `-spice port=5900,addr=127.0.0.1,…,gl=on`.
+  QEMU 11.1 sets `spice_remote_client = 1` whenever `port != 0 || tls_port != 0`,
+  routing GL frames through `spice_gl_replace_fd_texture` /
+  `spice_gl_blit_scanout_texture`, which exported all-black `(0, 0, 0, 255)`
+  DMA-BUF textures from the first SeaBIOS/GRUB frame onward (`ncolors=1` across
+  2s–14s) even over local `openGraphicsFD` / QMP `add_client` Unix sockets.
+  Both stock and patched `spice-gtk3` viewers remained black.
+- **Secondary factor (`spice-gtk3` idle reconnect)**: with `<listen type='none'/>`
+  (`-spice port=0,…,gl=on`, `spice_remote_client = 0`), a stock Fedora
+  `spice-gtk3` viewer connected at boot (1s delay) rendered every stage cleanly
+  (`169 -> 30 -> 86` colors; `173` draws, `6` scanouts, zero `no gl-draw-done`
+  warnings). Connecting or reconnecting while the installer menu was already
+  idle (`draws=0`) imported the 4-color DMA-BUF texture but left stock Fedora
+  `spice-gtk3` unpainted until a key (`Down`/`Up`) triggered a draw; the
+  private patched `spice-gtk3` (`0.43-r3`) painted `initial`, `Down`, `Up`, and
+  both passive reconnects immediately (`86 -> 87 -> 86 -> 86 -> 86` colors).
+
+After explicit authorization, `linux2024`'s inactive XML was backed up,
+redefined with `<listen type='none'/>` (retaining `virtio-vga-gl`,
+`accel3d='yes'`, `gl enable='yes'`, `renderD128`, `br0` NIC, SATA CD-ROM, and
+SELinux enforcing), and restarted. The diagnostic viewer verified the full
+whiptail menu, `Down`/`Up` navigation, and two passive reconnects
+(`46497d0b9814` -> `a589ae3cc2a1` -> `46497d0b9814`, zero QEMU GL timeout
+warnings). `virt-manager` itself was not restarted and remains for final user
+GUI confirmation. Evidence is retained in
+`/srv/openwrt-validation/installer-spice3d-validation-20261115/fedora/`
+(`linux2024-verified/` and `linux2024-inactive-backup-20261115.xml`).

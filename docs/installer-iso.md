@@ -4,6 +4,10 @@ The optional x86_64 native-systemd installer creates a fresh whole-disk GPT and
 installs the same clean squashfs that runs the live environment. UEFI and BIOS
 boot are supported; UEFI uses the removable boot path without NVRAM changes.
 
+Future work: [optional component installation plan and source findings](installer-components-plan.md)
+records a deferred proposal for selecting desktop, audio, virtualization and container
+packages during installation. It is not implemented; this guide describes the current installer.
+
 ## Build
 
 Preserve the current configuration, merge `configs/installer-iso.config`, then
@@ -45,8 +49,42 @@ The squashfs payload is stored once. Rufus ISO mode and Ventoy remain unsupporte
 
 Attach this ISO as a **SATA CD-ROM** and put the CD-ROM first in the boot
 order, with the writable target disk second. BIOS and UEFI are supported.
-Standard VGA is the validated display model for the installer console. Select
-the normal installer entry for the graphical console.
+Standard VGA and VirtIO video with SPICE OpenGL are validated display paths.
+Select the normal installer entry for the graphical console. For VirtIO 3D,
+keep 3D acceleration enabled and use a local SPICE connection with a render node
+belonging to the host GPU. A minimal graphics/video configuration is:
+
+```xml
+<graphics type='spice'>
+  <listen type='none'/>
+  <image compression='off'/>
+  <gl enable='yes' rendernode='/dev/dri/renderD128'/>
+</graphics>
+<video>
+  <model type='virtio' heads='1' primary='yes'>
+    <acceleration accel3d='yes'/>
+  </model>
+</video>
+```
+
+The host's SPICE client needs EGL/DMA-BUF support and correct initial-frame
+repainting. Keep `<listen type='none'/>` (removing `autoport='yes'` and
+`<listen type='address'/>`): in QEMU 11.1+ with SPICE >= 0.15.3, a non-zero
+SPICE TCP port sets `spice_remote_client`, routing GL scanouts through a
+linear/blit texture path that produced black `(0, 0, 0, 255)` DMA-BUF textures
+from SeaBIOS onward on a Fedora 45 / QEMU 11.1.3 / AMD `renderD128` host even
+for local `openGraphicsFD` clients. An unpatched host `spice-gtk` may also show
+black when opening or reconnecting to an already idle menu until a guest key
+triggers a draw. A running guest and QMP `screendump` returning `no surface` do
+not prove a failed boot: VirtIO GL can have no CPU surface for QMP to capture.
+Check the actual SPICE window and serial console separately. See the
+[SPICE client validation](spice-egl-build-validation.md) for the repaint checks.
+Replacing a guest ISO does not update the host's SPICE client library.
+
+An offline installer can boot without a network adapter. Missing preinit network
+cleanup is nonfatal.
+The installer limits console printk output to errors to keep kernel warnings
+from overwriting forms; the messages remain available in the kernel log.
 
 Attaching the ISO as a **read-only raw USB disk** also remains supported. For
 libvirt, use either `device='cdrom'` with a SATA target, or `device='disk'` with a
@@ -108,8 +146,7 @@ The overlay already contains `upper`, `work`, and `.fs_state -> 2`, preserving
 installation settings on first boot. Network is written from scratch; stock DHCP
 and firewall defaults are edited by UCI. The selected IPv6 policy survives the
 stock odhcpd first-boot defaults. The installed GRUB uses the unique FAT
-UUID rather than the shared `kernel` label. Recovery and failsafe entries use the
-new root PARTUUID too.
+UUID rather than the shared `kernel` label. The failsafe entry uses the new root PARTUUID too.
 
 The firstboot unit runs after OpenWrt defaults create the sudo group. It creates
 the optional user and invokes `desktop-setup` under the running systemd instance.
@@ -130,8 +167,7 @@ plaintext as required by UCI.
 After success remove the USB or eject the virtual CD-ROM, then reboot. The target disk contains its own BIOS
 and UEFI boot files, kernel, root filesystem and overlay, so later boots do not
 need the USB. For installation trouble use the tty2
-shell and log. For an installed system use the GRUB procd recovery or failsafe
-entry. This installer erases the target immediately after confirmation; an
+shell and log. For an installed system use the native OpenWrt failsafe entry in GRUB. This installer erases the target immediately after confirmation; an
 interrupted install can be restarted from the USB.
 
 Validation results and remaining acceptance gaps are recorded in

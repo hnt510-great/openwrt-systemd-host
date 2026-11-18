@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=google-chrome-bin
-PKG_VERSION:=157.0.8103.78
+PKG_VERSION:=158.0.8127.36
 PKG_RELEASE:=1
 PKG_SOURCE:=google-chrome-stable_$(PKG_VERSION)-1_amd64.deb
 PKG_SOURCE_URL:=https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/
-PKG_HASH:=4d740636b5c96f687798602c5aad6a5a270f44dd02e48db0638ae77aa4867b1b
+PKG_HASH:=4696bce00b128f385a870ba2eb6eede61698f22374ea0d8e09af8a1c6543d397
 PKG_BUILD_DIR:=$(BUILD_DIR)/google-chrome-$(PKG_VERSION)
 PKG_UNPACK:=rm -rf $(PKG_BUILD_DIR)/deb $(PKG_BUILD_DIR)/upstream; \
 	mkdir -p $(PKG_BUILD_DIR)/deb $(PKG_BUILD_DIR)/upstream; \

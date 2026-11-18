@@ -1,5 +1,9 @@
 # Native-systemd OpenWrt cgroups
 
+> Systemd is the sole normal init on current x86/64 images. References below
+> to procd recovery or firmware flashing from the running system describe
+> older images. See [current boot and migration guidance](systemd-only-plan.md).
+
 > **Units mode.** Since procd 6 / systemd-openwrt 14, `openwrt-procd.service`
 > runs `procd --systemd=units` and procd instances are transient
 > `openwrt-SERVICE@INSTANCE.service` units in the same per-service slices,

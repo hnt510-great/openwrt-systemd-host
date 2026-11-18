@@ -192,3 +192,45 @@ Evidence: `/srv/openwrt-validation/systemd-external-control-validation-20261105/
 particularly `guest-184725/{results.json,versions.log,instance-control.log,native-smoke.log,bridge.log,final-state.log}`,
 `full-build-verified.log` and `bridge-tests-final.log`. The final guest used no
 binary injection; `guest-183649/` is an earlier production-binary diagnostic run.
+
+## Staged-image coverage repair, 2026-11-17
+
+The host suite found two unclassified legacy scripts in the existing staged
+root: `wifi_schedule` and `apk-resume`. The former applies the Wi-Fi startup
+time window and exits; classify it as a setup task. The latter has a no-op
+`start` action under native systemd and is owned by `apk-resume.service`;
+exclude it from bridge controls and give the native unit name in errors.
+Do not record a successful recovery receipt for that compatibility no-op.
+Package release advances from 6 to 7.
+
+The 27-test host suite passes, including the original staged-root coverage
+check. New real-binary/IPC cases check setup completion/failure for Wi-Fi,
+unknown status before observing completion, and rejection of all supported
+bridge actions for APK recovery through both CLI and raw IPC. Rejection runs
+neither the compatibility script nor a native command and produces no hint
+suggesting the bridge for recovery.
+
+Evidence: `.git/sdio-bridge-20261117T023432Z/`, `.git/sdio-bridge-tests.log`
+and `.git/sdio-bridge-build-final.log`. The release-7 target APK builds
+successfully with `-j16`, separately from the host test binary.
+This is source/package validation;
+no full image, disposable VM, physical-router installation, recovery replay,
+radio/client test, service restart or reboot is claimed by this repair.
+
+### Subsequent full build and publication, 2026-11-17
+
+The authorized full `-j16` build and coordinated publication completed as
+`7.3.4-66-openwrt`. The fresh staged rootfs passes all 27 bridge tests, and
+publication preflight passes. No VM or physical installation/reboot occurred.
+See [the publication record](build-publication-20261117.md) for snapshot IDs,
+artifact hashes, preservation checks and runtime limits.
+
+### Subsequent physical boot confirmation, 2026-11-17
+
+After the user completed installation and reboot, a read-only SSH check found
+`7.3.4-66-openwrt` running and selected as both default and known-good.
+The trial counter is cleared, fallback remains `7.3.4-65-openwrt`,
+`kernelctl check` returns 0 and systemd reports no failed units.
+The agent did not initiate this installation or reboot. This confirms the
+physical boot and built-in health checks, not SDIO voltage/UHS behavior,
+Wi-Fi schedule execution or desktop/client acceptance.

@@ -6,7 +6,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=busybox
 PKG_VERSION:=1.38.0
-PKG_RELEASE:=12
+PKG_RELEASE:=15
 PKG_FLAGS:=essential
 
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.bz2
@@ -35,6 +35,8 @@ ifneq ($(CONFIG_BUSYBOX_$(BUSYBOX_SYM)_FEATURE_SUID),)
 endif
 
 include $(INCLUDE_DIR)/package.mk
+
+PKG_CONFIG_DEPENDS:=CONFIG_OPENWRT_SYSTEMD
 
 ifeq ($(DUMP),)
   STAMP_CONFIGURED:=$(strip $(STAMP_CONFIGURED))_$(shell grep '^CONFIG_BUSYBOX_' $(TOPDIR)/.config | $(MKHASH) md5)
@@ -159,8 +161,10 @@ ifneq ($(CONFIG_BUSYBOX_$(BUSYBOX_SYM)_FEATURE_SYSLOG)$(CONFIG_BUSYBOX_$(BUSYBOX
 	touch $(1)/etc/syslog.conf
 endif
 ifneq ($(CONFIG_BUSYBOX_$(BUSYBOX_SYM)_CROND),)
-	$(INSTALL_BIN) ./files/cron $(1)/etc/init.d/cron
-	$(INSTALL_DIR) $(1)/etc/crontabs
+	$(INSTALL_DIR) $(1)/usr/libexec $(1)/etc/crontabs
+	$(INSTALL_DATA) ./files/cron-config.sh $(1)/usr/libexec/cron-config.sh
+	$(INSTALL_BIN) ./files/$(if $(CONFIG_OPENWRT_SYSTEMD),cron-native.init,cron) $(1)/etc/init.d/cron
+	$(if $(CONFIG_OPENWRT_SYSTEMD),$(call Package/busybox/install-systemd-cron,$(1)))
 endif
 ifneq ($(CONFIG_BUSYBOX_$(BUSYBOX_SYM)_NTPD),)
 	$(INSTALL_BIN) ./files/sysntpd $(1)/etc/init.d/sysntpd
@@ -172,7 +176,26 @@ endif
 	-rm -rf $(1)/lib64
 endef
 
+define Package/busybox/install-systemd-cron
+	$(INSTALL_DIR) $(1)/usr/lib/systemd/system $(1)/usr/libexec
+	$(INSTALL_DATA) ./files/cron.service ./files/cron-config.path \
+		./files/cron-reconfigure.service $(1)/usr/lib/systemd/system/
+	$(INSTALL_BIN) ./files/cron-systemd ./files/cron-package $(1)/usr/libexec/
+endef
+
+define Package/busybox/postinst
+#!/bin/sh
+[ ! -x "$${IPKG_INSTROOT}/usr/libexec/cron-package" ] || "$${IPKG_INSTROOT}/usr/libexec/cron-package" postinst
+endef
+
+define Package/busybox/prerm
+#!/bin/sh
+[ ! -x "$${IPKG_INSTROOT}/usr/libexec/cron-package" ] || "$${IPKG_INSTROOT}/usr/libexec/cron-package" prerm
+endef
+
 Package/busybox-selinux/install = $(Package/busybox/install)
+Package/busybox-selinux/postinst = $(Package/busybox/postinst)
+Package/busybox-selinux/prerm = $(Package/busybox/prerm)
 
 $(eval $(call BuildPackage,busybox))
 $(eval $(call BuildPackage,busybox-selinux))

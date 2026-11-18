@@ -2,38 +2,39 @@
 
 . /lib/functions.sh
 . /lib/functions/system.sh
+# BEGIN_FIRMWARE_ONLY
 . /usr/share/libubox/jshn.sh
+# END_FIRMWARE_ONLY
 
-# File-local constants
+
+# BEGIN_FIRMWARE_ONLY
 CONF_TAR=/tmp/sysupgrade.tgz
-ETCBACKUP_DIR=/etc/backup
-INSTALLED_PACKAGES=${ETCBACKUP_DIR}/installed_packages.txt
 COMMAND=/lib/upgrade/do_stage2
-
-# File-local globals
 ADD_PROVISIONING=1
-SAVE_OVERLAY=0
-SAVE_OVERLAY_PATH=
-export SAVE_PARTITIONS=1
-SAVE_INSTALLED_PKGS=0
-SKIP_UNCHANGED=0
 CONF_IMAGE=
-CONF_BACKUP_LIST=0
-CONF_BACKUP=
-CONF_RESTORE=
 USE_CURR_PART=0
-NEED_IMAGE=
-HELP=0
 TEST=0
-
-# Globals accessed in other files
+export SAVE_PARTITIONS=1
 export MTD_ARGS=""
 export MTD_CONFIG_ARGS=""
-export INTERACTIVE=0
-export VERBOSE=1
 export SAVE_CONFIG=1
 export IGNORE_MINOR_COMPAT=0
 export FORCE=0
+# END_FIRMWARE_ONLY
+
+ETCBACKUP_DIR=/etc/backup
+INSTALLED_PACKAGES=${ETCBACKUP_DIR}/installed_packages.txt
+SAVE_OVERLAY=0
+SAVE_OVERLAY_PATH=
+SAVE_INSTALLED_PKGS=0
+SKIP_UNCHANGED=0
+CONF_BACKUP_LIST=0
+CONF_BACKUP=
+CONF_RESTORE=
+NEED_IMAGE=
+HELP=0
+export INTERACTIVE=0
+export VERBOSE=1
 export CONFFILES=/tmp/sysupgrade.conffiles
 
 # parse options
@@ -42,23 +43,33 @@ while [ -n "$1" ]; do
 		-i) export INTERACTIVE=1;;
 		-v) export VERBOSE="$(($VERBOSE + 1))";;
 		-q) export VERBOSE="$(($VERBOSE - 1))";;
+# BEGIN_FIRMWARE_ONLY
 		-n) export SAVE_CONFIG=0;;
+# END_FIRMWARE_ONLY
+
 		-c) SAVE_OVERLAY=1 SAVE_OVERLAY_PATH=/etc;;
 		-o) SAVE_OVERLAY=1 SAVE_OVERLAY_PATH=/;;
+# BEGIN_FIRMWARE_ONLY
 		-p) export SAVE_PARTITIONS=0;;
 		-P) ADD_PROVISIONING=1;;
 		--no-provisioning) ADD_PROVISIONING=0;;
+# END_FIRMWARE_ONLY
 		-k) SAVE_INSTALLED_PKGS=1;;
 		-u) SKIP_UNCHANGED=1;;
-		-b|--create-backup) CONF_BACKUP="$2" NEED_IMAGE=1; shift;;
-		-r|--restore-backup) CONF_RESTORE="$2" NEED_IMAGE=1; shift;;
+		-b|--create-backup) [ -n "$2" ] || { echo "Backup file is required" >&2; exit 1; }; CONF_BACKUP="$2" NEED_IMAGE=1; shift;;
+		-r|--restore-backup) [ -n "$2" ] || { echo "Backup file is required" >&2; exit 1; }; CONF_RESTORE="$2" NEED_IMAGE=1; shift;;
 		-l|--list-backup) CONF_BACKUP_LIST=1;;
+# BEGIN_FIRMWARE_ONLY
 		-f) CONF_IMAGE="$2"; shift;;
 		-s) USE_CURR_PART=1;;
 		-F|--force) export FORCE=1;;
 		-T|--test) TEST=1;;
+# END_FIRMWARE_ONLY
 		-h|--help) HELP=1; break;;
+# BEGIN_FIRMWARE_ONLY
 		--ignore-minor-compat-version) export IGNORE_MINOR_COMPAT=1;;
+# END_FIRMWARE_ONLY
+
 		-*)
 			echo "Invalid option: $1" >&2
 			exit 1
@@ -70,33 +81,19 @@ done
 
 print_help() {
 	cat <<EOF
-Usage: $0 [<upgrade-option>...] <image file or URL>
-       $0 [-q] [-i] [-c] [-u] [-o] [-k] [-P] <backup-command> <file>
-
+Usage: $0 [-q] [-v] [-i] [-c] [-u] [-o] [-k] <backup-command> [file]
+EOF
+# BEGIN_FIRMWARE_ONLY
+	cat <<'FIRMWARE_HELP'
+Usage: sysupgrade [<upgrade-option>...] <image file or URL>
 upgrade-option:
-	-f <config>  restore configuration from .tar.gz (file or url)
-	-i           interactive mode
-	-c           attempt to preserve all changed files in /etc/
-	-o           attempt to preserve all changed files in /, except those
-	             from packages but including changed confs.
-	-u           skip from backup files that are equal to those in /rom
-	-n           do not save configuration over reflash
-	-p           do not attempt to restore the partition table after flash.
-	             On whole-disk image targets this writes the full image,
-	             erasing any partitions the image lacks.
-	-k           include in backup a list of current installed packages at
-	             $INSTALLED_PACKAGES
-	-s           stay on current partition (for dual firmware devices)
-	-P           create provisioning partition to keep sensitive data across
-	             factory resets. This is the default.
-	--no-provisioning
-	             do not create a provisioning partition.
-	-T | --test
-	             Verify image and config .tar.gz but do not actually flash.
-	-F | --force
-	             Flash image even if image checks fail, this is dangerous!
-	--ignore-minor-compat-version
-		     Flash image even if the minor compat version is incompatible.
+    -i -n -c -o -p -P --no-provisioning -u -k -s -f <config>
+    -T | --test     Validate image and config without flashing.
+    -F | --force    Force firmware flashing.
+    --ignore-minor-compat-version
+FIRMWARE_HELP
+# END_FIRMWARE_ONLY
+	cat <<EOF
 	-q           less verbose
 	-v           more verbose
 	-h | --help  display this help
@@ -122,6 +119,11 @@ IMAGE="$1"
 if [ $HELP -gt 0 ]; then
 	print_help
 	exit 0
+fi
+
+if [ "${BACKUP_ONLY:-}" = 1 ] && [ "$#" -ne 0 ]; then
+	echo "Firmware operations are unavailable. See sysupgrade --help for backup commands." >&2
+	exit 1
 fi
 
 if [ -z "$IMAGE" -a -z "$NEED_IMAGE" -a $CONF_BACKUP_LIST -eq 0 ]; then
@@ -394,6 +396,7 @@ if [ -n "$CONF_RESTORE" ]; then
 	exit $?
 fi
 
+# BEGIN_FIRMWARE_ONLY
 type platform_check_image >/dev/null 2>/dev/null || {
 	echo "Firmware upgrade is not implemented for this platform." >&2
 	exit 1
@@ -460,11 +463,6 @@ if [ $TEST -eq 1 ]; then
 	exit 0
 fi
 
-if [ -f /etc/openwrt-systemd ] && [ -d /run/systemd/system ]; then
-	echo "Boot the procd recovery entry before flashing firmware. Image checks and backups are supported under systemd." >&2
-	exit 1
-fi
-
 install_bin /sbin/upgraded
 v "Commencing upgrade. Closing all shell sessions."
 
@@ -486,3 +484,4 @@ else
 
 	ubus call system sysupgrade "$(json_dump)"
 fi
+# END_FIRMWARE_ONLY

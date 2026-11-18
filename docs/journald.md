@@ -1,5 +1,9 @@
 # Persistent journald on OpenWrt
 
+> Systemd is the sole normal init on current x86/64 images. References below
+> to procd recovery or firmware flashing from the running system describe
+> older images. See [current boot and migration guidance](systemd-only-plan.md).
+
 The native-systemd firmware keeps journal files in `/srv/journal` on the
 writable root filesystem. With NVMe extroot mounted by OpenWrt preinit, this
 directory is on the NVMe automatically. No separate log partition or

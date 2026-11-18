@@ -37,11 +37,12 @@ def active():
 
 def network_matrix():
     run('systemctl', 'is-active', 'sshd.service')
-    for name in ['network', 'firewall', 'dnsmasq', 'rpcd', 'cron']:
+    run('systemctl', 'is-active', 'cron.service')
+    for name in ['network', 'firewall', 'dnsmasq', 'rpcd', 'odhcpd']:
         run('systemctl', 'is-active', 'openwrt@' + name)
     for name in ['network', 'firewall', 'dnsmasq']:
         run('systemctl', 'reload', 'openwrt@' + name)
-    run('systemctl', 'restart', 'openwrt@cron')
+    run('systemctl', 'restart', 'openwrt@odhcpd')
     for name in ['passwall', 'passwall_server']:
         if Path('/etc/init.d/' + name).exists():
             run('systemctl', 'restart', 'openwrt@' + name)
@@ -121,19 +122,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--disposable', action='store_true', required=True)
     parser.add_argument('--after-reboot', action='store_true')
-    parser.add_argument('--recovery', action='store_true')
     parser.add_argument('--network', action='store_true')
     parser.add_argument('--apk')
     parser.add_argument('--reconnect', action='store_true')
     args = parser.parse_args()
-    if args.recovery:
-        assert Path('/proc/1/comm').read_text().strip() == 'procd'
-        assert not Path('/run/openwrt-service-bridge/control').exists()
-        run('/etc/init.d/bridge-smoke', 'start')
-        assert service()['main']['running']
-        run('/etc/init.d/bridge-smoke', 'stop')
-        print('PASS: procd recovery, original init controls, bridge absent')
-        return
     assert Path('/proc/1/comm').read_text().strip() == 'systemd'
     run('systemctl', 'is-active', 'openwrt-service-bridge', 'openwrt-procd', 'openwrt-services')
     if args.network:

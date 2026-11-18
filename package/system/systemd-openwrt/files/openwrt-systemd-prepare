@@ -19,7 +19,7 @@ fi
 # journald's socket, or booting with the legacy package mask still installed.
 if [ "$(readlink /etc/systemd/system/systemd-journald-dev-log.socket)" = /dev/null ] ||
    [ "$(cat /usr/share/logd/journal-reader 2>/dev/null)" != journal-reader-v1 ]; then
-	echo 'Native logging requires journal-capable logd and an unmasked systemd-journald-dev-log.socket; booting procd recovery' >&2
+	echo 'Native logging requires journal-capable logd and an unmasked systemd-journald-dev-log.socket' >&2
 	exit 1
 fi
 if [ -f /etc/openwrt-kernel/state.json ] || [ -f /usr/share/openwrt-kernel/selected.json ]; then

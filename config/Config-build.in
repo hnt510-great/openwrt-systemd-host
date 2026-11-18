@@ -19,7 +19,7 @@ config EXPERIMENTAL
 menu "Global build settings"
 
 	config OPENWRT_SYSTEMD
-		bool "Experimental native systemd init (x86_64/glibc/APK)"
+		def_bool y
 		depends on TARGET_x86_64 && USE_GLIBC && USE_APK
 		select KERNEL_DEVTMPFS
 		select KERNEL_CGROUPS
@@ -43,11 +43,11 @@ menu "Global build settings"
 		select PACKAGE_systemd-openwrt
 		help
 		  Boot systemd after OpenWrt preinit, retaining procd router services
-		  and a GRUB recovery entry. Packages use a merged /usr layout and
-		  are written to bin/systemd. Flash firmware from procd recovery.
+		  and native OpenWrt preinit failsafe. Packages use merged /usr
+		  and are written to bin/systemd.
 
 	config OPENWRT_SYSTEMD_SERVICE_BRIDGE
-		bool "Experimental systemctl controls for OpenWrt services"
+		bool "systemctl controls for OpenWrt services"
 		depends on OPENWRT_SYSTEMD
 		default y
 		select PACKAGE_systemd-openwrt-services
@@ -57,7 +57,7 @@ menu "Global build settings"
 		  the existing boot order. Requires root/sudo for service changes.
 
 	config OPENWRT_KERNEL_UPGRADE
-		bool "Experimental parallel APK kernel upgrades"
+		bool "Parallel APK kernel upgrades"
 		default y
 		depends on OPENWRT_SYSTEMD && TARGET_ROOTFS_SQUASHFS
 		depends on !EXTERNAL_KERNEL_TREE && !KERNEL_GIT_CLONE_URI
@@ -129,7 +129,7 @@ menu "Global build settings"
 
 	config USE_APK
 		imply PACKAGE_apk-mbedtls
-		bool "Use APK instead of OPKG to build distribution"
+		bool "Use APK instead of OPKG to build distribution" if !TARGET_x86_64
 		default y
 
 	config SIGN_EACH_PACKAGE

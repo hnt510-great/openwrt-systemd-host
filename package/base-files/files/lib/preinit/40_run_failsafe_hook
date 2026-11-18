@@ -4,8 +4,12 @@
 run_failsafe_hook() {
     [ "$pi_preinit_no_failsafe" = "y" ] && return
     if [ "$FAILSAFE" = "true" ]; then
+	touch /tmp/failsafe
 	lock /tmp/.failsafe
 	boot_run_hook failsafe
+	if [ -f /etc/openwrt-systemd ]; then
+	    while :; do sleep 3600; done
+	fi
 	while [ ! -e /tmp/sysupgrade ]; do
 	    lock -w /tmp/.failsafe
 	done

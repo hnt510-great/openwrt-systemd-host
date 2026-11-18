@@ -141,6 +141,19 @@ class AllocationTests(unittest.TestCase):
         self.assertEqual(self.ledger().count('# 2026-11-09 ' + A.SECTION), 1)
         self.assertIn('ELF_REBUILD_nautilus_51.1-r3:=51.1-r5\n', self.ledger())
 
+    def test_abbreviates_full_git_commit_hashes_in_packageinfo(self):
+        (self.tree / 'tmp/.packageinfo').write_text(
+            PACKAGEINFO + '\n'
+            'Source-Makefile: package/network/services/hostapd/Makefile\n'
+            'Package: wpad-mbedtls\n'
+            'Version: 2026.08.07~831364bf02710ad09c2f27d3efa92abeeb5634c0-r6\n')
+        (self.base / 'wpad-mbedtls-2026.08.07~831364bf-r6.apk').touch()
+        plan = A.plan(self.tree, self.destination, [
+            entry('base/wpad-mbedtls-2026.08.07~831364bf-r6.apk',
+                  'wpad-mbedtls', '2026.08.07~831364bf-r6')])
+        self.assertEqual(plan[0]['recipe'], '2026.08.07~831364bf-r6')
+        self.assertEqual(plan[0]['release'], '2026.08.07~831364bf-r7')
+
 
 class PublishAllocatingTests(unittest.TestCase):
     def setUp(self):

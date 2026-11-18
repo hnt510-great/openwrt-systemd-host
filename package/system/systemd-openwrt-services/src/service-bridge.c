@@ -99,10 +99,32 @@ static bool valid_name(const char *s)
 	return true;
 }
 
+static const char *exclusion_reason(const char *name)
+{
+	if (!strcmp(name, "samba4"))
+		return "use native samba4.service; the init script delegates to systemd";
+	if (!strcmp(name, "wsdd2"))
+		return "use native wsdd2.service; the init script delegates to systemd";
+	if (!strcmp(name, "avahi-daemon"))
+		return "use native avahi-daemon.service; the init script delegates to systemd";
+	if (!strcmp(name, "cron"))
+		return "use native cron.service; the init script delegates to systemd";
+	if (!strcmp(name, "nlbwmon"))
+		return "use native nlbwmon.service; the init script delegates to systemd";
+	if (!strcmp(name, "ddns-go"))
+		return "use native ddns-go.service; the init script delegates to systemd";
+	if (!strcmp(name, "podman"))
+		return "use native podman.socket";
+	if (!strcmp(name, "apk-resume"))
+		return "use native apk-resume.service";
+	if (!strcmp(name, "dbus") || !strcmp(name, "sshd") || !strcmp(name, "umount"))
+		return "use native dbus.service or sshd.service; systemd owns filesystem shutdown";
+	return NULL;
+}
+
 static bool excluded(const char *name)
 {
-	return !strcmp(name, "dbus") || !strcmp(name, "sshd") ||
-		!strcmp(name, "umount");
+	return exclusion_reason(name) != NULL;
 }
 
 static bool installed(const char *name)
@@ -716,7 +738,7 @@ static json_object *handle(json_object *q, uid_t uid)
 	o = json_object_new_object();
 	if (!installed(name)) {
 		add_string(o, "error", excluded(name) ?
-			   "use native dbus.service or sshd.service; umount is recovery-only" :
+			   exclusion_reason(name) :
 			   "unknown OpenWrt service");
 		rc = 4;
 	} else if (!mutation(action) && strcmp(action, "status") &&
@@ -1057,7 +1079,7 @@ static int client(int argc, char **argv)
 		}
 		if (!installed(name)) {
 			fprintf(stderr, "%s: %s\n", argv[i], excluded(name) ?
-				"use native dbus.service or sshd.service; umount is recovery-only" :
+				exclusion_reason(name) :
 				"unknown OpenWrt service");
 			return 4;
 		}

@@ -264,10 +264,9 @@ used by dae; dae's `domain()` rules replace them.
   through `dae0` and never traverse the host `input` chain; dae's own
   outbound connections and the replies it injects are covered by fw4's
   established/related rules.
-- **systemd and procd**: daed is an rc service supervised by procd. In a
-  native boot `openwrt-services.service` starts it; in the `procd recovery`
-  boot procd does. Both mount bpffs at `/sys/fs/bpf` and cgroup2 at
-  `/sys/fs/cgroup`.
+- **systemd and procd**: `openwrt-services.service` starts the daed rc service through
+  the procd compatibility API. The host mounts bpffs at `/sys/fs/bpf` and
+  cgroup2 at `/sys/fs/cgroup`.
 
 ### No LAN interface: LAN traffic goes direct
 

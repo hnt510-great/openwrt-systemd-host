@@ -1,0 +1,6 @@
+{
+  "packages": {
+    "base": "9fb3b8168b518bfe8f27fe311a65dea0c06f153a",
+    "patch": "patches/feeds/0039-packages-qemu-aio-kconfig.patch"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "packages": {
+    "base": "07ecd13b42fea9ae9cc83332f2c299e47d3e1bc4",
+    "patch": "patches/feeds/0040-packages-samba4-native-systemd.patch",
+    "commit": "d318677fef79a903d16e829887e926ac027ba00a"
+  }
+}

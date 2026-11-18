@@ -1,0 +1,36 @@
+Subject: Fix ScreenshotUI search keywords and Screencast D-Bus service startup
+
+Include the action title tokens and photo/Chinese aliases in the
+open-screenshot-ui search keywords so typing "Take a Screenshot", "take"
+or "photo" in the Overview matches the built-in screenshot UI. Always
+register org.gnome.Shell.Screencast on the session bus and report
+ScreencastSupported via its D-Bus property instead of exiting before
+claiming the bus name.
+
+--- a/js/dbusServices/screencast/main.js
++++ b/js/dbusServices/screencast/main.js
+@@ -3,9 +3,6 @@ import {ScreencastService} from './scree
+ 
+ /** @returns {void} */
+ export async function main() {
+-    if (!ScreencastService.canScreencast())
+-        return;
+-
+     const service = new DBusService(
+         'org.gnome.Shell.Screencast',
+         new ScreencastService());
+--- a/js/misc/systemActions.js
++++ b/js/misc/systemActions.js
+@@ -153,7 +153,11 @@ const SystemActions = GObject.registerCl
+             name: C_('search-result', 'Take a Screenshot'),
+             iconName: 'record-screen-symbolic',
+             // Translators: A list of keywords that match the screenshot UI action, separated by semicolons
+-            keywords: tokenizeKeywords(_('screenshot;screencast;snip;capture;record')),
++            keywords: [
++                ...tokenizeKeywords(_('screenshot;screencast;snip;capture;record')),
++                ...tokenizeKeywords(C_('search-result', 'Take a Screenshot')),
++                ...tokenizeKeywords('take a screenshot;photo;截图;截屏;录屏'),
++            ],
+             available: true,
+         });
+ 

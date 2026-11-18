@@ -2,7 +2,7 @@
 """Exercise unified logging ONLY inside a disposable OpenWrt VM.
 
 Run with --disposable. Restarts logging and temporarily changes UCI logging.
---recovery checks the original procd path instead. --vacuum deletes journal
+--vacuum deletes journal
 history and is intended only for a dedicated retention test VM.
 Use --prepare-storage-failure, reboot, then --storage-recovery to exercise
 runtime fallback and a live persistent mount/flush transition.
@@ -151,7 +151,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--disposable', action='store_true', required=True)
     modes = parser.add_mutually_exclusive_group()
-    modes.add_argument('--recovery', action='store_true')
     modes.add_argument('--prepare-storage-failure', action='store_true')
     modes.add_argument('--storage-recovery', action='store_true')
     parser.add_argument('--vacuum', action='store_true')
@@ -160,14 +159,6 @@ def main():
     mode = Path('/proc/1/comm').read_text().strip()
     token = 'journal-' + uuid.uuid4().hex
     marker = lambda name: token + '-' + name
-    if args.recovery:
-        assert mode == 'procd'
-        assert '-J' not in Path('/proc/' + run('pidof', 'logd').strip() + '/cmdline').read_text().split('\0')
-        syslog(marker('recovery'))
-        wait_for(lambda: find(marker('recovery')), 'recovery syslog')
-        run('ubus', 'call', 'system', 'board')
-        print('PASS: stock logd syslog/ubus in procd recovery')
-        return
     assert mode == 'systemd'
     if args.prepare_storage_failure or args.storage_recovery:
         storage_test(args.prepare_storage_failure)
@@ -308,6 +299,10 @@ def main():
             time.sleep(0.5)
             assert run('pidof', 'logd').strip() == pid, 'oversized record crashed tiny ring'
             assert not find(marker('tiny-large'))
+            run('uci', 'set', 'system.@system[0].log_buffer_size=4')
+            run('uci', 'commit', 'system')
+            run('/etc/init.d/log', 'restart')
+            wait_for(entries, '4 KiB compatibility buffer')
             syslog(marker('tiny-seed'))
             check_once(marker('tiny-seed'))
             run('/etc/init.d/log', 'restart')

@@ -80,7 +80,7 @@ return view.extend({
 	},
 
 	render: function() {
-		this.status = E('p', { 'class': 'cbi-section-descr' }, [ _('Loading restart advice…') ]);
+		this.status = E('p', { 'class': 'cbi-section-descr', 'style': 'text-align: center' }, [ _('Loading restart advice…') ]);
 		this.content = E('div');
 		this.scanButton = E('button', { 'class': 'cbi-button cbi-button-action', click: L.bind(function() {
 			this.scanButton.disabled = true;

@@ -95,10 +95,9 @@
       "files": [
         "drivers/mtd/spi-nor/macronix.c"
       ],
-      "status": "rebased",
+      "status": "upstream",
       "source_sha256": "0e89758d19027f18a869be802bf6e49dd5ab80b1164a3ced5be3d8923a26c47f",
-      "ported": "target/linux/generic/backport-7.3/439-v7.4-mtd-spi-nor-macronix-Restore-fallback-parameters-for.patch",
-      "ported_sha256": "cc2dee38db8c9475b5e789573d93cbfd71cbd936df85751b1ed0fd00afe4fb1b"
+      "reason": "Backport targets upstream v7.4, absorbed by v7.3.5 stable (commit 01739ccea21b)"
     },
     {
       "source": "target/linux/generic/backport-6.18/440-v7.0-mtd-physmap-core-Prioritize-ofparts-for-OF-probe.patch",
@@ -117,6 +116,28 @@
       "status": "upstream",
       "source_sha256": "f5bd6e94af5529ded69a30e72d83bb018abcd02a7c640a686d61f09c8f12dabc",
       "reason": "Backport targets upstream v7.4; included by the Linux 7.3.4 stable release (the 7.3 port reverse-applies cleanly), so the 7.3 copy was dropped"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/445-01-v7.5-mmc-core-sdio-retry-without-UHS-if-UHS-init-fails.patch",
+      "files": [
+        "drivers/mmc/core/sdio.c"
+      ],
+      "status": "refreshed",
+      "reason": "SDIO initialization fixes absent from Linux 7.3.4; applies unchanged with zero fuzz and offsets; MMC core is enabled on x86/64",
+      "source_sha256": "223fa8c13b05bd6e418df05a3ca8ab107a4d8a01e36209e6425554746a0a74fb",
+      "ported": "target/linux/generic/backport-7.3/445-01-v7.5-mmc-core-sdio-retry-without-UHS-if-UHS-init-fails.patch",
+      "ported_sha256": "223fa8c13b05bd6e418df05a3ca8ab107a4d8a01e36209e6425554746a0a74fb"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/445-02-v7.5-mmc-core-sdio-skip-CMD11-if-signalling-is-already-1.8V.patch",
+      "files": [
+        "drivers/mmc/core/sdio.c"
+      ],
+      "status": "refreshed",
+      "reason": "SDIO initialization fixes absent from Linux 7.3.4; applies unchanged with zero fuzz and offsets; MMC core is enabled on x86/64",
+      "source_sha256": "bc95fa81c1e1990fa5c9e11149f610457a6190dab43548e4df0662da9a1ef372",
+      "ported": "target/linux/generic/backport-7.3/445-02-v7.5-mmc-core-sdio-skip-CMD11-if-signalling-is-already-1.8V.patch",
+      "ported_sha256": "bc95fa81c1e1990fa5c9e11149f610457a6190dab43548e4df0662da9a1ef372"
     },
     {
       "source": "target/linux/generic/backport-6.18/500-v6.19-ksmbd-server-avoid-busy-polling-in-accept-loop.patch",

@@ -7,10 +7,9 @@ udevd owns device events, and the systemd manager owns the hardware watchdog.
 procd remains the OpenWrt service API. Init scripts, UCI, LuCI, `reload_config`,
 `service list` and the `hotplug.*` ubus objects keep working unchanged.
 
-Recovery boots (the GRUB *procd recovery* entry and failsafe) and stock images
-are unaffected: there procd is PID 1 and supervises as before. Firmware
-flashing still requires procd recovery. See [native systemd](systemd.md) for
-the boot sequence and the [validation record](systemd-native-supervision-validation.md).
+The normal init is systemd. The native OpenWrt failsafe console is started by
+preinit. See [systemd boot](systemd.md) for the boot sequence and
+[historical validation](systemd-native-supervision-validation.md) for past builds.
 
 ## Who does what
 
@@ -21,7 +20,7 @@ the boot sequence and the [validation record](systemd-native-supervision-validat
 | `/etc/hotplug.d/*`, `/etc/rc.button/*` | procd, fed by udev |
 | hardware watchdog | systemd manager (`RuntimeWatchdogSec=30s`) |
 | ubus `service`, `system`, `hotplug.*`, triggers, validation | procd |
-| preinit, failsafe, recovery, flashing | procd (unchanged) |
+| preinit and failsafe shell | OpenWrt early init |
 
 ## Units
 
@@ -184,7 +183,7 @@ reboot
 
 Both settings belong together: procd and systemd must not both open
 `/dev/watchdog`. Remove the two files and reboot to return to units mode. The
-GRUB procd recovery entry remains available in either mode.
+Native OpenWrt failsafe remains available via GRUB.
 
 ## Tests
 

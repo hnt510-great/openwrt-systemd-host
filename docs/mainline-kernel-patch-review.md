@@ -1223,3 +1223,168 @@ Validation: `./scripts/feeds update -i -a`, `./scripts/feeds install -a` and
 `libjpeg-turbo` prepare/compile cleanly, and the mainline-kernel and
 custom-package test suites pass. No firmware or APK feed was published and no
 router was modified. The optional MAP-E tunnel finding remains open.
+
+## Upstream synchronization review, 2026-11-16
+
+Merged 131 incoming main-tree commits through `7424e2ca30` as `7a085bfd72`,
+plus 7 packages, 1 LuCI, 8 telephony, 3 Passwall LuCI and 1 Passwall packages
+commits. Routing, taskplan and video were already current. Preservation
+snapshots and backup branches cover all 11 repositories, including the Argon
+submodule and retired Argon configuration repository. Evidence is under
+`.git/pull-preserve/20261116T013030Z/` and the `.git/*current.log` /
+`.git/sync-package-*.log` logs.
+
+### Kernel: no new backport required for the selected x86/64 configuration
+
+OpenWrt commit `b828f58d67` adds three generic 6.18 patches, `799-01` through
+`799-03`, fixing MediaTek WED stale freed pointers, reset buffer leaks and
+failed receive-buffer initialization. All changes target
+`drivers/net/ethernet/mediatek/mtk_wed.c`. Its Kconfig requires the MediaTek
+SoC platform or `COMPILE_TEST`; this x86/64 configuration enables neither.
+The changed existing `799-net-ethernet-mtk_wed-attach-*` patch only refreshes
+hunk offsets. There are no incoming x86/64 kernel patch changes; the Geode
+image feed-package adjustment concerns a different subtarget.
+
+These three WED fixes remain optional 7.3 port candidates if MediaTek SoC
+support or compile testing is enabled later. No kernel patch was changed by
+this check. The registry is intentionally unchanged: the current inventory
+has 583 generic/x86 6.18 source patches, three unregistered new WED sources,
+one changed source hash (the offset-only `799` refresh), and five previously
+recorded removed sources. Do not treat the registry as hash-current for the
+new 6.18 stack. All 354 carried 7.3 patches, including four additions, still
+match their registered hashes and apply with `--fuzz=0` to a fresh extraction
+of SHA256-verified Linux 7.3.4 (`b11b6df8...fd1f`). The release checker reports
+7.3.4 current. Hash and application receipts are in `kernel-*-audit.json`
+and `kernel-apply-result.json` within the preservation directory.
+
+Incoming wireless fixes are carried by the separate mac80211 backports and
+hostapd packages. Both packages prepare successfully with the existing local
+patches; they do not require duplicate patches in the native 7.3 stack.
+
+### Integration repairs and custom packages
+
+- Resolve the FFmpeg release conflict as `9.0.1-r9`, retaining local GNOME,
+  VA-API and library selections while accepting upstream patches. FFmpeg
+  preparation passes with the merged patch stack.
+- Refresh both local ubox patches using `make package/system/ubox/refresh`.
+  Preserve upstream's bounded whitespace trim and kernel-line truncation in
+  the mutable syslog input path before entering the const journal-compatible
+  storage API. Journal reader, forwarding/reconnect and versioned kernel
+  autoload support remain present. The target ubox/logd build passes.
+- Make the logd test choose the recipe's exact source archive, allowing old
+  and new downloads to coexist, and update its event-loop stub to match
+  current libubox headers. All three tests execute and pass without skips.
+- Strict Kconfig exposed an existing QEMU io_uring/package dependency cycle.
+  Move the AIO options outside the emulator package guard, following the
+  existing graphics/audio option arrangement. Strict validation passes with
+  zero selected-symbol differences from the preserved `.config`. The feed
+  edit is mirrored by `configs/qemu-aio-kconfig-feeds.json` and
+  `patches/feeds/0039-packages-qemu-aio-kconfig.patch`.
+- Custom update report `logs/custom-package-updates/20261116T013124.749290Z/report.json`
+  passes for all 188 entries: 147 current, 36 locally maintained and 5 review
+  entries; no eligible custom recipe update is available.
+
+Validation: mainline updater (20), kernel build inputs (7), custom updater
+(49), package metadata/Kconfig (4), and logd journal (3) tests pass. Feed
+update/install, metadata generation, all nine nonempty indexes, generated
+link checks and preservation checks pass. The preserved `.config`, overlays,
+stashes and original untracked contents are unchanged; every original
+repository HEAD remains an ancestor. Integration repairs and this report are
+left uncommitted for review. No full firmware build or runtime test was run:
+this request covers source synchronization and patch applicability. No feed
+publication, Git push, router installation, service restart or reboot occurred.
+
+## Upstream synchronization review, 2026-11-17
+
+OpenWrt through `393efd7d74ce` adds two generic SDIO initialization fixes
+(`445-01` and `445-02`, upstream v7.5). Both are absent from Linux 7.3.4
+and apply to the full local stack with zero fuzz and no offsets. MMC/SDHCI
+is enabled in the x86 kernel, so these are recommended backport candidates
+for SDIO correctness. No affected physical card was verified, and the
+7.3 patch stack was not changed by this applicability check. There are no
+incoming x86-specific patches. All 354 current 7.3 patches apply cleanly;
+the registry remains intentionally behind the two SDIO and three earlier
+WED source additions. See [the synchronization report](upstream-sync-20261117.md)
+for exact inventory, integration repairs, tests and limitations.
+
+### SDIO backports completed, 2026-11-17
+
+The requested follow-up now carries both `445-01` and `445-02` in
+`target/linux/generic/backport-7.3/`, byte-identical to their upstream
+6.18 copies, including commit provenance. No patch regeneration was needed.
+The registry records both source/ported SHA-256 values. Its three earlier
+WED additions and offset-only source-hash change remain outstanding outside
+this x86 scope; the SDIO entries are current.
+
+All 356 carried patches apply with zero fuzz to a fresh extraction of the
+SHA256-verified Linux 7.3.4 archive plus current generic/x86 overlays. The
+resulting patched `drivers/mmc/core/sdio.c` compiles successfully using the
+existing selected x86 kernel's recorded compiler command and generated headers,
+with its output/dependency file redirected to the isolated evidence directory.
+The normal prepared kernel tree, full kernel image and generation number were
+not rebuilt or changed. This proves patch application and compilation, not
+SDIO/UHS/1.8 V behavior on physical hardware.
+
+Evidence: `.git/sdio-bridge-20261117T023432Z/kernel-result.json` and
+`sdio-compile.log`. No publication, installation, restart or reboot occurred.
+
+Mainline updater tests pass all 20 cases. Checkpatch reports zero errors for
+both carried patches and one inherited warning on the long quoted kernel-log
+line in patch 445-02's upstream commit description; upstream patch bytes are
+preserved.
+
+### Subsequent full build and publication, 2026-11-17
+
+The authorized full `-j16` build and coordinated publication completed as
+`7.3.4-66-openwrt`. The fresh staged rootfs passes all 27 bridge tests, and
+publication preflight passes. No VM or physical installation/reboot occurred.
+See [the publication record](build-publication-20261117.md) for snapshot IDs,
+artifact hashes, preservation checks and runtime limits.
+
+### Subsequent physical boot confirmation, 2026-11-17
+
+After the user completed installation and reboot, a read-only SSH check found
+`7.3.4-66-openwrt` running and selected as both default and known-good.
+The trial counter is cleared, fallback remains `7.3.4-65-openwrt`,
+`kernelctl check` returns 0 and systemd reports no failed units.
+The agent did not initiate this installation or reboot. This confirms the
+physical boot and built-in health checks, not SDIO voltage/UHS behavior,
+Wi-Fi schedule execution or desktop/client acceptance.
+
+## Upstream synchronization review and Linux 7.3.5, 2026-11-18
+
+Merged OpenWrt through `27663a017ad8` (19 incoming main-tree commits) as
+`712beefa91`, plus 24 `packages`, 1 `luci` and 2 `passwall_luci` commits.
+Backup branches are `backup/pre-upstream-20261118T033529Z` across all 11
+repositories; preservation receipts and audit logs are in
+`.git/pull-preserve/20261118T033529Z/`. See
+[the synchronization report](upstream-sync-20261118.md) for package and feed
+details.
+
+### Kernel patches and Linux 7.3.5 update
+
+- **Incoming 6.18 patches**: No `target/linux/x86` files changed. One new
+  generic patch landed (`c06ccca080`),
+  `target/linux/generic/hack-6.18/301-03-mips-keep-module-code-out-of-the-first-32-KiB-of-a-segment.patch`,
+  touching `arch/mips/kernel/module.c` only for the 32-bit MIPS 24K EPC
+  erratum. It does not apply to or belong in the x86/64 Linux 7.3 port.
+  Other incoming kernel changes (`airoha`, `ramips`, `realtek`, `sifiveu`,
+  `sunxi`) are target-specific.
+- **Linux 7.3.4 to 7.3.5**: `update-mainline-kernel.py` detected upstream
+  Linux `7.3.5` (SHA-256
+  `8f293f83d54f0b7b9be56863ebc5e4ea79d73e530b4ae55c572be97ef39f0990`).
+  Linux 7.3.5 absorbs upstream commit `01739ccea21b`
+  (`mtd: spi-nor: macronix: Restore fallback parameters for MX25L12805D`),
+  which was previously carried as
+  `target/linux/generic/backport-7.3/439-v7.4-mtd-spi-nor-macronix-Restore-fallback-parameters-for.patch`.
+  Forced reverse dry-run against pristine 7.3.5 succeeds with zero fuzz, so
+  `backport-7.3/439-*` is dropped and its entry in
+  `configs/mainline-kernel-patches.json` is marked `upstream` in `7.3.5`.
+- All **355 remaining carried Linux 7.3 patches** match their registered
+  hashes and apply to a fresh extraction of SHA256-verified Linux 7.3.5 plus
+  current generic/x86 overlays with `--fuzz=0`. `target/linux/generic/kernel-7.3`
+  is updated to `7.3.5`.
+- Between 7.3.4 and 7.3.5, 467 files changed; the only Kconfig change is in
+  `lib/crypto/Kconfig` (`MIPS && CPU_CAVIUM_OCTEON && CPU_BIG_ENDIAN` defaults
+  for SHA1/SHA256/SHA512), leaving the x86/64 kernel configuration unchanged.
+  The optional MAP-E tunnel finding remains open.

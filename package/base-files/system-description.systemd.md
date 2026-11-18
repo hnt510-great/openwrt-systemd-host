@@ -1,7 +1,7 @@
 # OpenWrt Systemd Host
 
 This custom x86_64 OpenWrt build combines a router with a general-purpose Linux
-host. It uses glibc, APK packages and native systemd as the default PID 1.
+host. It uses glibc, APK packages and native systemd as PID 1.
 Image-selected capabilities can include an ordinary-user Wayland desktop,
 virtual machines, desktop applications, containers and native development tools.
 OpenWrt's UCI, ubus and netifd manage the router stack; procd remains its
@@ -26,7 +26,8 @@ installed capabilities checked when the metadata was deployed to an existing
 system. Neither scope tracks running services or later package changes. Check
 commands, packages, hardware, permissions and service status before assuming a
 feature is currently usable.
-The default init metadata describes the image; recovery can run procd as PID 1.
+The init metadata describes the image; systemd is the sole normal PID 1,
+while the GRUB failsafe entry boots the native OpenWrt preinit console.
 The build revision identifies base-files metadata, not necessarily the running
 kernel or every installed package. Use `uname -r`, `apk info -v` and, when
 installed, `kernelctl status` to inspect those independently.
@@ -66,9 +67,7 @@ through a compatibility view limited to the UCI log buffer.
 The systemd manager owns the hardware watchdog (`RuntimeWatchdogSec=30s`);
 `ubus call system watchdog` reports owner `systemd`. The x86/64 configuration
 selects no watchdog driver, so there is no `/dev/watchdog` unless one is
-installed. Returning to procd supervision is a `procd --systemd -S` drop-in for
-`openwrt-procd.service` together with `RuntimeWatchdogSec=0` and `RebootWatchdogSec=0`; recovery boots
-always run procd as PID 1.
+installed.
 
 `openwrt-network-wait-online.service` holds `network-online.target` until
 netifd reports its autostart, statically configured local interfaces (such as
@@ -81,7 +80,11 @@ The default-on `systemd-openwrt-services` bridge accepts controls such as
 interface that runs the init script, and UCI/init scripts remain
 authoritative. The reserved `openwrt@NAME.service` spelling is not a native unit
 for D-Bus calls or dependencies. Native SSH and D-Bus use `sshd.service` and
-`dbus.service`. PID 1 refuses direct start/stop/restart/reload jobs on procd
+`dbus.service`; NAS services (`samba4.service`, `samba4@.service`,
+`wsdd2.service`, `avahi-daemon.service`) run natively in `nas.slice`, and
+auxiliary services (`cron.service`, `nlbwmon.service`, `ddns-go.service`) run
+natively in `auxiliary.slice`. PID 1 refuses direct start/stop/restart/reload
+jobs on procd
 instance units from other clients, with instructions to use this bridge or the
 init script. Stopping `openwrt-SERVICE.slice` remains a deliberate whole-service
 override that skips init-script hooks. The restriction takes effect after reboot
@@ -128,13 +131,17 @@ sudo -n uci-history --json restore REV --config network --timeout 300 --dry-run
 
 ## Router audit data
 
-When `router-audit` is installed, `router-audit-collect.service` collects
+When `router-audit` is installed, background collection is opt-in and disabled
+by default (`router-audit.main.enabled='0'` in `/etc/config/router-audit`).
+When enabled (`enabled='1'`), `router-audit-collect.service` collects
 read-only JSON snapshots and minute samples: system, services, network,
 firewall and conntrack counters, client identity, journal signatures and UCI
 changes. It also records DNS query metadata from dnsmasq and daed, and
 per-device connection destinations from daed and conntrack. It changes no UCI,
-firewall, route or credential state. Its fixed probes (TCP 443 and one UDP DNS
-query per minute) generate a small amount of traffic. The spool is root-only
+firewall, route or credential state. Only when enabled do its fixed probes
+(TCP 443 and one UDP DNS query per minute) generate a small amount of traffic;
+manual `router-audit-export` queries and historical samples remain available
+when collection is disabled. The spool is root-only
 under `/srv/router-audit` and holds at most 256 MiB or 24 hours. Missing
 observations and `status=partial` are coverage gaps, not zeros. Proxied, offloaded
 and notrack traffic limit how complete per-client accounting can be.
@@ -198,6 +205,11 @@ before assuming one is active.
   changes that. 5 GHz needs an additional non-Intel radio. `iwinfo`,
   `hostapd_cli` and LuCI *Services → Wifi Schedule* (installed disabled) are
   available.
+- **irqbalance netdev CPU pools**: `irqbalance` accepts repeatable
+  `list netdev_cpus 'IFACE:CPULIST'` rules in `/etc/config/irqbalance`
+  (`--netdev-cpus`) to restrict matching PCI network-device IRQs to a CPU pool
+  while keeping load-based placement within that pool; no rules are enabled by
+  default.
 
 ```sh
 uci -q get firewall.@defaults[0].fullcone
@@ -238,7 +250,9 @@ listener follows the LAN address and defaults to LAN IPv4 TCP 3389. Reconnecting
 does not create another login session. This profile uses neither a VNC server
 nor xrdp. Restarting the desktop closes its applications and remote connections.
 
-`desktop-setup` provisions unattended GNOME keyring access for session startup.
+`desktop-setup` provisions unattended GNOME keyring access for session startup,
+sealing the passphrase under `/etc/desktop/gnome/` with TPM2 (`systemd-creds`)
+when TPM2 is available and falling back to plaintext credentials otherwise.
 Preserve the existing user keyring, root-only bootstrap credentials and RDP TLS
 identity across upgrades; do not replace them to recover a remote connection.
 Inspect the ordinary user's `gnome-keyring-daemon.service`,
@@ -374,7 +388,9 @@ Inspect an upgrade with `apk upgrade --simulate` before committing it. An
 explicit `apk upgrade --userspace-only --simulate` checks a userspace-only
 alternative that keeps the installed kernel packages. Keep world constraints, signature
 checks and kernel protection hooks intact. An APK upgrade or reinstall starts
-an init script only where it is enabled; it does not start disabled services.
+an init script only where it is enabled (and native systemd services follow their
+unit enable/mask state via package lifecycle hooks); it does not start disabled
+services.
 
 An APK commit that has started runs to its database write: Ctrl-C, SIGTERM
 and SSH hangups are deferred until then, and with `apk-transaction-guard` the
@@ -387,13 +403,15 @@ done. Check with `apk-resume --status`; run `apk-resume` by hand if the boot
 attempt failed (from failsafe, after `mount_root`). Do not delete the journal
 to get APK working again.
 
-OpenWrt rootfs/overlay and sysupgrade conventions still apply. Inspect `mount`
+OpenWrt rootfs/overlay and configuration backup conventions still apply. Inspect `mount`
 and `/etc/config/fstab` to determine the actual persistent storage and extroot
 layout; `/var` may point into `/tmp`.
 
-The supported firmware flashing path is the GRUB **procd recovery** entry.
-`sysupgrade` permits image checks and configuration backups under native
-systemd but blocks flashing there. Boot recovery before firmware flashing.
+Systemd is the sole normal init. The GRUB failsafe entry starts the native
+OpenWrt preinit console, where `mount_root` allows manual overlay access.
+Use `sysupgrade -b`, `-l` and `-r` for configuration backups, lists and
+restores. Use installation media or offline disk imaging to replace the
+firmware, then restore the selected configuration.
 
 With `openwrt-kernel-upgrade`, kernels are installed like a distribution's:
 every kernel build is a separate `linux-image-<release>` package carrying its
@@ -408,7 +426,7 @@ kernels; `kernelctl set-default`, `rollback` and `remove` manage them. Only the
 default (active or pending) kernel, its fallback and the image's original rescue
 kernel are kept; older kernels are pruned automatically. A package
 installation does not prove the new kernel has booted. Kernel upgrades and
-firmware flashing are separate operations.
+firmware replacement are separate operations.
 
 `needrestart --cached --json` and LuCI's Restart Needed page report cached
 restart advice when installed. A fresh `needrestart` scan inspects replaced or
@@ -451,5 +469,5 @@ restore hook. The English installer creates a fresh GPT with a FAT ESP, read-onl
 system partition and separate ext4, btrfs or xfs overlay, configures LAN/WAN and
 firewall policy, and sets account password hashes. Optional regular-user and
 GNOME setup runs after OpenWrt first-boot defaults under systemd. The installed
-boot tree supports kernelctl and retains BIOS, UEFI and procd recovery paths.
+boot tree supports kernelctl and retains BIOS and UEFI boot with native OpenWrt failsafe.
 Personal untracked image overlays are excluded from the installer payload.

@@ -1,0 +1,3 @@
+#!/bin/sh
+# Fail closed when the configuration or UCI is unavailable.
+[ "$(uci -q get router-audit.main.enabled)" = "1" ]

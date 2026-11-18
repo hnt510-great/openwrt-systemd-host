@@ -1,0 +1,12 @@
+{
+  "packages": {
+    "base": "2e1f5cb296d372abe049274960c70586bfec2298",
+    "patch": "patches/feeds/0044-packages-systemd-upgrade-enable.patch",
+    "commit": "5622b544e2418a3e47d61a121322dc5e370b5996"
+  },
+  "taskplan": {
+    "base": "9e6fffd2390987d18e3eb18d327ff73e54060b01",
+    "patch": "patches/feeds/0045-taskplan-ddns-go-upgrade-enable.patch",
+    "commit": "42eb44d0751148495fe5659ac4b0421f755d6f63"
+  }
+}

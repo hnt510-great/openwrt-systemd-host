@@ -65,14 +65,21 @@ def native():
     links, keys = enabled_recovery(), host_keys()
     print('PASS: native listener, readiness, cgroup ownership, no procd SSH registration', flush=True)
 
-    for action in ('start', 'stop', 'restart', 'reload', 'shutdown'):
-        assert run('/etc/init.d/sshd', action, check=False).returncode != 0
+    for action in ('start', 'reload', 'shutdown'):
+        run('/etc/init.d/sshd', action)
         assert main_pid() == pid and procd_ssh() == {}
+    run('/etc/init.d/sshd', 'restart')
+    assert main_pid() > 0 and main_pid() != pid and procd_ssh() == {} and listening(port)
+    run('/etc/init.d/sshd', 'stop')
+    assert main_pid() == 0 and not listening(port) and procd_ssh() == {}
+    run('/etc/init.d/sshd', 'start')
+    pid = main_pid()
+    assert pid > 0 and listening(port) and procd_ssh() == {}
     if Path('/run/openwrt-service-bridge/control').exists():
         result = run('systemctl', 'start', 'openwrt@sshd.service', check=False)
         assert result.returncode != 0
         assert 'sshd.service' in result.stderr
-    print('PASS: legacy and optional bridge controls cannot create a second owner', flush=True)
+    print('PASS: native init adapter delegates cleanly and bridge cannot create a second owner', flush=True)
 
     run('systemctl', 'reload', 'sshd.service')
     assert main_pid() == pid
@@ -172,20 +179,8 @@ def native():
     print('PASS: router and native-service regressions', flush=True)
 
 
-def recovery():
-    assert Path('/proc/1/comm').read_text().strip() == 'procd'
-    assert not Path('/run/systemd/system').exists()
-    assert procd_ssh().get('sshd', {}).get('instances')
-    run('/etc/init.d/sshd', 'running')
-    run('/etc/init.d/sshd', 'reload')
-    assert run('/usr/libexec/luci-openssh', 'backend').stdout.strip() == 'procd'
-    assert not Path('/run/openwrt-service-bridge/control').exists()
-    print('PASS: procd recovery SSH, original controls, LuCI backend, no native bridge', flush=True)
-
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--disposable', action='store_true', required=True)
-    parser.add_argument('--recovery', action='store_true')
     args = parser.parse_args()
-    recovery() if args.recovery else native()
+    native()

@@ -41,7 +41,7 @@ config TARGET_PREINIT_SUPPRESS_STDERR
 
 config TARGET_PREINIT_DISABLE_FAILSAFE
 	bool
-	prompt "Disable failsafe" if PREINITOPT
+	prompt "Disable failsafe" if PREINITOPT && !OPENWRT_SYSTEMD
 	default n
 	help
 		Disable failsafe mode.  While it is very handy while

@@ -91,6 +91,68 @@ class Installer(unittest.TestCase):
         self.assertIn(str(plan['partitions'][2]['size_mib']) + ' MiB ext4', display)
         with self.assertRaises(ValueError): core.validate_answers(a, ['alice'])
 
+    def test_static_wan_boundaries(self):
+        for address, mask in [('192.168.1.2', '255.255.255.0'),
+                              ('192.168.0.2', '255.255.0.0'),
+                              ('10.0.2.0', '255.255.255.0'),
+                              ('10.0.2.255', '255.255.255.0')]:
+            with self.subTest(address=address, mask=mask):
+                a = answers()
+                a['network']['wan'] = dict(proto='static', ipaddr=address,
+                                           netmask=mask, gateway='10.0.2.1', dns=[])
+                with self.assertRaises(ValueError):
+                    core.validate_answers(a)
+        a['network']['wan']['ipaddr'] = '10.0.2.20'
+        core.validate_answers(a)
+
+    def test_cleanup_keeps_install_error(self):
+        from unittest.mock import patch
+        sys.path.insert(0, str(ROOT / 'package/custom/openwrt-installer/files'))
+        import apply
+        a = answers()
+        plan = core.layout(a['partitions'], 8 * 1024**3, 1)
+        def run(*args, **kwargs):
+            if args[0] == 'lsblk':
+                return '{"blockdevices": []}'
+            if args[0] == 'umount':
+                raise RuntimeError('busy ESP')
+            return ''
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.object(apply, 'BASE', Path(tmp)), \
+                patch.object(apply, 'prepare', return_value=(a, plan, '/dev/source', '/dev/media')), \
+                patch.object(apply, 'digest', return_value='hash'), \
+                patch.object(apply, 'run', side_effect=run), \
+                patch.object(apply.Path, 'exists', return_value=True), \
+                patch.object(apply.shutil, 'copytree', side_effect=RuntimeError('boot copy failed')), \
+                patch.object(apply.os, 'sync'):
+            with self.assertRaisesRegex(RuntimeError, 'boot copy failed.*') as caught:
+                apply.install(a, dict(squashfs_size=1, squashfs_sha256='hash'), Path(tmp))
+            self.assertIn('busy ESP', str(caught.exception))
+            self.assertEqual(str(caught.exception.__cause__), 'boot copy failed')
+
+    def test_page_state(self):
+        from unittest.mock import patch
+        sys.path.insert(0, str(ROOT / 'package/custom/openwrt-installer/files'))
+        import tui
+        a = answers()
+        a['firewall'] = dict(masq=False, fullcone=True, lan_to_wan=False)
+        with patch.object(tui, 'dialog', return_value='"fullcone"') as dialog:
+            tui.firewall(a)
+            options = dialog.call_args.args[2]
+            self.assertEqual(options[2::3], ['OFF', 'ON', 'OFF'])
+        a['network']['lan']['start'] = 100
+        with patch.object(tui, 'menu', side_effect=['start', 'continue']), \
+                patch.object(tui, 'dialog', side_effect=['invalid', '']) as dialog:
+            tui.lan(a)
+        self.assertEqual(a['network']['lan']['start'], 100)
+        a['network']['wan'] = dict(proto='pppoe', username='existing', password='retained')
+        with patch.object(tui, 'menu', return_value='pppoe'), \
+                patch.object(tui, 'dialog', return_value='existing') as dialog, \
+                patch.object(tui, 'yes', return_value=True):
+            tui.wan(a)
+        self.assertEqual(a['network']['wan']['password'], 'retained')
+        self.assertTrue(all(call.args[0] != 'passwordbox' for call in dialog.call_args_list))
+
     def test_uci_matrix(self):
         uci = Path(os.environ.get('INSTALLER_TEST_UCI', str(ROOT / 'staging_dir/host/bin/uci')))
         dhcp = ROOT / 'package/network/services/dnsmasq/files/dhcp.conf'

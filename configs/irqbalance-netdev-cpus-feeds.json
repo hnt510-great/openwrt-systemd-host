@@ -1,0 +1,8 @@
+{
+  "packages": {
+    "url": "https://github.com/openwrt/packages.git",
+    "base": "9c6a80d3c9f0b3e48c4c33e712532d92cdd3c11e",
+    "commit": "ab479830befa928f964afd49e9433957c88971ee",
+    "patch": "patches/feeds/0038-packages-irqbalance-netdev-cpus.patch"
+  }
+}

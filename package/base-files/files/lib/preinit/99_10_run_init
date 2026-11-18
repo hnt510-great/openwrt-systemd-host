@@ -3,6 +3,9 @@
 
 run_init() {
 	preinit_ip_deconfig
+	# No preinit interface is valid (for example, an offline installer).
+	# Its cleanup status must not make init skip the systemd handoff.
+	return 0
 }
 
 boot_hook_add preinit_main run_init

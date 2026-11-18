@@ -6,6 +6,7 @@ not run a daemon, open a journal, or modify the checkout's build directory.
 """
 from pathlib import Path
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -18,15 +19,18 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class LogdJournalTests(unittest.TestCase):
     def build_harness(self, fixture):
-        archives = list((ROOT / 'dl').glob('ubox-*.tar.zst'))
+        recipe = (ROOT / 'package/system/ubox/Makefile').read_text()
+        date = re.search(r'^PKG_SOURCE_DATE:=(.+)$', recipe, re.M).group(1)
+        revision = re.search(r'^PKG_SOURCE_VERSION:=(.+)$', recipe, re.M).group(1)
+        archive = ROOT / 'dl' / f'ubox-{date.replace("-", ".")}~{revision[:8]}.tar.zst'
         headers = ROOT / 'staging_dir/target-x86_64_glibc/usr/include'
-        if len(archives) != 1 or not headers.joinpath('systemd/sd-journal.h').is_file():
+        if not archive.is_file() or not headers.joinpath('systemd/sd-journal.h').is_file():
             self.skipTest('requires downloaded ubox source and staged native headers')
         if not shutil.which('cc'):
             self.skipTest('requires a host C compiler')
         with tempfile.TemporaryDirectory(prefix='logd-journal-test-') as directory:
             work = Path(directory)
-            subprocess.run(['tar', '-xf', str(archives[0]), '-C', str(work)], check=True)
+            subprocess.run(['tar', '-xf', str(archive), '-C', str(work)], check=True)
             source = next(work.glob('ubox-*'))
             with (ROOT / 'package/system/ubox/patches/101-journal-reader.patch').open() as patch:
                 subprocess.run(['patch', '-p1', '--batch'], cwd=source, stdin=patch,
