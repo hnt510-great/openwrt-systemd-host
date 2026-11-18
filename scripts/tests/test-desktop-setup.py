@@ -315,6 +315,7 @@ class KeyringStdinTests(unittest.TestCase):
             commands = {
                 'id': '#!/bin/sh\nprintf 0\n',
                 'stat': '#!/bin/sh\nprintf 0:600\n',
+                'systemd-analyze': '#!/bin/sh\nexit 1\n',
                 'systemd-run': '#!/bin/sh\nprintf "%s\\n" "$@" > "' + str(helper_log) + '"\nexit "${SETUP_TEST_FAILURE:-0}"\n',
                 'chown': '#!/bin/sh\nexit 0\n',
                 'usermod': '#!/bin/sh\nexit 0\n',
