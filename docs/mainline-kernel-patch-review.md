@@ -1350,3 +1350,41 @@ The trial counter is cleared, fallback remains `7.3.4-65-openwrt`,
 The agent did not initiate this installation or reboot. This confirms the
 physical boot and built-in health checks, not SDIO voltage/UHS behavior,
 Wi-Fi schedule execution or desktop/client acceptance.
+
+## Upstream synchronization review and Linux 7.3.5, 2026-11-18
+
+Merged OpenWrt through `27663a017ad8` (19 incoming main-tree commits) as
+`712beefa91`, plus 24 `packages`, 1 `luci` and 2 `passwall_luci` commits.
+Backup branches are `backup/pre-upstream-20261118T033529Z` across all 11
+repositories; preservation receipts and audit logs are in
+`.git/pull-preserve/20261118T033529Z/`. See
+[the synchronization report](upstream-sync-20261118.md) for package and feed
+details.
+
+### Kernel patches and Linux 7.3.5 update
+
+- **Incoming 6.18 patches**: No `target/linux/x86` files changed. One new
+  generic patch landed (`c06ccca080`),
+  `target/linux/generic/hack-6.18/301-03-mips-keep-module-code-out-of-the-first-32-KiB-of-a-segment.patch`,
+  touching `arch/mips/kernel/module.c` only for the 32-bit MIPS 24K EPC
+  erratum. It does not apply to or belong in the x86/64 Linux 7.3 port.
+  Other incoming kernel changes (`airoha`, `ramips`, `realtek`, `sifiveu`,
+  `sunxi`) are target-specific.
+- **Linux 7.3.4 to 7.3.5**: `update-mainline-kernel.py` detected upstream
+  Linux `7.3.5` (SHA-256
+  `8f293f83d54f0b7b9be56863ebc5e4ea79d73e530b4ae55c572be97ef39f0990`).
+  Linux 7.3.5 absorbs upstream commit `01739ccea21b`
+  (`mtd: spi-nor: macronix: Restore fallback parameters for MX25L12805D`),
+  which was previously carried as
+  `target/linux/generic/backport-7.3/439-v7.4-mtd-spi-nor-macronix-Restore-fallback-parameters-for.patch`.
+  Forced reverse dry-run against pristine 7.3.5 succeeds with zero fuzz, so
+  `backport-7.3/439-*` is dropped and its entry in
+  `configs/mainline-kernel-patches.json` is marked `upstream` in `7.3.5`.
+- All **355 remaining carried Linux 7.3 patches** match their registered
+  hashes and apply to a fresh extraction of SHA256-verified Linux 7.3.5 plus
+  current generic/x86 overlays with `--fuzz=0`. `target/linux/generic/kernel-7.3`
+  is updated to `7.3.5`.
+- Between 7.3.4 and 7.3.5, 467 files changed; the only Kconfig change is in
+  `lib/crypto/Kconfig` (`MIPS && CPU_CAVIUM_OCTEON && CPU_BIG_ENDIAN` defaults
+  for SHA1/SHA256/SHA512), leaving the x86/64 kernel configuration unchanged.
+  The optional MAP-E tunnel finding remains open.
