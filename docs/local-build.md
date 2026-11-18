@@ -9,6 +9,8 @@
 在新 checkout 中可以复制为 `.config`，安装匹配 feeds 后再正常化配置。
 它不包含测试账号、测试 SSH 密钥或个人路由器凭据。
 
+纯路由构建与可选应用的依赖拆分见 [native systemd 纯路由方案](systemd-router-decoupling-plan.md)。
+
 ## Feed 来源
 
 `feeds.conf.default` 指向 `hnt510-great` 账号下的 8 个公开 GitHub feed 仓库。
