@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openwrt-desktop-ime
 PKG_VERSION:=1
-PKG_RELEASE:=4
+PKG_RELEASE:=5
 PKG_LICENSE:=MIT
 
 include $(INCLUDE_DIR)/package.mk
@@ -11,7 +11,7 @@ define Package/openwrt-desktop-ime
   SECTION:=utils
   CATEGORY:=Utilities
   TITLE:=Chinese Pinyin for the shared GNOME desktop
-  DEPENDS:=@TARGET_x86_64 @USE_GLIBC +openwrt-desktop +fcitx5-chinese-addons +fcitx5-gtk +gnome-shell-extension-kimpanel +noto-sans-cjk-sc
+  DEPENDS:=@TARGET_x86_64 @USE_GLIBC +openwrt-desktop-core +fcitx5-chinese-addons +fcitx5-gtk +gnome-shell-extension-kimpanel +noto-sans-cjk-sc
 endef
 
 define Build/Compile

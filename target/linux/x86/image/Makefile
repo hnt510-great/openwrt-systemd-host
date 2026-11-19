@@ -136,11 +136,38 @@ define Build/iso
 		-o $@ $@.boot $(TARGET_DIR)
 endef
 
-# The pristine package tree is copied separately so personal files/ never enter the ISO.
+ifeq ($(CONFIG_INSTALLER_ISO_IMAGES),y)
+  ifneq ($(CONFIG_SIGNED_PACKAGES),y)
+    $(error CONFIG_INSTALLER_ISO_IMAGES requires CONFIG_SIGNED_PACKAGES=y for the signed offline component repository)
+  endif
+endif
+
+# Assemble a clean base rootfs and signed offline APK repository from the same build
+# so personal files/ never enter the ISO and optional components are installed offline.
 define Build/installer-iso
-	rm -rf $@.root $@.files
+	@test -s "$(BUILD_KEY_APK_PUB)" -a -s "$(BUILD_KEY_APK_SEC)" || { \
+		echo "ERROR: CONFIG_INSTALLER_ISO_IMAGES requires valid APK signing keys (BUILD_KEY_APK_PUB and BUILD_KEY_APK_SEC)." >&2; \
+		exit 1; \
+	}
+	rm -rf $@.root $@.files $@.components
 	$(INSTALL_DIR) $@.files
-	$(CP) $(TARGET_DIR_ORIG) $@.root
+	python3 $(SCRIPT_DIR)/build-installer-components.py \
+		--config $(TOPDIR)/configs/installer-components.json \
+		--apk $(STAGING_DIR_HOST)/bin/apk \
+		--fakeroot $(STAGING_DIR_HOST)/bin/fakeroot \
+		--package-dir $(PACKAGE_DIR_ALL) \
+		--keys-dir $(if $(APK_KEYS),$(APK_KEYS),$(TOPDIR)) \
+		--public-key $(BUILD_KEY_APK_PUB) \
+		--sign-key $(BUILD_KEY_APK_SEC) \
+		--arch $(ARCH_PACKAGES) \
+		--version '$(VERSION_NUMBER)' \
+		--kernel-release '$(LINUX_UNAME_VERSION)' \
+		--base-files-version "$$(cat $(STAGING_DIR)/base-files.version)" \
+		--libc-version "$$(cat $(STAGING_DIR)/libc.version)" \
+		--kernel-version "$$(sed 's/-rc/_rc/g' $(STAGING_DIR)/kernel.version)" \
+		--package-install-list $(TMP_DIR)/apk_install_list \
+		--base-root-out $@.root \
+		--components-out $@.components
 	if git -C $(TOPDIR) rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
 		git -C $(TOPDIR) ls-files -z files | (cd $(TOPDIR) && tar --null -T - -cf -) | tar -C $@.files -xf -; \
 	fi
@@ -154,12 +181,14 @@ define Build/installer-iso
 	$(call Build/efi-boot-files,efi)
 	PATH="$(STAGING_DIR_HOST)/bin:$$PATH" python3 $(SCRIPT_DIR)/build-installer-iso.py \
 		--output $@ --squashfs $@.squashfs --esp-tree $@.boot --initramfs $@.initramfs.gz \
+		--components-dir $@.components \
 		--grub-dir $(STAGING_DIR_IMAGE)/grub2 --kernel $(KDIR)/$(KERNEL_NAME) \
 		--template ./grub-installer.cfg --epoch $(SOURCE_DATE_EPOCH) \
 		--signature $$(echo installer$(SOURCE_DATE_EPOCH)$(LINUX_VERMAGIC) | $(MKHASH) md5 | cut -b1-8) \
 		--root-partuuid '$(GPT_ROOTPART)' --release '$(LINUX_UNAME_VERSION)' --version '$(VERSION_NUMBER)' \
 		--serial '$(strip $(GRUB_SERIAL_CONFIG))' --terminal '$(strip $(GRUB_TERMINAL_CONFIG))' \
 		--cmdline '$(BOOTOPTS) $(GRUB_CONSOLE_CMDLINE)' --title '$(GRUB_TITLE)' --timeout '$(GRUB_TIMEOUT)'
+	rm -rf $@.components
 endef
 
 DEVICE_VARS += GRUB2_VARIANT

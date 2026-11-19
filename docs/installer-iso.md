@@ -1,17 +1,30 @@
 # USB and optical installer
 
-The optional x86_64 native-systemd installer creates a fresh whole-disk GPT and
-installs the same clean squashfs that runs the live environment. UEFI and BIOS
-boot are supported; UEFI uses the removable boot path without NVRAM changes.
+The optional x86_64 native-systemd installer creates a fresh whole-disk GPT,
+installs a clean base router-and-operations squashfs that also runs the live
+environment, and installs user-selected optional components offline from a
+same-build signed APK repository embedded in the ISO. UEFI and BIOS boot are
+supported; UEFI uses the removable boot path without NVRAM changes.
 
-Future work: [optional component installation plan and source findings](installer-components-plan.md)
-records a deferred proposal for selecting desktop, audio, virtualization and container
-packages during installation. It is not implemented; this guide describes the current installer.
+Component catalog and design background:
+[optional component installation plan](installer-components-plan.md) and
+[implementation progress](installer-components-implementation-validation.md).
 
 ## Build
 
-Preserve the current configuration, merge `configs/installer-iso.config`, then
-normalize it:
+The componentized installer ISO requires the **full desktop-profile
+configuration** (`configs/x86-64-systemd-desktop.config`) and **signed packages**
+(`CONFIG_SIGNED_PACKAGES=y`). `scripts/build-installer-components.py` verifies
+that the build repository is signed and contains the complete base router/ops
+package set plus all nine optional components defined in
+`configs/installer-components.json`. Pure-router configurations such as
+`configs/x86-64-systemd-router.config` do not build those packages and are
+rejected, and disabling `CONFIG_SIGNED_PACKAGES` is rejected because the live
+installer verifies the offline repository against `/rom/etc/apk/keys`.
+
+Start from an existing full-desktop `.config` (or copy
+`configs/x86-64-systemd-desktop.config` first), merge
+`configs/installer-iso.config`, then normalize it:
 
 ```sh
 ./scripts/kconfig.pl + .config configs/installer-iso.config > .config.new
@@ -108,8 +121,18 @@ The English whiptail interface runs on tty1 or ttyS0. A root shell is available
 on tty2; the graphical entry also provides a ttyS0 shell. The live root uses tmpfs
 for all live writes. The installer does not start the ordinary router services.
 
-The screens cover target disk, guided/manual partitioning, physical ports, LAN,
-WAN, firewall, accounts, and confirmation. Cancel/Esc moves back one screen.
+The screens cover target disk, optional components, guided/manual partitioning,
+physical ports, LAN, WAN, firewall, accounts, and confirmation. Cancel/Esc moves
+back one screen and preserves previous selections. All optional components
+(`gnome`, `audio`, `ime`, `rdp`, `sunshine`, `flatpak`, `appimage`,
+`virtualization`, `containers`) are selected by default and can be unchecked;
+unselected components are not installed. Missing component dependencies are
+reported on the selection screen without silently re-checking unchecked items.
+Before erasing the target disk, the installer runs an offline APK preflight
+against the embedded signed repository using the booted base system's trusted
+keys (`/rom/etc/apk/keys`), verifies package checksums and build identity, and
+enforces an overlay minimum covering the actual APK unpacked component size,
+overhead, and at least 1 GiB reserve.
 Guided partitioning uses ext4 by default; btrfs and xfs are available. Manual mode
 edits the **new** layout and optional data partitions, with no preservation of
 existing partitions or dual boot. Sizes are whole MiB; one partition can consume
@@ -149,7 +172,9 @@ stock odhcpd first-boot defaults. The installed GRUB uses the unique FAT
 UUID rather than the shared `kernel` label. The failsafe entry uses the new root PARTUUID too.
 
 The firstboot unit runs after OpenWrt defaults create the sudo group. It creates
-the optional user and invokes `desktop-setup` under the running systemd instance.
+the optional user, runs `desktop-setup` (with `--no-autostart` when GNOME is
+installed without boot autostart) if `gnome` was selected, and runs
+`desktop-audio-setup` if `audio` was selected.
 It deletes the private request only after success; failures remain in the journal
 and retry on the next boot. On other systems the request is absent and the unit
 is skipped. `/etc/openwrt-installer/install.json` contains a redacted summary.
@@ -157,9 +182,12 @@ is skipped. `/etc/openwrt-installer/install.json` contains a redacted summary.
 ## Unattended installation and recovery
 
 `openwrt-installer --answers FILE --dry-run` validates and displays a planned
-installation. `openwrt-installer --answers FILE` executes it, without another
-confirmation. Both require the live installer entry and exclude the source media
-and read-only disks. Answers follow the schema and example in
+installation (including resolved component packages and space requirements).
+`openwrt-installer --answers FILE` executes it, without another confirmation.
+In `--answers`, `components` accepts a list of component IDs (`[]` for base
+system only; omitting `components` selects all default components). Unknown
+component IDs or missing dependencies fail before any disk writes. Both require
+the live installer entry and exclude the source media and read-only disks. Answers follow the schema and example in
 [installer-iso-plan.md](installer-iso-plan.md); only `$6$` password hashes are
 accepted. Protect answers files with mode 0600 because PPPoE credentials remain
 plaintext as required by UCI.

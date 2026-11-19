@@ -71,10 +71,12 @@ while :; do
 		if [ -n "$address" ]; then
 			# Environment files written before RDP state was recorded.
 			[ -n "$rdp" ] || rdp=$(uci -q get desktop.main.rdp_enabled || :)
-			if [ "$rdp" = 1 ]; then
-				systemctl --user start gnome-remote-desktop.service || :
-			else
-				systemctl --user stop gnome-remote-desktop.service || :
+			if [ -f /usr/lib/systemd/user/gnome-remote-desktop.service ]; then
+				if [ "$rdp" = 1 ]; then
+					systemctl --user start gnome-remote-desktop.service || :
+				else
+					systemctl --user stop gnome-remote-desktop.service || :
+				fi
 			fi
 			if [ "$sunshine" = 1 ]; then
 				systemctl --user start sunshine.service || :
