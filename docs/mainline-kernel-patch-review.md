@@ -1388,3 +1388,28 @@ details.
   `lib/crypto/Kconfig` (`MIPS && CPU_CAVIUM_OCTEON && CPU_BIG_ENDIAN` defaults
   for SHA1/SHA256/SHA512), leaving the x86/64 kernel configuration unchanged.
   The optional MAP-E tunnel finding remains open.
+
+## Upstream synchronization review, 2026-11-19
+
+Merged OpenWrt through `ecd9120f0451` (8 incoming main-tree commits) as
+`5009212efb`, plus 23 `packages`, 1 `luci`, and 2 `passwall_luci` commits.
+Backup branches are `backup/pre-upstream-20261119T020337Z` across all 11
+repositories; preservation receipts and audit logs are in
+`.git/pull-preserve/20261119T020337Z/`. See
+[the synchronization report](upstream-sync-20261119.md) for package and feed
+details.
+
+- **Mainline Linux 7.3**: `update-mainline-kernel.py --check` reports Linux
+  `7.3.5` (`8f293f83d54f0b7b9be56863ebc5e4ea79d73e530b4ae55c572be97ef39f0990`)
+  is current.
+- **Incoming 6.18 patches**: Zero files under `target/linux/generic/` or
+  `target/linux/x86/` were added, modified, or removed. The only incoming
+  kernel changes are target-specific (`qualcommax` IPQ50xx and `realtek`
+  `mdio-realtek-otto-serdes.c` / DTS / `hwmon_fancontrol`).
+- **Full 6.18 / 7.3 audit**: The 586-patch generic/x86 6.18 stack has no new
+  backport candidates; the four unregistered 6.18 patches remain the previously
+  reviewed non-x86 entries (`hack-6.18/301-03-mips-*` and
+  `pending-6.18/799-01..03` MediaTek WED, plus the offset-only `799` refresh).
+  All **355 carried Linux 7.3 patches** match their registered SHA-256 hashes
+  and apply with `--fuzz=0` to a fresh extraction of verified Linux `7.3.5` plus
+  current generic/x86 overlays. The optional MAP-E tunnel finding remains open.
