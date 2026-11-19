@@ -89,6 +89,14 @@ make package/custom/virt-manager/compile V=s
 python3 scripts/build-and-publish.py build-only -j12 V=s
 ```
 
+As of `virt-manager` `5.1.0-r5`, `virt-manager` no longer depends on
+`openwrt-desktop`: `virt-manager-setup` validates ordinary user accounts
+directly without sourcing `/usr/libexec/desktop-common.sh` and `virt-manager`
+explicitly depends on `shadow-usermod`. For headless virtualization without
+`virt-manager` or GNOME, merge `configs/virt-headless.config` onto
+`configs/x86-64-systemd-router.config` (see
+[systemd-router-decoupling-plan.md](systemd-router-decoupling-plan.md)).
+
 Use matching signed APKs from `bin/systemd`. Back up `/etc/libvirt`,
 `/srv/libvirt`, other guest storage and users' settings separately; firmware
 configuration backups do not contain full guest disks.

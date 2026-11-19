@@ -32,6 +32,11 @@ make defconfig
 
 Select `openwrt-flatpak` in Utilities and run `make defconfig`. It selects
 Flatpak, OSTree, AppStream, the desktop portals and their dependencies.
+As of `xdg-desktop-portal` `1.22.1-r5`, `xdg-desktop-portal` extracts
+`org.freedesktop.portal.Flatpak.xml` from the pinned Flatpak source archive at
+build time and no longer pulls in the `flatpak` runtime on its own; GNOME can
+therefore be built without Flatpak, while `openwrt-flatpak` explicitly pulls in
+`flatpak`.
 `FUSE3_UTILS_SETUID` enables the setuid `fusermount3` helper for ordinary-user
 document portal mounts. Bubblewrap remains non-setuid and uses user namespaces
 and seccomp. No Flatpak system installation helper is installed.

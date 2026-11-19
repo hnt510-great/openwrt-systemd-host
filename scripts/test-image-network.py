@@ -105,7 +105,12 @@ class Guest:
                     break
             else:
                 raise TimeoutError('Guest console did not reach login: ' + data[-2000:].decode(errors='replace'))
-            self.run('stty -echo; test "$(id -u)" = 0', timeout=30)
+            self.send_wire(
+                "PS1=''; python3 -c 'import termios; a=termios.tcgetattr(0); a[3]&=~termios.ECHO; "
+                "termios.tcsetattr(0,0,a)' 2>/dev/null || stty -echo 2>/dev/null || :\n"
+            )
+            time.sleep(0.2)
+            self.run('test "$(id -u)" = 0', timeout=30)
             self.run('for n in $(seq 1 60); do ubus call system board >/dev/null 2>&1 && exit 0; sleep 2; done; exit 1', timeout=150)
         except BaseException:
             self.close()
@@ -115,18 +120,31 @@ class Guest:
         if self.process and self.process.poll() is not None:
             raise RuntimeError(self.name + ' exited: ' + (self.work / (self.name + '.qemu.log')).read_text())
 
+    def send_wire(self, text):
+        raw = text.encode()
+        for offset in range(0, len(raw), 64):
+            self.socket.sendall(raw[offset:offset + 64])
+            time.sleep(0.01)
+
     def run(self, command, timeout=60):
         token = secrets.token_hex(12)
         begin, end = 'BEGIN_' + token, 'END_' + token
-        output_path = '/tmp/scheduled-command-' + token
-        snapshot = output_path + '.snapshot'
-        wire = ("printf '\\n" + begin + "\\n'; umask 077; "
-                "/bin/sh -ec " + shlex.quote(command) + " > " + output_path + " 2>&1; rc=$?; " +
-                "cp " + output_path + " " + snapshot + "; base64 < " + snapshot +
-                " | while IFS= read -r line; do printf 'DATA_" + token + ":%s\\n' \"$line\"; done; " +
-                "printf 'HASH_" + token + ":%s\\n' \"$(sha256sum " + snapshot + " | cut -d' ' -f1)\"; " +
-                "rm -f " + output_path + " " + snapshot + "; printf '\\n" + end + ":%s\\n' \"$rc\"\n")
-        self.socket.sendall(wire.encode())
+        cmd_b64 = base64.b64encode(command.encode()).decode()
+        lines = [
+            f"printf '\\n{begin}\\n'",
+            "umask 077",
+            f": > /tmp/sc-{token}.b64",
+        ]
+        for i in range(0, len(cmd_b64), 120):
+            lines.append(f"printf %s {shlex.quote(cmd_b64[i:i + 120])} >> /tmp/sc-{token}.b64")
+        lines.extend([
+            f"python3 -c \"import base64,pathlib;pathlib.Path('/tmp/sc-{token}.sh').write_bytes(base64.b64decode(pathlib.Path('/tmp/sc-{token}.b64').read_text()))\"",
+            f"/bin/sh -e /tmp/sc-{token}.sh > /tmp/sc-{token}.out 2>&1; rc=$?",
+            f"python3 -c \"import base64,hashlib,pathlib;d=pathlib.Path('/tmp/sc-{token}.out').read_bytes();b=base64.b64encode(d).decode();print();[print('DATA_{token}:'+b[i:i+76]) for i in range(0,len(b),76)];print('HASH_{token}:'+hashlib.sha256(d).hexdigest())\"",
+            f"rm -f /tmp/sc-{token}.b64 /tmp/sc-{token}.sh /tmp/sc-{token}.out",
+            f"printf '\\n{end}:%s\\n' \"$rc\"",
+        ])
+        self.send_wire('\n'.join(lines) + '\n')
         data = b''
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -188,8 +206,8 @@ config interface 'wan'
  option proto 'dhcp'
 """)
     encoded = __import__('base64').b64encode(network.encode()).decode()
-    return ('printf %s ' + shlex.quote(encoded) + ' | base64 -d > /etc/config/network; '
-            '/etc/init.d/network restart')
+    return ('python3 -c "import base64,pathlib,sys;pathlib.Path(\'/etc/config/network\').write_bytes(base64.b64decode(sys.argv[1]))" '
+            + shlex.quote(encoded) + '; /etc/init.d/network restart')
 
 
 def disable_external_integrations(guest):
