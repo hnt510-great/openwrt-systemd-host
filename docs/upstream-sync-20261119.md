@@ -85,3 +85,32 @@ pass for `wireguard-tools` (`1.0.20260223-r5`), `odhcpd-ipv6only`
 
 No full firmware or kernel generation build, VM validation, feed publication,
 Git push, or router deployment was performed in this synchronization.
+
+## Subsequent full build and publication
+
+The authorized `./scripts/build-and-publish.sh -j16` run completed cleanly on
+2026-11-19:
+
+- **Userspace snapshot**: `/srv/openwrt-feeds/public/snapshots/20261119T022607.152161Z`
+  (promoted to `/srv/openwrt-feeds/public/current` and ABI alias
+  `7.3.5~adba66b3ab34d0e3afce6489d6e2734a-r1`; previous snapshot
+  `20261118T135608.742857Z`).
+- **Kernel generation**: `7.3.5-70-openwrt` (`unchanged`, reusing kernel
+  snapshot `1795006750269704194`; `.config` unchanged).
+- **Published package updates (7)**:
+  - `base-files`: `1767.19~27663a017a` -> `1768.19~ecd9120f04`
+  - `curl`: `8.23.0-r3` -> `8.23.0-r4`
+  - `libcurl4`: `8.23.0-r3` -> `8.23.0-r4`
+  - `luci-app-passwall`: `26.322.13217~16158ae` -> `26.323.07545~4d6d8bd`
+  - `luci-mod-system`: `26.321.07849~ad028ec-r3` -> `26.322.47914~671405e-r3`
+  - `odhcpd-ipv6only`: `2026.11.16~1c662962-r1` -> `2026.11.17~4580970d-r1`
+  - `wireguard-tools`: `1.0.20260223-r4` -> `1.0.20260223-r5`
+- **Coordinated publication preflight**: Passed with zero blockers and zero
+  same-version rebuild collisions (`OK: 3198.5 MiB in 1387 packages`, 2464 ELF
+  files audited, `ucode_abi` `20261009`; receipt
+  `/srv/openwrt-feeds/upgrade-receipts/1795055189272209214.json`).
+- **Validation scope**: VM not run — routine compatible userspace package
+  updates with unchanged kernel generation (`7.3.5-70-openwrt`) and no major
+  behavior change or new kernel/init/storage functionality (per
+  [publication-readiness.md](publication-readiness.md)). No router package
+  installation, service restart, or reboot was performed.
