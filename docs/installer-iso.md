@@ -57,6 +57,10 @@ The same ISO can also boot from a SATA virtual CD-ROM under BIOS or UEFI.
 A small external initramfs locates USB partition 3, or checks the optical image's
 MBR signature and maps its appended squashfs read-only through a loop device.
 The squashfs payload is stored once. Rufus ISO mode and Ventoy remain unsupported.
+The x86_64 installer p3 uses the same plain LZ4 selection as the normal firmware
+and is copied unchanged to installed p2; guided ROM sizing follows the actual,
+larger payload. See [LZ4 squashfs images](squashfs-lz4.md) for compatibility and
+old-rescue-kernel restrictions.
 
 ### Testing in virt-manager
 

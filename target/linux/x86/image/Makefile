@@ -5,6 +5,11 @@
 include $(TOPDIR)/rules.mk
 include $(INCLUDE_DIR)/image.mk
 
+# The x86_64 kernel supports LZ4; use it for normal and installer images.
+ifeq ($(CONFIG_TARGET_x86_64),y)
+  SQUASHFSCOMP := lz4
+endif
+
 GRUB2_VARIANT =
 GRUB_TERMINALS =
 GRUB_SERIAL_CONFIG =
@@ -33,7 +38,7 @@ GRUB_TIMEOUT:=$(call qstrip,$(CONFIG_GRUB_TIMEOUT))
 GRUB_TITLE:=$(call qstrip,$(CONFIG_GRUB_TITLE))
 
 BOOTOPTS:=$(call qstrip,$(CONFIG_GRUB_BOOTOPTS))
-IMAGE_COMPRESS:=$(if $(CONFIG_OPENWRT_SYSTEMD),gzip,libdeflate-gzip)
+IMAGE_COMPRESS:=$(if $(CONFIG_OPENWRT_SYSTEMD),pigz,libdeflate-gzip)
 IMAGE_PADDING:=$(if $(CONFIG_OPENWRT_SYSTEMD),systemd-pad-to,pad-to)
 
 define Build/systemd-pad-to
@@ -210,12 +215,13 @@ define Device/Default
   IMAGE/combined-efi.vmdk := grub-config efi | combined efi | grub-install efi | qemu-image vmdk
   IMAGE/combined-efi.vhdx := grub-config efi | combined efi | grub-install efi | qemu-image vhdx -o subformat=dynamic
   ARTIFACT/onie-installer.bin := onie-installer
+  # x86_64 uses combined images; omit redundant rootfs-only artifacts.
   ifeq ($(CONFIG_TARGET_IMAGES_GZIP),y)
-    IMAGES-y := rootfs.img.gz
+    IMAGES-y := $(if $(CONFIG_TARGET_x86_64),,rootfs.img.gz)
     IMAGES-$$(CONFIG_GRUB_IMAGES) += combined.img.gz
     IMAGES-$$(CONFIG_GRUB_EFI_IMAGES) += combined-efi.img.gz
   else
-    IMAGES-y := rootfs.img
+    IMAGES-y := $(if $(CONFIG_TARGET_x86_64),,rootfs.img)
     IMAGES-$$(CONFIG_GRUB_IMAGES) += combined.img
     IMAGES-$$(CONFIG_GRUB_EFI_IMAGES) += combined-efi.img
   endif
