@@ -1,0 +1,35 @@
+From: OpenWrt GCC 15 compatibility fix
+Subject: cpio: add prototypes for xstat and copy_function pointers (GCC 15 / C23)
+
+GCC 15 defaults to -std=gnu23, where empty parameter lists in function pointer
+declarations mean (void) rather than an unspecified parameter list. Declare
+xstat and copy_function with their actual prototypes.
+
+--- a/src/extern.h
++++ b/src/extern.h
+@@ -97,8 +97,8 @@ extern char input_is_special;
+ extern char output_is_special;
+ extern char input_is_seekable;
+ extern char output_is_seekable;
+-extern int (*xstat) ();
+-extern void (*copy_function) ();
++extern int (*xstat) (const char *, struct stat *);
++extern void (*copy_function) (void);
+ extern char *change_directory_option;
+ 
+ #define STRINGIFY_BIGINT(i, b) umaxtostr (i, b)
+--- a/src/global.c
++++ b/src/global.c
+@@ -185,10 +185,10 @@ bool to_stdout_option = false;
+ 
+ /* A pointer to either lstat or stat, depending on whether
+    dereferencing of symlinks is done for input files.  */
+-int (*xstat) ();
++int (*xstat) (const char *, struct stat *);
+ 
+ /* Which copy operation to perform. (-i, -o, -p) */
+-void (*copy_function) () = 0;
++void (*copy_function) (void) = 0;
+ 
+ char *change_directory_option;
+ 
