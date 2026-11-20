@@ -2,8 +2,25 @@
 set -eu
 root=$(CDPATH= cd -- "${0%/*}/.." && pwd)
 staging="$root/staging_dir/target-x86_64_glibc"
-loader="$root/staging_dir/toolchain-x86_64_gcc-14.4.0_glibc/lib/ld-linux-x86-64.so.2"
-libs="$staging/usr/lib:$staging/lib:$root/staging_dir/toolchain-x86_64_gcc-14.4.0_glibc/lib"
+gcc_ver=
+if [ -f "$root/.config" ]; then
+	gcc_ver=$(sed -n 's/^CONFIG_GCC_VERSION="\([^"]*\)"$/\1/p' "$root/.config" | head -n 1)
+fi
+toolchain=
+if [ -n "$gcc_ver" ] && [ -d "$root/staging_dir/toolchain-x86_64_gcc-${gcc_ver}_glibc" ]; then
+	toolchain="$root/staging_dir/toolchain-x86_64_gcc-${gcc_ver}_glibc"
+else
+	# Prefer the numerically newest toolchain; glob order is lexicographical,
+	# which would rank gcc-9 above gcc-15.
+	toolchain=$(find "$root/staging_dir" -maxdepth 1 -type d \
+		-name 'toolchain-x86_64_gcc-*_glibc' 2>/dev/null | sort -V | tail -n 1)
+fi
+if [ -z "$toolchain" ]; then
+	echo "gi-target-runner: cannot locate x86_64 glibc toolchain in $root/staging_dir" >&2
+	exit 1
+fi
+loader="$toolchain/lib/ld-linux-x86-64.so.2"
+libs="$staging/usr/lib:$staging/lib:$toolchain/lib"
 for private in "$staging"/usr/lib/mutter-* "$staging"/usr/lib/gnome-shell \
 	"$staging"/usr/lib/evolution-data-server "$staging"/usr/lib/pulseaudio; do
 	[ ! -d "$private" ] || libs="$private:$libs"
@@ -20,7 +37,7 @@ for data in "$staging"/usr/share/icu/*/icudt*.dat; do
 done
 unset LD_LIBRARY_PATH LD_PRELOAD
 # Match target iconv's loadable converters rather than the host's libc ABI.
-export GCONV_PATH="$root/staging_dir/toolchain-x86_64_gcc-14.4.0_glibc/lib/gconv"
+export GCONV_PATH="$toolchain/lib/gconv"
 list_mode=
 if [ "${1:-}" = --list ]; then list_mode=--list; shift; fi
 program=$1
