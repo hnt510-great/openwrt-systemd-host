@@ -1413,3 +1413,58 @@ details.
   All **355 carried Linux 7.3 patches** match their registered SHA-256 hashes
   and apply with `--fuzz=0` to a fresh extraction of verified Linux `7.3.5` plus
   current generic/x86 overlays. The optional MAP-E tunnel finding remains open.
+
+## Upstream synchronization review, 2026-11-20
+
+Merged OpenWrt through `8b34d6283fc5` (21 incoming main-tree commits, including
+the `6.18.60` -> `6.18.64` stable bumps and GCC default 15 switch) as
+`49f4f53f74`, plus 20 `packages`, 7 `luci`, 3 `passwall_luci`, and 1 `video`
+commits. Backup branches are `backup/pre-upstream-20261120T015903Z` across all
+repositories; preservation receipts and audit logs are in
+`.git/pull-preserve/20261120T015903Z/`. See
+[the synchronization report](upstream-sync-20261120.md) for package and feed
+details.
+
+- **Mainline Linux 7.3**: `update-mainline-kernel.py --check` reports Linux
+  `7.3.5` (`8f293f83d54f0b7b9be56863ebc5e4ea79d73e530b4ae55c572be97ef39f0990`)
+  is current.
+- **Incoming 6.18 patches**: Zero files under `target/linux/x86/` changed. Six
+  dropped `backport-6.18` patches (`439`, `441`, `503-01`, `734`, `755`,
+  `856-01`) are already upstream in Linux `7.3.5`; 58 generic patches had
+  context/hunk-only refreshes (plus `pending-6.18/739-03` for the non-x86
+  MT7988 Lynxi PCS driver). Two new generic patches landed in commit
+  `93f90a5385` for `drivers/net/phy/realtek/realtek_hwmon.c`:
+  - `backport-6.18/787-v7.5-net-phy-realtek-return-MDIO-read-errors-from-hwmon.patch`
+    (upstream `d5b5ab50d2f6`, v7.5): **recommended backport candidate** for
+    Linux 7.3. `CONFIG_REALTEK_PHY=m` and `CONFIG_REALTEK_PHY_HWMON=y` are
+    enabled on x86/64; without it, failed MDIO reads in `rtl822x_hwmon_read()`
+    are masked/shifted into bogus temperatures instead of returning the error.
+    Absent from 7.3.5 and applies with zero fuzz and zero offsets.
+  - `pending-6.18/744-net-phy-realtek-register-hwmon-thermal-zone.patch`:
+    **optional parity candidate** only. Registers `HWMON_C_REGISTER_TZ` for
+    device-tree thermal zones alongside carried `742`/`743`; applies cleanly
+    after `787` with zero fuzz/offsets, but is a no-op on ACPI x86/64 because
+    `drivers/hwmon/hwmon.c` gates it on `hdev->of_node` and `CONFIG_THERMAL_OF`.
+  - `target/linux/generic/config-6.18` removed `CONFIG_ARCH_FORCE_MAX_ORDER=11`
+    (`4a90fed434`); `config-7.3` still carries it as a no-op on x86/64
+    (optional config hygiene sync).
+- **Full 6.18 / 7.3 audit**: This check leaves the 7.3 patch stack and
+  `configs/mainline-kernel-patches.json` unchanged pending backport
+  authorization. All **355 carried Linux 7.3 patches** match their registered
+  SHA-256 hashes and apply with `--fuzz=0` to a fresh extraction of verified
+  Linux `7.3.5` plus current generic/x86 overlays. The optional MAP-E tunnel
+  finding remains open.
+
+### Realtek PHY hwmon backports completed, 2026-11-20
+
+The authorized follow-up carries both `787` (`backport-7.3/`) and `744`
+(`pending-7.3/`) byte-identically from 6.18, removes
+`CONFIG_ARCH_FORCE_MAX_ORDER=11` from `target/linux/generic/config-7.3`, and
+updates `configs/mainline-kernel-patches.json` (registering both ports and
+marking the 6 upstream-dropped `6.18.61-6.18.64` backports with `removed_in`).
+All **357 carried Linux 7.3 patches** match their registered SHA-256 hashes and
+apply with `--fuzz=0` to a fresh extraction of verified Linux `7.3.5` plus
+current overlays; `scripts/checkpatch.pl` reports 0 errors / 0 warnings on both
+patches, and the resulting patched `drivers/net/phy/realtek/realtek_hwmon.c`
+compiles cleanly against the selected x86/64 kernel headers in isolation. No
+full kernel or generation rebuild was performed.
