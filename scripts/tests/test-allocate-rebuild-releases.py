@@ -154,6 +154,73 @@ class AllocationTests(unittest.TestCase):
         self.assertEqual(plan[0]['recipe'], '2026.08.07~831364bf-r6')
         self.assertEqual(plan[0]['release'], '2026.08.07~831364bf-r7')
 
+    def test_abi_suffixed_package_uses_recipe_key_and_suffixed_dependency(self):
+        (self.tree / 'tmp/.packageinfo').write_text(
+            'Source-Makefile: feeds/packages/utils/bzip2/Makefile\n'
+            'Package: libbz2\n'
+            'Version: 1.0.8-r1\n'
+            'ABI-Version: 1.0\n')
+        (self.tree / A.LEDGER).write_text(
+            'ELF_REBUILD_libbz2_1.0.8-r0:=1.0.8-r9\n'
+            'ELF_REBUILD_libbz2_1.0.8-r1:=1.0.8-r5\n')
+        plan = A.plan(self.tree, self.destination, [
+            entry('base/libbz2-1.0-1.0.8-r5.apk', 'libbz2-1.0', '1.0.8-r5')])
+        self.assertEqual(plan[0]['ledger_name'], 'libbz2')
+        self.assertEqual(plan[0]['recipe'], '1.0.8-r1')
+        # Historical keys under the unsuffixed name reserve their outputs too.
+        self.assertEqual(plan[0]['release'], '1.0.8-r10')
+        A.apply(self.tree, plan, today='2026-11-20')
+        text = self.ledger()
+        self.assertIn('ELF_REBUILD_libbz2_1.0.8-r1:=1.0.8-r10\n', text)
+        self.assertIn('ELF_DEP_libbz2_1.0.8-r1:=libbz2=1.0.8-r10\n', text)
+        self.assertIn('ELF_DEP_libbz2-1.0_1.0.8-r1:=libbz2-1.0=1.0.8-r10\n', text)
+        self.assertIn('ELF_REBUILD_libbz2_1.0.8-r0:=1.0.8-r9\n', text)
+
+    def test_luci_release_placeholder_second_rebuild_updates_original_key(self):
+        (self.tree / 'tmp/.packageinfo').write_text(
+            'Source-Makefile: feeds/luci/modules/luci-base/Makefile\n'
+            'Package: luci-base\n'
+            'Version: x-r5\n')
+        (self.tree / A.LEDGER).write_text(
+            'ELF_REBUILD_luci-base_26.321.07849~ad028ec-r5:=26.321.07849~ad028ec-r6\n')
+        plan = A.plan(self.tree, self.destination, [
+            entry('luci/luci-base-26.321.07849~ad028ec-r6.apk',
+                  'luci-base', '26.321.07849~ad028ec-r6')])
+        self.assertEqual(plan[0]['recipe'], '26.321.07849~ad028ec-r5')
+        self.assertEqual(plan[0]['release'], '26.321.07849~ad028ec-r7')
+        A.apply(self.tree, plan, today='2026-11-20')
+        text = self.ledger()
+        self.assertIn('ELF_REBUILD_luci-base_26.321.07849~ad028ec-r5:='
+                      '26.321.07849~ad028ec-r7\n', text)
+        self.assertNotIn('ELF_REBUILD_luci-base_26.321.07849~ad028ec-r6:=', text)
+
+    def test_luci_bare_placeholder_second_rebuild_updates_original_key(self):
+        (self.tree / 'tmp/.packageinfo').write_text(
+            'Source-Makefile: feeds/luci/libs/luci-lib-ip/Makefile\n'
+            'Package: luci-lib-ip\n'
+            'Version: x\n')
+        (self.tree / A.LEDGER).write_text(
+            'ELF_REBUILD_luci-lib-ip_24.322.80622~82bde8c:=24.322.80622~82bde8c-r1\n')
+        plan = A.plan(self.tree, self.destination, [
+            entry('luci/luci-lib-ip-24.322.80622~82bde8c-r1.apk',
+                  'luci-lib-ip', '24.322.80622~82bde8c-r1')])
+        self.assertEqual(plan[0]['recipe'], '24.322.80622~82bde8c')
+        self.assertEqual(plan[0]['release'], '24.322.80622~82bde8c-r2')
+
+    def test_abi_version_does_not_leak_between_packages(self):
+        (self.tree / 'tmp/.packageinfo').write_text(
+            'Source-Makefile: feeds/packages/utils/bzip2/Makefile\n'
+            'Package: libbz2\n'
+            'Version: 1.0.8-r1\n'
+            'ABI-Version: 1.0\n'
+            '\n'
+            'Package: no-version\n'
+            'ABI-Version: 9\n')
+        versions = A.recipe_versions(self.tree)
+        self.assertEqual(versions['libbz2'],
+                         ['1.0.8-r1', 'feeds/packages/utils/bzip2/Makefile', '1.0'])
+        self.assertNotIn('no-version', versions)
+
 
 class PublishAllocatingTests(unittest.TestCase):
     def setUp(self):

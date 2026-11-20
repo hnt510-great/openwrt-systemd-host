@@ -85,17 +85,27 @@ def normalize_packageinfo_version(version):
     return re.sub(r'~([0-9a-f]{40,})(?=-r\d+$|$)', lambda m: '~' + m[1][:8], version)
 
 
+def abi_package_name(name, abi):
+    """Reproduce FormatABISuffix from include/feeds.mk."""
+    if not abi or name.startswith('kmod-'):
+        return None
+    return name + ('-' if name[-1].isdigit() else '') + abi
+
+
 def recipe_versions(tree):
-    """Map package name -> (recipe version, Source-Makefile) from tmp/.packageinfo."""
-    result, makefile, name = {}, None, None
+    """Map package name -> (recipe version, Source-Makefile, ABI-Version)."""
+    result, makefile, name, last = {}, None, None, None
     for line in (tree / 'tmp/.packageinfo').read_text().splitlines():
         if line.startswith('Source-Makefile: '):
-            makefile, name = line.removeprefix('Source-Makefile: '), None
+            makefile, name, last = line.removeprefix('Source-Makefile: '), None, None
         elif line.startswith('Package: '):
-            name = line.removeprefix('Package: ')
+            name, last = line.removeprefix('Package: '), None
         elif name and line.startswith('Version: '):
-            result[name] = (normalize_packageinfo_version(line.removeprefix('Version: ')), makefile)
-            name = None
+            result[name] = [normalize_packageinfo_version(line.removeprefix('Version: ')),
+                            makefile, '']
+            last, name = result[name], None
+        elif last is not None and line.startswith('ABI-Version: '):
+            last[2] = line.removeprefix('ABI-Version: ').strip()
     return result
 
 
@@ -151,17 +161,46 @@ def plan(tree, destination, rejected, accept=()):
     allocations = []
     for entry in sorted(rejected, key=lambda e: e['name']):
         name = entry['name']
+        ledger_name = name
         if name not in recipes:
+            # ABI_VERSION packages are packed as <name><abi> (e.g. icu79,
+            # libbz2-1.0) while the recipe and ELF rebuild ledger keys use the
+            # unsuffixed name.
+            candidates = [base for base, (version, makefile, abi) in recipes.items()
+                          if abi_package_name(base, abi) == name]
+            if len(candidates) == 1:
+                ledger_name = candidates[0]
+        if ledger_name not in recipes:
             raise ValueError(f'{name}: no recipe in tmp/.packageinfo')
-        recipe, makefile = recipes[name]
-        current = entries.get(f'ELF_REBUILD_{name}_{recipe}', recipe)
+        recipe, makefile, abi = recipes[ledger_name]
+        if '<LIBC_VERSION>' in recipe:
+            # DUMP leaves the runtime upstream version unexpanded; the release
+            # part is literal and the built APK knows the upstream version.
+            recipe = recipe.replace('<LIBC_VERSION>', split_version(entry['version'])[0])
+        if '<' in recipe:
+            # Versions derived from another package (e.g. <LIBC_RELEASE>) move
+            # with that package; allocate through that package instead.
+            raise ValueError(f'{name}: version {recipe} is derived from another package')
+        if recipe == 'x' or recipe.startswith('x-r'):
+            # luci's DUMP=1 placeholder: the upstream is the built git-revision
+            # version, while a "-rN" suffix in the metadata is the literal
+            # release. Reconstruct the recipe input so a second allocation
+            # updates the original key instead of writing an unused one.
+            built_upstream = split_version(entry['version'])[0]
+            recipe = (built_upstream if recipe == 'x'
+                      else f'{built_upstream}-r{split_version(recipe)[1]}')
+        current = entries.get(f'ELF_REBUILD_{ledger_name}_{recipe}', recipe)
         if current != entry['version']:
             raise ValueError(f'{name}: rejected {entry["version"]} is not the current effective '
-                             f'version {current} of recipe {recipe}; rebuild first')
+                             f'version {current} of recipe {ledger_name} {recipe}; rebuild first')
         upstream, release = split_version(current)
         taken = taken_releases(name, upstream, filenames, entries)
+        if ledger_name != name:
+            # Ledger outputs are keyed by the unsuffixed recipe name.
+            taken |= taken_releases(ledger_name, upstream, filenames, entries)
         taken |= {release, split_version(recipe)[1]}
-        allocations.append({**entry, 'recipe': recipe, 'makefile': makefile,
+        allocations.append({**entry, 'name': name, 'ledger_name': ledger_name,
+                            'recipe': recipe, 'makefile': makefile,
                             'release': f'{upstream}-r{max(taken) + 1}'})
     return allocations
 
@@ -174,8 +213,13 @@ def apply(tree, allocations, today=None):
     appended = []
     for allocation in allocations:
         name, recipe, release = allocation['name'], allocation['recipe'], allocation['release']
-        for key, value in ((f'ELF_REBUILD_{name}_{recipe}', release),
-                           (f'ELF_DEP_{name}_{recipe}', f'{name}={release}')):
+        ledger_name = allocation.get('ledger_name', name)
+        entries = [(f'ELF_REBUILD_{ledger_name}_{recipe}', release),
+                   (f'ELF_DEP_{ledger_name}_{recipe}', f'{ledger_name}={release}')]
+        if name != ledger_name:
+            # ABI_VERSION packages are depended on under the suffixed name.
+            entries.append((f'ELF_DEP_{name}_{recipe}', f'{name}={release}'))
+        for key, value in entries:
             indexes = [i for i, line in enumerate(lines) if line.startswith(key + ':=')]
             for index in indexes:
                 lines[index] = f'{key}:={value}'
