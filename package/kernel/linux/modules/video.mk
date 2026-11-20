@@ -974,6 +974,23 @@ endef
 
 $(eval $(call KernelPackage,drm-xen-frontend))
 
+
+define KernelPackage/drm-vkms
+  SUBMENU:=$(VIDEO_MENU)
+  TITLE:=Virtual KMS (VKMS) DRM driver
+  DEPENDS:=video-support +kmod-drm-kms-helper +kmod-fs-configfs
+  KCONFIG:=CONFIG_DRM_VKMS
+  FILES:=$(LINUX_DIR)/drivers/gpu/drm/vkms/vkms.ko
+endef
+
+define KernelPackage/drm-vkms/description
+  Virtual Kernel Mode-Setting (VKMS) DRM driver for headless displays and
+  graphics testing. Loaded on demand via modprobe vkms so it does not add a
+  virtual display at boot.
+endef
+
+$(eval $(call KernelPackage,drm-vkms))
+
 #
 # Video Capture
 #
