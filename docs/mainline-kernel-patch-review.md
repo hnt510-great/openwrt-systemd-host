@@ -1468,3 +1468,27 @@ current overlays; `scripts/checkpatch.pl` reports 0 errors / 0 warnings on both
 patches, and the resulting patched `drivers/net/phy/realtek/realtek_hwmon.c`
 compiles cleanly against the selected x86/64 kernel headers in isolation. No
 full kernel or generation rebuild was performed.
+
+## Upstream synchronization review, 2026-11-21
+
+Merged OpenWrt through `e7f788a9c1` (five incoming main-tree commits) as
+`3ced84a7dc`, plus three LuCI and three Passwall packages commits. The other
+feeds were already current. All merges completed without conflicts and retain
+their previous local HEADs. Backup refs and preservation evidence are recorded
+in [the synchronization report](upstream-sync-20261121.md).
+
+- **Mainline Linux 7.3**: `update-mainline-kernel.py --check` reports 7.3.5 is
+  current. No incoming generic or x86 6.18 files changed, so no new native 7.3
+  backport is needed. All 357 carried patches apply with zero fuzz to the
+  SHA-256-verified 7.3.5 archive. The incoming mac80211 AP-VLAN fix remains in
+  its separate backports package and prepares successfully.
+- **Custom packages**: all 188 entries pass the updater: 147 current, 36 local
+  and five intentional review pins. No custom recipe or Argon update is
+  available.
+- **Validation**: feed update/install, nine nonempty indexes, generated-link
+  checks, strict isolated Kconfig, 109 focused Python tests and two local LuCI
+  JavaScript tests pass. No selected Kconfig option changes; the working
+  `.config` and all original local repository states are preserved.
+
+This was a source-only synchronization. No full build, VM test, publication,
+Git push, router deployment, restart or reboot was performed.
