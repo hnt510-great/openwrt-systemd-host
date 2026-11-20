@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=intel-media-driver
 PKG_VERSION:=26.3.5
-PKG_RELEASE:=1
+PKG_RELEASE:=4
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/intel/media-driver/tar.gz/intel-media-$(PKG_VERSION)?
 PKG_HASH:=76f41c06cefc91d57e0b7d366b7a91b8420ec77939326491795f9fb26afca7e7
@@ -29,9 +29,12 @@ define Package/intel-media-driver/description
   existing Intel DRM kernel driver and render-node access are required.
 endef
 
+TARGET_CXXFLAGS += -Wno-error=array-bounds -Wno-error
+
 CMAKE_OPTIONS += \
 	-DCMAKE_INSTALL_LIBDIR=lib \
 	-DBUILD_TYPE=release \
+	-DMEDIA_BUILD_FATAL_WARNINGS=OFF \
 	-DBUILD_CMRTLIB=OFF \
 	-DENABLE_KERNELS=ON \
 	-DENABLE_NONFREE_KERNELS=ON \
