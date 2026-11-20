@@ -194,6 +194,34 @@ class AllocationTests(unittest.TestCase):
                       '26.321.07849~ad028ec-r7\n', text)
         self.assertNotIn('ELF_REBUILD_luci-base_26.321.07849~ad028ec-r6:=', text)
 
+    def test_base_files_uses_the_built_commit_count_version(self):
+        (self.tree / 'tmp/.packageinfo').write_text(
+            'Source-Makefile: package/base-files/Makefile\n'
+            'Package: base-files\n'
+            'Version: 0.20~8b34d6283f\n')
+        (self.tree / A.LEDGER).write_text('# header\n')
+        plan = A.plan(self.tree, self.destination, [
+            entry('target/base-files-1769.20~8b34d6283f.apk',
+                  'base-files', '1769.20~8b34d6283f')])
+        self.assertEqual(plan[0]['recipe'], '1769.20~8b34d6283f')
+        self.assertEqual(plan[0]['release'], '1769.20~8b34d6283f-r1')
+
+    def test_base_files_second_rebuild_updates_the_original_key(self):
+        (self.tree / 'tmp/.packageinfo').write_text(
+            'Source-Makefile: package/base-files/Makefile\n'
+            'Package: base-files\n'
+            'Version: 0.20~8b34d6283f\n')
+        (self.tree / A.LEDGER).write_text(
+            'ELF_REBUILD_base-files_1769.20~8b34d6283f:=1769.20~8b34d6283f-r1\n')
+        plan = A.plan(self.tree, self.destination, [
+            entry('target/base-files-1769.20~8b34d6283f-r1.apk',
+                  'base-files', '1769.20~8b34d6283f-r1')])
+        self.assertEqual(plan[0]['recipe'], '1769.20~8b34d6283f')
+        self.assertEqual(plan[0]['release'], '1769.20~8b34d6283f-r2')
+        A.apply(self.tree, plan, today='2026-11-20')
+        self.assertIn('ELF_REBUILD_base-files_1769.20~8b34d6283f:='
+                      '1769.20~8b34d6283f-r2\n', self.ledger())
+
     def test_luci_bare_placeholder_second_rebuild_updates_original_key(self):
         (self.tree / 'tmp/.packageinfo').write_text(
             'Source-Makefile: feeds/luci/libs/luci-lib-ip/Makefile\n'

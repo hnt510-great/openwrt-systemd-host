@@ -189,6 +189,14 @@ def plan(tree, destination, rejected, accept=()):
             built_upstream = split_version(entry['version'])[0]
             recipe = (built_upstream if recipe == 'x'
                       else f'{built_upstream}-r{split_version(recipe)[1]}')
+        if ledger_name == 'base-files':
+            # base-files derives PKG_RELEASE from COMMITCOUNT.20; DUMP reports
+            # 0.20~<revision> while the built APK carries the resolved count.
+            # Recover the recipe input from the ledger or the APK version.
+            prefix = f'ELF_REBUILD_{ledger_name}_'
+            matches = [key[len(prefix):] for key, value in entries.items()
+                       if key.startswith(prefix) and value == entry['version']]
+            recipe = matches[0] if len(matches) == 1 else entry['version']
         current = entries.get(f'ELF_REBUILD_{ledger_name}_{recipe}', recipe)
         if current != entry['version']:
             raise ValueError(f'{name}: rejected {entry["version"]} is not the current effective '
