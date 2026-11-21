@@ -4116,3 +4116,6 @@ ELF_REBUILD_xray-core_26.11.9-r1:=26.11.9-r2
 ELF_DEP_xray-core_26.11.9-r1:=xray-core=26.11.9-r2
 ELF_REBUILD_base-files_1769.20~8b34d6283f:=1769.20~8b34d6283f-r1
 ELF_DEP_base-files_1769.20~8b34d6283f:=base-files=1769.20~8b34d6283f-r1
+# 2026-11-21 automatic same-version rebuild allocations
+ELF_REBUILD_base-files_1769.20~e7f788a9c1:=1769.20~e7f788a9c1-r1
+ELF_DEP_base-files_1769.20~e7f788a9c1:=base-files=1769.20~e7f788a9c1-r1

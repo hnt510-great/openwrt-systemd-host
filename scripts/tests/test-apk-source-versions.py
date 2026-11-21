@@ -70,6 +70,55 @@ class SourceVersionTests(unittest.TestCase):
                         '-c', 'user.email=version@example.invalid', 'commit', '-qm', 'update'],
                        cwd=self.work, env=env, check=True, capture_output=True)
 
+    def base_files_version(self, dump=False, locked=None):
+        recipe = (TREE / 'package/base-files/Makefile').read_text()
+        metadata = recipe[recipe.index('BASE_FILES_BUILD_METADATA:='):
+                          recipe.index('\nPKG_FILE_DEPENDS:=')]
+        version = next(line.strip() for line in recipe.splitlines()
+                       if line.strip().startswith('VERSION:='))
+        declarations = (
+            f'TOPDIR:={self.work}\n'
+            f'PKG_RELEASE:={"0.20" if dump else "1769.20"}\n'
+            'REVISION:=r38494+488-e7f788a9c1\n'
+            'SOURCE_DATE_EPOCH:=1795218133\n'
+            f'DUMP:={"1" if dump else ""}\n'
+            + (f'BASE_FILES_VERSION:={locked}\n' if locked else '')
+            + metadata + '\n' + version + '\n')
+        return self.make(declarations + 'all:\n\t@echo "$(VERSION)"\n')
+
+    def test_base_files_versions_follow_every_checkout_commit(self):
+        # Archives without Git metadata retain a deterministic fallback.
+        self.assertEqual(self.base_files_version(),
+                         '1769.20.1795218133~e7f788a9c1')
+        subprocess.run(['git', 'init', '-q'], cwd=self.work, check=True)
+        (self.work / 'po').mkdir()
+        (self.work / 'code.lua').write_text('initial\n')
+        self.commit('2026-11-21T00:00:00Z')
+        first = self.base_files_version()
+        self.assertRegex(first, r'^1769\.20\.1~[0-9a-f]+$')
+        self.assertEqual(first, self.base_files_version())
+        (self.work / 'code.lua').write_text('updated\n')
+        # A timestamp-only scheme would collide for commits in the same second.
+        self.commit('2026-11-21T00:00:00Z')
+        second = self.base_files_version()
+        self.assertRegex(second, r'^1769\.20\.2~[0-9a-f]+$')
+        for version in (first, second):
+            subprocess.run([str(APK), 'version', '-c', version],
+                           check=True, capture_output=True)
+        for old, new in (('1769.20~e7f788a9c1-r1', first), (first, second)):
+            self.assertEqual(subprocess.check_output(
+                [str(APK), 'version', '-t', old, new], text=True).strip(), '<')
+
+    def test_base_files_dump_and_sdk_versions_remain_locked(self):
+        self.assertEqual(self.base_files_version(dump=True), '0.20.0~e7f788a9c1')
+        locked = '1769.20~e7f788a9c1-r1'
+        self.assertEqual(self.base_files_version(locked=locked), locked)
+
+    def test_base_files_rootfs_lock_uses_effective_apk_version(self):
+        recipe = (TREE / 'package/base-files/Makefile').read_text()
+        self.assertIn('\n\techo $(VERSION) >$(STAGING_DIR)/base-files.version', recipe)
+        self.assertNotIn('echo $(PKG_RELEASE)~', recipe)
+
     def passwall_versions(self):
         luci = (TREE / 'feeds/luci/luci.mk').read_text()
         recipe = (TREE / 'feeds/passwall_luci/luci-app-passwall/Makefile').read_text()

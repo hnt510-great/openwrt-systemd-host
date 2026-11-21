@@ -15,6 +15,22 @@ PKG_NAME:=base-files
 PKG_FLAGS:=nonshared
 PKG_RELEASE:=$(COMMITCOUNT).20
 
+# The embedded revision and build timestamp change with every checkout commit.
+# Include the checkout-wide commit count and actual HEAD in the APK identity:
+# the package-local COMMITCOUNT and upstream merge-base hash alone can remain
+# unchanged while local commits change those files. Keep DUMP deterministic,
+# use reproducible metadata outside Git, and let SDKs lock the original version.
+BASE_FILES_BUILD_METADATA:=$(if $(DUMP),0~$(lastword $(subst -, ,$(REVISION))),$(shell \
+	if git -C $(TOPDIR) rev-parse --git-dir >/dev/null 2>&1; then \
+		printf '%s~%s' \
+			"$$(git -C $(TOPDIR) rev-list --count HEAD)" \
+			"$$(git -C $(TOPDIR) log -1 --no-show-signature --format=%h HEAD)"; \
+	else \
+		printf '%s~%s' '$(SOURCE_DATE_EPOCH)' \
+			'$(lastword $(subst -, ,$(REVISION)))'; \
+	fi))
+BASE_FILES_VERSION?=$(PKG_RELEASE).$(BASE_FILES_BUILD_METADATA)
+
 PKG_FILE_DEPENDS:= \
 	./os-release.systemd ./openwrt-release.systemd ./banner.systemd \
 	./system-description.systemd.md \
@@ -72,7 +88,7 @@ define Package/base-files
 	+ucode +ucode-mod-fs +ucode-mod-digest
   TITLE:=Base filesystem for OpenWrt
   URL:=https://openwrt.org/
-  VERSION:=$(PKG_RELEASE)~$(lastword $(subst -, ,$(REVISION)))
+  VERSION:=$(BASE_FILES_VERSION)
 endef
 
 define Package/base-files/conffiles
@@ -317,7 +333,7 @@ endif
 
 	rm -f $(1)/etc/uci-defaults/13_fix-group-user
 	rm -f $(1)/sbin/pkg_check
-	echo $(PKG_RELEASE)~$(lastword $(subst -, ,$(REVISION))) >$(STAGING_DIR)/base-files.version
+	echo $(VERSION) >$(STAGING_DIR)/base-files.version
 else
 	$(if $(CONFIG_CLEAN_IPKG),, \
 		mkdir -p $(1)/etc/opkg; \

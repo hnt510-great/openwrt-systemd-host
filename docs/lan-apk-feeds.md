@@ -248,6 +248,18 @@ three rounds (exact-version dependents can cascade). The retry repeats the
 full router preflight. The ledger is not a kernel build input, so the reserved
 generation stays valid. Commit the ledger change afterwards.
 
+`base-files` embeds the checkout revision and build timestamp, so its APK version
+also contains the checkout-wide Git commit count and actual HEAD hash. A local
+commit therefore advances the package identity even when neither the
+package-local `COMMITCOUNT` nor the upstream merge-base hash changes; routine
+commits no longer need recurring base-files ledger allocations. Non-Git exports
+use `SOURCE_DATE_EPOCH` and the revision hash, while SDKs can retain the locked
+`BASE_FILES_VERSION`. The `base-files.version` lock records the effective `VERSION`,
+including any historical ledger mapping, so rootfs installation pins the exact
+APK that was built. See the [base-files version validation record](base-files-version-validation.md).
+The measured retained-tree acceleration investigation and delegated implementation
+handoff are in the [incremental build acceleration plan](incremental-build-acceleration-plan.md).
+
 Passwall uses the existing LuCI Git revision versioning for code and
 translations independently, rather than upstream's manually maintained
 version fields. Committed code or translation updates therefore get new
