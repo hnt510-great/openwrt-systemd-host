@@ -223,7 +223,7 @@ define BuildKernel
   install: $(LINUX_DIR)/.image
 	+{ \
 		state="$$$$( $(image_install_state) )"; \
-		[ "$$$$state" = "$$$$(cat $(IMAGE_INSTALL_STAMP) 2>/dev/null)" ] && \
+		[ -z "$(VM_MEDIA_DIR)" ] && [ "$$$$state" = "$$$$(cat $(IMAGE_INSTALL_STAMP) 2>/dev/null)" ] && \
 		[ -z "$$$$($(image_install_newer))" ] || { \
 			rm -f $(IMAGE_INSTALL_STAMP); \
 			$(MAKE) -C image compile install TARGET_BUILD= && \

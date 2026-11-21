@@ -765,7 +765,7 @@ define Device/Build/image
   .IGNORE: $(BIN_DIR)/$(call DEVICE_IMG_NAME,$(1),$(2))
 
   $(BIN_DIR)/$(call DEVICE_IMG_NAME,$(1),$(2)): $(KDIR)/tmp/$(call DEVICE_IMG_NAME,$(1),$(2))
-	cp $$^ $$@
+	cp $$^ $$@$(if $(VM_MEDIA_DIR), && touch '$(VM_MEDIA_DIR)/$(call DEVICE_IMG_NAME,$(1),$(2))')
 
   $(BUILD_DIR)/json_info_files/$(call DEVICE_IMG_NAME,$(1),$(2)).json: $(BIN_DIR)/$(call DEVICE_IMG_NAME,$(1),$(2))
 	@mkdir -p $$(shell dirname $$@)
@@ -822,7 +822,7 @@ define Device/Build/artifact
   .IGNORE: $(BIN_DIR)/$(DEVICE_IMG_PREFIX)-$(1)
 
   $(BIN_DIR)/$(DEVICE_IMG_PREFIX)-$(1): $(KDIR)/tmp/$(DEVICE_IMG_PREFIX)-$(1)
-	cp $$^ $$@
+	cp $$^ $$@$(if $(VM_MEDIA_DIR), && touch '$(VM_MEDIA_DIR)/$(DEVICE_IMG_PREFIX)-$(1)')
 
   $(BUILD_DIR)/json_info_files/$(DEVICE_IMG_PREFIX)-$(1).json: $(BIN_DIR)/$(DEVICE_IMG_PREFIX)-$(1)
 	@mkdir -p $$(shell dirname $$@)

@@ -474,6 +474,38 @@ def point_current(public, snapshot):
     return previous
 
 
+def validate_expected_apks(apk, expected, indexes, hashes):
+    """Prove the signed indexes contain each current APK and no newer rival."""
+    candidates = {}
+    for repo, index in indexes.items():
+        for info in index['packages']:
+            candidates.setdefault(info['name'], []).append((repo, info))
+    compared = {}
+    for path, (name, version, arch) in expected.items():
+        digest = hashes.get(path)
+        entries = candidates.get(name, ())
+        if not digest or not any(
+                f'{repo}/{package_filename(info)}' == path
+                and (info['version'], info['arch']) == (version, arch)
+                for repo, info in entries):
+            raise ValueError(f'Expected rolling APK is missing from the signed index: {path}')
+        for repo, info in entries:
+            other_version = info['version']
+            if version == other_version:
+                order = '='
+            else:
+                key = (version, other_version)
+                if key not in compared:
+                    compared[key] = subprocess.check_output(
+                        [str(apk), 'version', '--test', version, other_version], text=True).strip()
+                order = compared[key]
+            other = f'{repo}/{package_filename(info)}'
+            if order == '<':
+                raise ValueError(f'Newer retained or staged APK supersedes {path}: {other}')
+            if order == '=' and hashes.get(other) != digest:
+                raise ValueError(f'Conflicting APK with the same version as {path}: {other}')
+
+
 def publish(args):
     tree = Path(__file__).resolve().parent.parent
     source_root = (args.source_root or tree).resolve()
@@ -529,13 +561,26 @@ def publish(args):
                 source_files[f'{name}/{package.name}'] = (package, sha256(package))
         changes = sorted(path for path, (_, digest) in source_files.items()
                          if not args.incremental or previous_hashes.get(path) != digest)
+        expected = getattr(args, 'expected', None)
+        if expected:
+            missing = sorted(expected.keys() - source_files.keys())
+            if missing:
+                raise ValueError('Missing expected staged APKs: ' + ', '.join(missing))
+        expected_digests = {path: source_files[path][1] for path in expected or ()}
         origin = args.base_url.rstrip('/')
         baseline_needed = bool(old and old.get('schema_version') != SCHEMA_VERSION)
         if args.incremental and old and not changes and not baseline_needed and old.get('base_url') == origin:
-            return {'status': 'unchanged', 'kernel': args.kernel,
+            if expected:
+                validate_expected_apks(apk, expected, {
+                    name: dump_index(apk, previous / name / 'packages.adb')
+                    for name in old['repositories']}, previous_hashes)
+            result = {'status': 'unchanged', 'kernel': args.kernel,
                     'snapshot': str(previous.resolve()), 'changed_packages': [],
                     'affected_repositories': [], 'source_files_examined': len(source_files),
                     'alias': str(previous), 'previous': str(previous.resolve())}
+            if expected:
+                result['expected_digests'] = expected_digests
+            return result
         snapshot_name = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ')
         work = Path(tempfile.mkdtemp(prefix='.publish-', dir=destination))
         try:
@@ -663,6 +708,11 @@ def publish(args):
             manifest['elf_abi'] = validate_elf_abi(apk, keys, payload, indexes, work)
             if same_version_rebuilds:
                 raise same_version_rebuild_error(apk, previous, payload, same_version_rebuilds)
+            if expected:
+                for path, digest in expected_digests.items():
+                    if manifest['apk_files'].get(path) != digest:
+                        raise ValueError(f'Expected staged APK digest differs from candidate: {path}')
+                validate_expected_apks(apk, expected, indexes, manifest['apk_files'])
             urls = [f'{origin}/abi/{args.kernel}/{name}/packages.adb' for name in indexes]
             (payload / 'repositories.list').write_text(
                 '# Local native-systemd/glibc feeds; kernel packages are in kernel-upgrades.\n' +
@@ -679,6 +729,8 @@ def publish(args):
                       'repositories': urls, 'packages': sum(r['packages'] for r in manifest['repositories'].values()),
                       'kernel_packages': len(manifest['kernel_packages'])}
             result['ucode_abi'] = manifest['ucode_abi']
+            if expected:
+                result['expected_digests'] = expected_digests
             if stage_only:
                 final = snapshots / snapshot_name
                 payload.rename(final)

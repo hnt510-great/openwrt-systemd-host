@@ -1,7 +1,9 @@
 # Incremental build and publication acceleration plan
 
-**Status: design and exploration complete on 2026-11-21; implementation is delegated
-to another agent. No acceleration changes from this plan have been implemented yet.**
+**Historical investigation, 2026-11-21.** The timing evidence below is retained
+for comparison. The rolling-first implementation supersedes the original
+implementation phases. See [rolling build and VM artifact validation](incremental-build-acceleration-validation.md)
+for the current workflow and measured results.
 
 This is the implementation handoff for accelerating routine retained-tree
 `./scripts/build-and-publish.sh -j16` runs. It combines the approved plan with the

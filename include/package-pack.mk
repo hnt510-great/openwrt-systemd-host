@@ -367,6 +367,14 @@ endif
       ifneq ($(CONFIG_PACKAGE_$(1))$(DEVELOPER),)
         IPKGS += $(1)
         $(_pkg_target)compile: $$(PACK_$(1)) $(PKG_INFO_DIR)/$(1).provides $(PKG_BUILD_DIR)/.pkgdir/$(1).installed
+        ifneq ($$(and $$(ROLLING_APK_DIR),$$(CONFIG_USE_APK)),)
+          .PHONY: rolling-inventory-$(1)
+          $(_pkg_target)compile: rolling-inventory-$(1)
+          rolling-inventory-$(1): $$(PACK_$(1))
+		@mkdir -p '$$(ROLLING_APK_DIR)/$$(BUILD_SUBDIR)/$$(BUILD_VARIANT)' && \
+			printf '%s\t%s\t%s\t%s\n' '$$(PACK_$(1))' '$(1)$$(ABIV_$(1))' '$(VERSION)' '$(if $(findstring all,$(PKGARCH)),noarch,$(PKGARCH))' \
+			> '$$(ROLLING_APK_DIR)/$$(BUILD_SUBDIR)/$$(BUILD_VARIANT)/$(1)'
+        endif
         prepare-package-install: $$(PACK_$(1))
         compile: $(STAGING_DIR_ROOT)/stamp/.$(1)_installed
       else
