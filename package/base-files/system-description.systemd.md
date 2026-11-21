@@ -229,8 +229,11 @@ Feature names in `OPENWRT_FEATURES` have these meanings:
 - `virtualization`: libvirt VM management; inspect `virsh -c qemu:///system list
   --all`, `virsh nodedev-list`, installed QEMU tools and `/dev/kvm`. KVM requires usable hardware
   support; virt-manager is available when separately selected.
-- `flatpak`: ordinary-user Flatpak and desktop portal integration; inspect
-  `flatpak --user list` in the intended user's session.
+- `flatpak`: ordinary-user and system-wide Flatpak with desktop portal
+  integration; inspect `flatpak --user list` in the intended user's session,
+  `flatpak --system list`, and the D-Bus-activated
+  `flatpak-system-helper.service`. System changes are authorized by polkit;
+  Flatpak administrator prompts use the desktop account in the `sudo` group.
 - `containers`: Podman container tools; inspect `podman info` as the intended
   user to determine the current rootful or rootless environment.
 - `appimage`: manually launched AppImage support; application compatibility

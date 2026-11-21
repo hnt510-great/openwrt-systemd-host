@@ -4,10 +4,12 @@
 > to procd recovery or firmware flashing from the running system describe
 > older images. See [current boot and migration guidance](systemd-only-plan.md).
 
-This package supports ordinary-user Flatpak applications on the
-x86_64/glibc/native-systemd GNOME desktop. The GNOME and GTK portal backends
-are packaged with the desktop integration. Applications retain their normal
-sandbox permissions and runtime dependencies.
+This optional package supports ordinary-user and system-wide Flatpak
+applications on the x86_64/glibc/systemd GNOME image. Applications can be
+managed from a terminal or through a Flatpak-aware graphical software store.
+The desktop integration covers Wayland windows and file selection through the
+GTK desktop portal. Desktop audio and screen sharing require their separate
+OpenWrt desktop packages and provisioning.
 
 ## Build
 
@@ -39,7 +41,32 @@ therefore be built without Flatpak, while `openwrt-flatpak` explicitly pulls in
 `flatpak`.
 `FUSE3_UTILS_SETUID` enables the setuid `fusermount3` helper for ordinary-user
 document portal mounts. Bubblewrap remains non-setuid and uses user namespaces
-and seccomp. No Flatpak system installation helper is installed.
+and seccomp.
+
+Flatpak 1.18.4-r8 enables `flatpak-system-helper`, allowing software stores and
+`flatpak --system` commands to manage the system installation. The helper runs
+as root only while needed and is activated by D-Bus; do not enable or start
+`flatpak-system-helper.service` manually. Its polkit policy permits active local
+users to update signed applications and metadata, while installing, uninstalling
+and changing protected configuration require administrator authorization.
+For these Flatpak administrator prompts, `05-openwrt-flatpak-admin.rules`
+selects members of the existing `sudo` group, so the password belongs to the
+desktop account, not the normally locked root account. Other polkit actions
+retain OpenWrt's root-only administrator rule. The package creates the
+unprivileged `flatpak` account used to isolate the revokefs backend and installs
+the helper's polkit and D-Bus policy. Package installation reloads systemd and
+polkit, then sends D-Bus a non-disruptive `SIGHUP` so new activation files take
+effect without restarting the message bus.
+
+The compiled system installation path is the standard `/var/lib/flatpak`.
+That path is a symlink to `/srv/flatpak/system`, keeping host tools, desktop
+export paths and repository inspection on the same persistent storage. Because
+`/var` points to volatile `/tmp` on OpenWrt,
+`flatpak-system-repository.conf` recreates the symlink through
+`systemd-tmpfiles` at boot and after package installation. Do not replace the
+symlink with a separate repository. Sandboxed applications additionally need
+the direct `/srv/flatpak/system` path described below, because Flatpak cannot
+correctly export a `/var/...` path whose parent is a symlink.
 
 Flatpak is built with `-Dxauth=enabled` (linked against `libXau`). GNOME
 protects Xwayland with a per-session cookie file named by `XAUTHORITY`; with
@@ -52,7 +79,7 @@ Build the packages first, then the complete image:
 
 ```sh
 make -j4 package/custom/openwrt-flatpak/compile V=s
-python3 scripts/build-and-publish.py build-only -j4 V=s
+make -j4 V=s
 ```
 
 The native firmware remains under `bin/systemd/targets/x86/64-glibc/`.
@@ -89,21 +116,67 @@ flatpak uninstall --user org.gnome.Calculator
 flatpak uninstall --user --unused
 ```
 
-Use `--user` for all management operations. Flatpak itself otherwise defaults
-to system installation. Existing native applications, including Firefox,
-are independent of these commands.
+Use `--user` for per-account applications. Existing native applications,
+including Firefox, are independent of these commands.
 
-GNOME supplies the session display and D-Bus environment. The desktop
-integration imports application export directories and connects the per-user
-portal services to that session. The capability-clearing helper keeps inherited
-capabilities from interfering with non-setuid bubblewrap. FUSE helpers retain
-their configured permissions.
-
-Launch applications from the ordinary user's graphical session. For diagnostics:
+For applications shared by all accounts, use the system installation explicitly:
 
 ```sh
-systemctl --user status xdg-desktop-portal xdg-desktop-portal-gnome xdg-desktop-portal-gtk
-journalctl --user -u xdg-desktop-portal
+sudo flatpak remote-add --system --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+sudo flatpak install --system flathub org.gnome.Calculator
+flatpak list --system
+sudo flatpak update --system
+```
+
+The system repository is `/var/lib/flatpak`, a symlink to
+`/srv/flatpak/system`. A graphical store may perform these operations through
+polkit instead of `sudo`; its authentication prompt
+must have an active agent in the desktop session. Diagnose helper activation
+with `systemctl status flatpak-system-helper.service` and
+`journalctl -u flatpak-system-helper.service -u dbus.service -u polkit.service`.
+An inactive unit is normal while no system-installation request is pending.
+
+### Bazaar system backend
+
+Bazaar also uses its bundled libflatpak to read system repository metadata.
+Set `FLATPAK_SYSTEM_DIR` and expose the direct persistent path in that app's
+sandbox. Do not add `/var/lib/flatpak` or `/var/tmp` to its filesystem list on
+this `/var -> /tmp` layout. To reproduce the validated OpenWrt compatibility
+profile, first save any custom entries with `flatpak override --user --show
+io.github.kolunmi.Bazaar`, then run:
+
+```sh
+# --reset removes existing Bazaar overrides; restore unrelated custom entries afterward.
+flatpak override --user --reset io.github.kolunmi.Bazaar
+flatpak override --user \
+    --nofilesystem=host:reset \
+    --filesystem='~/.var/app' \
+    --filesystem=/srv/flatpak/system \
+    --nofilesystem=host \
+    --filesystem=xdg-data/flatpak \
+    --env=FLATPAK_SYSTEM_DIR=/srv/flatpak/system \
+    io.github.kolunmi.Bazaar
+```
+
+The `host:reset` entry also suppresses Bazaar's original `/var/...`
+filesystem entries, which cannot be exported correctly through OpenWrt's
+symlinked `/var`. The direct repository path preserves the same read/write
+access that Bazaar declares for its system backend; it is not a global override
+for other applications.
+
+GNOME session setup exports the per-user and system Flatpak export directories,
+display and session D-Bus address into `systemd --user`.
+`desktop-flatpak-session` starts `openwrt-flatpak-session.target`, which is
+ordered after `graphical-session-pre.target` and belongs to
+`gnome-session.target`. Portal services are D-Bus-activated as needed; the GTK
+backend handles file-selection dialogs and the document portal uses the
+setuid `fusermount3` helper. Native udev rules provide `/dev/fuse` access.
+SSH alone does not provide a graphical display; run applications from the
+desktop terminal. For diagnostics use:
+
+```sh
+systemctl --user status xdg-desktop-portal xdg-desktop-portal-gtk
+journalctl --user -u xdg-desktop-portal -u xdg-desktop-portal-gtk
 ```
 
 ## Storage and firmware upgrades
@@ -117,9 +190,11 @@ or alter existing mounts.
 
 Existing configuration-preserving upgrade backups include `/home`, including
 `~/.var/app` personal data and the repository symlink. They do not follow that
-link into `/srv/flatpak`, so applications and runtimes are not copied into the
-configuration archive. A repository on the root overlay can be erased by a
-firmware upgrade; a separate data disk must remain mounted to reuse its data.
+link into `/srv/flatpak`, and do not include the system repository, so
+applications and runtimes are not copied into the configuration archive. A
+repository on the root overlay can be erased by a firmware upgrade; a separate
+data disk must remain mounted to reuse its data. Back up system remotes and the
+`flatpak list --system` application list separately before such an upgrade.
 
 Before upgrading, as each user:
 
@@ -147,7 +222,7 @@ configuration backup outside the device.
 
 Acceptance requires a freshly built image in an isolated VM: ordinary-user
 installation and signature checks, Wayland GUI input, portal file grants,
-reboot persistence, upgrade restoration and existing router/SSH/remote-desktop services.
+reboot persistence, upgrade restoration and existing router/SSH/VNC services.
 VM rendering does not establish physical Intel GPU performance. Record actual
 image size, disk usage and memory measurements with the validation report.
 See [flatpak-validation.md](flatpak-validation.md) for the completed build,

@@ -1,4 +1,97 @@
-# Flatpak integration validation — 2026-10-12
+# Flatpak integration validation
+
+## Bazaar system repository compatibility — 2026-11-21
+
+After successful r7 authentication, the helper added Flathub but Bazaar 0.9.9
+segfaulted in `dex-thread-pool` following null-`GFile` assertions. Its bundled
+libflatpak could not read the system repository. Flatpak r8 uses the standard
+`/var/lib/flatpak` host path backed by a tmpfiles-managed symlink to
+`/srv/flatpak/system`. Bazaar's final app-specific override instead exposes the
+direct `/srv/flatpak/system` path and sets `FLATPAK_SYSTEM_DIR` there, avoiding
+Flatpak's inability to export paths through OpenWrt's `/var -> /tmp` symlink.
+The package is `bin/systemd/packages/x86_64/base/flatpak-1.18.4-r8.apk`, SHA-256
+`0acffcc2d5e9acafe3714ca7acbd50467610a48c771542b115f864e1039d3892`.
+
+| Check | Result |
+| --- | --- |
+| Crash reproduction | r7 accepted the desktop password and added the system remote; Bazaar then exited with status 11 and a worker-thread segfault |
+| Package build and installation | r8 compiled and passed signature verification; simulation and installation changed only r7 → r8 |
+| Repository path | Host `flatpak --installations` reports `/var/lib/flatpak`; the symlink resolves to `/srv/flatpak/system`; the temporary diagnostic bind mount was removed |
+| Override preservation | Existing Bazaar override was saved before editing; its original host/Flatpak filesystem entries were retained in the final compatibility profile |
+| Sandbox access | `FLATPAK_SYSTEM_DIR=/srv/flatpak/system` is visible and the system repository config is readable inside Bazaar's sandbox |
+| GNOME smoke test | Bazaar remained running for more than 60 seconds with no segfault or null-`GFile` assertions; the Flathub system remote remained configured |
+| Router health | D-Bus and polkit stayed active, no failed units appeared and the temporary uploaded APK was removed |
+
+Scope: the test launched the real Bazaar UI in the existing GNOME session, but
+did not click through an application installation or removal. Missing entry
+cache warnings remained nonfatal and are separate from the crash. No VM or new
+firmware image was built, no device was flashed and no feed publication was
+performed. Evidence in the dated workspace includes the original crash and
+override, the final override, r8 build/signature records and the post-launch
+process, sandbox and journal checks.
+
+## Flatpak sudo administrator authentication — 2026-11-21
+
+The first Bazaar authentication attempt after the r6 update selected root.
+The router's root account is locked, so PAM rejected the desktop password for
+`org.freedesktop.Flatpak.configure-remote`. Flatpak r7 adds an earlier,
+Flatpak-only polkit administrator rule selecting the existing `sudo` group;
+unrelated polkit actions retain the root-only rule. The new signed artifact is
+`bin/systemd/packages/x86_64/base/flatpak-1.18.4-r7.apk`, SHA-256
+`39a720a7e1fe7417dbbed576201cbbcffd9a08d179d50542711b6cda659d1175`.
+
+| Check | Result |
+| --- | --- |
+| Rule evaluation | Flatpak `configure-remote` resolves to `unix-group:sudo`; an unrelated power action still resolves to `unix-user:root` |
+| Package build and signature | r7 compiled successfully; host and router signature verification passed; simulation upgraded only r6 → r7 |
+| Router installation | r7 installed and polkit reloaded successfully; `05-openwrt-flatpak-admin.rules` is present |
+| Prompt identity | A pseudo-terminal probe cancelled without password input displayed `Authenticating as: desktop-user`, not root |
+| Helper and router health | Unprivileged system update discovery still returned `Nothing to update`; D-Bus and polkit stayed active, zero units failed and no APK journal remained |
+
+Scope: no password was requested, read or entered by the validation commands.
+The user must complete the actual Bazaar prompt with their desktop password.
+No system remote was added and no system application was installed during this
+check. As with r6 below, validation deployed only the exact signed userspace APK
+to the physical router; no VM or firmware image was built or flashed. Evidence
+is in the same dated workspace, including `router-auth-before.txt`,
+`router-auth-r7.txt`, `build-r7.log` and the r7 checksum/signature files.
+
+## System helper on the physical router — 2026-11-21
+
+Flatpak 1.18.4-r6 enables the system helper for Bazaar and other clients of the
+system installation. No new firmware image was built. The validated artifact is
+`bin/systemd/packages/x86_64/base/flatpak-1.18.4-r6.apk`, SHA-256
+`2312abb2bfaf7701979b154b24249ff650903164c8f90ebd6c55ebc5dd2b76b1`.
+
+| Check | Result |
+| --- | --- |
+| Package build | `make -j16 package/custom/flatpak/compile V=s` passed; Meson reported `Build system helper: YES`, polkit-agent 128 and privileged group `root` |
+| Host ITS lookup | `GETTEXTDATADIR` points host `msgfmt` at the target-staged polkit rules; the policy merged successfully |
+| APK contents and identity | Helper, D-Bus activation/policy, systemd unit, polkit action/rules, sysusers data and fixed UID/GID 195 requirement present; version advanced past the published r5 ELF migration |
+| Signature and simulation | Host and router signature verification passed; APK simulated only `flatpak` 1.18.4-r5 → 1.18.4-r6 |
+| Router installation | Signed local APK installed successfully with the managed cache; post-install reloaded systemd and D-Bus |
+| Unprivileged activation | `busctl ... org.freedesktop.DBus.Peer Ping` as UID 32769 activated `flatpak-system-helper.service`; the helper ran as root and D-Bus reported successful activation |
+| Original update-discovery path | Repeated unprivileged `flatpak update --system --noninteractive` runs returned `Nothing to update` with exit status 0 instead of the missing-SystemHelper error |
+| Existing integration | Six `test-flatpak-user-link.py` tests passed; needrestart reported Bazaar current |
+| Router health | D-Bus and polkit remained active on their original PIDs, zero units failed and no pending APK transaction journal remained |
+
+Scope: the router had no system remote or system-installed refs, so the update
+check ended with `Nothing to update`. No system application was installed or
+removed, no polkit authentication prompt was exercised, and Bazaar's graphical
+UI was not manually clicked. This was a userspace helper activation change, so
+runtime validation used the exact signed package and unprivileged caller on the
+physical router rather than building and booting a VM image. No physical device
+was flashed. Existing per-user applications were not changed, no feed
+publication was performed, and only the verified local Flatpak APK was deployed.
+The broader `test-apk-source-versions.py` run reported no Flatpak error, but the
+suite failed with 17 errors for unrelated reserved releases in existing ppp,
+nginx, ffmpeg, virtualization and other recipes; those recipes were not changed.
+
+**Evidence:** `/srv/openwrt-validation/flatpak-system-helper-validation-20261121/`
+contains the build log, package checksum/signature results, the original Bazaar
+error excerpt and the post-install router checks.
+
+## Ordinary-user desktop validation — 2026-10-12
 
 The supported configuration is x86_64, glibc and native systemd, with an
 ordinary-user Wayland desktop. The acceptance application was the signed
@@ -43,7 +136,7 @@ SSH keys, remotes and applications exist only in the disposable guest.
 
 | Check | Observed result |
 | --- | --- |
-| Runtime permissions | `fusermount3` 4755, bubblewrap 0755, `/dev/fuse` 0666; no system installation helper |
+| Runtime permissions | `fusermount3` 4755, bubblewrap 0755, `/dev/fuse` 0666; no system installation helper in this historical user-only validation (r6 enables it above) |
 | User setup | Root account rejected; setup repeatable; UID repository 0700; repository link preserved |
 | Flathub | Remote import with GPG verification enabled, search, install, update and uninstall/reinstall passed |
 | Sandboxing | Calculator uses seccomp filter mode 2 and no effective capabilities; the desktop clears ambient/inherited capabilities |
