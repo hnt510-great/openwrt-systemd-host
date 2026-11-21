@@ -83,9 +83,10 @@ endef
 
 define KernelPackage/iptables/description
  Preserve the installed kmod-iptables name across kernel ABI upgrades after
- upstream ca454c00b6 moved its modules and flags to kmod-nf-ipt. The replacement
- owns ip_tables.ko, x_tables.ko and their autoload entries; this package only
- retains the dependency and immutable generation metadata.
+ upstream ca454c00b6 moved its modules and flags to kmod-nf-ipt.
+ The replacement owns the ip_tables autoload entry and depends on
+ kmod-nf-xtables for x_tables and xt_tcpudp. This tracker retains the
+ dependency and immutable generation metadata.
 endef
 
 $(eval $(call KernelPackage,iptables))
