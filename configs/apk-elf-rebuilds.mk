@@ -32,16 +32,16 @@ ELF_REBUILD_bc_1.08.2-r2:=1.08.2-r5
 ELF_REBUILD_bc_1.08.2-r3:=1.08.2-r4
 ELF_REBUILD_bind-dig_9.20.29-r1:=9.20.29-r2
 ELF_REBUILD_bind-dig_9.20.30-r1:=9.20.30-r4
-ELF_REBUILD_bind-dig_9.20.30-r2:=9.20.30-r3
+ELF_REBUILD_bind-dig_9.20.30-r2:=9.20.30-r5
 ELF_REBUILD_bind-host_9.20.29-r1:=9.20.29-r2
 ELF_REBUILD_bind-host_9.20.30-r1:=9.20.30-r4
-ELF_REBUILD_bind-host_9.20.30-r2:=9.20.30-r3
+ELF_REBUILD_bind-host_9.20.30-r2:=9.20.30-r5
 ELF_REBUILD_bind-libs_9.20.29-r1:=9.20.29-r2
 ELF_REBUILD_bind-libs_9.20.30-r1:=9.20.30-r4
-ELF_REBUILD_bind-libs_9.20.30-r2:=9.20.30-r3
+ELF_REBUILD_bind-libs_9.20.30-r2:=9.20.30-r5
 ELF_REBUILD_bind-nslookup_9.20.29-r1:=9.20.29-r2
 ELF_REBUILD_bind-nslookup_9.20.30-r1:=9.20.30-r4
-ELF_REBUILD_bind-nslookup_9.20.30-r2:=9.20.30-r3
+ELF_REBUILD_bind-nslookup_9.20.30-r2:=9.20.30-r5
 ELF_REBUILD_binutils_2.46.0-r1:=2.46.0-r4
 ELF_REBUILD_binutils_2.46.0-r2:=2.46.0-r3
 ELF_REBUILD_bison_3.8.2-r3:=3.8.2-r6
@@ -1290,7 +1290,7 @@ ELF_REBUILD_pulseaudio-tools_17.0-r5:=17.0-r7
 ELF_REBUILD_pulseaudio-tools_17.0-r6:=17.0-r7
 ELF_REBUILD_python3-base_3.14.7-r2:=3.14.7-r4
 ELF_REBUILD_python3-base_3.14.7-r3:=3.14.7-r4
-ELF_REBUILD_python3-cairo_1.29.2-r1:=1.29.2-r4
+ELF_REBUILD_python3-cairo_1.29.2-r1:=1.29.2-r5
 ELF_REBUILD_python3-cairo_1.29.2-r2:=1.29.2-r3
 ELF_REBUILD_python3-codecs_3.14.7-r2:=3.14.7-r4
 ELF_REBUILD_python3-codecs_3.14.7-r3:=3.14.7-r4
@@ -1631,16 +1631,16 @@ ELF_DEP_bc_1.08.2-r2:=bc=1.08.2-r5
 ELF_DEP_bc_1.08.2-r3:=bc=1.08.2-r4
 ELF_DEP_bind-dig_9.20.29-r1:=bind-dig=9.20.29-r2
 ELF_DEP_bind-dig_9.20.30-r1:=bind-dig=9.20.30-r4
-ELF_DEP_bind-dig_9.20.30-r2:=bind-dig=9.20.30-r3
+ELF_DEP_bind-dig_9.20.30-r2:=bind-dig=9.20.30-r5
 ELF_DEP_bind-host_9.20.29-r1:=bind-host=9.20.29-r2
 ELF_DEP_bind-host_9.20.30-r1:=bind-host=9.20.30-r4
-ELF_DEP_bind-host_9.20.30-r2:=bind-host=9.20.30-r3
+ELF_DEP_bind-host_9.20.30-r2:=bind-host=9.20.30-r5
 ELF_DEP_bind-libs_9.20.29-r1:=bind-libs=9.20.29-r2
 ELF_DEP_bind-libs_9.20.30-r1:=bind-libs=9.20.30-r4
-ELF_DEP_bind-libs_9.20.30-r2:=bind-libs=9.20.30-r3
+ELF_DEP_bind-libs_9.20.30-r2:=bind-libs=9.20.30-r5
 ELF_DEP_bind-nslookup_9.20.29-r1:=bind-nslookup=9.20.29-r2
 ELF_DEP_bind-nslookup_9.20.30-r1:=bind-nslookup=9.20.30-r4
-ELF_DEP_bind-nslookup_9.20.30-r2:=bind-nslookup=9.20.30-r3
+ELF_DEP_bind-nslookup_9.20.30-r2:=bind-nslookup=9.20.30-r5
 ELF_DEP_binutils_2.46.0-r1:=binutils=2.46.0-r4
 ELF_DEP_binutils_2.46.0-r2:=binutils=2.46.0-r3
 ELF_DEP_bison_3.8.2-r3:=bison=3.8.2-r6
@@ -2889,7 +2889,7 @@ ELF_DEP_pulseaudio-tools_17.0-r5:=pulseaudio-tools=17.0-r7
 ELF_DEP_pulseaudio-tools_17.0-r6:=pulseaudio-tools=17.0-r7
 ELF_DEP_python3-base_3.14.7-r2:=python3-base=3.14.7-r4
 ELF_DEP_python3-base_3.14.7-r3:=python3-base=3.14.7-r4
-ELF_DEP_python3-cairo_1.29.2-r1:=python3-cairo=1.29.2-r4
+ELF_DEP_python3-cairo_1.29.2-r1:=python3-cairo=1.29.2-r5
 ELF_DEP_python3-cairo_1.29.2-r2:=python3-cairo=1.29.2-r3
 ELF_DEP_python3-codecs_3.14.7-r2:=python3-codecs=3.14.7-r4
 ELF_DEP_python3-codecs_3.14.7-r3:=python3-codecs=3.14.7-r4
@@ -3929,8 +3929,8 @@ ELF_REBUILD_python3-dbm_3.14.10-r1:=3.14.10-r2
 ELF_DEP_python3-dbm_3.14.10-r1:=python3-dbm=3.14.10-r2
 ELF_REBUILD_python3-decimal_3.14.10-r1:=3.14.10-r2
 ELF_DEP_python3-decimal_3.14.10-r1:=python3-decimal=3.14.10-r2
-ELF_REBUILD_python3-gobject_3.58.1-r4:=3.58.1-r5
-ELF_DEP_python3-gobject_3.58.1-r4:=python3-gobject=3.58.1-r5
+ELF_REBUILD_python3-gobject_3.58.1-r4:=3.58.1-r6
+ELF_DEP_python3-gobject_3.58.1-r4:=python3-gobject=3.58.1-r6
 ELF_REBUILD_python3-lzma_3.14.10-r1:=3.14.10-r2
 ELF_DEP_python3-lzma_3.14.10-r1:=python3-lzma=3.14.10-r2
 ELF_REBUILD_python3-multiprocessing_3.14.10-r1:=3.14.10-r2
@@ -4119,3 +4119,5 @@ ELF_DEP_base-files_1769.20~8b34d6283f:=base-files=1769.20~8b34d6283f-r1
 # 2026-11-21 automatic same-version rebuild allocations
 ELF_REBUILD_base-files_1769.20~e7f788a9c1:=1769.20~e7f788a9c1-r1
 ELF_DEP_base-files_1769.20~e7f788a9c1:=base-files=1769.20~e7f788a9c1-r1
+ELF_REBUILD_gnome-tweaks_49.0-r1:=49.0-r2
+ELF_DEP_gnome-tweaks_49.0-r1:=gnome-tweaks=49.0-r2
