@@ -3991,6 +3991,17 @@
       "ported_sha256": "f93e0a0fe0e09c3d5ea2c0f5e69c802739398871699f431ac85e6963afc2d78f"
     },
     {
+      "source": "target/linux/generic/pending-6.18/550-drm-amd-display-fix-frame-size-warning.patch",
+      "files": [
+        "drivers/gpu/drm/amd/display/dc/dml/Makefile"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt 6dcd4886b389; carried for optional AMDGPU display builds with low frame warning thresholds.",
+      "source_sha256": "09e9f6c73fce74213f26d0a784acde0d3fc616165bd412cc7bf0c63c6b39379c",
+      "ported": "target/linux/generic/pending-7.3/550-drm-amd-display-fix-frame-size-warning.patch",
+      "ported_sha256": "09e9f6c73fce74213f26d0a784acde0d3fc616165bd412cc7bf0c63c6b39379c"
+    },
+    {
       "source": "target/linux/generic/pending-6.18/600-netfilter_conntrack_flush.patch",
       "files": [
         "net/netfilter/nf_conntrack_standalone.c"
