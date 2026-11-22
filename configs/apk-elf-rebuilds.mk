@@ -898,7 +898,7 @@ ELF_REBUILD_libpci_3.14.0-r2:=3.14.0-r5
 ELF_REBUILD_libpci_3.14.0-r3:=3.14.0-r4
 ELF_REBUILD_libpciaccess_0.18.1-r1:=0.18.1-r4
 ELF_REBUILD_libpciaccess_0.18.1-r2:=0.18.1-r3
-ELF_REBUILD_libpcre2_10.49-r2:=10.49-r5
+ELF_REBUILD_libpcre2_10.49-r2:=10.49-r6
 ELF_REBUILD_libpcre2_10.49-r3:=10.49-r4
 ELF_REBUILD_libpipewire_1.6.10-r1:=1.6.10-r3
 ELF_REBUILD_libpipewire_1.6.10-r2:=1.6.10-r3
@@ -1438,7 +1438,7 @@ ELF_REBUILD_sqlite3-cli_3.54.1-r1:=3.54.1-r4
 ELF_REBUILD_sqlite3-cli_3.54.1-r2:=3.54.1-r3
 ELF_REBUILD_squashfs-tools-mksquashfs_4.7.5-r1:=4.7.5-r4
 ELF_REBUILD_squashfs-tools-mksquashfs_4.7.5-r2:=4.7.5-r3
-ELF_REBUILD_squashfs-tools-unsquashfs_4.7.5-r1:=4.7.5-r4
+ELF_REBUILD_squashfs-tools-unsquashfs_4.7.5-r1:=4.7.5-r5
 ELF_REBUILD_squashfs-tools-unsquashfs_4.7.5-r2:=4.7.5-r3
 ELF_REBUILD_ss_6.18.0-r2:=6.18.0-r4
 ELF_REBUILD_ss_6.18.0-r3:=6.18.0-r4
@@ -2497,7 +2497,7 @@ ELF_DEP_libpci_3.14.0-r2:=libpci=3.14.0-r5
 ELF_DEP_libpci_3.14.0-r3:=libpci=3.14.0-r4
 ELF_DEP_libpciaccess_0.18.1-r1:=libpciaccess=0.18.1-r4
 ELF_DEP_libpciaccess_0.18.1-r2:=libpciaccess=0.18.1-r3
-ELF_DEP_libpcre2_10.49-r2:=libpcre2=10.49-r5
+ELF_DEP_libpcre2_10.49-r2:=libpcre2=10.49-r6
 ELF_DEP_libpcre2_10.49-r3:=libpcre2=10.49-r4
 ELF_DEP_libpipewire_1.6.10-r1:=libpipewire=1.6.10-r3
 ELF_DEP_libpipewire_1.6.10-r2:=libpipewire=1.6.10-r3
@@ -3037,7 +3037,7 @@ ELF_DEP_sqlite3-cli_3.54.1-r1:=sqlite3-cli=3.54.1-r4
 ELF_DEP_sqlite3-cli_3.54.1-r2:=sqlite3-cli=3.54.1-r3
 ELF_DEP_squashfs-tools-mksquashfs_4.7.5-r1:=squashfs-tools-mksquashfs=4.7.5-r4
 ELF_DEP_squashfs-tools-mksquashfs_4.7.5-r2:=squashfs-tools-mksquashfs=4.7.5-r3
-ELF_DEP_squashfs-tools-unsquashfs_4.7.5-r1:=squashfs-tools-unsquashfs=4.7.5-r4
+ELF_DEP_squashfs-tools-unsquashfs_4.7.5-r1:=squashfs-tools-unsquashfs=4.7.5-r5
 ELF_DEP_squashfs-tools-unsquashfs_4.7.5-r2:=squashfs-tools-unsquashfs=4.7.5-r3
 ELF_DEP_ss_6.18.0-r2:=ss=6.18.0-r4
 ELF_DEP_ss_6.18.0-r3:=ss=6.18.0-r4
@@ -4119,5 +4119,8 @@ ELF_DEP_base-files_1769.20~8b34d6283f:=base-files=1769.20~8b34d6283f-r1
 # 2026-11-21 automatic same-version rebuild allocations
 ELF_REBUILD_base-files_1769.20~e7f788a9c1:=1769.20~e7f788a9c1-r1
 ELF_DEP_base-files_1769.20~e7f788a9c1:=base-files=1769.20~e7f788a9c1-r1
-ELF_REBUILD_gnome-tweaks_49.0-r1:=49.0-r2
-ELF_DEP_gnome-tweaks_49.0-r1:=gnome-tweaks=49.0-r2
+ELF_REBUILD_gnome-tweaks_49.0-r1:=49.0-r3
+ELF_DEP_gnome-tweaks_49.0-r1:=gnome-tweaks=49.0-r3
+# 2026-11-22 automatic same-version rebuild allocations
+ELF_REBUILD_base-files_1771.20.73470~687fab97f0:=1771.20.73470~687fab97f0-r1
+ELF_DEP_base-files_1771.20.73470~687fab97f0:=base-files=1771.20.73470~687fab97f0-r1
