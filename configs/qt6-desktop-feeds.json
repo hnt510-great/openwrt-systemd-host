@@ -2,6 +2,7 @@
   "video": {
     "url": "https://github.com/openwrt/video.git",
     "base": "265a75e59d731330eb221f17f7e1b71f443a0583",
+    "commit": "bf76927b33fb39cb6c53dc2f6a90623546a12093",
     "patch": "patches/feeds/0050-video-qt6-desktop.patch",
     "paths": [
       "frameworks/qt6/qt6base/Config_qt6base-gui.in",
@@ -9,7 +10,6 @@
       "frameworks/qt6/qt6tools/Makefile",
       "frameworks/wayland/Makefile",
       "libs/libxkbcommon/Makefile"
-    ],
-    "state": "uncommitted locally"
+    ]
   }
 }
