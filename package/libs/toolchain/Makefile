@@ -7,7 +7,7 @@
 
 include $(TOPDIR)/rules.mk
 PKG_NAME:=toolchain
-PKG_RELEASE:=5
+PKG_RELEASE:=6
 
 PKG_MAINTAINER:=Felix Fietkau <nbd@nbd.name>
 PKG_LICENSE:=GPL-3.0-with-GCC-exception
@@ -298,6 +298,7 @@ endef
 define Package/libpthread
 $(call Package/libc/Default)
   TITLE:=POSIX thread library
+  EXTRA_DEPENDS:=$(if $(CONFIG_USE_GLIBC),libc (=$(LIBC_VERSION)-r$(PKG_RELEASE)))
 endef
 
 define Package/libpthread/config
@@ -324,6 +325,7 @@ endef
 define Package/libthread-db
 $(call Package/libc/Default)
   DEPENDS:=@!USE_MUSL
+  EXTRA_DEPENDS:=$(if $(CONFIG_USE_GLIBC),libc (=$(LIBC_VERSION)-r$(PKG_RELEASE)))
   TITLE:=POSIX thread library debugging support
 endef
 
@@ -351,6 +353,7 @@ define Package/librt
 $(call Package/libc/Default)
   TITLE:=POSIX.1b RealTime extension library
   DEPENDS:=+libpthread
+  EXTRA_DEPENDS:=$(if $(CONFIG_USE_GLIBC),libc (=$(LIBC_VERSION)-r$(PKG_RELEASE)))
 endef
 
 define Package/librt/config
@@ -429,6 +432,7 @@ endef
 define Package/ldd
 $(call Package/libc/Default)
   DEPENDS:=@!USE_MUSL
+  EXTRA_DEPENDS:=$(if $(CONFIG_USE_GLIBC),libc (=$(LIBC_VERSION)-r$(PKG_RELEASE)))
   SECTION:=utils
   CATEGORY:=Utilities
   TITLE:=LDD trace utility
@@ -458,6 +462,7 @@ endef
 define Package/ldconfig
 $(call Package/libc/Default)
   DEPENDS:=@!USE_MUSL
+  EXTRA_DEPENDS:=$(if $(CONFIG_USE_GLIBC),libc (=$(LIBC_VERSION)-r$(PKG_RELEASE)))
   SECTION:=utils
   CATEGORY:=Utilities
   TITLE:=Shared library path configuration

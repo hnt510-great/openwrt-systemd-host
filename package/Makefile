@@ -152,6 +152,8 @@ define apk_install_rootfs
 		$$(cat $(TMP_DIR)/apk_install_list)
 	$(if $(and $(CONFIG_OPENWRT_KERNEL_UPGRADE),$(KERNEL_PIN_VERSION)), \
 		sed -i 's/^linux-image-openwrt=.*$$/linux-image-openwrt/' $(TARGET_DIR)/etc/apk/world)
+	$(if $(CONFIG_OPENWRT_KERNEL_UPGRADE), \
+		sed -i 's/^libc=.*$$/libc/' $(TARGET_DIR)/etc/apk/world)
 	$(if $(CONFIG_OPENWRT_SYSTEMD),find $(TARGET_DIR)/run -mindepth 1 ! -name .keep -delete,rm -rf $(TARGET_DIR)/run)
 	$(CP) $(TARGET_DIR) $(TARGET_DIR_ORIG)
 	$(call prepare_rootfs,$(TARGET_DIR),$(TOPDIR)/files)
