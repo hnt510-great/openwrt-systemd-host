@@ -50,6 +50,7 @@ endef
 define Package/qt6multimedia
   $(call Package/qt6multimedia/Default)
   DEPENDS:=@TARGET_x86_64 @USE_GLIBC +qt6base-gui +qt6base-network \
+	+BUILD_qt6base-gui_OPENGL_OPENGLES2:qt6base-opengl \
 	+libffmpeg +libpulse +libstdcpp
 endef
 
@@ -57,6 +58,12 @@ define Package/qt6multimedia-widgets
   $(call Package/qt6multimedia/Default)
   TITLE+=widgets
   DEPENDS:=+qt6multimedia +qt6base-widgets
+endef
+
+define Package/qt6multimedia-dev
+  $(call Package/qt6multimedia/Default)
+  TITLE+=development files
+  DEPENDS:=+qt6base-dev +qt6multimedia +qt6multimedia-widgets
 endef
 
 define Build/InstallDev
@@ -76,5 +83,19 @@ define Package/qt6multimedia-widgets/install
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libQt6MultimediaWidgets.so.* $(1)/usr/lib/
 endef
 
+define Package/qt6multimedia-dev/install
+	$(INSTALL_DIR) $(1)/usr/include/qt6 $(1)/usr/lib/cmake \
+		$(1)/usr/lib/pkgconfig $(1)/usr/lib/qt6/metatypes
+	$(CP) $(PKG_INSTALL_DIR)/usr/include/qt6/. $(1)/usr/include/qt6/
+	$(CP) $(PKG_INSTALL_DIR)/usr/lib/cmake/Qt6Multimedia* $(1)/usr/lib/cmake/
+	$(CP) $(PKG_INSTALL_DIR)/usr/lib/cmake/Qt6FFmpegMediaPluginImplPrivate \
+		$(1)/usr/lib/cmake/
+	$(CP) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/Qt6Multimedia*.pc \
+		$(1)/usr/lib/pkgconfig/
+	$(CP) $(PKG_INSTALL_DIR)/usr/lib/qt6/metatypes/. \
+		$(1)/usr/lib/qt6/metatypes/
+endef
+
 $(eval $(call BuildPackage,qt6multimedia))
 $(eval $(call BuildPackage,qt6multimedia-widgets))
+$(eval $(call BuildPackage,qt6multimedia-dev))

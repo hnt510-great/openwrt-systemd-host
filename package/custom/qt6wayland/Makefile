@@ -53,6 +53,16 @@ define Package/qt6waylandclient
 	+libxkbcommon +libstdcpp
 endef
 
+define Package/qt6waylandclient-dev
+  SECTION:=video-frameworks
+  CATEGORY:=Video
+  SUBMENU:=Frameworks and Toolkits
+  TITLE:=Qt6 Wayland client development files
+  URL:=https://www.qt.io
+  DEPENDS:=@TARGET_x86_64 @USE_GLIBC +qt6base-dev +qt6svg-dev +qt6waylandclient \
+	+wayland-scanner +wayland-protocols
+endef
+
 define Build/InstallDev
 	$(INSTALL_DIR) $(1)/
 	$(CP) $(PKG_INSTALL_DIR)/usr $(1)/
@@ -70,5 +80,23 @@ define Package/qt6waylandclient/install
 	done
 endef
 
+define Package/qt6waylandclient-dev/install
+	$(INSTALL_DIR) $(1)/usr/include/qt6 $(1)/usr/lib/cmake \
+		$(1)/usr/lib/pkgconfig $(1)/usr/lib/qt6/libexec \
+		$(1)/usr/lib/qt6/metatypes
+	$(CP) $(PKG_INSTALL_DIR)/usr/include/qt6/. $(1)/usr/include/qt6/
+	$(CP) $(PKG_INSTALL_DIR)/usr/lib/cmake/Qt6Wayland* \
+		$(PKG_INSTALL_DIR)/usr/lib/cmake/Qt6WlShellIntegrationPrivate \
+		$(1)/usr/lib/cmake/
+	$(CP) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/Qt6Wayland*.pc \
+		$(1)/usr/lib/pkgconfig/
+	$(CP) $(PKG_INSTALL_DIR)/usr/lib/qt6/metatypes/. \
+		$(1)/usr/lib/qt6/metatypes/
+	[ ! -x $(PKG_INSTALL_DIR)/usr/lib/qt6/libexec/qtwaylandscanner ] || \
+		$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/lib/qt6/libexec/qtwaylandscanner \
+			$(1)/usr/lib/qt6/libexec/
+endef
+
 $(eval $(call BuildPackage,qt6waylandclient))
+$(eval $(call BuildPackage,qt6waylandclient-dev))
 $(eval $(call HostBuild))

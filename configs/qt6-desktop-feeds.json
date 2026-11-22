@@ -2,13 +2,16 @@
   "video": {
     "url": "https://github.com/openwrt/video.git",
     "base": "265a75e59d731330eb221f17f7e1b71f443a0583",
-    "commit": "450e8532c979d98f84692192625c11456cd3f400",
+    "commit": "9bcead8bc42626386cb5b63c0b231c9f20dc28ec",
     "patch": "patches/feeds/0050-video-qt6-desktop.patch",
     "paths": [
+      "frameworks/qt6/qt6base/Config_qt6base-core.in",
       "frameworks/qt6/qt6base/Config_qt6base-gui.in",
       "frameworks/qt6/qt6base/Makefile",
       "frameworks/qt6/qt6base/files/qt-cmake",
       "frameworks/qt6/qt6base/files/qt.conf",
+      "frameworks/qt6/qt6quick/Makefile",
+      "frameworks/qt6/qt6svg/Makefile",
       "frameworks/qt6/qt6tools/Makefile",
       "frameworks/wayland/Makefile",
       "libs/libxkbcommon/Makefile"
