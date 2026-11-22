@@ -22,7 +22,7 @@ index 37707f4..0d93a01 100644
      bool "eglfs"
      depends on PACKAGE_qt6base-plugin-platforms-eglfs
 diff --git a/frameworks/qt6/qt6base/Makefile b/frameworks/qt6/qt6base/Makefile
-index 64968e0..0d9488d 100644
+index 64968e0..429b28e 100644
 --- a/frameworks/qt6/qt6base/Makefile
 +++ b/frameworks/qt6/qt6base/Makefile
 @@ -13,7 +13,7 @@
@@ -239,7 +239,7 @@ index 64968e0..0d9488d 100644
  define Package/qt6base-plugin-input-evdevkeyboard/install
  	$(call Build/Install/Plugins,$(1),generic,libqevdevkeyboardplugin)
  endef
-@@ -601,6 +672,11 @@ define Package/qt6base-plugin-platforms-offscreen/install
+@@ -601,10 +672,70 @@ define Package/qt6base-plugin-platforms-offscreen/install
  	$(call Build/Install/Plugins,$(1),platforms,libqoffscreen)
  endef
  
@@ -251,7 +251,66 @@ index 64968e0..0d9488d 100644
  define Package/qt6base-plugin-platforms-vnc/install
  	$(call Build/Install/Plugins,$(1),platforms,libqvnc)
  endef
-@@ -613,8 +689,11 @@ $(eval $(call BuildPackage,qt6base-opengl))
+ 
++
++define Package/qt6base-dev
++  $(call Package/qt6base/Default)
++  SECTION:=devel
++  CATEGORY:=Development
++  SUBMENU:=Libraries
++  TITLE+=development files
++  DEPENDS:=+qt6base-core +qt6base-gui +qt6base-widgets +qt6base-network \
++	+qt6base-dbus +qt6base-xml +qt6base-printsupport \
++	+qt6base-plugin-platforms-xcb +native-libs-dev +gcc +cmake-bin
++endef
++
++define Package/qt6base-dev/install
++	$(INSTALL_DIR) $(1)/usr/include/qt6 $(1)/usr/lib/cmake $(1)/usr/lib/pkgconfig \
++		$(1)/usr/lib/qt6/mkspecs $(1)/usr/lib/qt6/libexec $(1)/usr/bin/qt6
++	$(CP) $(PKG_INSTALL_DIR)/usr/include/qt6/. $(1)/usr/include/qt6/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/cmake/. $(1)/usr/lib/cmake/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/Qt6*.pc $(1)/usr/lib/pkgconfig/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/qt6/mkspecs/. $(1)/usr/lib/qt6/mkspecs/
++	$(CP) $(STAGING_DIR_HOSTPKG)/lib/qt6/mkspecs/linux-openwrt-host-g++ \
++		$(1)/usr/lib/qt6/mkspecs/
++	# Host-built command line tools run against the target Qt libraries.
++	for tool in moc uic rcc syncqt tracepointgen tracegen cmake_automoc_parser \
++		qlalr qvkgen; do \
++		[ ! -f $(STAGING_DIR_HOSTPKG)/lib/qt6/libexec/$$$$tool ] || \
++			$(INSTALL_BIN) $(STAGING_DIR_HOSTPKG)/lib/qt6/libexec/$$$$tool \
++				$(1)/usr/lib/qt6/libexec/; \
++	done
++	for tool in qmake6 qtpaths6 qdbuscpp2xml qdbusxml2cpp; do \
++		[ ! -f $(STAGING_DIR_HOSTPKG)/bin/qt6/$$$$tool ] || \
++			$(INSTALL_BIN) $(STAGING_DIR_HOSTPKG)/bin/qt6/$$$$tool $(1)/usr/bin/qt6/; \
++	done
++	$(LN) qmake6 $(1)/usr/bin/qt6/qmake
++	$(LN) qtpaths6 $(1)/usr/bin/qt6/qtpaths
++	$(INSTALL_DATA) ./files/qt.conf $(1)/usr/bin/qt6/qt.conf
++	$(INSTALL_BIN) ./files/qt-cmake $(1)/usr/bin/qt-cmake
++	$(LN) qt6/qmake6 $(1)/usr/bin/qmake6
++	$(LN) qt6/qmake6 $(1)/usr/bin/qmake
++	$(LN) qt6/qtpaths6 $(1)/usr/bin/qtpaths6
++	for tool in moc uic rcc; do $(LN) ../lib/qt6/libexec/$$$$tool $(1)/usr/bin/$$$$tool; done
++	# Plugin CMake targets describe every plugin built for the target. The
++	# runtime packages install only a subset, so keep their CMake packages out
++	# of the on-device tree; Qt loads plugins by path at runtime.
++	rm -rf $(1)/usr/lib/cmake/Qt6*/Qt6Q*Plugin*
++	rm -f $(1)/usr/lib/cmake/Qt6Gui/Qt6GuiPlugins.cmake
++	# The target CMake files embed the cross-build host prefix. On the device
++	# the host tools live under the same /usr prefix.
++	for m in Tools CoreTools GuiTools WidgetsTools DBusTools; do \
++		[ ! -d $(STAGING_DIR_HOSTPKG)/lib/cmake/Qt6$$$$m ] || \
++			$(CP) $(STAGING_DIR_HOSTPKG)/lib/cmake/Qt6$$$$m $(1)/usr/lib/cmake/; \
++	done
++	find $(1)/usr/lib/cmake -type f -name '*.cmake' -exec \
++		sed -i 's|$(STAGING_DIR_HOSTPKG)|/usr|g' {} +
++endef
++
+ # $(eval $(call BuildPackage,qt6base))
+ $(eval $(call BuildPackage,qt6base-concurrent))
+ $(eval $(call BuildPackage,qt6base-core))
+@@ -613,8 +744,12 @@ $(eval $(call BuildPackage,qt6base-opengl))
  $(eval $(call BuildPackage,qt6base-network))
  $(eval $(call BuildPackage,qt6base-test))
  $(eval $(call BuildPackage,qt6base-widgets))
@@ -259,11 +318,12 @@ index 64968e0..0d9488d 100644
 +$(eval $(call BuildPackage,qt6base-printsupport))
  $(eval $(call BuildPackage,qt6base-openglwidgets))
  $(eval $(call BuildPackage,qt6base-xml))
++$(eval $(call BuildPackage,qt6base-dev))
 +$(eval $(call BuildPackage,qt6base-plugin-inputcontexts-ibus))
  $(eval $(call BuildPackage,qt6base-plugin-input-evdevkeyboard))
  $(eval $(call BuildPackage,qt6base-plugin-input-evdevmouse))
  $(eval $(call BuildPackage,qt6base-plugin-input-evdevtablet))
-@@ -624,6 +703,7 @@ $(eval $(call BuildPackage,qt6base-plugin-imageformats-jpeg))
+@@ -624,6 +759,7 @@ $(eval $(call BuildPackage,qt6base-plugin-imageformats-jpeg))
  $(eval $(call BuildPackage,qt6base-plugin-platforms-minimal))
  $(eval $(call BuildPackage,qt6base-plugin-platforms-linuxfb))
  $(eval $(call BuildPackage,qt6base-plugin-platforms-offscreen))
@@ -271,6 +331,41 @@ index 64968e0..0d9488d 100644
  $(eval $(call BuildPackage,qt6base-plugin-platforms-vnc))
  $(eval $(call BuildPackage,qt6base-plugin-platforms-eglfs))
  $(eval $(call HostBuild))
+diff --git a/frameworks/qt6/qt6base/files/qt-cmake b/frameworks/qt6/qt6base/files/qt-cmake
+new file mode 100755
+index 0000000..5b8f826
+--- /dev/null
++++ b/frameworks/qt6/qt6base/files/qt-cmake
+@@ -0,0 +1,2 @@
++#!/bin/sh
++exec cmake "$@"
+diff --git a/frameworks/qt6/qt6base/files/qt.conf b/frameworks/qt6/qt6base/files/qt.conf
+new file mode 100644
+index 0000000..ec39a39
+--- /dev/null
++++ b/frameworks/qt6/qt6base/files/qt.conf
+@@ -0,0 +1,21 @@
++[Paths]
++Prefix=../../
++Headers=include/qt6
++Libraries=lib
++LibraryExecutables=lib/qt6/libexec
++Binaries=bin/qt6
++Plugins=lib/qt6/plugins
++QmlImports=lib/qt6/qml
++ArchData=lib/qt6
++Data=share/qt6
++Translations=share/qt6/translations
++Settings=/etc/qt6
++HostPrefix=../../
++HostBinaries=bin/qt6
++HostLibraries=lib
++HostLibraryExecutables=lib/qt6/libexec
++HostData=lib/qt6
++TargetSpec=linux-openwrt-g++
++HostSpec=
++Sysroot=
++SysrootifyPrefix=false
 diff --git a/frameworks/qt6/qt6tools/Makefile b/frameworks/qt6/qt6tools/Makefile
 index 1e57c28..907f8a5 100644
 --- a/frameworks/qt6/qt6tools/Makefile

@@ -11,6 +11,13 @@ Expat、readline、UUID、GMP、Mbed TLS 和 nghttp2。
 位于 `/usr/lib/pkgconfig`。运行库仍由各自的 OpenWrt 包管理。
 同时提供 `pkg-config` 命令，调用镜像中的 `pkgconf`。
 
+
+如果需要编译 Qt 6 C++ 程序，安装 `qt6base-dev`。它提供 Qt Base 头文件、
+CMake/pkg-config 元数据、`qmake6` 以及 `moc`/`uic`/`rcc`，并依赖
+`native-libs-dev` 提供 X11、XCB、OpenGL/EGL、GBM、libdrm、ALSA、
+xkbcommon、Wayland、HarfBuzz、FreeType 和 Fontconfig 等图形开发头文件。
+用法见 [qt6-development.md](qt6-development.md)。
+
 另提供 libsodium、libseccomp、libelf、LZ4、libzip、libpcap、libevent
 core、libmnl、libnl core/route、libsystemd，以及 OpenWrt 的 libubox、
 libubus、libuci、libblobmsg_json、libjson_script 开发文件。

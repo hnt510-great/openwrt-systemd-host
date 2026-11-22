@@ -4,7 +4,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=native-libs-dev
 PKG_VERSION:=1
-PKG_RELEASE:=10
+PKG_RELEASE:=12
 
 # Export only target development files; never copy host staging or the whole
 # target sysroot. Runtime libraries remain owned by their original packages.
@@ -21,7 +21,12 @@ NATIVE_DEV_HEADERS:= \
 	glib-2.0 gio-unix-2.0 json-glib-1.0 gnutls nettle security crypt.h \
 	libtasn1.h \
 	attr acl sys/acl.h sys/capability.h dbus-1.0 uv uv.h yaml.h \
-	libxslt libexslt libusb-1.0 archive.h archive_entry.h
+	libxslt libexslt libusb-1.0 archive.h archive_entry.h \
+	X11 xcb GL EGL KHR gbm.h libdrm alsa xkbcommon \
+	wayland-client.h wayland-client-core.h wayland-client-protocol.h \
+	wayland-server.h wayland-server-core.h wayland-server-protocol.h \
+	wayland-egl.h wayland-egl-core.h wayland-util.h wayland-version.h \
+	wayland-cursor.h harfbuzz freetype2 fontconfig
 
 # The other unversioned library names are already supplied by runtime packages.
 NATIVE_DEV_LINKS:= \
