@@ -50,6 +50,7 @@ define Package/qt6waylandclient
   TITLE:=Qt6 Wayland client platform plugins
   URL:=https://www.qt.io
   DEPENDS:=@TARGET_x86_64 @USE_GLIBC +qt6base-gui +qt6svg +libwayland \
+	+BUILD_qt6base-gui_OPENGL_OPENGLES2:qt6base-opengl \
 	+libxkbcommon +libstdcpp
 endef
 

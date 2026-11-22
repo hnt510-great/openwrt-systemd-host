@@ -98,7 +98,9 @@ qmlscene main.qml
 performance inspection. `qmltestrunner` runs QML test cases. The QML
 build-time helpers (`qmlcachegen`, `qmltyperegistrar`, `qmlimportscanner`,
 `qmljsrootgen` and `qmlaotstats`) live in `/usr/lib/qt6/libexec` and are used
-by `qt_add_qml_module`. The QML plugin CMake target files are omitted because
+by `qt_add_qml_module`. QML module source files are installed even when the
+module's `qmldir` has a `prefer` line; qmlcachegen and the on-device tooling
+need them on disk. The QML plugin CMake target files are omitted because
 the runtime image installs only a subset of the QML modules; Qt loads modules
 by path at runtime.
 

@@ -8,10 +8,11 @@ Optional Qt 6 Base, Quick/QML, SVG, Multimedia, TextToSpeech and Wayland
 client development packages, the QML and Linguist command-line tools, and the
 Qt SQL/OpenGL build options on the x86/64 glibc systemd router. Qt Base was
 built with SQL and OpenGL ES enabled. The packages were installed on the
-router; no image was built or flashed and no GUI session was started. The Qt
-Declarative development packages were produced from the existing build tree
-because a full rebuild of Qt Declarative with OpenGL was not completed; the
-next full build packages them through the normal recipe.
+router; no image was built or flashed. The Qt Base rebuild changed the OpenGL
+configuration, so the Qt Declarative, Svg, Multimedia, TextToSpeech and
+Wayland client modules were rebuilt and reinstalled against the new base. The
+router's installed packages still carry their original r1/r5 versions; feed
+publication of the rebuilt bytes is a separate step.
 
 ## Checks
 
@@ -33,8 +34,13 @@ next full build packages them through the normal recipe.
 | QML build helpers (`qmlcachegen`, `qmltyperegistrar`, `qmlimportscanner`, `qmljsrootgen`, `qmlaotstats`), the `Qt6QmlTools` CMake package and the module metatypes JSON files are present | passed |
 | A CMake Qt Quick project using `qt_add_qml_module` configures and builds on the router, including qmlcachegen and qmltyperegistrar | passed |
 | `wayland-scanner 1.26.0` is installed and found by CMake | passed |
-| Full rebuild of Qt Declarative with OpenGL | not run |
-| GUI session execution | not run |
+| Qt module libraries all match the rebuilt base library timestamps (base 11:31, modules 12:10) | passed |
+| Before the module rebuild, a Qt Quick app crashed under Wayland with SIGSEGV; afterwards it runs | passed |
+| A Qt Widgets app runs under Wayland and under XWayland/xcb | passed |
+| A `QtQuick.Controls.Basic` app with `ProgressBar`, `StackView`, `BusyIndicator`, `RangeSlider` and `CalendarModel` builds and runs | passed |
+| `QtQuick/Controls/Basic` contains the 69 QML/JS/plugin/metadata files, including `StackView.qml` and `ProgressBar.qml` | passed |
+| Full rebuild of Qt Declarative with OpenGL | passed |
+| GUI execution: Qt Quick, Widgets and Basic controls under Wayland and xcb | passed |
 
 ## Evidence
 

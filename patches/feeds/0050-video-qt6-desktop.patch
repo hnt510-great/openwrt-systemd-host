@@ -1,3 +1,37 @@
+diff --git a/frameworks/qt6/common.mk b/frameworks/qt6/common.mk
+index 12ce3f0..dba59f5 100644
+--- a/frameworks/qt6/common.mk
++++ b/frameworks/qt6/common.mk
+@@ -217,22 +217,21 @@ define Build/Install/Plugins
+ 	fi
+ endef
+ 
+-# Installs the qmldir, the type information and the plugin of the QML module
+-# in $(2). If the qmldir has a "prefer" line, the QML engine loads the .qml
+-# and .js files of the module from the resources compiled into its binaries,
+-# so they are not installed; otherwise it loads them from the module's
+-# directory, so they are installed as well. The module's directory has to
+-# exist and contain at least one of the files to install.
++# Installs the qmldir, the type information, the plugin and the .qml/.js
++# sources of the QML module in $(2). The sources are installed even when the
++# qmldir has a "prefer" line: the QML engine can load the compiled resources,
++# but qmlcachegen and the on-device tooling need the source files as well.
++# The module's directory has to exist and contain at least one of the files
++# to install.
+ define Build/Install/QMLplugin
+ 	$(INSTALL_DIR) \
+ 		$(1)/$(QT_INSTALL_QML)/$(2)
+ 
+ 	dir=$(PKG_INSTALL_DIR)/$(QT_INSTALL_QML)/$(2) && \
+-	if grep -q '^prefer ' "$$$$dir/qmldir" 2>/dev/null; then sources=; else sources=1; fi && \
+ 	files="$$$$($(FIND) "$$$$dir" \
+ 	  -mindepth 1 -maxdepth 1 \
+ 	  \( -name plugins.qmltypes -o -name qmldir -o -name '$(3).so' \
+-	  $$$${sources:+-o -name '$(3).qml' -o -name '$(3).js'} \))" && \
++	  -o -name '*.qml' -o -name '*.js' \))" && \
+ 	[ -n "$$$$files" ] && \
+ 	$(CP) \
+ 	  $$$$files \
 diff --git a/frameworks/qt6/qt6base/Config_qt6base-core.in b/frameworks/qt6/qt6base/Config_qt6base-core.in
 index 3b811bd..5fa9f4e 100644
 --- a/frameworks/qt6/qt6base/Config_qt6base-core.in
