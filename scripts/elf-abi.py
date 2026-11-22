@@ -174,10 +174,10 @@ class Context(dict):
             version = record.get('version')
             for path, item in sorted(record['files'].items()):
                 if not package.startswith('@') and path in self.files and path in self.owners:
-                    if self.files[path] != item:
-                        existing_owners = ', '.join(o for o, _ in self.owners[path])
+                    other_owners = sorted({o for o, _ in self.owners[path] if o != owner})
+                    if other_owners and self.files[path] != item:
                         raise ValueError(
-                            f'ELF ABI: conflicting owners for {path}: {existing_owners} vs {owner}'
+                            f'ELF ABI: conflicting owners for {path}: {", ".join(other_owners)} vs {owner}'
                         )
                 self.files[path] = item
                 if not package.startswith('@'):
