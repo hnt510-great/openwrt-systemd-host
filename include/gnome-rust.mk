@@ -14,7 +14,7 @@ PKG_FILE_DEPENDS += $(INCLUDE_DIR)/gnome-rust.mk $(TOPDIR)/scripts/gnome-uninsta
 # Cargo custom targets run again during installation. Keep their target
 # compiler, linker and pkg-config environment identical to compilation.
 define Build/Install
-	+$(MESON_VARS) DESTDIR="$(PKG_INSTALL_DIR)" $(NINJA) -C $(MESON_BUILD_DIR) install
+	+$(MESON_VARS) DESTDIR="$(PKG_INSTALL_DIR)" $(NINJA_TARGET) -C $(MESON_BUILD_DIR) install
 endef
 
 define Build/Prepare

@@ -128,15 +128,15 @@ define Host/Configure/Meson
 endef
 
 define Host/Compile/Meson
-	+$(MESON_HOST_VARS) $(NINJA) -C $(MESON_HOST_BUILD_DIR) $(1)
+	+$(MESON_HOST_VARS) $(NINJA_HOST) -C $(MESON_HOST_BUILD_DIR) $(1)
 endef
 
 define Host/Install/Meson
-	+$(NINJA) -C $(MESON_HOST_BUILD_DIR) install
+	+$(NINJA_HOST) -C $(MESON_HOST_BUILD_DIR) install
 endef
 
 define Host/Uninstall/Meson
-	+$(NINJA) -C $(MESON_HOST_BUILD_DIR) uninstall || true
+	+$(NINJA_HOST) -C $(MESON_HOST_BUILD_DIR) uninstall || true
 endef
 
 define Build/Configure/Meson
@@ -155,11 +155,11 @@ define Build/Configure/Meson
 endef
 
 define Build/Compile/Meson
-	+$(MESON_VARS) $(MESON_RUST_VARS) $(NINJA) -C $(MESON_BUILD_DIR) $(1)
+	+$(MESON_VARS) $(MESON_RUST_VARS) $(NINJA_TARGET) -C $(MESON_BUILD_DIR) $(1)
 endef
 
 define Build/Install/Meson
-	+DESTDIR="$(PKG_INSTALL_DIR)" $(NINJA) -C $(MESON_BUILD_DIR) install
+	+DESTDIR="$(PKG_INSTALL_DIR)" $(NINJA_TARGET) -C $(MESON_BUILD_DIR) install
 endef
 
 Host/Configure=$(call Host/Configure/Meson)

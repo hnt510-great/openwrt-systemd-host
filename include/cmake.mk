@@ -62,15 +62,15 @@ ifeq ($(HOST_USE_NINJA),1)
   CMAKE_HOST_OPTIONS += -DCMAKE_GENERATOR="Ninja"
 
   define Host/Compile/Default
-	+$(NINJA) -C $(HOST_CMAKE_BINARY_DIR) $(1)
+	+$(NINJA_HOST) -C $(HOST_CMAKE_BINARY_DIR) $(1)
   endef
 
   define Host/Install/Default
-	+$(NINJA) -C $(HOST_CMAKE_BINARY_DIR) install
+	+$(NINJA_HOST) -C $(HOST_CMAKE_BINARY_DIR) install
   endef
 
   define Host/Uninstall/Default
-	+$(NINJA) -C $(HOST_CMAKE_BINARY_DIR) uninstall
+	+$(NINJA_HOST) -C $(HOST_CMAKE_BINARY_DIR) uninstall
   endef
 else
   CMAKE_HOST_OPTIONS += -DCMAKE_GENERATOR="Unix Makefiles"
@@ -80,11 +80,11 @@ ifeq ($(PKG_USE_NINJA),1)
   CMAKE_OPTIONS += -DCMAKE_GENERATOR="Ninja"
 
   define Build/Compile/Default
-	+$(CMAKE_RUST_VARS) $(NINJA) -C $(CMAKE_BINARY_DIR) $(1)
+	+$(CMAKE_RUST_VARS) $(NINJA_TARGET) -C $(CMAKE_BINARY_DIR) $(1)
   endef
 
   define Build/Install/Default
-	+$(CMAKE_RUST_VARS) DESTDIR="$(PKG_INSTALL_DIR)" $(NINJA) -C $(CMAKE_BINARY_DIR) install
+	+$(CMAKE_RUST_VARS) DESTDIR="$(PKG_INSTALL_DIR)" $(NINJA_TARGET) -C $(CMAKE_BINARY_DIR) install
   endef
 else
   CMAKE_OPTIONS += -DCMAKE_GENERATOR="Unix Makefiles"

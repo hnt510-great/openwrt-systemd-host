@@ -241,6 +241,11 @@ def main():
         'libc': f'libc={a.libc_version}',
         'kernel': f'kernel={a.kernel_version}',
     }
+    if a.package_install_list and a.package_install_list.exists():
+        for token in a.package_install_list.read_text().split():
+            if token.startswith('linux-image-openwrt='):
+                pinned['linux-image-openwrt'] = token
+                break
 
     base_pkgs = []
     seen = set()
@@ -278,6 +283,17 @@ def main():
 
     env = dict(os.environ, IPKG_INSTROOT=str(a.base_root_out))
     run(add_cmd, env=env)
+
+    # Keep rolling kernel upgrades working on the installed device while still
+    # pinning the exact same-build kernel generation during ISO assembly.
+    if 'linux-image-openwrt' in pinned:
+        world = a.base_root_out / 'etc/apk/world'
+        if world.is_file():
+            lines = [
+                'linux-image-openwrt' if line.startswith('linux-image-openwrt=') else line
+                for line in world.read_text().splitlines()
+            ]
+            world.write_text('\n'.join(lines) + ('\n' if lines else ''))
 
     run_dir = a.base_root_out / 'run'
     if run_dir.exists():

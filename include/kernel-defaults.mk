@@ -143,20 +143,41 @@ KERNEL_MAKE_DEPENDS_image := $(if $(CONFIG_STRIP_KERNEL_EXPORTS),$(KERNEL_BUILD_
 # $(1): stamp name, $(2): make targets and options, $(3): commands to run before kbuild
 # kbuild takes about half a second even if nothing changed, and runs twice
 # per build. Skip it if the command line did not change since its last
-# successful run, and no file in the kernel tree or the toolchain is newer.
-# The build system files at the top of the kernel tree are not inputs of
-# kbuild, apart from .config.
+# successful run, required outputs are present, and no source input in the
+# kernel tree or toolchain is newer (excluding kbuild-generated outputs so
+# modules and image never invalidate each other).
+KERNEL_MAKE_OUTPUTS_modules = $(LINUX_DIR)/modules.order $(LINUX_DIR)/Module.symvers
+KERNEL_MAKE_OUTPUTS_image = $(LINUX_DIR)/vmlinux $(foreach k,$(if $(KERNEL_IMAGES),$(KERNEL_IMAGES),$(filter-out vmlinux dtbs,$(KERNELNAME))),$(LINUX_DIR)/arch/$(LINUX_KARCH)/boot/$(IMAGES_DIR)/$(k))
+
 define Kernel/Make
 	{ \
 		stamp=$(LINUX_DIR)/.kbuild_$(1); \
 		key="$$$$(printf '%s' '$(subst ','\'',$(KERNEL_MAKE) $(2))' | $(MKHASH) md5)"; \
-		[ "$$$$(cat $$$$stamp 2>/dev/null)" = "$$$$key" ] && [ -z "$$$$(find $(LINUX_DIR) $(TOOLCHAIN_DIR)/bin \
+		outputs_ok=1; \
+		for out in $(KERNEL_MAKE_OUTPUTS_$(1)); do \
+			[ -s "$$$$out" ] || { outputs_ok=0; break; }; \
+		done; \
+		[ "$$$$outputs_ok" = "1" ] && [ "$$$$(cat $$$$stamp 2>/dev/null)" = "$$$$key" ] && [ -z "$$$$(find $(LINUX_DIR) $(TOOLCHAIN_DIR)/bin \
 			$(KERNEL_MAKE_DEPENDS_$(1)) \
-			\( -path '$(LINUX_DIR)/.*' ! -path '$(LINUX_DIR)/.config' \) -prune -o \
-			! -type d -newer $$$$stamp -print -quit)" ] || { \
+			\( -path '$(LINUX_DIR)/.*' ! -path '$(LINUX_DIR)/.config' \
+			   -o -path '$(LINUX_DIR)/include/generated' \
+			   -o -path '$(LINUX_DIR)/include/config' \
+			   -o -path '$(LINUX_DIR)/arch/*/boot' \
+			   -o -name '.tmp_*' \) -prune -o \
+			! -type d \
+			! -name '*.o' ! -name '*.ko' ! -name '*.mod' ! -name '*.mod.c' \
+			! -name '*.cmd' ! -name '*.d' ! -name '*.a' ! -name '*.symvers' \
+			! -name '*.order' ! -name 'vmlinux*' ! -name 'System.map' \
+			! -name 'modules.builtin*' \
+			-newer $$$$stamp -print -quit)" ] || { \
 			rm -f $$$$stamp; \
 			$(3) \
-			$(KERNEL_MAKE) $(2) && echo "$$$$key" > $$$$stamp; \
+			$(KERNEL_MAKE) $(2) && { \
+				for out in $(KERNEL_MAKE_OUTPUTS_$(1)); do \
+					[ -s "$$$$out" ] || { echo "ERROR: kbuild $(1) did not produce $$$$out" >&2; exit 1; }; \
+				done; \
+				echo "$$$$key" > $$$$stamp; \
+			}; \
 		}; \
 	}
 endef
@@ -180,15 +201,21 @@ endif
 # $1: image suffix
 # $2: Per Device Rootfs ID
 define Kernel/CopyImage
-	cmp -s $(LINUX_DIR)$(2)/vmlinux $(KERNEL_BUILD_DIR)/vmlinux$(1).debug$(2) || { \
-		$(KERNEL_CROSS)objcopy -O binary $(OBJCOPY_STRIP) -S $(LINUX_DIR)$(2)/vmlinux $(LINUX_KERNEL)$(1)$(2); \
-		$(KERNEL_CROSS)objcopy $(OBJCOPY_STRIP) -S $(LINUX_DIR)$(2)/vmlinux $(KERNEL_BUILD_DIR)/vmlinux$(1).elf$(2); \
-		$(CP) $(LINUX_DIR)$(2)/vmlinux $(KERNEL_BUILD_DIR)/vmlinux$(1).debug$(2); \
-		$(foreach k, \
-			$(if $(KERNEL_IMAGES),$(KERNEL_IMAGES),$(filter-out vmlinux dtbs,$(KERNELNAME))), \
-			$(CP) $(LINUX_DIR)$(2)/arch/$(LINUX_KARCH)/boot/$(IMAGES_DIR)/$(k) $(KERNEL_BUILD_DIR)/$(k)$(1)$(2); \
-		) \
-	}
+	set -e; \
+	if ! cmp -s $(LINUX_DIR)$(2)/vmlinux $(KERNEL_BUILD_DIR)/vmlinux$(1).debug$(2) || \
+	   [ ! -s $(LINUX_KERNEL)$(1)$(2) ] || [ ! -s $(KERNEL_BUILD_DIR)/vmlinux$(1).elf$(2) ]; then \
+		$(KERNEL_CROSS)objcopy -O binary $(OBJCOPY_STRIP) -S $(LINUX_DIR)$(2)/vmlinux $(LINUX_KERNEL)$(1)$(2).new; \
+		$(KERNEL_CROSS)objcopy $(OBJCOPY_STRIP) -S $(LINUX_DIR)$(2)/vmlinux $(KERNEL_BUILD_DIR)/vmlinux$(1).elf$(2).new; \
+		$(CP) $(LINUX_DIR)$(2)/vmlinux $(KERNEL_BUILD_DIR)/vmlinux$(1).debug$(2).new; \
+		mv -f $(LINUX_KERNEL)$(1)$(2).new $(LINUX_KERNEL)$(1)$(2); \
+		mv -f $(KERNEL_BUILD_DIR)/vmlinux$(1).elf$(2).new $(KERNEL_BUILD_DIR)/vmlinux$(1).elf$(2); \
+		mv -f $(KERNEL_BUILD_DIR)/vmlinux$(1).debug$(2).new $(KERNEL_BUILD_DIR)/vmlinux$(1).debug$(2); \
+	fi; \
+	$(foreach k,$(if $(KERNEL_IMAGES),$(KERNEL_IMAGES),$(filter-out vmlinux dtbs,$(KERNELNAME))), \
+		cmp -s $(LINUX_DIR)$(2)/arch/$(LINUX_KARCH)/boot/$(IMAGES_DIR)/$(k) $(KERNEL_BUILD_DIR)/$(k)$(1)$(2) || { \
+			$(CP) $(LINUX_DIR)$(2)/arch/$(LINUX_KARCH)/boot/$(IMAGES_DIR)/$(k) $(KERNEL_BUILD_DIR)/$(k)$(1)$(2).new && \
+			mv -f $(KERNEL_BUILD_DIR)/$(k)$(1)$(2).new $(KERNEL_BUILD_DIR)/$(k)$(1)$(2); \
+		};)
 endef
 
 define Kernel/CompileImage/Default

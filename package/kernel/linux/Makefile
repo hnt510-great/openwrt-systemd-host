@@ -68,6 +68,7 @@ define Package/kernel/install
 		grep -E -v "\.(file$(if CONFIG_MODULE_STRIPPED,|parmtype))=" | \
 		tr '\n' '\0' > $(1)/$(MODULES_SUBDIR)/modules.builtin.modinfo
 	echo $(LINUX_VERSION)~$(LINUX_VERMAGIC)-r$(LINUX_RELEASE) > $(STAGING_DIR)/kernel.version
+	$(if $(CONFIG_OPENWRT_KERNEL_UPGRADE),echo $(KERNEL_PACKAGE_VERSION) > $(STAGING_DIR)/kernel-package.version)
 endef
 
 define Package/kernel/extra_provides

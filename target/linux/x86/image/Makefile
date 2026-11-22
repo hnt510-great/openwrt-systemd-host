@@ -48,7 +48,9 @@ endef
 
 define Build/efi-boot-files
 	$(CP) $(KDIR)/$(KERNEL_NAME) $@.boot/boot/vmlinuz
-	-$(CP) $(STAGING_DIR_ROOT)/boot/. $@.boot/boot/
+	if [ -d "$(STAGING_DIR_ROOT)/boot" ] && [ -n "$$(ls -A "$(STAGING_DIR_ROOT)/boot" 2>/dev/null)" ]; then \
+		$(CP) "$(STAGING_DIR_ROOT)/boot/." $@.boot/boot/; \
+	fi
 	$(CP) $(STAGING_DIR_IMAGE)/grub2/boot.img $@.boot/boot/grub/
 	$(CP) $(STAGING_DIR_IMAGE)/grub2/$(if $(filter $(1),efi),gpt,$(GRUB2_VARIANT))-core.img \
 		$@.boot/boot/grub/core.img
@@ -128,7 +130,9 @@ define Build/iso
 		$(STAGING_DIR_IMAGE)/grub2/cdboot.img \
 		$(STAGING_DIR_IMAGE)/grub2/eltorito.img \
 		> $@.boot/boot/grub/eltorito.img
-	-$(CP) $(STAGING_DIR_ROOT)/boot/. $@.boot/boot/
+	if [ -d "$(STAGING_DIR_ROOT)/boot" ] && [ -n "$$(ls -A "$(STAGING_DIR_ROOT)/boot" 2>/dev/null)" ]; then \
+		$(CP) "$(STAGING_DIR_ROOT)/boot/." $@.boot/boot/; \
+	fi
 	$(if $(filter $(1),efi),
 		mkfs.fat -C $@.boot/boot/grub/isoboot.img -S 512 1440
 		mmd -i $@.boot/boot/grub/isoboot.img ::/efi ::/efi/boot
@@ -253,4 +257,18 @@ endef
 include $(SUBTARGET).mk
 
 $(eval $(call BuildImage))
+
+ifeq ($(CONFIG_INSTALLER_ISO_IMAGES),y)
+  $(KDIR)/tmp/$(IMG_PREFIX)-installer.iso: \
+	$(TOPDIR)/configs/installer-components.json \
+	$(PACKAGE_DIR_ALL)/packages.adb \
+	$(TMP_DIR)/apk_install_list \
+	./grub-installer.cfg \
+	$(TOPDIR)/package/custom/openwrt-installer/files/live-init \
+	$(SCRIPT_DIR)/build-installer-components.py \
+	$(SCRIPT_DIR)/build-installer-initramfs.py \
+	$(SCRIPT_DIR)/build-installer-iso.py \
+	$(BUILD_KEY_APK_PUB) \
+	$(BUILD_KEY_APK_SEC)
+endif
 
