@@ -407,7 +407,7 @@ endif
     $(eval $(call BuildPackVariable,$(1),postrm,,1))
 
     $(PKG_BUILD_DIR)/.pkgdir/$(1).installed : export PATH=$$(TARGET_PATH_PKG)
-    $(PKG_BUILD_DIR)/.pkgdir/$(1).installed: $(STAMP_BUILT) $(INCLUDE_DIR)/package-pack.mk $(TOPDIR)/.config $(if $(CONFIG_OPENWRT_SYSTEMD),$(SCRIPT_DIR)/merge-usr.py) $(if $(CONFIG_USE_APK),$(SCRIPT_DIR)/elf-abi.py $(TOPDIR)/configs/elf-abi-policy.json $(TOPDIR)/configs/apk-elf-rebuilds.mk $(if $(QUILT)$(DUMP),,$(call find_private_library_dependencies,$(1))))
+    $(PKG_BUILD_DIR)/.pkgdir/$(1).installed: $(STAMP_BUILT) $(INCLUDE_DIR)/package-pack.mk $(TOPDIR)/.config $(if $(CONFIG_OPENWRT_SYSTEMD),$(SCRIPT_DIR)/merge-usr.py) $(if $(CONFIG_USE_APK),$(SCRIPT_DIR)/elf-abi.py $(TOPDIR)/configs/elf-abi-policy.json $(PKG_BUILD_DIR)/.pkgdir/$(1).pack-key $(if $(QUILT)$(DUMP),,$(call find_private_library_dependencies,$(1))))
 	rm -rf $$@ $(PKG_BUILD_DIR)/.pkgdir/$(1)
 	mkdir -p $(PKG_BUILD_DIR)/.pkgdir/$(1)
 	$(call Package/$(1)/install,$(PKG_BUILD_DIR)/.pkgdir/$(1))
@@ -486,13 +486,38 @@ $$(call addfield,Depends,$$(Package/$(1)/DEPENDS)
 Installed-Size: 0
 $(_endef)
 
+$(_define) Package/$(1)/PACK_KEY
+Package: $(1)$$(ABIV_$(1))
+Version: $(VERSION)
+Architecture: $(PKGARCH)
+Depends: $$(Package/$(1)/DEPENDS)
+Provides: $$(call mergelist,$$(Package/$(1)/PROVIDES))
+Conflicts: $$(call mergelist,$(CONFLICTS))
+Alternatives: $$(call mergelist,$(ALTERNATIVES))
+Tags: $$(APK_TAGS_$(1))
+UseAPK: $(CONFIG_USE_APK)
+Systemd: $(CONFIG_OPENWRT_SYSTEMD)
+ConfigDepends: $(foreach v,$(sort $(PKG_CONFIG_DEPENDS)),$(v)=$($(v)))
+$(_endef)
+
+    $(PKG_BUILD_DIR)/.pkgdir/$(1).pack-key : export PACK_KEY=$$(Package/$(1)/PACK_KEY)
+    $(PKG_BUILD_DIR)/.pkgdir/$(1).pack-key: $(TOPDIR)/configs/apk-elf-rebuilds.mk $(TOPDIR)/.config $(if $(wildcard $(PKG_BUILD_DIR)/.pkgdir/$(1).pack-key),,FORCE)
+	@mkdir -p $$(@D)
+	@tmp=$$$$(mktemp "$$@.XXXXXX"); \
+	printf '%s\n' "$$$$PACK_KEY" > "$$$$tmp"; \
+	if [ ! -f "$$@" ] || ! cmp -s "$$$$tmp" "$$@"; then \
+		mv "$$$$tmp" "$$@"; \
+	else \
+		rm -f "$$$$tmp"; \
+	fi
+
     $$(PACK_$(1)) : export CONTROL=$$(Package/$(1)/CONTROL)
     $$(PACK_$(1)) : $(call shexport,Package/$(1)/description)
     $$(PACK_$(1)) : export PATH=$$(TARGET_PATH_PKG)
     $$(PACK_$(1)) : export SOURCE_DATE_EPOCH=$$(PKG_SOURCE_DATE_EPOCH)
     $(PKG_INFO_DIR)/$(1).provides: $$(PACK_$(1))
 	@test -f $$@
-    $$(PACK_$(1)): $(if $(wildcard $(PKG_INFO_DIR)/$(1).provides),,FORCE) $(STAMP_BUILT) $(INCLUDE_DIR)/package-pack.mk $(if $(CONFIG_USE_APK),$(SCRIPT_DIR)/ucode-abi.py $(SCRIPT_DIR)/elf-abi.py $(TOPDIR)/configs/elf-abi-policy.json $(TOPDIR)/configs/apk-elf-rebuilds.mk $(if $(QUILT)$(DUMP),,$(call find_private_library_dependencies,$(1)))) $(if $(CONFIG_OPENWRT_SYSTEMD),$(SCRIPT_DIR)/merge-usr.py)
+    $$(PACK_$(1)): $(if $(wildcard $(PKG_INFO_DIR)/$(1).provides),,FORCE) $(STAMP_BUILT) $(INCLUDE_DIR)/package-pack.mk $(if $(CONFIG_USE_APK),$(SCRIPT_DIR)/ucode-abi.py $(SCRIPT_DIR)/elf-abi.py $(TOPDIR)/configs/elf-abi-policy.json $(PKG_BUILD_DIR)/.pkgdir/$(1).pack-key $(if $(QUILT)$(DUMP),,$(call find_private_library_dependencies,$(1)))) $(if $(CONFIG_OPENWRT_SYSTEMD),$(SCRIPT_DIR)/merge-usr.py)
 	rm -rf $$(IDIR_$(1)) $$(ADIR_$(1))
 ifeq ($$(CONFIG_USE_APK),)
 	$$(call remove_ipkg_files,$(1),$$(call opkg_package_files,$(call gen_package_wildcard,$(1))))
