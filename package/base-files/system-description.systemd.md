@@ -319,8 +319,10 @@ command line before rtkit can grant realtime scheduling. Check with
 
 When `openwrt-desktop-ime` is installed, the GNOME session supervises Fcitx5.
 Its IBus compatibility frontend serves GNOME's native input path; the Kimpanel
-Shell extension displays candidates, and GTK3/GTK4 modules support other
-applications. Offline Chinese Pinyin, libime dictionaries and Chinese fonts
+Shell extension displays candidates, GTK3/GTK4 modules support GTK
+applications, and `fcitx5-qt` provides the Qt platform input context when the
+optional Konsole stack is built. Offline Chinese Pinyin, libime dictionaries
+and Chinese fonts
 are included. Fresh profiles start in English; **Ctrl+Space** toggles Pinyin.
 Type `nihao` and press Space to commit `你好`. Existing personal shortcuts,
 profiles and dictionaries are preserved; inspect the user's Fcitx configuration

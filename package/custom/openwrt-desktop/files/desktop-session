@@ -5,6 +5,8 @@ set -eu
 export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
 export XDG_CURRENT_DESKTOP=GNOME XDG_SESSION_DESKTOP=gnome DESKTOP_SESSION=gnome
 export XDG_SESSION_TYPE=wayland XMODIFIERS=@im=fcitx
+# Qt chooses Wayland or xcb using the session and display variables.
+export QT_IM_MODULE=fcitx
 # The native text-input path uses Fcitx's IBus frontend. Do not inherit the
 # Weston-only GTK module override or its privileged input-method socket.
 unset WAYLAND_SOCKET GTK_IM_MODULE GTK_IM_MODULE_FILE LIBSEAT_BACKEND MUTTER_DEBUG_KMS_SCHEDULING_PRIORITY
@@ -27,5 +29,5 @@ case "${OPENWRT_DESKTOP_KMS_SCHEDULING:-high-priority}" in
 		import_kms=MUTTER_DEBUG_KMS_SCHEDULING_PRIORITY
 		;;
 esac
-systemctl --user import-environment XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP DESKTOP_SESSION XDG_SESSION_TYPE XMODIFIERS XDG_DATA_DIRS $import_kms
+systemctl --user import-environment XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP DESKTOP_SESSION XDG_SESSION_TYPE XMODIFIERS XDG_DATA_DIRS QT_IM_MODULE $import_kms
 exec /usr/bin/gnome-session --session=gnome
