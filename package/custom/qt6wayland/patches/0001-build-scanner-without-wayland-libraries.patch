@@ -1,0 +1,31 @@
+From: hnt510 <hnt510@gmail.com>
+Subject: [PATCH] build the host scanner without Wayland libraries
+
+The host build only needs qtwaylandscanner, which does not link against
+libwayland. Requiring Wayland::Client and friends makes the host build fail
+on systems without Wayland development files, even though the target build
+finds them in the staging directory. Keep the hard failure for the
+scanner itself and let the client/server features stay disabled when the
+libraries are absent.
+
+---
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -22,13 +22,16 @@
+ 
+ qt_find_package(Wayland 1.15 PROVIDED_TARGETS ${wayland_libs})
+ 
+-if (NOT WaylandScanner_FOUND OR NOT Wayland_FOUND)
++if (NOT WaylandScanner_FOUND)
+     message(WARNING "QtWayland is missing required dependencies, nothing will be built. \
+ Although this could be considered an error, the configuration will still pass as coin (Qt's \
+ continuous integration system) will fail the build if configure fails, but will still try to \
+ configure the module on targets that are missing dependencies.")
+     return()
+ endif()
++if (NOT Wayland_FOUND)
++    message(STATUS "Wayland libraries not found, only building QtWayland tools")
++endif()
+ 
+ # See global/README for a description of the following module.
+ qt_internal_add_module(WaylandGlobalPrivate

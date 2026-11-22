@@ -10,9 +10,10 @@ PKG_LICENSE:=BSD-3-Clause
 PKG_INSTALL:=1
 
 include $(INCLUDE_DIR)/package.mk
-
+include $(INCLUDE_DIR)/host-build.mk
 include $(INCLUDE_DIR)/cmake.mk
 CMAKE_OPTIONS += -DBUILD_TESTING=OFF -DBUILD_HTML_DOCS=OFF -DBUILD_MAN_DOCS=OFF -DBUILD_QTHELP_DOCS=OFF
+CMAKE_HOST_OPTIONS += -DBUILD_TESTING=OFF -DBUILD_HTML_DOCS=OFF -DBUILD_MAN_DOCS=OFF -DBUILD_QTHELP_DOCS=OFF
 
 define Package/extra-cmake-modules
   SECTION:=devel
@@ -22,3 +23,4 @@ define Package/extra-cmake-modules
 endef
 CMAKE_INSTALL:=1
 $(eval $(call BuildPackage,extra-cmake-modules))
+$(eval $(call HostBuild))
