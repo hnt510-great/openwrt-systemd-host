@@ -14,7 +14,7 @@ KF6_CMAKE_OPTIONS:=-DKCONFIG_USE_QML=OFF -DUSE_DBUS=ON
 
 # Konsole uses kconfig_add_kcfg_files() at build time.  Build a host copy of
 # kconfig_compiler and point consumers at it through KF6_HOST_TOOLING.
-HOST_BUILD_DEPENDS:=qt6base/host extra-cmake-modules/host
+HOST_BUILD_DEPENDS:=qt6base/host qt6tools/host extra-cmake-modules/host
 HOST_BUILD_DIR:=$(BUILD_DIR_HOST)/kconfig-$(PKG_VERSION)
 HOST_BUILD_PARALLEL:=1
 CMAKE_HOST_OPTIONS += \

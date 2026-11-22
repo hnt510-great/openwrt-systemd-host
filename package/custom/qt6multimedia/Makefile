@@ -15,7 +15,7 @@ PKG_LICENSE_FILES:= \
 	LICENSES/GPL-3.0-only.txt
 PKG_INSTALL:=1
 PKG_BUILD_PARALLEL:=1
-PKG_BUILD_DEPENDS:=qt6base ffmpeg pulseaudio
+PKG_BUILD_DEPENDS:=qt6base qt6shadertools ffmpeg pulseaudio
 
 include $(INCLUDE_DIR)/package.mk
 include $(INCLUDE_DIR)/cmake.mk

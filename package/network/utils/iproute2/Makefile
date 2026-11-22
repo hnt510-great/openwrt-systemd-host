@@ -202,6 +202,7 @@ define Build/Compile
 	+$(MAKE_VARS) $(MAKE) $(PKG_JOBS) -C $(PKG_BUILD_DIR) $(MAKE_FLAGS)
 endef
 
+ifeq ($(BUILD_VARIANT),$(firstword $(ALL_VARIANTS)))
 define Build/InstallDev
 	$(INSTALL_DIR) $(1)/usr/include/iproute2
 	$(CP) $(PKG_BUILD_DIR)/include/bpf_elf.h $(1)/usr/include/iproute2
@@ -209,6 +210,7 @@ define Build/InstallDev
 	$(INSTALL_DIR) $(1)/usr/lib
 	$(CP) $(PKG_BUILD_DIR)/lib/libnetlink.a $(1)/usr/lib/
 endef
+endif
 
 define Package/ip-tiny/install
 	$(INSTALL_DIR) $(1)/usr/libexec

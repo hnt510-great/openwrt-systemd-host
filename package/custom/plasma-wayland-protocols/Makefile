@@ -9,7 +9,7 @@ PKG_HASH:=16c5ad917bde2ed795942dacba76654819ddc6a1566842325ef34e0b553ef138
 PKG_LICENSE:=BSD-3-Clause
 PKG_INSTALL:=1
 CMAKE_INSTALL:=1
-PKG_BUILD_DEPENDS:=extra-cmake-modules
+PKG_BUILD_DEPENDS:=extra-cmake-modules qt6base/host
 
 include $(INCLUDE_DIR)/package.mk
 include $(INCLUDE_DIR)/cmake.mk

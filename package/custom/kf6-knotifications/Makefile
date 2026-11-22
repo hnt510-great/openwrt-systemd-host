@@ -10,7 +10,7 @@ PKG_LICENSE:=LGPL-2.1-or-later
 
 KF6_TITLE:=Notifications
 KF6_DEPENDS:=+qt6base-gui +qt6base-dbus +libcanberra +kf6-kconfig
-KF6_CMAKE_OPTIONS:=-DUSE_DBUS=ON
+KF6_CMAKE_OPTIONS:=-DUSE_DBUS=ON -DCMAKE_DISABLE_FIND_PACKAGE_Qt6Qml=ON
 
 include $(INCLUDE_DIR)/kf6-package.mk
 

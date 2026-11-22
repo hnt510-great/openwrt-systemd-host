@@ -8,7 +8,7 @@ PKG_SOURCE_URL:=https://github.com/festvox/flite/archive/refs/tags/v$(PKG_VERSIO
 PKG_HASH:=ab1555fe5adc3f99f1d4a1a0eb1596d329fd6d74f1464a0097c81f53c0cf9e5c
 PKG_LICENSE:=BSD-2-Clause
 PKG_INSTALL:=1
-PKG_BUILD_PARALLEL:=1
+PKG_BUILD_PARALLEL:=0
 
 include $(INCLUDE_DIR)/package.mk
 
