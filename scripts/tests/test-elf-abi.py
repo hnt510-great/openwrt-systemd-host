@@ -239,7 +239,7 @@ class ElfAbiTests(unittest.TestCase):
         staged_rule = next(line.strip() for line in source
                            if line.strip().startswith('$(PKG_BUILD_DIR)/.pkgdir/$(1).installed:'))
         package_rule = next(line.strip() for line in source
-                            if line.strip().startswith('$(PKG_INFO_DIR)/$(1).provides $$(PACK_$(1)):'))
+                            if line.strip().startswith('$$(PACK_$(1)):') and '$(STAMP_BUILT)' in line)
         for relative in ('built', '.config', 'include/package-pack.mk', 'scripts/elf-abi.py',
                          'scripts/ucode-abi.py', 'configs/elf-abi-policy.json'):
             target = self.work / relative
@@ -251,7 +251,7 @@ class ElfAbiTests(unittest.TestCase):
             'TOPDIR:=.\nINCLUDE_DIR:=include\nSCRIPT_DIR:=scripts\n'
             'CONFIG_USE_APK:=y\nSTAMP_BUILT:=built\nPKG_BUILD_DIR:=build\n'
             'PKG_INFO_DIR:=info\nPACK_library:=library.apk\n'
-            'all: app\n'
+            'all: app\nFORCE:\n'
             + staged_rule.replace('$(1)', 'library').replace('$$', '$') + '\n'
             '\t@mkdir -p $(@D); cp configs/apk-elf-rebuilds.mk $@\n'
             + package_rule.replace('$(1)', 'library').replace('$$', '$') + '\n'
@@ -381,7 +381,7 @@ class ElfAbiTests(unittest.TestCase):
         (self.work / 'Makefile').write_text(
             'empty:=\nspace:=$(empty) $(empty)\ncomma:=,\nparen_left:=(\nparen_right:=)\n'
             + helpers + '\nELF_DEP_pinned_1.0-r1:=pinned=1.0-r2\n'
-            'Package/probe/DEPENDS:=libc, libpthread, pinned (= 1.0-r1)\n'
+            'Package/probe/DEPENDS_FMT:=libc, libpthread, pinned (= 1.0-r1)\n'
             + assignment + '\nall:\n'
             '\t@echo "$(subst $(comma),$(space),$(subst $(space),,$(Package/probe/DEPENDS)))"\n')
         result = subprocess.check_output(['make', '-s'], cwd=self.work, text=True)

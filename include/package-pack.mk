@@ -273,17 +273,19 @@ endef
 ifneq ($(PKG_NAME),toolchain)
   define CheckDependencies
 	@( \
-		rm -f $(PKG_INFO_DIR)/$(1).missing; \
+		set -e; rm -f $(PKG_INFO_DIR)/$(1).missing; \
 		( \
 			export \
 				READELF=$(TARGET_CROSS)readelf \
 				OBJCOPY=$(TARGET_CROSS)objcopy \
 				XARGS="$(XARGS)"; \
 			$(SCRIPT_DIR)/gen-dependencies.sh "$$(IDIR_$(1))"; \
-		) | while read FILE; do \
+		) > "$$(IDIR_$(1)).needed"; \
+		while IFS= read -r FILE; do \
 			grep -qxF "$$$$FILE" $(PKG_INFO_DIR)/$(1).provides || \
 				echo "$$$$FILE" >> $(PKG_INFO_DIR)/$(1).missing; \
-		done; \
+		done < "$$(IDIR_$(1)).needed"; \
+		rm -f "$$(IDIR_$(1)).needed"; \
 		if [ -f "$(PKG_INFO_DIR)/$(1).missing" ]; then \
 			echo "Package $(1) is missing dependencies for the following libraries:" >&2; \
 			cat "$(PKG_INFO_DIR)/$(1).missing" >&2; \
@@ -405,41 +407,51 @@ endif
     $(eval $(call BuildPackVariable,$(1),postrm,,1))
 
     $(PKG_BUILD_DIR)/.pkgdir/$(1).installed : export PATH=$$(TARGET_PATH_PKG)
-    $(PKG_BUILD_DIR)/.pkgdir/$(1).installed: $(STAMP_BUILT) $(INCLUDE_DIR)/package-pack.mk $(TOPDIR)/.config $(if $(CONFIG_OPENWRT_SYSTEMD),$(SCRIPT_DIR)/merge-usr.py) $(if $(CONFIG_USE_APK),$(SCRIPT_DIR)/elf-abi.py $(TOPDIR)/configs/elf-abi-policy.json $(TOPDIR)/configs/apk-elf-rebuilds.mk)
+    $(PKG_BUILD_DIR)/.pkgdir/$(1).installed: $(STAMP_BUILT) $(INCLUDE_DIR)/package-pack.mk $(TOPDIR)/.config $(if $(CONFIG_OPENWRT_SYSTEMD),$(SCRIPT_DIR)/merge-usr.py) $(if $(CONFIG_USE_APK),$(SCRIPT_DIR)/elf-abi.py $(TOPDIR)/configs/elf-abi-policy.json $(TOPDIR)/configs/apk-elf-rebuilds.mk $(if $(QUILT)$(DUMP),,$(call find_private_library_dependencies,$(1))))
 	rm -rf $$@ $(PKG_BUILD_DIR)/.pkgdir/$(1)
 	mkdir -p $(PKG_BUILD_DIR)/.pkgdir/$(1)
 	$(call Package/$(1)/install,$(PKG_BUILD_DIR)/.pkgdir/$(1))
 	$(call Package/$(1)/install_lib,$(PKG_BUILD_DIR)/.pkgdir/$(1))
 	$(if $(CONFIG_OPENWRT_SYSTEMD),python3 $(SCRIPT_DIR)/merge-usr.py $(PKG_BUILD_DIR)/.pkgdir/$(1) --package $(1) $(if $(filter base-files,$(1)),--aliases))
-	$(if $(CONFIG_USE_APK),python3 $(SCRIPT_DIR)/elf-abi.py --root "$(PKG_BUILD_DIR)/.pkgdir/$(1)" --package "$(1)$$(ABIV_$(1))" --version "$(VERSION)" --staging-root "$(STAGING_DIR_ROOT)" $(if $(ELF_ABI_BOOTSTRAP_ROOT),--bootstrap-root "$(ELF_ABI_BOOTSTRAP_ROOT)") --depends-output "$$(ADIR_$(1))/elf.depends" --provides-output "$$(ADIR_$(1))/elf.provides" --stamp "$(PKG_INFO_DIR)/$(1).sonames")
+	$(if $(CONFIG_USE_APK),python3 $(SCRIPT_DIR)/elf-abi.py --root "$(PKG_BUILD_DIR)/.pkgdir/$(1)" --package "$(1)$$(ABIV_$(1))" --version "$(VERSION)" --staging-root "$(STAGING_DIR_ROOT)" --staging-lock "$(TMP_DIR)/.root-copy.flock" $(if $(ELF_ABI_BOOTSTRAP_ROOT),--bootstrap-root "$(ELF_ABI_BOOTSTRAP_ROOT)") --depends-output "$(PKG_BUILD_DIR)/.pkgdir/$(1).elf.depends" --provides-output "$(PKG_BUILD_DIR)/.pkgdir/$(1).elf.provides" --stamp "$(PKG_INFO_DIR)/$(1).sonames" --private-stamp "$(PKG_INFO_DIR)/$(1).private")
 	touch $$@
 
-    $(STAGING_DIR_ROOT)/stamp/.$(1)_installed: $(PKG_BUILD_DIR)/.pkgdir/$(1).installed
-	mkdir -p $(STAGING_DIR_ROOT)/stamp
-	$(if $(ABI_VERSION),echo '$(ABI_VERSION)' | cmp -s - $(PKG_INFO_DIR)/$(1).version || { \
-		mkdir -p $(PKG_INFO_DIR); \
-		echo '$(ABI_VERSION)' > $(PKG_INFO_DIR)/$(1).version; \
-		$(foreach pkg,$(call SanitizeProvides,$(1),$(PROVIDES)), \
-			cp $(PKG_INFO_DIR)/$(1).version $(PKG_INFO_DIR)/$(pkg).version; \
-		) \
-	} )
-	$(call locked,$(CP) $(PKG_BUILD_DIR)/.pkgdir/$(1)/. $(STAGING_DIR_ROOT)/,root-copy)
+    $(STAGING_DIR_ROOT)/stamp/.$(1)_installed: $(PKG_BUILD_DIR)/.pkgdir/$(1).installed $(SCRIPT_DIR)/stage-package.py
+	mkdir -p $(STAGING_DIR_ROOT)/stamp $(PKG_INFO_DIR)
+	@set -e; \
+	aliases="$(filter-out @% $(1),$(PROVIDES))"; \
+	if [ -f "$(PKG_INFO_DIR)/$(1).version.aliases" ]; then \
+		for old_alias in $$$$(cat "$(PKG_INFO_DIR)/$(1).version.aliases"); do \
+			case " $$$$aliases " in *" $$$$old_alias "*) ;; *) rm -f "$(PKG_INFO_DIR)/$$$$old_alias.version" ;; esac; \
+		done; \
+	fi; \
+	if [ -n "$(ABI_VERSION)" ]; then \
+		echo '$(ABI_VERSION)' | cmp -s - "$(PKG_INFO_DIR)/$(1).version" || { \
+			tmp=$$$$(mktemp "$(PKG_INFO_DIR)/$(1).version.XXXXXX"); \
+			echo '$(ABI_VERSION)' > "$$$$tmp"; \
+			mv "$$$$tmp" "$(PKG_INFO_DIR)/$(1).version"; \
+		}; \
+		for pkg in $$$$aliases; do \
+			cmp -s "$(PKG_INFO_DIR)/$(1).version" "$(PKG_INFO_DIR)/$$$$pkg.version" || \
+				cp "$(PKG_INFO_DIR)/$(1).version" "$(PKG_INFO_DIR)/$$$$pkg.version"; \
+		done; \
+		printf '%s\n' $$$$aliases > "$(PKG_INFO_DIR)/$(1).version.aliases"; \
+	else \
+		rm -f "$(PKG_INFO_DIR)/$(1).version" "$(PKG_INFO_DIR)/$(1).version.aliases"; \
+		for pkg in $$$$aliases; do rm -f "$(PKG_INFO_DIR)/$$$$pkg.version"; done; \
+	fi
+	python3 "$(SCRIPT_DIR)/stage-package.py" --root "$(STAGING_DIR_ROOT)" --source "$(PKG_BUILD_DIR)/.pkgdir/$(1)" \
+		--lock "$(TMP_DIR)/.root-copy.flock" --manifest "$(STAGING_DIR_ROOT)/stamp/packages/$(1).list" \
+		--owner "$(1)" --legacy-package "$(1)$$(ABIV_$(1))" --legacy-base "$(1)"
 	touch $$@
 
-    Package/$(1)/DEPENDS := $$(foreach dep,$$(filter-out @%,$$(IDEPEND_$(1))),$$(dep)$$(call GetABISuffix,$$(dep)))
-    ifneq ($$(EXTRA_DEPENDS),)
-      ifeq ($(CONFIG_USE_APK),)
-        Package/$(1)/DEPENDS := $$(call mergelist,$$(Package/$(1)/DEPENDS))
-        Package/$(1)/DEPENDS := $$(EXTRA_DEPENDS)$$(if $$(Package/$(1)/DEPENDS),$$(comma) $$(Package/$(1)/DEPENDS))
-      else
-        Package/$(1)/DEPENDS := $$(call FormatDepends,$$(Package/$(1)/DEPENDS),$$(EXTRA_DEPENDS))
-      endif
+    Package/$(1)/EXTRA_DEPENDS := $$(EXTRA_DEPENDS)
+    Package/$(1)/DEPENDS_RAW = $$(foreach dep,$$(filter-out @%,$$(IDEPEND_$(1))),$$(dep)$$(call GetABISuffix,$$(dep)))
+    ifeq ($(CONFIG_USE_APK),)
+      Package/$(1)/DEPENDS = $$(if $$(Package/$(1)/EXTRA_DEPENDS),$$(Package/$(1)/EXTRA_DEPENDS)$$(if $$(call mergelist,$$(Package/$(1)/DEPENDS_RAW)),$$(comma) $$(call mergelist,$$(Package/$(1)/DEPENDS_RAW))),$$(call mergelist,$$(Package/$(1)/DEPENDS_RAW)))
     else
-      Package/$(1)/DEPENDS := $$(call mergelist,$$(Package/$(1)/DEPENDS))
-    endif
-
-    ifneq ($(CONFIG_USE_APK),)
-      Package/$(1)/DEPENDS := $$(call mergelist,$$(foreach dep,$$(subst $$(comma),$$(space),$$(subst $$(space),,$$(subst $$(paren_right),,$$(subst $$(paren_left),,$$(Package/$(1)/DEPENDS))))),$$(or $$(ELF_DEP_$$(subst =,_,$$(dep))),$$(dep))))
+      Package/$(1)/DEPENDS_FMT = $$(if $$(Package/$(1)/EXTRA_DEPENDS),$$(call FormatDepends,$$(Package/$(1)/DEPENDS_RAW),$$(Package/$(1)/EXTRA_DEPENDS)),$$(call mergelist,$$(Package/$(1)/DEPENDS_RAW)))
+      Package/$(1)/DEPENDS = $$(call mergelist,$$(foreach dep,$$(subst $$(comma),$$(space),$$(subst $$(space),,$$(subst $$(paren_right),,$$(subst $$(paren_left),,$$(Package/$(1)/DEPENDS_FMT))))),$$(or $$(ELF_DEP_$$(subst =,_,$$(dep))),$$(dep))))
     endif
 
     ifeq ($(CONFIG_USE_APK),)
@@ -478,12 +490,12 @@ $(_endef)
     $$(PACK_$(1)) : $(call shexport,Package/$(1)/description)
     $$(PACK_$(1)) : export PATH=$$(TARGET_PATH_PKG)
     $$(PACK_$(1)) : export SOURCE_DATE_EPOCH=$$(PKG_SOURCE_DATE_EPOCH)
-    $(PKG_INFO_DIR)/$(1).provides $$(PACK_$(1)): $(STAMP_BUILT) $(INCLUDE_DIR)/package-pack.mk $(if $(CONFIG_USE_APK),$(SCRIPT_DIR)/ucode-abi.py $(SCRIPT_DIR)/elf-abi.py $(TOPDIR)/configs/elf-abi-policy.json $(TOPDIR)/configs/apk-elf-rebuilds.mk) $(if $(CONFIG_OPENWRT_SYSTEMD),$(SCRIPT_DIR)/merge-usr.py)
-	rm -rf $$(IDIR_$(1))
+    $(PKG_INFO_DIR)/$(1).provides: $$(PACK_$(1))
+	@test -f $$@
+    $$(PACK_$(1)): $(if $(wildcard $(PKG_INFO_DIR)/$(1).provides),,FORCE) $(STAMP_BUILT) $(INCLUDE_DIR)/package-pack.mk $(if $(CONFIG_USE_APK),$(SCRIPT_DIR)/ucode-abi.py $(SCRIPT_DIR)/elf-abi.py $(TOPDIR)/configs/elf-abi-policy.json $(TOPDIR)/configs/apk-elf-rebuilds.mk $(if $(QUILT)$(DUMP),,$(call find_private_library_dependencies,$(1)))) $(if $(CONFIG_OPENWRT_SYSTEMD),$(SCRIPT_DIR)/merge-usr.py)
+	rm -rf $$(IDIR_$(1)) $$(ADIR_$(1))
 ifeq ($$(CONFIG_USE_APK),)
 	$$(call remove_ipkg_files,$(1),$$(call opkg_package_files,$(call gen_package_wildcard,$(1))))
-else
-	$$(call remove_ipkg_files,$(1),$$(call apk_package_files,$(call gen_package_wildcard,$(1))))
 endif
 	mkdir -p $(PACKAGE_DIR) $$(IDIR_$(1)) $(PKG_INFO_DIR)
 	$(call Package/$(1)/install,$$(IDIR_$(1)))
@@ -641,7 +653,7 @@ else
 	$(if $(CONFIG_OPENWRT_SYSTEMD),python3 $(SCRIPT_DIR)/merge-usr.py $$(IDIR_$(1)) --package $(1) $(if $(filter base-files,$(1)),--aliases))
 	$(if $(and $(CONFIG_OPENWRT_KERNEL_UPGRADE),$(filter kernel kernel-dev-headers kmod-%,$(1))),python3 $(SCRIPT_DIR)/kernel-package.py --root "$$(IDIR_$(1))" --name "$(1)" --release "$(KERNEL_GENERATION)" --stage "$(KERNEL_BUILD_DIR)/kernel-bundle/$(KERNEL_GENERATION)" --linux "$(LINUX_DIR)")
 	python3 $(SCRIPT_DIR)/ucode-abi.py --root "$$(IDIR_$(1))" --package "$(1)" --abi "$$(call GetABISuffix,libucode)" --readelf "$(TARGET_CROSS)readelf" --output "$$(ADIR_$(1))/ucode.depends"
-	python3 $(SCRIPT_DIR)/elf-abi.py --root "$$(IDIR_$(1))" --package "$(1)$$(ABIV_$(1))" --version "$(VERSION)" --staging-root "$(STAGING_DIR_ROOT)" $(if $(ELF_ABI_BOOTSTRAP_ROOT),--bootstrap-root "$(ELF_ABI_BOOTSTRAP_ROOT)") --depends-output "$$(ADIR_$(1))/elf.depends" --provides-output "$$(ADIR_$(1))/elf.provides" --stamp "$(PKG_INFO_DIR)/$(1).sonames"
+	python3 $(SCRIPT_DIR)/elf-abi.py --root "$$(IDIR_$(1))" --package "$(1)$$(ABIV_$(1))" --version "$(VERSION)" --staging-root "$(STAGING_DIR_ROOT)" --staging-lock "$(TMP_DIR)/.root-copy.flock" $(if $(ELF_ABI_BOOTSTRAP_ROOT),--bootstrap-root "$(ELF_ABI_BOOTSTRAP_ROOT)") --depends-output "$$(ADIR_$(1))/elf.depends" --provides-output "$$(ADIR_$(1))/elf.provides" --stamp "$(PKG_INFO_DIR)/$(1).sonames" --private-stamp "$(PKG_INFO_DIR)/$(1).private"
 	SOURCE_DATE_EPOCH=0 $(FAKEROOT) $(STAGING_DIR_HOST)/bin/apk mkpkg \
 	  --info "name:$(1)$$(ABIV_$(1))" \
 	  --info "version:$(VERSION)" \
@@ -662,7 +674,10 @@ else
 	  --output "$$(PACK_$(1))"
 endif
 
-	@[ -f $$(PACK_$(1)) ]
+	@[ -s $$(PACK_$(1)) ]
+ifneq ($(CONFIG_USE_APK),)
+	$$(call remove_ipkg_files,$(1),$$(filter-out $$(PACK_$(1)),$$(call apk_package_files,$(call gen_package_wildcard,$(1)))))
+endif
 
 $(BuildTarget/ipkg/disabled)
   endef
