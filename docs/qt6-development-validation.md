@@ -37,6 +37,7 @@ publication of the rebuilt bytes is a separate step.
 | Qt module libraries all match the rebuilt base library timestamps (base 11:31, modules 12:10) | passed |
 | Before the module rebuild, a Qt Quick app crashed under Wayland with SIGSEGV; afterwards it runs | passed |
 | A Qt Widgets app runs under Wayland and under XWayland/xcb | passed |
+| Qt Quick under xcb needs `QT_QUICK_BACKEND=software` because the base build has GLES2/EGL but no desktop GL; with it the app runs | passed |
 | A `QtQuick.Controls.Basic` app with `ProgressBar`, `StackView`, `BusyIndicator`, `RangeSlider` and `CalendarModel` builds and runs | passed |
 | `QtQuick/Controls/Basic` contains the 69 QML/JS/plugin/metadata files, including `StackView.qml` and `ProgressBar.qml` | passed |
 | Full rebuild of Qt Declarative with OpenGL | passed |

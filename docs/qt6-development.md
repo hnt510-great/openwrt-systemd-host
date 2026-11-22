@@ -104,6 +104,16 @@ need them on disk. The QML plugin CMake target files are omitted because
 the runtime image installs only a subset of the QML modules; Qt loads modules
 by path at runtime.
 
+Qt Quick uses the OpenGL RHI on Wayland. The Qt Base build enables OpenGL ES2
+and EGL but not desktop GL (GLX), so under XWayland/xcb the RHI cannot create
+its OpenGL context. Use the software backend there:
+
+```sh
+QT_QPA_PLATFORM=xcb QT_QUICK_BACKEND=software qml main.qml
+```
+
+Qt Widgets applications are unaffected and run under both Wayland and xcb.
+
 ## SQL and OpenGL
 
 With `CONFIG_BUILD_qt6base_SQL=y` the build includes QtSql and its SQLite
