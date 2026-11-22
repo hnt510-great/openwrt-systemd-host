@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=hunspell
-PKG_VERSION:=1.7.2
+PKG_VERSION:=1.7.6
 PKG_RELEASE:=1
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://github.com/hunspell/hunspell/releases/download/v$(PKG_VERSION)/
-PKG_HASH:=11ddfa39afe28c28539fe65fc4f1592d410c1e9b6dd7d8a91ca25d85e9ec65b8
+PKG_HASH:=9c650ace31d4d8cc1da925a9507c3de1d50f1a54857af2f72429f517d5d53467
 PKG_LICENSE:=LGPL-2.1-or-later GPL-2.0-or-later MPL-1.1
 PKG_INSTALL:=1
 PKG_BUILD_PARALLEL:=1

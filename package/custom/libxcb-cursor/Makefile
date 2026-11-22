@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=libxcb-cursor
-PKG_VERSION:=0.1.5
+PKG_VERSION:=0.1.6
 PKG_RELEASE:=1
 PKG_SOURCE:=xcb-util-cursor-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=https://xorg.freedesktop.org/archive/individual/xcb/
-PKG_HASH:=0caf99b0d60970f81ce41c7ba694e5eaaf833227bb2cbcdb2f6dc9666a663c57
+PKG_HASH:=fdeb8bd127873519be5cc70dcd0d3b5d33b667877200f9925a59fdcad8f7a933
 PKG_BUILD_DIR:=$(BUILD_DIR)/xcb-util-cursor-$(PKG_VERSION)
 XORG_DEPENDS:=+libxcb +libxcb-image +libxcb-render-util +libxcb-util
 
