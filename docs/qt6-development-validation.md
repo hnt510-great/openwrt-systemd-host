@@ -11,8 +11,8 @@ built with SQL and OpenGL ES enabled. The packages were installed on the
 router; no image was built or flashed. The Qt Base rebuild changed the OpenGL
 configuration, so the Qt Declarative, Svg, Multimedia, TextToSpeech and
 Wayland client modules were rebuilt and reinstalled against the new base. The
-router's installed packages still carry their original r1/r5 versions; feed
-publication of the rebuilt bytes is a separate step.
+rebuilt packages were published to the LAN feed as Qt Base r6 and module r2,
+and the router was upgraded from that feed; no image was built or flashed.
 
 ## Checks
 
@@ -35,6 +35,8 @@ publication of the rebuilt bytes is a separate step.
 | A CMake Qt Quick project using `qt_add_qml_module` configures and builds on the router, including qmlcachegen and qmltyperegistrar | passed |
 | `wayland-scanner 1.26.0` is installed and found by CMake | passed |
 | Qt module libraries all match the rebuilt base library timestamps (base 11:31, modules 12:10) | passed |
+| LAN feed snapshot `20261122T052658.620916Z` publishes Qt Base r6 and the module r2 packages; upgrade receipt status is `passed` | passed |
+| Router upgraded from the LAN feed to Qt Base 6.9.3-r6 and module 6.9.3-r2 | passed |
 | Before the module rebuild, a Qt Quick app crashed under Wayland with SIGSEGV; afterwards it runs | passed |
 | A Qt Widgets app runs under Wayland and under XWayland/xcb | passed |
 | Qt Quick under xcb needs `QT_QUICK_BACKEND=software` because the base build has GLES2/EGL but no desktop GL; with it the app runs | passed |
@@ -49,5 +51,7 @@ publication of the rebuilt bytes is a separate step.
   `/srv/openwrt-validation/qt6-dev-packages-20261122/`
 - Feed changes are mirrored in `patches/feeds/0050-video-qt6-desktop.patch`;
   the fragment is `configs/qt6-dev.config`.
+- Publication receipt: `/srv/openwrt-feeds/upgrade-receipts/1795325267681290414.json`;
+  current snapshot `20261122T052658.620916Z`.
 - Router test artifacts: `/tmp/qtsql-test.cpp`, `/tmp/qmlcheck.qml`,
   `/tmp/qtcmake` and `/tmp/qtquicktest`.

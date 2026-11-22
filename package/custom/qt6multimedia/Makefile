@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=qt6multimedia
 PKG_VERSION:=6.9.3
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 PKG_SOURCE:=qtmultimedia-everywhere-src-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=https://download.qt.io/archive/qt/6.9/$(PKG_VERSION)/submodules/
 PKG_BUILD_DIR:=$(BUILD_DIR)/qtmultimedia-everywhere-src-$(PKG_VERSION)
