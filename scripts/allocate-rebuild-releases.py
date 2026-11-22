@@ -356,6 +356,12 @@ def _resolve_recipe(entry, recipes, entries):
         built_upstream = split_version(entry['version'])[0]
         recipe = (built_upstream if recipe == 'x'
                   else f'{built_upstream}-r{split_version(recipe)[1]}')
+    if ledger_name == 'gcc' and recipe.isdigit():
+        # gcc derives PKG_VERSION from CONFIG_GCC_VERSION (empty under DUMP=1),
+        # leaving only PKG_RELEASE in tmp/.packageinfo (e.g. "13" for 15.3.0-r13).
+        built_upstream = split_version(entry['version'])[0]
+        if built_upstream != recipe:
+            recipe = f'{built_upstream}-r{recipe}'
     if ledger_name == 'base-files':
         prefix = f'ELF_REBUILD_{ledger_name}_'
         matches = [key[len(prefix):] for key, value in entries.items()

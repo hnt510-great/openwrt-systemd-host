@@ -398,7 +398,7 @@ ELF_REBUILD_getopt_2.42.2-r1:=2.42.2-r4
 ELF_REBUILD_getopt_2.42.2-r2:=2.42.2-r3
 ELF_REBUILD_getrandom_2025.10.30~6f78fa49-r8:=2025.10.30~6f78fa49-r10
 ELF_REBUILD_getrandom_2025.10.30~6f78fa49-r9:=2025.10.30~6f78fa49-r10
-ELF_REBUILD_gettext-tools_0.24.2-r2:=0.24.2-r5
+ELF_REBUILD_gettext-tools_0.24.2-r2:=0.24.2-r6
 ELF_REBUILD_gettext-tools_0.24.2-r3:=0.24.2-r4
 ELF_REBUILD_giflib_5.2.2-r2:=5.2.2-r5
 ELF_REBUILD_giflib_5.2.2-r3:=5.2.2-r4
@@ -1580,7 +1580,7 @@ ELF_REBUILD_xray-core_26.10.21-r1:=26.10.21-r3
 ELF_REBUILD_xray-core_26.10.21-r2:=26.10.21-r3
 ELF_REBUILD_xray-plugin_1.8.24-r1:=1.8.24-r4
 ELF_REBUILD_xray-plugin_1.8.24-r2:=1.8.24-r3
-ELF_REBUILD_xtables-nft_1.8.10-r4:=1.8.10-r7
+ELF_REBUILD_xtables-nft_1.8.10-r4:=1.8.10-r8
 ELF_REBUILD_xtables-nft_1.8.10-r5:=1.8.10-r6
 ELF_REBUILD_xwayland_24.1.14-r1:=24.1.14-r3
 ELF_REBUILD_xwayland_24.1.14-r2:=24.1.14-r3
@@ -1997,7 +1997,7 @@ ELF_DEP_getopt_2.42.2-r1:=getopt=2.42.2-r4
 ELF_DEP_getopt_2.42.2-r2:=getopt=2.42.2-r3
 ELF_DEP_getrandom_2025.10.30~6f78fa49-r8:=getrandom=2025.10.30~6f78fa49-r10
 ELF_DEP_getrandom_2025.10.30~6f78fa49-r9:=getrandom=2025.10.30~6f78fa49-r10
-ELF_DEP_gettext-tools_0.24.2-r2:=gettext-tools=0.24.2-r5
+ELF_DEP_gettext-tools_0.24.2-r2:=gettext-tools=0.24.2-r6
 ELF_DEP_gettext-tools_0.24.2-r3:=gettext-tools=0.24.2-r4
 ELF_DEP_giflib_5.2.2-r2:=giflib=5.2.2-r5
 ELF_DEP_giflib_5.2.2-r3:=giflib=5.2.2-r4
@@ -3179,7 +3179,7 @@ ELF_DEP_xray-core_26.10.21-r1:=xray-core=26.10.21-r3
 ELF_DEP_xray-core_26.10.21-r2:=xray-core=26.10.21-r3
 ELF_DEP_xray-plugin_1.8.24-r1:=xray-plugin=1.8.24-r4
 ELF_DEP_xray-plugin_1.8.24-r2:=xray-plugin=1.8.24-r3
-ELF_DEP_xtables-nft_1.8.10-r4:=xtables-nft=1.8.10-r7
+ELF_DEP_xtables-nft_1.8.10-r4:=xtables-nft=1.8.10-r8
 ELF_DEP_xtables-nft_1.8.10-r5:=xtables-nft=1.8.10-r6
 ELF_DEP_xwayland_24.1.14-r1:=xwayland=24.1.14-r3
 ELF_DEP_xwayland_24.1.14-r2:=xwayland=24.1.14-r3
@@ -3405,8 +3405,8 @@ ELF_REBUILD_flatpak_1.18.4-r4:=1.18.4-r5
 ELF_DEP_flatpak_1.18.4-r4:=flatpak=1.18.4-r5
 ELF_REBUILD_fstools_2026.11.07~5e371ecf-r6:=2026.11.07~5e371ecf-r7
 ELF_DEP_fstools_2026.11.07~5e371ecf-r6:=fstools=2026.11.07~5e371ecf-r7
-ELF_REBUILD_fuse3-utils_3.18.3-r1:=3.18.3-r2
-ELF_DEP_fuse3-utils_3.18.3-r1:=fuse3-utils=3.18.3-r2
+ELF_REBUILD_fuse3-utils_3.18.3-r1:=3.18.3-r3
+ELF_DEP_fuse3-utils_3.18.3-r1:=fuse3-utils=3.18.3-r3
 ELF_REBUILD_gcr3_3.41.2-r1:=3.41.2-r2
 ELF_DEP_gcr3_3.41.2-r1:=gcr3=3.41.2-r2
 ELF_REBUILD_gcr4_4.4.1-r1:=4.4.1-r2
@@ -4051,8 +4051,8 @@ ELF_REBUILD_wireplumber_0.5.19-r1:=0.5.19-r2
 ELF_DEP_wireplumber_0.5.19-r1:=wireplumber=0.5.19-r2
 ELF_REBUILD_wl-clipboard_2.3.0-r1:=2.3.0-r2
 ELF_DEP_wl-clipboard_2.3.0-r1:=wl-clipboard=2.3.0-r2
-ELF_REBUILD_wpad-mbedtls_2026.08.07~831364bf-r8:=2026.08.07~831364bf-r9
-ELF_DEP_wpad-mbedtls_2026.08.07~831364bf-r8:=wpad-mbedtls=2026.08.07~831364bf-r9
+ELF_REBUILD_wpad-mbedtls_2026.08.07~831364bf-r8:=2026.08.07~831364bf-r10
+ELF_DEP_wpad-mbedtls_2026.08.07~831364bf-r8:=wpad-mbedtls=2026.08.07~831364bf-r10
 ELF_REBUILD_wsdd2_2023.12.21~b676d8ac-r7:=2023.12.21~b676d8ac-r8
 ELF_DEP_wsdd2_2023.12.21~b676d8ac-r7:=wsdd2=2023.12.21~b676d8ac-r8
 ELF_REBUILD_xdg-desktop-portal_1.22.1-r5:=1.22.1-r6
@@ -4166,3 +4166,9 @@ ELF_REBUILD_konsole_26.08.3-r2:=26.08.3-r3
 ELF_DEP_konsole_26.08.3-r2:=konsole=26.08.3-r3
 ELF_REBUILD_libflite_2.2-r1:=2.2-r2
 ELF_DEP_libflite_2.2-r1:=libflite=2.2-r2
+# reserved: ELF_REBUILD_fuse3-utils_3.18.3-r1 -> 3.18.3-r2
+# reserved: ELF_REBUILD_gettext-tools_0.24.2-r2 -> 0.24.2-r5
+# reserved: ELF_REBUILD_wpad-mbedtls_2026.08.07~831364bf-r8 -> 2026.08.07~831364bf-r9
+# reserved: ELF_REBUILD_xtables-nft_1.8.10-r4 -> 1.8.10-r7
+ELF_REBUILD_gcc_15.3.0-r13:=15.3.0-r14
+ELF_DEP_gcc_15.3.0-r13:=gcc=15.3.0-r14

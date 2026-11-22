@@ -244,6 +244,24 @@ class AllocationTests(unittest.TestCase):
         self.assertEqual(plan[0]['recipe'], '24.322.80622~82bde8c')
         self.assertEqual(plan[0]['release'], '24.322.80622~82bde8c-r2')
 
+    def test_gcc_dump_bare_release_placeholder_uses_built_upstream_version(self):
+        (self.tree / 'tmp/.packageinfo').write_text(
+            'Source-Makefile: feeds/packages/devel/gcc/Makefile\n'
+            'Package: gcc\n'
+            'Version: 13\n')
+        (self.tree / A.LEDGER).write_text('# header\n')
+        plan = A.plan(self.tree, self.destination, [
+            entry('packages/gcc-15.3.0-r13.apk', 'gcc', '15.3.0-r13')])
+        self.assertEqual(plan[0]['recipe'], '15.3.0-r13')
+        self.assertEqual(plan[0]['release'], '15.3.0-r14')
+        A.apply(self.tree, plan, today='2026-11-22')
+        self.assertIn('ELF_REBUILD_gcc_15.3.0-r13:=15.3.0-r14\n', self.ledger())
+        # Second rebuild updates the original 15.3.0-r13 key.
+        plan2 = A.plan(self.tree, self.destination, [
+            entry('packages/gcc-15.3.0-r14.apk', 'gcc', '15.3.0-r14')])
+        self.assertEqual(plan2[0]['recipe'], '15.3.0-r13')
+        self.assertEqual(plan2[0]['release'], '15.3.0-r15')
+
     def test_abi_version_does_not_leak_between_packages(self):
         (self.tree / 'tmp/.packageinfo').write_text(
             'Source-Makefile: feeds/packages/utils/bzip2/Makefile\n'

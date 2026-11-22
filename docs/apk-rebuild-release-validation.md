@@ -50,12 +50,28 @@ All commands were executed from `/srv/openwrt` with
   `review_before_allocate` by default (also classified as a high-cost Rust
   recipe blocked from automatic cold rebuild unless explicitly authorized).
 
+## Live Production Publication Validation (Generation 84)
+
+After merging upstream `origin/main` (`8a4732c9cb`, updating `toolchain/glibc/common.mk`,
+`package/libs/gettext-full/Makefile`, and `hostapd`), a full coordinated build
+and publication (`./scripts/build-and-publish.sh --allocate-rebuilds -j16`)
+exercised the complete Phase 1 + Phase 2 workflow end to end:
+
+| Check | Result |
+|---|---|
+| Full build (`make -j16`, kernel generation `7.3.5-84-openwrt`) | PASS |
+| Initial publication conflict gate (5 same-version rebuilds: `gettext-tools`, `wpad-mbedtls`, `fuse3-utils`, `xtables-nft`, `gcc`) | PASS (all 5 stopped in `review_before_allocate`; zero unauthorized ledger writes) |
+| `gcc` `DUMP=1` bare-release placeholder fix (`Version: 13` -> `15.3.0-r13 -> 15.3.0-r14`) & `test-allocate-rebuild-releases.py` | PASS (23/23) |
+| Preview with digest-bound approvals (`build-and-publish.py --dry-run --allocate-rebuilds --approval ...`) | PASS (`dry-run-conflict`, 5/5 approvals matched, zero ledger writes, zero `make` calls) |
+| Atomic ledger update (`configs/apk-elf-rebuilds.mk`), `# reserved:` retention, targeted 5-recipe rebuild, and post-allocation payload verification | PASS (zero payload drift) |
+| Live router upgrade preflight simulation (`elf_transition`: 1,506 packages / 2,736 ELF files) and feed promotion | PASS (`userspace` snapshot `20261122T141657.267324Z`, 303 changed packages; `kernel` snapshot `1795357060415680944`) |
+
 ## Validation Scope
 
-- **Covered**: Host unit tests, real `gcc`/`strip`/signed-APK compiler
-  fixtures, real published/local APK replays, and disposable temporary signed
-  feed publication tests.
-- **Not executed**: Production LAN feed publication (`/srv/openwrt-feeds`),
-  disposable VM boot tests, and physical router upgrades were not run because
-  these changes are confined to host-side publication/diagnosis tooling and
-  require separate authorization for production feed publication.
+- **Covered**: Host unit tests (220/220 after adding the `gcc` placeholder test),
+  real `gcc`/`strip`/signed-APK compiler fixtures, real published/local APK
+  replays, disposable temporary signed feed publication tests, and live
+  coordinated LAN feed publication with router upgrade preflight simulation
+  (generation `7.3.5-84-openwrt`).
+- **Not executed**: Disposable VM boot tests and physical router package
+  installation (`apk upgrade`) were not executed as part of this publication.
