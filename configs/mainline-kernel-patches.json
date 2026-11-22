@@ -13,6 +13,25 @@
       "source_sha256": "1626f7ce8216cb7601a315b8ad190e53f048dacfff7fc08e2c4d63488d5c51ec"
     },
     {
+      "source": "target/linux/generic/backport-6.18/050-v7.3-nvmem-layouts-u-boot-env-check-earlier-ethaddr.patch",
+      "files": [
+        "drivers/nvmem/layouts/u-boot-env.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "9f7ade394de3209166bdd2b8fc7be5f4c60944f6d74f0bc610906a26e4894bd5"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/200-v7.1-driver-core-kconfig-deferred-probe-timeout.patch",
+      "files": [
+        "drivers/base/Kconfig",
+        "drivers/base/dd.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "9e7147ae24a5ee60345f6de6fd3e67145997b15520121bb79dc45f18264b16cf"
+    },
+    {
       "source": "target/linux/generic/backport-6.18/211-01-v6.19-bitfield-Add-less-checking-__FIELD_-GET-PREP.patch",
       "files": [
         "include/linux/bitfield.h"
@@ -97,7 +116,8 @@
       ],
       "status": "upstream",
       "source_sha256": "0e89758d19027f18a869be802bf6e49dd5ab80b1164a3ced5be3d8923a26c47f",
-      "reason": "Backport targets upstream v7.4, absorbed by v7.3.5 stable (commit 01739ccea21b)"
+      "reason": "Backport targets upstream v7.4, absorbed by v7.3.5 stable (commit 01739ccea21b)",
+      "removed_in": "6.18.61-6.18.64"
     },
     {
       "source": "target/linux/generic/backport-6.18/440-v7.0-mtd-physmap-core-Prioritize-ofparts-for-OF-probe.patch",
@@ -115,7 +135,8 @@
       ],
       "status": "upstream",
       "source_sha256": "f5bd6e94af5529ded69a30e72d83bb018abcd02a7c640a686d61f09c8f12dabc",
-      "reason": "Backport targets upstream v7.4; included by the Linux 7.3.4 stable release (the 7.3 port reverse-applies cleanly), so the 7.3 copy was dropped"
+      "reason": "Backport targets upstream v7.4; included by the Linux 7.3.4 stable release (the 7.3 port reverse-applies cleanly), so the 7.3 copy was dropped",
+      "removed_in": "6.18.61-6.18.64"
     },
     {
       "source": "target/linux/generic/backport-6.18/445-01-v7.5-mmc-core-sdio-retry-without-UHS-if-UHS-init-fails.patch",
@@ -164,7 +185,8 @@
       ],
       "status": "upstream",
       "reason": "Backport targets upstream v7.3, included by v7.3",
-      "source_sha256": "58271114f20ed07b0b768dd1530537121723ed08ca6e9ff0b0cbcd59b4294cc6"
+      "source_sha256": "58271114f20ed07b0b768dd1530537121723ed08ca6e9ff0b0cbcd59b4294cc6",
+      "removed_in": "6.18.61-6.18.64"
     },
     {
       "source": "target/linux/generic/backport-6.18/503-02-v7.3-ksmbd-keep-tcp-timers-alive-for-kernel-sockets.patch",
@@ -426,6 +448,15 @@
       "source_sha256": "44c61dea645a84f981995a696eeacb17cb904f467b79116c013c73581c57a9f1"
     },
     {
+      "source": "target/linux/generic/backport-6.18/706-03-v7.2-netfilter-flowtable-bail-out-if-forward-path-cannot-b.patch",
+      "files": [
+        "net/netfilter/nf_flow_table_path.c"
+      ],
+      "status": "upstream",
+      "reason": "Upstream 871df5007eda is already present in Linux 7.3; failed forward-path discovery refuses offload",
+      "source_sha256": "d13e7cbca5797c3845afc4f33a8697f59b0b82b7a4f4506cc6017cff21058ff3"
+    },
+    {
       "source": "target/linux/generic/backport-6.18/706-04-v7.3-netfilter-flowtable-use-the-vlan-id-not-the-full-tci.patch",
       "files": [
         "net/netfilter/nf_flow_table_ip.c"
@@ -507,7 +538,19 @@
       ],
       "status": "upstream",
       "reason": "Backport targets upstream v7.3, included by v7.3",
-      "source_sha256": "23c1ac1c4d6580b666659840076732589d1157270e2d2e6279e3ec8a52f548d5"
+      "source_sha256": "23c1ac1c4d6580b666659840076732589d1157270e2d2e6279e3ec8a52f548d5",
+      "removed_in": "6.18.61-6.18.64"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/735-v7.3-net-ethernet-mtk_wed-Fix-dma_unmap_single-size.patch",
+      "files": [
+        "drivers/net/ethernet/mediatek/mtk_wed_wo.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "5d738a09496f53ea415ee00889ba4192f644fa64055e9cdb7f99e0316bdd4d7d",
+      "ported": "target/linux/generic/backport-7.3/735-v7.3-net-ethernet-mtk_wed-Fix-dma_unmap_single-size.patch",
+      "ported_sha256": "5d738a09496f53ea415ee00889ba4192f644fa64055e9cdb7f99e0316bdd4d7d"
     },
     {
       "source": "target/linux/generic/backport-6.18/737-01-v7.3-net-phylink-allow-PHYs-to-be-attached-in-802.3z-inba.patch",
@@ -597,7 +640,8 @@
       ],
       "status": "upstream",
       "reason": "Backport targets upstream v7.3, included by v7.3",
-      "source_sha256": "411bf0ad3ca82b74a1e71f7736b6ace06902a581312a472d06843326a9afffab"
+      "source_sha256": "411bf0ad3ca82b74a1e71f7736b6ace06902a581312a472d06843326a9afffab",
+      "removed_in": "6.18.61-6.18.64"
     },
     {
       "source": "target/linux/generic/backport-6.18/756-01-v7.3-net-sfp-allow-prefix-matching-in-quirk-lookup.patch",
@@ -617,6 +661,17 @@
       "status": "upstream",
       "reason": "Backport targets upstream v7.3, included by v7.3",
       "source_sha256": "e120d385d7b844aec11c8ccf8e2e6272c68e06857caace7dd768bb1f4ba2e2db"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/757-v7.5-net-sfp-add-quirk-for-OEM-SFP-ONU-XGSPON.patch",
+      "files": [
+        "drivers/net/phy/sfp.c"
+      ],
+      "status": "refreshed",
+      "reason": "Upstream v7.4/v7.5 commit absent from Linux 7.3.4; Ported after upstream merge 24c13d794c; verified against hash-checked Linux 7.3.4 with zero-fuzz full-stack application",
+      "source_sha256": "b5d7ef0e2bb8711c6a1e3eb2cb7af3f276e1fe07d2a0cc56692ba5880a55cc2a",
+      "ported": "target/linux/generic/backport-7.3/757-v7.5-net-sfp-add-quirk-for-OEM-SFP-ONU-XGSPON.patch",
+      "ported_sha256": "692df5062017c17172a34f8cfb6ff18ce1be1c5622a863e053c963ae57a7a52b"
     },
     {
       "source": "target/linux/generic/backport-6.18/761-v6.19-net-phy-mxl-gpy-add-support-for-mxl86252-and-mxl86282.patch",
@@ -1103,6 +1158,17 @@
       "removed_in": "6.18.56-6.18.60"
     },
     {
+      "source": "target/linux/generic/backport-6.18/787-v7.5-net-phy-realtek-return-MDIO-read-errors-from-hwmon.patch",
+      "files": [
+        "drivers/net/phy/realtek/realtek_hwmon.c"
+      ],
+      "status": "refreshed",
+      "reason": "Upstream v7.5 fix (d5b5ab50d2f6) returning MDIO read errors from rtl822x_hwmon_read(); absent from Linux 7.3.5, applies unchanged with zero fuzz and zero offsets; CONFIG_REALTEK_PHY and CONFIG_REALTEK_PHY_HWMON are enabled on x86/64",
+      "source_sha256": "c7b43e3c87a9dbde33ff059f43d3d080ce6c44b33c77c4bb7bf7cbb332df2bd4",
+      "ported": "target/linux/generic/backport-7.3/787-v7.5-net-phy-realtek-return-MDIO-read-errors-from-hwmon.patch",
+      "ported_sha256": "c7b43e3c87a9dbde33ff059f43d3d080ce6c44b33c77c4bb7bf7cbb332df2bd4"
+    },
+    {
       "source": "target/linux/generic/backport-6.18/788-v7.0-net-phy-realtek-fix-whitespace-in-struct-phy_driver-.patch",
       "files": [
         "drivers/net/phy/realtek/realtek_main.c"
@@ -1287,6 +1353,50 @@
       "source_sha256": "b34e30f2edd28fa733fe97625c2bf5fb67e5df35d78a1e079b6f334dd4e3b9ff",
       "ported": "target/linux/generic/backport-7.3/801-v7.4-net-phy-mxl-gpy-add-2.5G-for-MXL86211C.patch",
       "ported_sha256": "0c77cb50da29e332259838fd5f70416c9aa0c788fe4f4a7ec3b39323e9db6aa1"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/802-01-v7.4-net-usb-lan78xx-register-the-PHY-interrupt-with-the-.patch",
+      "files": [
+        "drivers/net/usb/lan78xx.c"
+      ],
+      "status": "refreshed",
+      "reason": "Upstream v7.4/v7.5 commit absent from Linux 7.3.4; Ported after upstream merge 24c13d794c; verified against hash-checked Linux 7.3.4 with zero-fuzz full-stack application",
+      "source_sha256": "77a4cd1c6f6bde432a9106625c5f495e06c44686568cf0a5e74d199a28ed10e9",
+      "ported": "target/linux/generic/backport-7.3/802-01-v7.4-net-usb-lan78xx-register-the-PHY-interrupt-with-the-.patch",
+      "ported_sha256": "77a4cd1c6f6bde432a9106625c5f495e06c44686568cf0a5e74d199a28ed10e9"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/802-02-v7.4-net-usb-smsc95xx-register-the-PHY-interrupt-with-the.patch",
+      "files": [
+        "drivers/net/usb/smsc95xx.c"
+      ],
+      "status": "refreshed",
+      "reason": "Upstream v7.4/v7.5 commit absent from Linux 7.3.4; Ported after upstream merge 24c13d794c; verified against hash-checked Linux 7.3.4 with zero-fuzz full-stack application",
+      "source_sha256": "20635bb72516ebb35c83d80f48bf6a5a4a50767864a71d425d1b3f73df080c3e",
+      "ported": "target/linux/generic/backport-7.3/802-02-v7.4-net-usb-smsc95xx-register-the-PHY-interrupt-with-the.patch",
+      "ported_sha256": "93f74ccd2475fe43c570b7f6ce0ff8c3c7b049a4ba9cefaee484a315012e6efe"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/802-03-v7.4-net-phy-take-the-interrupt-back-from-the-bus-on-deta.patch",
+      "files": [
+        "drivers/net/phy/phy_device.c"
+      ],
+      "status": "refreshed",
+      "reason": "Upstream v7.4/v7.5 commit absent from Linux 7.3.4; Ported after upstream merge 24c13d794c; verified against hash-checked Linux 7.3.4 with zero-fuzz full-stack application",
+      "source_sha256": "7601d84e0e9a2339a830601667f0d7782d626d4ec1af02d1386b4bbc1547abd8",
+      "ported": "target/linux/generic/backport-7.3/802-03-v7.4-net-phy-take-the-interrupt-back-from-the-bus-on-deta.patch",
+      "ported_sha256": "3c95782c3ae782999da69c0ec48c6b50409aca2aa51d673ce084eba6eb0e2262"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/802-04-v7.4-net-phy-restore-the-interrupt-when-the-generic-bind-.patch",
+      "files": [
+        "drivers/net/phy/phy_device.c"
+      ],
+      "status": "refreshed",
+      "reason": "Upstream v7.4/v7.5 commit absent from Linux 7.3.4; Ported after upstream merge 24c13d794c; verified against hash-checked Linux 7.3.4 with zero-fuzz full-stack application",
+      "source_sha256": "aeaaed8335f9c640bf869e3c8c0d55c85d9d9252419b2644140f771a44bcea7f",
+      "ported": "target/linux/generic/backport-7.3/802-04-v7.4-net-phy-restore-the-interrupt-when-the-generic-bind-.patch",
+      "ported_sha256": "925bcb2b8d323b75e181756e0729e9259dcdb41acaaebf36bcfef90a71d6852c"
     },
     {
       "source": "target/linux/generic/backport-6.18/810-v6.19-media-dt-bindings-video-interfaces-add-sampling-mode-defines.patch",
@@ -1487,6 +1597,39 @@
       "status": "upstream",
       "reason": "Backport targets upstream v7.3, included by v7.3",
       "source_sha256": "52bd6161bff4208acd1646ff283c044a8f07a4f42fea0f1a08541f72e4d26c63"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/856-01-v7.3-xhci-include-all-root-port-children-in-recovery-prevention-on-link-error.patch",
+      "files": [
+        "drivers/usb/host/xhci-ring.c",
+        "drivers/usb/host/xhci.c",
+        "drivers/usb/host/xhci.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "27d83ce5cbfbf2b4d1c148dea83839338311185439135374ac0c884fbff090aa",
+      "removed_in": "6.18.61-6.18.64"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/856-02-v7.3-xhci-prevent-endpoint-recovery-after-roothub-disconnect.patch",
+      "files": [
+        "drivers/usb/host/xhci-ring.c",
+        "drivers/usb/host/xhci.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "f9c090998b3cb2b09aa686d66a2c9f3d50b2a31eb86c9f30088dfdaefd6d063a"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/856-03-v7.3-xhci-avoid-xhc-endpoint-changes-after-disconnect-or-link-error.patch",
+      "files": [
+        "drivers/usb/host/xhci-ring.c",
+        "drivers/usb/host/xhci.c",
+        "drivers/usb/host/xhci.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; every added line is present in v7.3 (reverse application fails only on later upstream context such as the BIT() endpoint-state conversion)",
+      "source_sha256": "a7116d77a2dc595f247f7ec866c56ab8b53cadffd70fb9b7d66db959acc1f267"
     },
     {
       "source": "target/linux/generic/backport-6.18/907-v6.19-genirq-Change-hwirq-parameter-to-irq_hw_number_t.patch",
@@ -1946,13 +2089,1141 @@
       "removed_in": "6.18.56-6.18.60"
     },
     {
-      "source": "target/linux/generic/backport-6.18/706-03-v7.2-netfilter-flowtable-bail-out-if-forward-path-cannot-b.patch",
+      "source": "target/linux/generic/backport-6.18/967-01-v6.19-net-dsa-introduce-the-dsa-xmit-port-mask-tagging-pro.patch",
       "files": [
-        "net/netfilter/nf_flow_table_path.c"
+        "net/dsa/tag.h"
       ],
       "status": "upstream",
-      "reason": "Upstream 871df5007eda is already present in Linux 7.3; failed forward-path discovery refuses offload",
-      "source_sha256": "d13e7cbca5797c3845afc4f33a8697f59b0b82b7a4f4506cc6017cff21058ff3"
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "a027f9c48b38eac02f72ba74054cb7d7d604d981cc6d104d4af4f6cb4d07f3ef"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-01a-v7.0-flow-offload-add-const-qualifiers-to-function-argume.patch",
+      "files": [
+        "include/net/flow_offload.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "3304d650930f06caad0c98f2e01aecad35083555e2750242182225aec23e56d4"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-02-v6.19-net-dsa-tag-yt921x-add-support-for-Motorcomm-YT921x.patch",
+      "files": [
+        "include/net/dsa.h",
+        "include/uapi/linux/if_ether.h",
+        "net/dsa/Kconfig",
+        "net/dsa/Makefile",
+        "net/dsa/tag_yt921x.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; the YT921x tagger exists in v7.3 and the ordered 967-01..967-35 backport series reverse-applies there except for tag lines that later upstream commits in the same series rewrite",
+      "source_sha256": "4287ef15788fc4bd1eb68e0b762c80ccf7a2b8627b78d95f1a4001ec2aa69ff1"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-03-v6.19-net-dsa-yt921x-Add-support-for-Motorcomm-YT921x.patch",
+      "files": [
+        "drivers/net/dsa/Kconfig",
+        "drivers/net/dsa/Makefile",
+        "drivers/net/dsa/yt921x.c",
+        "drivers/net/dsa/yt921x.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "e91b7307ce7ebb83a8c1a9779f331b530eb72f7e05e5ef3043e285b1fba2854c"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-04-v6.19-net-dsa-yt921x-Fix-spelling-mistake-stucked-stuck.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "674083307568832d21c0d7603d19759f8b78134da3b78dce31f231cd9e5754ff"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-05-v6.19-net-dsa-yt921x-Fix-parsing-MIB-attributes.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "7618db8d3b0780f937b3d9b6ad77a3e11c9be0c78cfb195802b191f153c79803"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-06-v6.19-net-dsa-yt921x-Use-macros-for-MIB-locations.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c",
+        "drivers/net/dsa/yt921x.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "0bc7f915702423492eb6ac72a74d1270ea187885627d4cc5af0e7f6f86ab822e"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-07-v6.19-net-dsa-tag-yt921x-use-the-dsa-xmit-port-mask-helper.patch",
+      "files": [
+        "net/dsa/tag_yt921x.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "fb3acbb3b25d16765981ab2683dbbe8cc5c68d3bd2769c12fda7426106fea6a7"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-08-v6.19-net-dsa-yt921x-Set-ageing-time-min-ageing-time-max.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "2488f375d947887f7d197f3d93361a2d42be489ac968a86a9b7286e7b39adecb"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-09-v6.19-net-dsa-yt921x-Use-ULL-bitfield-macros-for-VLAN-CTRL.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "878e315fbfa40c8624c4c4428583bba11e63cf2c39991ffa5bff09cca3be4ede"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-09a-v6.19-net-dsa-add-simple-HSR-offload-helpers.patch",
+      "files": [
+        "include/net/dsa.h",
+        "net/dsa/dsa.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "bde650a9d4bf4830aa230df18fd29c8c5df9dc5b26e332707396db922392c727"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-10-v6.19-net-dsa-yt921x-Add-STP-MST-support.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c",
+        "drivers/net/dsa/yt921x.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "95c618a323e6eaa6cb98b8ec6b4373cf022ab0ac83ce11352ee424cb29b5a7e2"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-11-v6.19-net-dsa-yt921x-use-simple-HSR-offloading-helpers.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "6c878073c1c60cdb50d6e52cbcb08459dbc75bd993829746b0f8961bc98ada28"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-12-v7.0-net-dsa-yt921x-Add-LAG-offloading-support.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c",
+        "drivers/net/dsa/yt921x.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "5572d6a28d97f740b112685041fce6d5e1eddd940c1c8b47fa111560a249d413"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-13-v6.19-net-dsa-yt921x-Fix-MIB-overflow-wraparound-routine.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "e3838eca43534da95a27c5c3d5763bae0a49a6f4e59e9f70df78fe97badb8cbf"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-14-v7.0-net-dsa-tag-yt921x-clarify-priority-and-code-fields.patch",
+      "files": [
+        "net/dsa/tag_yt921x.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "cfc2c8bbf2986664e6410a93b03bb3ec71685660438181bbb02103d71a17a2ae"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-15-v7.0-net-dsa-tag-yt921x-add-priority-support.patch",
+      "files": [
+        "net/dsa/tag_yt921x.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "c3e88713f515526df3e46cfa54898c07a989962b08d24a157e0234b35dc9d821"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-16-v7.0-net-dsa-yt921x-Refactor-VLAN-awareness-setting.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "bb4b161b448ef75b79f63e47bff2b4e8dfaab60a374bfb90a7b8902eb05ebf4f"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-17-v7.0-net-dsa-yt921x-Refactor-yt921x-chip-setup.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "9e52d2cb47936d661f774ae99f975ae39b9f7a9a2eb00165c01bd0f558535075"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-18-v7.0-net-dsa-yt921x-Add-DCB-QoS-support.patch",
+      "files": [
+        "drivers/net/dsa/Kconfig",
+        "drivers/net/dsa/yt921x.c",
+        "drivers/net/dsa/yt921x.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "e20be78af42e817c36a942754ed6e19eee2b31a348d10062ca15b12d80e6c315"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-19-v7.1-net-dsa-move-dsa-bridge-ports-helper-to-dsa-h.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "bc76aaf416090bdf4e2f8b54f10065ba43a122151ea268291d08c8fb963d97d2"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-20-v7.2-net-dsa-yt921x-Refactor-long-register-helpers.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c",
+        "drivers/net/dsa/yt921x.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "25c0858a1e89be448379bb6b20bb349df0ea12f2fc5301b18df9487a32e680c4"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-21-v7.2-net-dsa-yt921x-Add-port-police-support.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c",
+        "drivers/net/dsa/yt921x.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "8cbe00ba3185b9b3d23e1f32540c6879057fa0fed7c6998b3c0c77424817b374"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-21a-v7.2-net-sched-tbf-add-extack-to-offload-params.patch",
+      "files": [
+        "include/net/pkt_cls.h",
+        "net/sched/sch_tbf.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "625253358df30e8557c97ecf2756553c80b76018ee6af7d987971ee0eb57e42c"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-22-v7.2-net-dsa-yt921x-Add-port-TBF-support.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c",
+        "drivers/net/dsa/yt921x.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "b7b89adfa0dfbb99fe183e85a35f15bc31e6eee8a3b0c2ca506a53db916f7383"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-23-v7.2-net-dsa-tag-yt921x-handle-ACL-tag-code.patch",
+      "files": [
+        "net/dsa/tag_yt921x.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "3759cc1174e5451ebefc815d4b7689ba3ac99732bf821535dce6be29ee3b44cf"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-24-v7.2-net-dsa-yt921x-Add-ACL-support.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.c",
+        "drivers/net/dsa/yt921x.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "f935fdae7a625ca1f4eaebc3ad4950c8423828e1db78c1022f25639c1ba8594f"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-25-v7.2-net-dsa-Fix-skb-ownership-in-taggers.patch",
+      "files": [
+        "net/dsa/tag_yt921x.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "dc7c1d3adcd383fb043ffd3b53bedaa05f0e7832938d086d4d09c8fcb436db68"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-26-v7.3-net-dsa-yt921x-Fix-external-port-detection.patch",
+      "files": [
+        "drivers/net/dsa/yt921x.h"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "1cb471ac2744104602d5b9711d896bf72bb3d11e72b9cd47648dc5ae5b9f4419"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-28-v6.19-net-phy-motorcomm-Add-support-for-PHY-LEDs-on-YT8531.patch",
+      "files": [
+        "drivers/net/phy/motorcomm.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "4ab33122c863d008746a45d0dcb9facaf17cc41e05f28c4d41775a4be11881db"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-31-v7.2-net-phy-motorcomm-move-mdio-lock-out-from-yt8531-set.patch",
+      "files": [
+        "drivers/net/phy/motorcomm.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "3965ee8df1d24393ca1c8f1af9cb33af7db7c1582a4b5631a05cd812269079c4"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-32-v7.2-net-motorcomm-phy-set-drive-strength-in-YT8531s-RGMI.patch",
+      "files": [
+        "drivers/net/phy/motorcomm.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "7b2dffed21b01cb6e41e60a7a012bc86bb0ed4c3258607e4154569e6935497b6"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-33-v7.2-net-phy-motorcomm-Add-YT8522-100M-RMII-PHY-support.patch",
+      "files": [
+        "drivers/net/phy/motorcomm.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; every added line is present in v7.3 (reverse application fails only on later upstream context such as the BIT() endpoint-state conversion)",
+      "source_sha256": "274ea1d3c1f18195e92247f748202446e23f25859c2a812ee7c020f8059ff440"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-34-v7.3-net-phy-motorcomm-Enable-optional-clock-for-YT8531.patch",
+      "files": [
+        "drivers/net/phy/motorcomm.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; every added line is present in v7.3 (reverse application fails only on later upstream context such as the BIT() endpoint-state conversion)",
+      "source_sha256": "38abdc79b7932476df5ba833124165ceed3985afd143e188c2c0fa06acb47bec"
+    },
+    {
+      "source": "target/linux/generic/backport-6.18/967-35-v7.3-net-phy-motorcomm-enable-the-reference-clock-for-YT8.patch",
+      "files": [
+        "drivers/net/phy/motorcomm.c"
+      ],
+      "status": "upstream",
+      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
+      "source_sha256": "9a6f46b48d1c1f5f997bec419c8a97a1151d2a15cc7993167d559b33d3263dba"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/200-tools_portability.patch",
+      "files": [
+        "tools/scripts/Makefile.include",
+        "tools/include/linux/types.h",
+        "tools/objtool/include/objtool/objtool.h",
+        "tools/include/asm-generic/bitops/fls.h",
+        "tools/lib/string.c",
+        "tools/arch/x86/include/asm/insn.h",
+        "tools/arch/x86/include/asm/orc_types.h",
+        "tools/include/linux/rbtree.h",
+        "tools/lib/subcmd/exec-cmd.c",
+        "tools/objtool/Makefile",
+        "tools/arch/x86/lib/insn.c"
+      ],
+      "status": "merged",
+      "source_sha256": "fcf825b89cd686119883a1722d64c82a4537371608b4bb9fed6c80238f0b9d29",
+      "ported": "target/linux/generic/hack-7.3/200-tools_portability.patch",
+      "ported_sha256": "ecfdc5369134103c6df03405b15f0d5258abc6d8f91f3ec7fd1b4b2f056a202e"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/201-gen_init_cpio_portability.patch",
+      "files": [
+        "usr/gen_init_cpio.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "af1364f2ea7a67bf7cec60dfefe21e5ae37bb79f6f6b141c386b1d53c944fb59",
+      "ported": "target/linux/generic/hack-7.3/201-gen_init_cpio_portability.patch",
+      "ported_sha256": "dfe1b4b4d6b4e9bd9a0fcc76b200c98216ca9e3c6951a9e8d449c91661fb3383"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/202-objtool_portability.patch",
+      "files": [
+        "tools/objtool/builtin-check.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "c1d354e8dbc326360a71437c953e3a5e765d89f97d2ec9180c58175453fb49cb",
+      "ported": "target/linux/generic/hack-7.3/202-objtool_portability.patch",
+      "ported_sha256": "38b797b00dd487f496e867ca0e5360b75b36fc7e1db9265aff48bf56ea4b94ed"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/204-module_strip.patch",
+      "files": [
+        "include/linux/module.h",
+        "include/linux/moduleparam.h",
+        "kernel/module/Kconfig",
+        "kernel/module/main.c",
+        "scripts/mod/modpost.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "439c8f133ccf5372b280d283febd7322a88a3216a8efb911dff4485b18e9667d",
+      "ported": "target/linux/generic/hack-7.3/204-module_strip.patch",
+      "ported_sha256": "8306341891a2667feafc5772861d108f3436e8576437088f8031172e9ea5a954"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/205-kconfig-abort-configuration-on-unset-symbol.patch",
+      "files": [
+        "scripts/kconfig/conf.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "f9f91b1051747128a803b70c814d52be7387ed3b41890d9e765a72023bd9ee0a",
+      "ported": "target/linux/generic/hack-7.3/205-kconfig-abort-configuration-on-unset-symbol.patch",
+      "ported_sha256": "309310fa93e4593b67fdc8fc1676c81663eb23c9a99f68ea2d690544498b9b8f"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/210-darwin_scripts_include.patch",
+      "files": [
+        "scripts/mod/elf.h",
+        "scripts/mod/mk_elfconfig.c",
+        "scripts/mod/modpost.h"
+      ],
+      "status": "rebased",
+      "source_sha256": "1dd15d0d079c85f7322d4dac4fbc77c30847fbd4c80c1601100c74725af6aa25",
+      "ported": "target/linux/generic/hack-7.3/210-darwin_scripts_include.patch",
+      "ported_sha256": "1dd15d0d079c85f7322d4dac4fbc77c30847fbd4c80c1601100c74725af6aa25"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/211-darwin-uuid-typedef-clash.patch",
+      "files": [
+        "scripts/mod/file2alias.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "ad1b51445225dc1fdbd92947d5f1d4e5ecb4e7f61325f8db8d8bc5d24b689443",
+      "ported": "target/linux/generic/hack-7.3/211-darwin-uuid-typedef-clash.patch",
+      "ported_sha256": "7d5a5e9a7261301dc6b07ff9305c3d260259dbb68972a2d2d0d2e3a7a6099059"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/214-spidev_h_portability.patch",
+      "files": [
+        "include/uapi/linux/spi/spidev.h"
+      ],
+      "status": "rebased",
+      "source_sha256": "3b834056b016ad654dedb9ed0305ca2b5b1c746c0dbc06132b23fc537e30fc05",
+      "ported": "target/linux/generic/hack-7.3/214-spidev_h_portability.patch",
+      "ported_sha256": "651f17dc588e14b6f6a79c7d65819cc40076720694caac34c826e6aa573fe0e1"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/230-openwrt_lzma_options.patch",
+      "files": [
+        "lib/decompress.c",
+        "scripts/Makefile.lib"
+      ],
+      "status": "rebased",
+      "source_sha256": "963f45dc0ccd7b6ef4a2886ee899a3590364326cab0173ee6277989df3e065ad",
+      "ported": "target/linux/generic/hack-7.3/230-openwrt_lzma_options.patch",
+      "ported_sha256": "dffadb34816e4bad0aae4ceab52277ba090638bc063fea5c80375f1ee2befe53"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/249-udp-tunnel-selection.patch",
+      "files": [
+        "net/ipv4/Kconfig"
+      ],
+      "status": "rebased",
+      "source_sha256": "4340d373f408ec9a46f598f177e5a7b52c418fe06e659ab77cda85f5c5c6473e",
+      "ported": "target/linux/generic/hack-7.3/249-udp-tunnel-selection.patch",
+      "ported_sha256": "e124a02a979f3d13d187aecaa19241f37a00e0a2c9ac296be8bcb272be2bf03a"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/250-netfilter_depends.patch",
+      "files": [
+        "net/netfilter/Kconfig"
+      ],
+      "status": "upstream",
+      "reason": "Reverse patch applies to v7.3",
+      "source_sha256": "84a3a76a4a306b8029b8af2bbdbff62d47c21e5f61e1d9c14cd603f031b019c8"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/251-kconfig.patch",
+      "files": [
+        "crypto/Kconfig",
+        "drivers/bcma/Kconfig",
+        "drivers/ssb/Kconfig",
+        "lib/Kconfig",
+        "net/netfilter/Kconfig",
+        "sound/core/Kconfig",
+        "net/Kconfig",
+        "lib/crc/Kconfig"
+      ],
+      "status": "merged",
+      "source_sha256": "c5b31a0cebba6548614782d7a9197fa6dd73f34c8dd42aab62601e3d8eae14e7",
+      "ported": "target/linux/generic/hack-7.3/251-kconfig.patch",
+      "ported_sha256": "f4bc83304e86727ade54189c4db272e241096a6aac6c3358a72df70f18b113c7"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/253-ksmbd-config.patch",
+      "files": [
+        "init/Kconfig",
+        "lib/Kconfig"
+      ],
+      "status": "rebased",
+      "source_sha256": "173d8815c5b8a843a8f0e8076f5534f71f2c299570afb612ed0fbe4ffa176aed",
+      "ported": "target/linux/generic/hack-7.3/253-ksmbd-config.patch",
+      "ported_sha256": "d3c10a0cbdee9a68d00a0be4499138a235403608964a413763fc1d0ab4fbf2ad"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/259-regmap_dynamic.patch",
+      "files": [
+        "drivers/base/regmap/Kconfig",
+        "drivers/base/regmap/Makefile",
+        "drivers/base/regmap/regmap.c",
+        "include/linux/regmap.h"
+      ],
+      "status": "merged",
+      "source_sha256": "02e896ac2f51da7548bdb16017070c8919868b35d483e3e7cbf2d6972117d634",
+      "ported": "target/linux/generic/hack-7.3/259-regmap_dynamic.patch",
+      "ported_sha256": "4f57b9d68648be9db3271310e7074416e73d060d7a344670177ae1a7833b68f0"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/260-crypto_test_dependencies.patch",
+      "files": [
+        "crypto/Kconfig",
+        "crypto/algboss.c"
+      ],
+      "status": "merged",
+      "source_sha256": "c308527cc693a184d63a3691e38d5e834b8529ffe5b57cb0c06be64220aa617d",
+      "ported": "target/linux/generic/hack-7.3/260-crypto_test_dependencies.patch",
+      "ported_sha256": "22e43165e0d3d9d6711623836b2114829a819948c7434002a8015b6fa4799af5"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/261-lib-arc4-unhide.patch",
+      "files": [
+        "lib/crypto/Kconfig"
+      ],
+      "status": "rebased",
+      "source_sha256": "f36056613f85c5dd39bef7add4fad38461ede3e78b480f8f127217babc5f6eb7",
+      "ported": "target/linux/generic/hack-7.3/261-lib-arc4-unhide.patch",
+      "ported_sha256": "d72d592ddac46a99ab1b72821866a0397c42f7ae3735a48b2c379811b142e8c0"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/280-rfkill-stubs.patch",
+      "files": [
+        "include/linux/rfkill.h",
+        "net/Makefile",
+        "net/rfkill/Kconfig",
+        "net/rfkill/Makefile"
+      ],
+      "status": "rebased",
+      "source_sha256": "91804a57e9e38bd1cbe8e15654703133068d84b8a41e8c9cc72ebeb9de47c1be",
+      "ported": "target/linux/generic/hack-7.3/280-rfkill-stubs.patch",
+      "ported_sha256": "144840fd46d42da2fe3e67d72b5eac1af778320cee9a997e7bd618246d039a3e"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/300-MIPS-r4k_cache-use-more-efficient-cache-blast.patch",
+      "files": [
+        "arch/mips/include/asm/r4kcache.h"
+      ],
+      "status": "rebased",
+      "source_sha256": "b6c78cef2a80ff69075b3d2bf09f90af80d1ce2bdc0b5bfb400dc1bd830ecdc7",
+      "ported": "target/linux/generic/hack-7.3/300-MIPS-r4k_cache-use-more-efficient-cache-blast.patch",
+      "ported_sha256": "1a882750b06b7cb2a47d5830dc4da2fcdc806605dbb0a2a5e7da9766fc0aecb8"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/301-01-mm-permit-to-declare-custom-execmem-alloc-free-funct.patch",
+      "files": [
+        "include/linux/moduleloader.h",
+        "mm/execmem.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "c5d86932732e37f19401d746f64eebfbcf5c27100339991e68478ec7c2cdfb03",
+      "ported": "target/linux/generic/hack-7.3/301-01-mm-permit-to-declare-custom-execmem-alloc-free-funct.patch",
+      "ported_sha256": "c33ddc0016442a298978c2e525f8f573233d3c782a7ec569c8d2ea26234f3cd3"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/301-02-mips-replace-mlong-calls-with-mno-long-calls-if-poss.patch",
+      "files": [
+        "arch/mips/Makefile",
+        "arch/mips/include/asm/module.h",
+        "arch/mips/kernel/module.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "0b4cced805cb005b308ce45a43e4a854a817ac2b941e09970dce4e686d224ed1",
+      "ported": "target/linux/generic/hack-7.3/301-02-mips-replace-mlong-calls-with-mno-long-calls-if-poss.patch",
+      "ported_sha256": "15c7087fdbb735c9f697139b5f63e166930a68aa41c34271a100c6698292f8d9"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/402-mtd-blktrans-call-add-disks-after-mtd-device.patch",
+      "files": [
+        "drivers/mtd/mtd_blkdevs.c",
+        "drivers/mtd/mtdcore.c",
+        "include/linux/mtd/blktrans.h"
+      ],
+      "status": "merged",
+      "source_sha256": "7b7749b3d64d4365397e845abc6d90eb6865795484c2bbdd8f370a8ea9041369",
+      "ported": "target/linux/generic/hack-7.3/402-mtd-blktrans-call-add-disks-after-mtd-device.patch",
+      "ported_sha256": "47f6e11b32b3ced07f0f999c068db46bf726dff713f4dddb88748204779fcc0d"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/420-mtd-support-OpenWrt-s-MTD_ROOTFS_ROOT_DEV.patch",
+      "files": [
+        "drivers/mtd/mtdcore.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "55dc1297d6282076e2489a6948925d7531cde6b456c1c2fdc9d49a5fc406e953",
+      "ported": "target/linux/generic/hack-7.3/420-mtd-support-OpenWrt-s-MTD_ROOTFS_ROOT_DEV.patch",
+      "ported_sha256": "95feac455dbb550d000e8572ed7e2431c5a9db9b4ed6faef0b86172a41d0afc1"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/421-drivers-mtd-parsers-add-nvmem-support-to-cmdlinepart.patch",
+      "files": [
+        "drivers/mtd/parsers/cmdlinepart.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "999ce0d8d707673078fe281ac2a3379007dde0e0783f6b794e145fa2abd5fcb3",
+      "ported": "target/linux/generic/hack-7.3/421-drivers-mtd-parsers-add-nvmem-support-to-cmdlinepart.patch",
+      "ported_sha256": "c22f4f7abe73d85d868031ca8d92047c2fbff9f55bfcb8e03a1b35ff18b26f5c"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/430-mtk-bmt-support.patch",
+      "files": [
+        "drivers/mtd/nand/Kconfig",
+        "drivers/mtd/nand/Makefile"
+      ],
+      "status": "rebased",
+      "source_sha256": "95dc55c7df18ff64c921b02f5245fc4917014dada86e3b8cbbb8cdbb8b0e9853",
+      "ported": "target/linux/generic/hack-7.3/430-mtk-bmt-support.patch",
+      "ported_sha256": "396ee9a5e1b1d470eb96c2872cb378599f45be161f7fe7e09943df25f272d236"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/499-LEGACY-block-partitions-populate-fwnode.patch",
+      "files": [
+        "block/partitions/core.c",
+        "drivers/mmc/core/bus.c",
+        "drivers/mmc/core/block.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "870a82810852943d1a29786c2061afd77847b1de00467a70cb5c51731e77bacb",
+      "ported": "target/linux/generic/hack-7.3/499-LEGACY-block-partitions-populate-fwnode.patch",
+      "ported_sha256": "db7a266fb46dd18ed11e86d35537ba0a93ffc8e7acfc98b4349915adb8f72de1"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/600-net-enable-fraglist-GRO-by-default.patch",
+      "files": [
+        "include/linux/netdev_features.h"
+      ],
+      "status": "rebased",
+      "source_sha256": "d90b6fa0eb174ad9890f5f154ee48ad0cdb38ea3bfb083befad20aee3392005f",
+      "ported": "target/linux/generic/hack-7.3/600-net-enable-fraglist-GRO-by-default.patch",
+      "ported_sha256": "4f100599ecc0dd45666d91f04e7dd5be57388eeadb3bf87f6890616bfe7ad66c"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/610-net-page_pool-try-to-free-deferred-skbs-while-waitin.patch",
+      "files": [
+        "net/core/page_pool.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "44fa01855cd56b1602ef95f6cb0857fd2fe7500efbf917333c33bbb0c1b7d65a",
+      "ported": "target/linux/generic/hack-7.3/610-net-page_pool-try-to-free-deferred-skbs-while-waitin.patch",
+      "ported_sha256": "810b4986f938d21e603df80742b32bf53fa13bb8cf0bc6f73cf8ac324b55ad0a"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/645-netfilter-connmark-introduce-set-dscpmark.patch",
+      "files": [
+        "include/uapi/linux/netfilter/xt_connmark.h",
+        "net/netfilter/xt_connmark.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "aecd2d0870a20b14f690fe349dbf6c32846cf2349984218ecd353610bcf15b97",
+      "ported": "target/linux/generic/hack-7.3/645-netfilter-connmark-introduce-set-dscpmark.patch",
+      "ported_sha256": "0175080c1fe0648ae6ee12c4c349a91ce0df94949e02711a11ec0e9efc21d37f"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/650-netfilter-add-xt_FLOWOFFLOAD-target.patch",
+      "files": [
+        "include/net/netfilter/nf_flow_table.h",
+        "include/uapi/linux/netfilter/xt_FLOWOFFLOAD.h",
+        "net/netfilter/Kconfig",
+        "net/netfilter/Makefile",
+        "net/netfilter/nf_flow_table_core.c",
+        "net/netfilter/xt_FLOWOFFLOAD.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "49199b876b8035bec637c2c98d2b31c0fce0722c4798aff3a0f64bd8bbed2a8f",
+      "ported": "target/linux/generic/hack-7.3/650-netfilter-add-xt_FLOWOFFLOAD-target.patch",
+      "ported_sha256": "f7689ca4065facd851f9dbbb3a76d89171584b06bd058c92837f2f41ae0e7705"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/651-wireless_mesh_header.patch",
+      "files": [
+        "include/linux/netdevice.h"
+      ],
+      "status": "merged",
+      "source_sha256": "b01b2a315382de9366fbdd482a61f43741b4e674c2045a9feb6bc2642e0e1c31",
+      "ported": "target/linux/generic/hack-7.3/651-wireless_mesh_header.patch",
+      "ported_sha256": "0843211c39bfdb7826670a583b8f3e0dfa9963b81ef26b6369efd480693665e5"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/660-fq_codel_defaults.patch",
+      "files": [
+        "net/sched/sch_fq_codel.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "0853e5df84fd0982dab3165aebe7baf5a5fd8f0aa45a55cfbb466ca78cfd2d61",
+      "ported": "target/linux/generic/hack-7.3/660-fq_codel_defaults.patch",
+      "ported_sha256": "1081d0e44967e236bc0133afaaa8912bd647425a624f3cabdf2bf13511ad1acd"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/661-kernel-ct-size-the-hashtable-more-adequately.patch",
+      "files": [
+        "net/netfilter/nf_conntrack_core.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "0f266dae4242aca2e76a70f142392cebb46c070b2158bb53de0b408c3de2b2e3",
+      "ported": "target/linux/generic/hack-7.3/661-kernel-ct-size-the-hashtable-more-adequately.patch",
+      "ported_sha256": "a18ba562294a431122fb4ee46193c0fab51375f553e22792b3c18ae406aa7b62"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/700-swconfig_switch_drivers.patch",
+      "files": [
+        "drivers/net/phy/Kconfig",
+        "drivers/net/phy/Makefile",
+        "include/linux/platform_data/b53.h"
+      ],
+      "status": "rebased",
+      "source_sha256": "db8a80a75ed903718287684f1990892a513c710a5c0b70a51b6c57e12bcbddc9",
+      "ported": "target/linux/generic/hack-7.3/700-swconfig_switch_drivers.patch",
+      "ported_sha256": "ca08b065897e842ebb8cca5badb64663683c56070d87c3e33a78f2c9058c85ef"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/710-net-sched-sch_cake-configure-sync_time-via-debugfs.patch",
+      "files": [
+        "net/sched/sch_cake.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "effa50dd363690c9fd3afd251ed01527b0ddf97a0c63283488096519d34acc9c",
+      "ported": "target/linux/generic/hack-7.3/710-net-sched-sch_cake-configure-sync_time-via-debugfs.patch",
+      "ported_sha256": "83f86671b3082c28a31ca930e7442f7816a713cdd8acb2e343782756415dd8c5"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/711-net-dsa-mv88e6xxx-disable-ATU-violation.patch",
+      "files": [
+        "drivers/net/dsa/mv88e6xxx/chip.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "84c3531254f5506af82d8647f1d11743ac659cca3be928e5bd8703ee091e1c3f",
+      "ported": "target/linux/generic/hack-7.3/711-net-dsa-mv88e6xxx-disable-ATU-violation.patch",
+      "ported_sha256": "de323a6b14c8e99c013e37733808ea486ace89ba9bd82a5cd4af3185bafb8151"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/721-net-add-packet-mangeling.patch",
+      "files": [
+        "include/linux/netdevice.h",
+        "include/linux/skbuff.h",
+        "net/Kconfig",
+        "net/core/dev.c",
+        "net/core/skbuff.c",
+        "net/ethernet/eth.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "123490f477d8ad9368e3395e8273d49241ec69a3a190d682eb1dda90b6320256",
+      "ported": "target/linux/generic/hack-7.3/721-net-add-packet-mangeling.patch",
+      "ported_sha256": "ddd1454fc2a1227bd93f1c061e0a3f737e64117c10e8db7980b9f22dc54f8de7"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/722-net-phy-aquantia-enable-AQR112-and-AQR412.patch",
+      "files": [
+        "drivers/net/phy/aquantia/aquantia_main.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "702e0a5547c0ce927c96c533e64bd526897f4a29202fde6f3a1dad86e130c962",
+      "ported": "target/linux/generic/hack-7.3/722-net-phy-aquantia-enable-AQR112-and-AQR412.patch",
+      "ported_sha256": "cdbbb9e2e5b5bcd77baab12b49bfb69f8e66768dba1e65083b3aff8ca0c347c3"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/723-net-phy-aquantia-fix-system-side-protocol-mi.patch",
+      "files": [
+        "drivers/net/phy/aquantia/aquantia_main.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "aeef8fec31b633aaf0069bae531f685d80e1c1644d337500f1dd9d8a5cca27d1",
+      "ported": "target/linux/generic/hack-7.3/723-net-phy-aquantia-fix-system-side-protocol-mi.patch",
+      "ported_sha256": "ed640cd643f956a8630989f016a7c2d5fe24e5f2e5192b4a16bed50320591a88"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/725-net-phy-aquantia-add-PHY_IDs-for-AQR112-variants.patch",
+      "files": [
+        "drivers/net/phy/aquantia/aquantia_main.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "b627e1194adbd9e5361ea3be3ebb176973f68cbe2ef77a94664387d371947d86",
+      "ported": "target/linux/generic/hack-7.3/725-net-phy-aquantia-add-PHY_IDs-for-AQR112-variants.patch",
+      "ported_sha256": "19d0c04e166a7c135a55a477b4176316986ad6a21ee50580c7bb33f0fe80ee2f"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/726-net-phy-aquantia-provision-USXGMII-system-interface.patch",
+      "files": [
+        "drivers/net/phy/aquantia/aquantia_main.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "8a862db1c45e9ad685dfd9010fef626b10691b5e678dcbc40b1d5b75ae97450f",
+      "ported": "target/linux/generic/hack-7.3/726-net-phy-aquantia-provision-USXGMII-system-interface.patch",
+      "ported_sha256": "309b16c0fcaa2058b0c92f508af8b087b17fa114bfd3774df4156eab5e1db746"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/730-net-ethernet-mtk_eth_soc-add-hw-dump-for-forced-rese.patch",
+      "files": [
+        "drivers/net/ethernet/mediatek/mtk_eth_soc.c",
+        "drivers/net/ethernet/mediatek/mtk_eth_soc.h"
+      ],
+      "status": "rebased",
+      "source_sha256": "7d95caea69f7ccdd8b7d6fd770624fda58ff449fddb2c4ccb944c794d36e631f",
+      "ported": "target/linux/generic/hack-7.3/730-net-ethernet-mtk_eth_soc-add-hw-dump-for-forced-rese.patch",
+      "ported_sha256": "a0b48e87013935c7e26afadfae6ace62c91b0f37cc67b731929742c081d09684"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/739-net-ethernet-mtk_eth_soc-fix-offload-with-incompatible-.patch",
+      "files": [
+        "drivers/net/ethernet/mediatek/mtk_eth_soc.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "7f6ae66938d01c6998a1fd528ed3d5912d2c021554917e6ca4bdb4296c5673b0",
+      "ported": "target/linux/generic/hack-7.3/739-net-ethernet-mtk_eth_soc-fix-offload-with-incompatible-.patch",
+      "ported_sha256": "b5bae60f289d77fcaa2c8f67c6aa2f2953db364293cad8b29bd078edacc13bfc"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/755-net-phy-motorcomm-yt8821-bus-collision-workaround.patch",
+      "files": [
+        "drivers/net/phy/motorcomm.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "4d65fe3a40e9ebd63c9ec7e286c738cc061ca06f0a3102fb079302e087a0fc36",
+      "ported": "target/linux/generic/hack-7.3/755-net-phy-motorcomm-yt8821-bus-collision-workaround.patch",
+      "ported_sha256": "2031fda27c48638b8373ad7876d7d863fccc8fca335527358c054b20ebd8d078"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/760-net-usb-r8152-add-LED-configuration-from-OF.patch",
+      "files": [
+        "drivers/net/usb/r8152.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "d48bd0d012bc3b32f5c29837d03b283631ab8cc395bab0503bb03ad04bf2b10e",
+      "ported": "target/linux/generic/hack-7.3/760-net-usb-r8152-add-LED-configuration-from-OF.patch",
+      "ported_sha256": "814cfe7bef3519cbdc80179f5c46bc69050f31d5e7cdf7b98dce181d1c69a40d"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/761-dt-bindings-net-add-RTL8152-binding-documentation.patch",
+      "files": [
+        "Documentation/devicetree/bindings/net/realtek,rtl8152.yaml"
+      ],
+      "status": "rebased",
+      "source_sha256": "61a6b9621c41728404f3d55f8e4b4bc7edfabbc7fa5fc727bfe06aadb258365b",
+      "ported": "target/linux/generic/hack-7.3/761-dt-bindings-net-add-RTL8152-binding-documentation.patch",
+      "ported_sha256": "61a6b9621c41728404f3d55f8e4b4bc7edfabbc7fa5fc727bfe06aadb258365b"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/766-net-phy-mediatek-ge-add-LED-configuration-interface.patch",
+      "files": [
+        "drivers/net/phy/mediatek/mtk-ge.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "2b9267fe9245e50fc54f44eba4a4a0463e3e79a0a23f0df06c4c22c29569a645",
+      "ported": "target/linux/generic/hack-7.3/766-net-phy-mediatek-ge-add-LED-configuration-interface.patch",
+      "ported_sha256": "641756add3c678a162d06abf0f516cfb98a47b6e1ec90202c8d11e34f0566dcd"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/770-r8169-LED-uses-original-network-port-name.patch",
+      "files": [
+        "drivers/net/ethernet/realtek/r8169.h",
+        "drivers/net/ethernet/realtek/r8169_leds.c",
+        "drivers/net/ethernet/realtek/r8169_main.c"
+      ],
+      "status": "merged",
+      "source_sha256": "5de71303f05b7c6740d74e1774887eccf0e8da5e4722dfad821a4243d30a5128",
+      "ported": "target/linux/generic/hack-7.3/770-r8169-LED-uses-original-network-port-name.patch",
+      "ported_sha256": "e1d0323197895914268804aef5d76809b4319be3cb9b267fcd6525ed9c5e6d79"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/780-usb-net-MeigLink_modem_support.patch",
+      "files": [
+        "drivers/net/usb/qmi_wwan.c",
+        "drivers/usb/serial/option.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "b06639b7705f58862f3780c76d8185a08274367bea2d59ac0387c17827a00771",
+      "ported": "target/linux/generic/hack-7.3/780-usb-net-MeigLink_modem_support.patch",
+      "ported_sha256": "c97cfaca9e82af643458aaa003825bdc0f4acff36f57ac6ed1f536b3c61607df"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/781-usb-net-rndis-support-asr.patch",
+      "files": [
+        "drivers/net/usb/rndis_host.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "a7b2f8aaa476cbf9982c1814e80d1aaad9503d9c7c0e6ce028d08d807b5e55a0",
+      "ported": "target/linux/generic/hack-7.3/781-usb-net-rndis-support-asr.patch",
+      "ported_sha256": "87ffb9ca1967ee41bd73d1d3fca34d29813dbf368a6f8051f322c84d5d17c2d1"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/790-net-phy-skip-MMD-30-for-RTL8221B-when-reading-C45-PH.patch",
+      "files": [
+        "drivers/net/phy/phy_device.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "7a099feb7b606aeba8796b110d919a3898535adaa4573d3f12f97a7fb3620a8c",
+      "ported": "target/linux/generic/hack-7.3/790-net-phy-skip-MMD-30-for-RTL8221B-when-reading-C45-PH.patch",
+      "ported_sha256": "eaba278c30c4d859711305f0843cbe1ba21604df6f63aa2ec6e4b86507d53a62"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/791-net-phy-ax88796b-build-the-Rust-driver-next-to-the-C.patch",
+      "files": [
+        "drivers/net/phy/Kconfig",
+        "drivers/net/phy/Makefile"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt 9115e6ee48 for kmod-phy-ax88796b-rust; Linux 7.3 still builds the Rust driver in place of the C one. The unchanged patch applies with zero fuzz (offsets only).",
+      "source_sha256": "a7179837986243d037aac229722a94f2544506c17d3d9420be32bfb44411731a",
+      "ported": "target/linux/generic/hack-7.3/791-net-phy-ax88796b-build-the-Rust-driver-next-to-the-C.patch",
+      "ported_sha256": "a7179837986243d037aac229722a94f2544506c17d3d9420be32bfb44411731a"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/800-GPIO-add-named-gpio-exports.patch",
+      "files": [
+        "drivers/gpio/gpiolib-of.c",
+        "include/linux/gpio/consumer.h",
+        "drivers/gpio/gpiolib-sysfs.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "bd74c754cace6ea7c1b3abdea743140b3d37b0d8eaacba63fce6e66a1c8c0a62",
+      "ported": "target/linux/generic/hack-7.3/800-GPIO-add-named-gpio-exports.patch",
+      "ported_sha256": "1ad13038a16ba022be224a5a33718af21caa7ee62f6892b8949e7b0335cb1c0a"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/805-nvmem-u-boot-env-probe-defer-on-corrupt-crc.patch",
+      "files": [
+        "drivers/nvmem/layouts/u-boot-env.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "de607a06604eb2d42af3df6209d5ad677e03fef5fc4d89724b3883d6f25b6774",
+      "ported": "target/linux/generic/hack-7.3/805-nvmem-u-boot-env-probe-defer-on-corrupt-crc.patch",
+      "ported_sha256": "de607a06604eb2d42af3df6209d5ad677e03fef5fc4d89724b3883d6f25b6774"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/810-bcma-ssb-fallback-sprom.patch",
+      "files": [
+        "drivers/bcma/Kconfig",
+        "drivers/bcma/Makefile",
+        "drivers/bcma/bcma_private.h",
+        "drivers/bcma/main.c",
+        "drivers/bcma/sprom.c",
+        "drivers/ssb/Kconfig",
+        "drivers/ssb/Makefile",
+        "drivers/ssb/main.c",
+        "drivers/ssb/sprom.c",
+        "drivers/ssb/ssb_private.h"
+      ],
+      "status": "rebased",
+      "source_sha256": "e2be196d6f6c8d3d0eff27c682ce75c8887ff2a669f3668616ff8b42a314a042",
+      "ported": "target/linux/generic/hack-7.3/810-bcma-ssb-fallback-sprom.patch",
+      "ported_sha256": "4e58571c812740d4ba269b7320cabfe7aa6565ce9da02ec933a6fc948bc32572"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/820-ledtrig-network-module.patch",
+      "files": [
+        "drivers/leds/trigger/Kconfig",
+        "drivers/leds/trigger/Makefile"
+      ],
+      "status": "rebased",
+      "source_sha256": "a6bc7b06b3632574fa7664be4581b4c57ae4c78dd3b0cd91df9f6f0ac0fe94d3",
+      "ported": "target/linux/generic/hack-7.3/820-ledtrig-network-module.patch",
+      "ported_sha256": "b53ae28e08a691475678d5c1ddb9f50457ff71f3a2b33fa45b61df1f2d2288d1"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/901-debloat_sock_diag.patch",
+      "files": [
+        "net/Kconfig",
+        "net/core/Makefile",
+        "net/core/sock.c",
+        "net/core/sock_diag.c",
+        "net/ipv4/Kconfig",
+        "net/netlink/Kconfig",
+        "net/packet/Kconfig",
+        "net/unix/Kconfig",
+        "net/xdp/Kconfig"
+      ],
+      "status": "merged",
+      "source_sha256": "4d9e5bb9ca9d96501e056c903551d75faa2b11d83ea9dc7fae93b154c9aafc3e",
+      "ported": "target/linux/generic/hack-7.3/901-debloat_sock_diag.patch",
+      "ported_sha256": "9d971284a436f0fe01b6c6f357be1a165c696ba69133ef750f6bf58f22a74da2"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/902-debloat_proc.patch",
+      "files": [
+        "fs/locks.c",
+        "fs/proc/Kconfig",
+        "fs/proc/consoles.c",
+        "fs/proc/proc_tty.c",
+        "include/net/snmp.h",
+        "ipc/msg.c",
+        "ipc/sem.c",
+        "ipc/shm.c",
+        "ipc/util.c",
+        "kernel/exec_domain.c",
+        "kernel/irq/proc.c",
+        "kernel/time/timer_list.c",
+        "mm/vmalloc.c",
+        "mm/vmstat.c",
+        "net/8021q/vlanproc.c",
+        "net/core/net-procfs.c",
+        "net/core/sock.c",
+        "net/ipv4/fib_trie.c",
+        "net/ipv4/proc.c",
+        "net/ipv4/route.c",
+        "net/ipv4/inet_timewait_sock.c"
+      ],
+      "status": "merged",
+      "source_sha256": "b16887963704bdb71d8c2b5cc332b1b004657947cb8393f0bdd3b85c660b2568",
+      "ported": "target/linux/generic/hack-7.3/902-debloat_proc.patch",
+      "ported_sha256": "e9e7c599b59d4e2729117f069422687fdb7e19e6ca1f1e2e291d98e91d9111b5"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/904-debloat_dma_buf.patch",
+      "files": [
+        "drivers/base/Kconfig",
+        "drivers/dma-buf/Makefile",
+        "drivers/dma-buf/dma-buf.c",
+        "kernel/sched/core.c",
+        "fs/d_path.c",
+        "net/Kconfig"
+      ],
+      "status": "merged",
+      "source_sha256": "3085f828f595d11bb59c1661fc9accd495b90a421a612d75d02529e5b220a465",
+      "ported": "target/linux/generic/hack-7.3/904-debloat_dma_buf.patch",
+      "ported_sha256": "9d36f08081f2d1199666efc467f0d787ea1ca685dea04293d5b5a901b1098e2a",
+      "review_findings": [
+        "dmabuf-heaps-kbuild"
+      ]
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/905-io_uring-zcrx-Use-IS_REACHABLE-instead-of-IS_ENABLED.patch",
+      "files": [
+        "io_uring/zcrx.c"
+      ],
+      "status": "merged",
+      "source_sha256": "7b6bdc55d72c7682eb3df9d71eb5df074719f601b2a31a785f4ed1308356f870",
+      "ported": "target/linux/generic/hack-7.3/905-io_uring-zcrx-Use-IS_REACHABLE-instead-of-IS_ENABLED.patch",
+      "ported_sha256": "1d1a42d8e3eb6ea1f5acc845c28623319cfc38eb8cbfae0bda21e61a3529a3ba"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/910-kobject_uevent.patch",
+      "files": [
+        "include/linux/kobject.h",
+        "lib/kobject_uevent.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "d67145c105bc43ca66c723b04ca46014c5f9862e992317a021b4faa0b1659043",
+      "ported": "target/linux/generic/hack-7.3/910-kobject_uevent.patch",
+      "ported_sha256": "03ef6a74cd3de65a3240eaa96f9332a0a13dbab271210c485651a825178247a4"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/911-kobject_add_broadcast_uevent.patch",
+      "files": [
+        "include/linux/kobject.h",
+        "lib/kobject_uevent.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "0e4d840d4ba5255abdde3df7516e84421f6bfdc626897d69f88597a93e20ded4",
+      "ported": "target/linux/generic/hack-7.3/911-kobject_add_broadcast_uevent.patch",
+      "ported_sha256": "8c31f8dc4b9350f837abc0426a6b7c09b6be74bb5df5f5d40a9365efc27f5d9b"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/920-device_tree_cmdline.patch",
+      "files": [
+        "drivers/of/fdt.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "783af4836653f5932b56dc38d32daa3fa676bcb8a8a352f2cf5096ee5659c227",
+      "ported": "target/linux/generic/hack-7.3/920-device_tree_cmdline.patch",
+      "ported_sha256": "3b3719cffc96fb9f0e3155fe5714d6434e9bde7eda1cfe3a62b3be3c513b10a0"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/926-crypto-eip93-use-AES-fallback-for-small-requests.patch",
+      "files": [
+        "drivers/crypto/inside-secure/eip93/Kconfig",
+        "drivers/crypto/inside-secure/eip93/eip93-cipher.c",
+        "drivers/crypto/inside-secure/eip93/eip93-cipher.h"
+      ],
+      "status": "rebased",
+      "source_sha256": "1db3652583d4c2c22a439965cdae8db4dc9572e95e47f98fa47a9bc4af9a4e95",
+      "ported": "target/linux/generic/hack-7.3/926-crypto-eip93-use-AES-fallback-for-small-requests.patch",
+      "ported_sha256": "2f671e744b7ec58d115512d5c7013671e2be672e422be97022a8b47fb9f485ca"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/930-Revert-Revert-Revert-driver-core-Set-fw_devlink-on-b.patch",
+      "files": [
+        "drivers/base/core.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "30ed89efcb397d3adebf424036ee955f1ed15e6bcb563670bc80392a996139bf",
+      "ported": "target/linux/generic/hack-7.3/930-Revert-Revert-Revert-driver-core-Set-fw_devlink-on-b.patch",
+      "ported_sha256": "88952576d455e64438a94a97a76d1c003a3ee31f16db7b7442dbedfe47eb7d01"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/940-kbuild-extract-modules-builtin-modinfo-from-vmlinux_o.patch",
+      "files": [
+        "scripts/Makefile.vmlinux"
+      ],
+      "status": "rebased",
+      "source_sha256": "ef52e4b18f7ca0958041e539ba9394bee8564accb797674f90dff9377e979b70",
+      "ported": "target/linux/generic/hack-7.3/940-kbuild-extract-modules-builtin-modinfo-from-vmlinux_o.patch",
+      "ported_sha256": "5dda0da3547979f31460824f1429e652c88c23367ae03d52000e92db39bfc182"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/950-silence-unused-variable-warnings.patch",
+      "files": [
+        "include/net/ipv6.h",
+        "net/ipv4/tcp_input.c"
+      ],
+      "status": "rebased",
+      "source_sha256": "f355b235c775309397130a073bd7d8a378f406114ab0f1d1068b36b61886b2c4",
+      "ported": "target/linux/generic/hack-7.3/950-silence-unused-variable-warnings.patch",
+      "ported_sha256": "765e49531d9685fbd8c8bfe67f33dd166358f287455c8e82a194048d4748c602"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/960-silence-uninitialized-variable-warnings.patch",
+      "files": [
+        "arch/mips/vdso/genvdso.h"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "931df1a0595f5e2f8a245ad4324d8d42f59333fca11f8911a73b3e97daa372b2",
+      "ported": "target/linux/generic/hack-7.3/960-silence-uninitialized-variable-warnings.patch",
+      "ported_sha256": "931df1a0595f5e2f8a245ad4324d8d42f59333fca11f8911a73b3e97daa372b2"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/967-39-fix-mtk-yt922x-tx-checksum-offload.patch",
+      "files": [
+        "drivers/net/ethernet/mediatek/mtk_eth_soc.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "eacdd35fd7eefafd5a0df79e045a36c3c16cc9381f70e847017ae668df9096bf",
+      "ported": "target/linux/generic/hack-7.3/967-39-fix-mtk-yt922x-tx-checksum-offload.patch",
+      "ported_sha256": "eacdd35fd7eefafd5a0df79e045a36c3c16cc9381f70e847017ae668df9096bf"
+    },
+    {
+      "source": "target/linux/generic/hack-6.18/970-mux-expose-core-config.patch",
+      "files": [
+        "drivers/mux/Kconfig"
+      ],
+      "status": "merged",
+      "source_sha256": "f4b34a4c642304520e19e45cd2d512ad83a1c6c11e1386a7c802b9ff32d328c8",
+      "ported": "target/linux/generic/hack-7.3/970-mux-expose-core-config.patch",
+      "ported_sha256": "01dfb737acf69d608a9700eafc448b6d51943028c094f63f4cda78112ae27ff8"
     },
     {
       "source": "target/linux/generic/pending-6.18/100-compiler.h-only-include-asm-rwonce.h-for-kernel-code.patch",
@@ -2720,6 +3991,17 @@
       "ported_sha256": "f93e0a0fe0e09c3d5ea2c0f5e69c802739398871699f431ac85e6963afc2d78f"
     },
     {
+      "source": "target/linux/generic/pending-6.18/550-drm-amd-display-fix-frame-size-warning.patch",
+      "files": [
+        "drivers/gpu/drm/amd/display/dc/dml/Makefile"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt 6dcd4886b389; carried for optional AMDGPU display builds with low frame warning thresholds.",
+      "source_sha256": "09e9f6c73fce74213f26d0a784acde0d3fc616165bd412cc7bf0c63c6b39379c",
+      "ported": "target/linux/generic/pending-7.3/550-drm-amd-display-fix-frame-size-warning.patch",
+      "ported_sha256": "09e9f6c73fce74213f26d0a784acde0d3fc616165bd412cc7bf0c63c6b39379c"
+    },
+    {
       "source": "target/linux/generic/pending-6.18/600-netfilter_conntrack_flush.patch",
       "files": [
         "net/netfilter/nf_conntrack_standalone.c"
@@ -2786,6 +4068,32 @@
       "source_sha256": "d857901c306329146871968200e846c2a8ab8d22269304bda3964d19f0cd6d4b",
       "ported": "target/linux/generic/pending-7.3/643-net-dsa-fix-host-fdb-refcount-when-a-bridge-fdb-entry-roams.patch",
       "ported_sha256": "d857901c306329146871968200e846c2a8ab8d22269304bda3964d19f0cd6d4b"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/644-net-dsa-pass-bridge-VLAN-protocol-changes-to-drivers.patch",
+      "files": [
+        "include/net/dsa.h",
+        "net/dsa/port.c",
+        "net/dsa/port.h",
+        "net/dsa/user.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "266b67eda8066cc418fdd3b8a40a2226666195f907bf9824668f7dff9509226a",
+      "ported": "target/linux/generic/pending-7.3/644-net-dsa-pass-bridge-VLAN-protocol-changes-to-drivers.patch",
+      "ported_sha256": "266b67eda8066cc418fdd3b8a40a2226666195f907bf9824668f7dff9509226a"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/645-net-dsa-pass-bridge-multicast-snooping-changes-to-drivers.patch",
+      "files": [
+        "include/net/dsa.h",
+        "net/dsa/user.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "cec472cfd971bb87fc0d38ab2c017576bed0120437b9f39227f00dac20905f8e",
+      "ported": "target/linux/generic/pending-7.3/645-net-dsa-pass-bridge-multicast-snooping-changes-to-drivers.patch",
+      "ported_sha256": "cec472cfd971bb87fc0d38ab2c017576bed0120437b9f39227f00dac20905f8e"
     },
     {
       "source": "target/linux/generic/pending-6.18/655-increase_skb_pad.patch",
@@ -3567,6 +4875,17 @@
       "ported_sha256": "c947be2d393a996ba8cda32a8e45a395b9210fa8df2efd2659c459f01c75c1df"
     },
     {
+      "source": "target/linux/generic/pending-6.18/744-net-phy-realtek-register-hwmon-thermal-zone.patch",
+      "files": [
+        "drivers/net/phy/realtek/realtek_hwmon.c"
+      ],
+      "status": "refreshed",
+      "reason": "Registers HWMON_C_REGISTER_TZ alongside carried Realtek PHY patches 742/743; absent from Linux 7.3.5, applies unchanged after 787 with zero fuzz and zero offsets; no-op on ACPI x86/64 (gated on of_node and CONFIG_THERMAL_OF)",
+      "source_sha256": "294e88a339b0f622f29bd9248610efc33460c565bb8b3e6f97e92d455494a1c1",
+      "ported": "target/linux/generic/pending-7.3/744-net-phy-realtek-register-hwmon-thermal-zone.patch",
+      "ported_sha256": "294e88a339b0f622f29bd9248610efc33460c565bb8b3e6f97e92d455494a1c1"
+    },
+    {
       "source": "target/linux/generic/pending-6.18/750-net-sfp-add-quirk-for-QINIYEK-BJ-SFP-10G-T-copper-SF.patch",
       "files": [
         "drivers/net/phy/sfp.c"
@@ -3598,6 +4917,17 @@
       "ported": "target/linux/generic/pending-7.3/752-net-sfp-add-LED-triggers-for-module-state-and-faults.patch",
       "ported_sha256": "af21a6f4dabc5f45b2751f83e33301eca8c554c49b91733de675effdfa7072c5",
       "reason": "Hunk offsets refreshed for the new 757/802 backports; Ported after upstream merge 24c13d794c; verified against hash-checked Linux 7.3.4 with zero-fuzz full-stack application"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/753-net-sfp-add-quirk-for-ZYXEL-PMG3000-D20B.patch",
+      "files": [
+        "drivers/net/phy/sfp.c"
+      ],
+      "status": "carried",
+      "reason": "Hunk offsets refreshed for the new 757/802 backports; Ported after upstream merge 24c13d794c; verified against hash-checked Linux 7.3.4 with zero-fuzz full-stack application",
+      "source_sha256": "c9f3b8009b7b41b86241af71b55a407c8a613f444eb7dd87644d972517554d8e",
+      "ported": "target/linux/generic/pending-7.3/753-net-sfp-add-quirk-for-ZYXEL-PMG3000-D20B.patch",
+      "ported_sha256": "7d0fb12ac6abd21ee7ff0ad8018660dc41c12ac92b47209813e74c65291da687"
     },
     {
       "source": "target/linux/generic/pending-6.18/760-00-net-dsa-mxl862xx-wait-for-firmware-boot-time-configu.patch",
@@ -3857,6 +5187,73 @@
       "ported_sha256": "75db457d63dd812d03b4ebd9d2129a0e16e6e4e5c29d6c7cbf1c10c9b0ec08c7"
     },
     {
+      "source": "target/linux/generic/pending-6.18/792-wireguard-socket-fix-sticky-source-address-on-p2p.patch",
+      "files": [
+        "drivers/net/wireguard/socket.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt 4d5d291a26 (pending, Cc stable, absent from Linux 7.3.3 and the 7.3.4 stable changelog); the unchanged patch applies to Linux 7.3.3 with zero fuzz on top of the full x86 stack and socket.o builds. Fixes WireGuard IPv4 replies leaving from the LAN address when a LAN peer targets a point-to-point (PPPoE) local address.",
+      "source_sha256": "9312fab4f20deb8856cc16525f59c80f27913e0d665ff270591c902f53b31a80",
+      "ported": "target/linux/generic/pending-7.3/792-wireguard-socket-fix-sticky-source-address-on-p2p.patch",
+      "ported_sha256": "9312fab4f20deb8856cc16525f59c80f27913e0d665ff270591c902f53b31a80"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/793-01-net-ethernet-mtk_wed-skip-ring-reset-in-wdma_tx_ring.patch",
+      "files": [
+        "drivers/net/ethernet/mediatek/mtk_wed.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "4f6f59e3713983ff7e2536a75a4d7e43f77205e01625dc898d6af92db35b8ded",
+      "ported": "target/linux/generic/pending-7.3/793-01-net-ethernet-mtk_wed-skip-ring-reset-in-wdma_tx_ring.patch",
+      "ported_sha256": "4f6f59e3713983ff7e2536a75a4d7e43f77205e01625dc898d6af92db35b8ded"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/793-02-net-ethernet-mtk_wed-fix-reset-condition-for-rx-wdma.patch",
+      "files": [
+        "drivers/net/ethernet/mediatek/mtk_wed.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "4e40cbc8f00a9f350bd23e0f1189d4454b4d0a149269fb48e3b2eb7401e2a4e0",
+      "ported": "target/linux/generic/pending-7.3/793-02-net-ethernet-mtk_wed-fix-reset-condition-for-rx-wdma.patch",
+      "ported_sha256": "4e40cbc8f00a9f350bd23e0f1189d4454b4d0a149269fb48e3b2eb7401e2a4e0"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/793-03-net-ethernet-mtk_wed-free-up-rings-during-detach.patch",
+      "files": [
+        "drivers/net/ethernet/mediatek/mtk_wed.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "b74f99364e455fc44a45c3d158dd3728298b00577c7d0b88aaa2dee49eb3eddd",
+      "ported": "target/linux/generic/pending-7.3/793-03-net-ethernet-mtk_wed-free-up-rings-during-detach.patch",
+      "ported_sha256": "b74f99364e455fc44a45c3d158dd3728298b00577c7d0b88aaa2dee49eb3eddd"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/793-04-net-ethernet-mtk_wed-setup-WDMA_RING_TX-0-for-non-DB.patch",
+      "files": [
+        "drivers/net/ethernet/mediatek/mtk_wed.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "b7c2bdfeb87561ed6f6aa04d8db37ece2b82d8fb11467c26a358d8e10a33def0",
+      "ported": "target/linux/generic/pending-7.3/793-04-net-ethernet-mtk_wed-setup-WDMA_RING_TX-0-for-non-DB.patch",
+      "ported_sha256": "b7c2bdfeb87561ed6f6aa04d8db37ece2b82d8fb11467c26a358d8e10a33def0"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/794-net-ethernet-mtk_wed-bypass-the-RROQM-when-hw_rro-is.patch",
+      "files": [
+        "drivers/net/ethernet/mediatek/mtk_wed.c",
+        "drivers/net/ethernet/mediatek/mtk_wed_regs.h"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "63e106394d0ec40fe41e8e3e385ac941571ebda134afb2ede9631726f1028206",
+      "ported": "target/linux/generic/pending-7.3/794-net-ethernet-mtk_wed-bypass-the-RROQM-when-hw_rro-is.patch",
+      "ported_sha256": "63e106394d0ec40fe41e8e3e385ac941571ebda134afb2ede9631726f1028206"
+    },
+    {
       "source": "target/linux/generic/pending-6.18/795-01-net-ethernet-mtk_ppe_offload-use-rhashtable_lookup_f.patch",
       "files": [
         "drivers/net/ethernet/mediatek/mtk_ppe_offload.c"
@@ -3959,6 +5356,73 @@
       "source_sha256": "88a192b28b464ae608ae6676335176496ef0dda1c3cca464be9e8705834fae12"
     },
     {
+      "source": "target/linux/generic/pending-6.18/797-00-wifi-cfg80211-add-the-flow-key-and-flow-description-.patch",
+      "files": [
+        "include/net/cfg80211.h"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "8aec162e1c1f294d4a2946d02da77a9ac93e0e9d9529f7b09ee29f7cfbf21476",
+      "ported": "target/linux/generic/pending-7.3/797-00-wifi-cfg80211-add-the-flow-key-and-flow-description-.patch",
+      "ported_sha256": "652595247573954cea49275a78a7e078df7b2a6f58b9fcf94107a35187d78799"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/797-01-net-ethernet-mtk_eth_soc-query-the-wireless-driver-f.patch",
+      "files": [
+        "drivers/net/ethernet/mediatek/mtk_eth_soc.h",
+        "drivers/net/ethernet/mediatek/mtk_ppe.c",
+        "drivers/net/ethernet/mediatek/mtk_ppe.h",
+        "drivers/net/ethernet/mediatek/mtk_ppe_offload.c",
+        "drivers/net/ethernet/mediatek/mtk_wed.c",
+        "drivers/net/ethernet/mediatek/mtk_wed.h",
+        "include/linux/soc/mediatek/mtk_wed.h",
+        "drivers/net/ethernet/mediatek/mtk_eth_soc.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "4e22cfd56957174e82d82fd0bf3a329790f2655ff6bbae48a9b13bdebd1c5177",
+      "ported": "target/linux/generic/pending-7.3/797-01-net-ethernet-mtk_eth_soc-query-the-wireless-driver-f.patch",
+      "ported_sha256": "4e22cfd56957174e82d82fd0bf3a329790f2655ff6bbae48a9b13bdebd1c5177"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/797-02-net-ethernet-mtk_eth_soc-report-the-idle-time-of-off.patch",
+      "files": [
+        "drivers/net/ethernet/mediatek/mtk_eth_soc.h",
+        "drivers/net/ethernet/mediatek/mtk_ppe.c",
+        "drivers/net/ethernet/mediatek/mtk_ppe.h",
+        "drivers/net/ethernet/mediatek/mtk_ppe_offload.c",
+        "drivers/net/ethernet/mediatek/mtk_wed.c",
+        "include/linux/soc/mediatek/mtk_wed.h"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "7082bae64197e6be1a3438b6b0df6a21d5fa59ac1597d1e26c71a52b93c482a3",
+      "ported": "target/linux/generic/pending-7.3/797-02-net-ethernet-mtk_eth_soc-report-the-idle-time-of-off.patch",
+      "ported_sha256": "7082bae64197e6be1a3438b6b0df6a21d5fa59ac1597d1e26c71a52b93c482a3"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/798-net-ethernet-mtk_wed-free-the-hw_rro-buffers-once-in.patch",
+      "files": [
+        "drivers/net/ethernet/mediatek/mtk_wed.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "a30166c0dc5e827ee49984f1aab210439c7eb98b448de43f12dfd12b91edba76",
+      "ported": "target/linux/generic/pending-7.3/798-net-ethernet-mtk_wed-free-the-hw_rro-buffers-once-in.patch",
+      "ported_sha256": "a30166c0dc5e827ee49984f1aab210439c7eb98b448de43f12dfd12b91edba76"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/799-net-ethernet-mtk_wed-attach-a-PCIe-device-of-domain-.patch",
+      "files": [
+        "drivers/net/ethernet/mediatek/mtk_wed.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "4ea6ebfe5b317bbc445823aef92789ce2bb5e7678e63a9719e1d83b2dd8404b8",
+      "ported": "target/linux/generic/pending-7.3/799-net-ethernet-mtk_wed-attach-a-PCIe-device-of-domain-.patch",
+      "ported_sha256": "4ea6ebfe5b317bbc445823aef92789ce2bb5e7678e63a9719e1d83b2dd8404b8"
+    },
+    {
       "source": "target/linux/generic/pending-6.18/800-bcma-get-SoC-device-struct-copy-its-DMA-params-to-th.patch",
       "files": [
         "drivers/bcma/host_soc.c",
@@ -4038,6 +5502,17 @@
       "ported_sha256": "630b6454d6c51db1f427e178885094a3a9449ef1f46856a88b03a38000cd79e6"
     },
     {
+      "source": "target/linux/generic/pending-6.18/803-rust-opp-pass-old-opp-to-config_clks.patch",
+      "files": [
+        "rust/kernel/opp.rs"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt c59b9de355; Linux 7.3 rust/kernel/opp.rs still lacks the old_opp argument that ported 802 adds to config_clks_t. The unchanged patch applies with zero fuzz (offset only). Needed only with CONFIG_RUST and CONFIG_PM_OPP.",
+      "source_sha256": "ee0f60566564babb63b6a1a4753ff658bd2af883b340b478d71bf19fb3f551e4",
+      "ported": "target/linux/generic/pending-7.3/803-rust-opp-pass-old-opp-to-config_clks.patch",
+      "ported_sha256": "ee0f60566564babb63b6a1a4753ff658bd2af883b340b478d71bf19fb3f551e4"
+    },
+    {
       "source": "target/linux/generic/pending-6.18/804-net-phy-as21xxx-implement-read-workaround-for-C45-re.patch",
       "files": [
         "drivers/net/phy/as21xxx.c"
@@ -4057,6 +5532,50 @@
       "source_sha256": "baf982cdedc3c149f9e052d3e006aafe70c711639447f50701bf781ea784b7b4",
       "ported": "target/linux/generic/pending-7.3/804-nvmem-core-support-mac-base-fixed-layout-cells.patch",
       "ported_sha256": "5c9690ecb21aef44f250312f1178dac8bdab5d8518a0ad510159b14d8ec53475"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/805-01-nvmem-u-boot-env-post-process-ignore-quotes.patch",
+      "files": [
+        "drivers/nvmem/layouts/u-boot-env.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "0df032b42e213e164b696d620aab1680e5569724b3b4a15d4bde3c4c6f9081e7",
+      "ported": "target/linux/generic/pending-7.3/805-01-nvmem-u-boot-env-post-process-ignore-quotes.patch",
+      "ported_sha256": "0df032b42e213e164b696d620aab1680e5569724b3b4a15d4bde3c4c6f9081e7"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/805-02-nvmem-u-boot-env-post-process-more-macaddr-names.patch",
+      "files": [
+        "drivers/nvmem/layouts/u-boot-env.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "b1930d8f360c31a2ca21efee27029e0440f676559bc92a5fa02b27f016505e53",
+      "ported": "target/linux/generic/pending-7.3/805-02-nvmem-u-boot-env-post-process-more-macaddr-names.patch",
+      "ported_sha256": "b1930d8f360c31a2ca21efee27029e0440f676559bc92a5fa02b27f016505e53"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/805-03-nvmem-u-boot-env-post-process-ethaddr-numbered.patch",
+      "files": [
+        "drivers/nvmem/layouts/u-boot-env.c"
+      ],
+      "status": "rebased",
+      "reason": "Added by OpenWrt merge of b455c5b851; context refreshed for the linux/hex.h include already present in Linux 7.3, otherwise unchanged",
+      "source_sha256": "ee0035ee3b00d8b108bd819efd1068eb7af37f775ae60695abe9da5db6876f3e",
+      "ported": "target/linux/generic/pending-7.3/805-03-nvmem-u-boot-env-post-process-ethaddr-numbered.patch",
+      "ported_sha256": "4e975668010d286f769d17843d613800469c6d95a3f691c2dca7ce3f74608144"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/805-04-nvmem-u-boot-env-post-process-radioaddr-numbered.patch",
+      "files": [
+        "drivers/nvmem/layouts/u-boot-env.c"
+      ],
+      "status": "carried",
+      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
+      "source_sha256": "3701b26f4ae2fbf696ad59530f2af69815fef4e6bcd8c0d160f164bc172dbb23",
+      "ported": "target/linux/generic/pending-7.3/805-04-nvmem-u-boot-env-post-process-radioaddr-numbered.patch",
+      "ported_sha256": "3701b26f4ae2fbf696ad59530f2af69815fef4e6bcd8c0d160f164bc172dbb23"
     },
     {
       "source": "target/linux/generic/pending-6.18/809-01-nvmem-core-generalize-mac-base-cells-handling.patch",
@@ -4190,6 +5709,61 @@
       "ported_sha256": "4d4c274ba9bf3c27a1aed44ac5954f04fd9a343abbea9686c40c7e60ce60043c"
     },
     {
+      "source": "target/linux/generic/pending-6.18/835-01-leds-trigger-netdev-put-netdev-on-activate-error-path.patch",
+      "files": [
+        "drivers/leds/trigger/ledtrig-netdev.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "b519dd9be079e4973c73e7900fb4a84acaef1ed060b23d5f9b8a8407f6a981e2",
+      "ported": "target/linux/generic/pending-7.3/835-01-leds-trigger-netdev-put-netdev-on-activate-error-path.patch",
+      "ported_sha256": "b519dd9be079e4973c73e7900fb4a84acaef1ed060b23d5f9b8a8407f6a981e2"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/835-02-leds-trigger-netdev-access-net-dev-under-trigger-data-lock-in-the-worker.patch",
+      "files": [
+        "drivers/leds/trigger/ledtrig-netdev.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "2c409072eee8862a1350ecc44cd38e7625f581841da85130f291dfcaa83b66fd",
+      "ported": "target/linux/generic/pending-7.3/835-02-leds-trigger-netdev-access-net-dev-under-trigger-data-lock-in-the-worker.patch",
+      "ported_sha256": "2c409072eee8862a1350ecc44cd38e7625f581841da85130f291dfcaa83b66fd"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/835-03-leds-trigger-netdev-fix-sysfs-update-group-races.patch",
+      "files": [
+        "drivers/leds/trigger/ledtrig-netdev.c"
+      ],
+      "status": "refreshed",
+      "reason": "Rebased preserving Linux 7.3 high-speed netdev LED modes after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "d86a3bc369ee9ef64578febe1808e94c1bf72ac846ee9e2fbf218e30df3411d1",
+      "ported": "target/linux/generic/pending-7.3/835-03-leds-trigger-netdev-fix-sysfs-update-group-races.patch",
+      "ported_sha256": "91de66dfe96068cc3194ecde31999b7cedf535efb66f366e2385946fa2dba04d"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/835-04-leds-trigger-netdev-report-invalid-interval-to-user-space.patch",
+      "files": [
+        "drivers/leds/trigger/ledtrig-netdev.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "4cdc6ec9d59feb5be50687f73af9ef83351d3be973c48baabdbc1b6feadb2ad5",
+      "ported": "target/linux/generic/pending-7.3/835-04-leds-trigger-netdev-report-invalid-interval-to-user-space.patch",
+      "ported_sha256": "4cdc6ec9d59feb5be50687f73af9ef83351d3be973c48baabdbc1b6feadb2ad5"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/835-05-leds-trigger-netdev-serialize-mode-interval-stores-with-trigger-lock.patch",
+      "files": [
+        "drivers/leds/trigger/ledtrig-netdev.c"
+      ],
+      "status": "refreshed",
+      "reason": "Rebased preserving Linux 7.3 high-speed netdev LED modes after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "e58223878cca16335d301a6deeb639c9444505418ccf048850d5b2ede297309a",
+      "ported": "target/linux/generic/pending-7.3/835-05-leds-trigger-netdev-serialize-mode-interval-stores-with-trigger-lock.patch",
+      "ported_sha256": "039818a753498829edfbbf3b17211418152e08d20129e00ef6aad6b8f1e43d38"
+    },
+    {
       "source": "target/linux/generic/pending-6.18/840-hwrng-bcm2835-set-quality-to-1000.patch",
       "files": [
         "drivers/char/hw_random/bcm2835-rng.c"
@@ -4208,6 +5782,73 @@
       "source_sha256": "4056f8a99420724e36fcd4075954e545d14a7fca0591d424b1e194b6926eea55",
       "ported": "target/linux/generic/pending-7.3/850-0023-PCI-aardvark-Make-main-irq_chip-structure-a-static-d.patch",
       "ported_sha256": "3d7928687c5acd52e07cfa5314ccdaa7b8c240b5712d86c9661a651f7ab91652"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/860-01-media-az6007-fix-CAM-status-polling-after-disconnect.patch",
+      "files": [
+        "drivers/media/usb/dvb-usb-v2/az6007.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "0d9b4bc4044ace899d22b3f0496b0db6c27e41425080e09f8b1f8602fb58f2b2",
+      "ported": "target/linux/generic/pending-7.3/860-01-media-az6007-fix-CAM-status-polling-after-disconnect.patch",
+      "ported_sha256": "0d9b4bc4044ace899d22b3f0496b0db6c27e41425080e09f8b1f8602fb58f2b2"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/860-02-media-az6007-propagate-USB-errors-from-I2C-transfers.patch",
+      "files": [
+        "drivers/media/usb/dvb-usb-v2/az6007.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "b681b9bb3c67a57f8f9c0c441a1487e72e5f9c6730010726bc53e3e043573c60",
+      "ported": "target/linux/generic/pending-7.3/860-02-media-az6007-propagate-USB-errors-from-I2C-transfers.patch",
+      "ported_sha256": "b681b9bb3c67a57f8f9c0c441a1487e72e5f9c6730010726bc53e3e043573c60"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/860-03-media-drxk-stop-retrying-after-disconnect.patch",
+      "files": [
+        "drivers/media/dvb-frontends/drxk_hard.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "24282719cdfc802b0d3cde620cbd9c42f551292d60cd87ab7797de68516f602b",
+      "ported": "target/linux/generic/pending-7.3/860-03-media-drxk-stop-retrying-after-disconnect.patch",
+      "ported_sha256": "24282719cdfc802b0d3cde620cbd9c42f551292d60cd87ab7797de68516f602b"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/860-04-media-drxk-stop-accessing-a-disconnected-device.patch",
+      "files": [
+        "drivers/media/dvb-frontends/drxk_hard.c",
+        "drivers/media/dvb-frontends/drxk_hard.h"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "a06230f78d168dda9283091300629c23feb181266bfe592917bcb9ffaa5a7f71",
+      "ported": "target/linux/generic/pending-7.3/860-04-media-drxk-stop-accessing-a-disconnected-device.patch",
+      "ported_sha256": "a06230f78d168dda9283091300629c23feb181266bfe592917bcb9ffaa5a7f71"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/860-05-media-dvb-core-dmxdev-wake-up-readers-on-release.patch",
+      "files": [
+        "drivers/media/dvb-core/dmxdev.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "f0f7f76b031499b71cd9f266e871c22a1079aec27bcf60802b66c49990f69755",
+      "ported": "target/linux/generic/pending-7.3/860-05-media-dvb-core-dmxdev-wake-up-readers-on-release.patch",
+      "ported_sha256": "f0f7f76b031499b71cd9f266e871c22a1079aec27bcf60802b66c49990f69755"
+    },
+    {
+      "source": "target/linux/generic/pending-6.18/860-06-media-dvb-core-wake-up-CA-users-on-release.patch",
+      "files": [
+        "drivers/media/dvb-core/dvb_ca_en50221.c"
+      ],
+      "status": "carried",
+      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
+      "source_sha256": "a06da95a94aed785643a310a517fb0b0f69d36f435d314744387c4f06299ecd8",
+      "ported": "target/linux/generic/pending-7.3/860-06-media-dvb-core-wake-up-CA-users-on-release.patch",
+      "ported_sha256": "a06da95a94aed785643a310a517fb0b0f69d36f435d314744387c4f06299ecd8"
     },
     {
       "source": "target/linux/generic/pending-6.18/880-01-dt-bindings-input-touchscreen-hynitron-cst816x-axes-.patch",
@@ -4442,1542 +6083,6 @@
       "reason": "Restored to the original series on top of the 935 backport instead of carrying the 935 device info without its PCI table entry; zero-fuzz refresh against Linux 7.3.1"
     },
     {
-      "source": "target/linux/generic/hack-6.18/200-tools_portability.patch",
-      "files": [
-        "tools/scripts/Makefile.include",
-        "tools/include/linux/types.h",
-        "tools/objtool/include/objtool/objtool.h",
-        "tools/include/asm-generic/bitops/fls.h",
-        "tools/lib/string.c",
-        "tools/arch/x86/include/asm/insn.h",
-        "tools/arch/x86/include/asm/orc_types.h",
-        "tools/include/linux/rbtree.h",
-        "tools/lib/subcmd/exec-cmd.c",
-        "tools/objtool/Makefile",
-        "tools/arch/x86/lib/insn.c"
-      ],
-      "status": "merged",
-      "source_sha256": "fcf825b89cd686119883a1722d64c82a4537371608b4bb9fed6c80238f0b9d29",
-      "ported": "target/linux/generic/hack-7.3/200-tools_portability.patch",
-      "ported_sha256": "ecfdc5369134103c6df03405b15f0d5258abc6d8f91f3ec7fd1b4b2f056a202e"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/201-gen_init_cpio_portability.patch",
-      "files": [
-        "usr/gen_init_cpio.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "af1364f2ea7a67bf7cec60dfefe21e5ae37bb79f6f6b141c386b1d53c944fb59",
-      "ported": "target/linux/generic/hack-7.3/201-gen_init_cpio_portability.patch",
-      "ported_sha256": "dfe1b4b4d6b4e9bd9a0fcc76b200c98216ca9e3c6951a9e8d449c91661fb3383"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/202-objtool_portability.patch",
-      "files": [
-        "tools/objtool/builtin-check.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "c1d354e8dbc326360a71437c953e3a5e765d89f97d2ec9180c58175453fb49cb",
-      "ported": "target/linux/generic/hack-7.3/202-objtool_portability.patch",
-      "ported_sha256": "38b797b00dd487f496e867ca0e5360b75b36fc7e1db9265aff48bf56ea4b94ed"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/204-module_strip.patch",
-      "files": [
-        "include/linux/module.h",
-        "include/linux/moduleparam.h",
-        "kernel/module/Kconfig",
-        "kernel/module/main.c",
-        "scripts/mod/modpost.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "439c8f133ccf5372b280d283febd7322a88a3216a8efb911dff4485b18e9667d",
-      "ported": "target/linux/generic/hack-7.3/204-module_strip.patch",
-      "ported_sha256": "8306341891a2667feafc5772861d108f3436e8576437088f8031172e9ea5a954"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/205-kconfig-abort-configuration-on-unset-symbol.patch",
-      "files": [
-        "scripts/kconfig/conf.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "f9f91b1051747128a803b70c814d52be7387ed3b41890d9e765a72023bd9ee0a",
-      "ported": "target/linux/generic/hack-7.3/205-kconfig-abort-configuration-on-unset-symbol.patch",
-      "ported_sha256": "309310fa93e4593b67fdc8fc1676c81663eb23c9a99f68ea2d690544498b9b8f"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/210-darwin_scripts_include.patch",
-      "files": [
-        "scripts/mod/elf.h",
-        "scripts/mod/mk_elfconfig.c",
-        "scripts/mod/modpost.h"
-      ],
-      "status": "rebased",
-      "source_sha256": "1dd15d0d079c85f7322d4dac4fbc77c30847fbd4c80c1601100c74725af6aa25",
-      "ported": "target/linux/generic/hack-7.3/210-darwin_scripts_include.patch",
-      "ported_sha256": "1dd15d0d079c85f7322d4dac4fbc77c30847fbd4c80c1601100c74725af6aa25"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/211-darwin-uuid-typedef-clash.patch",
-      "files": [
-        "scripts/mod/file2alias.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "ad1b51445225dc1fdbd92947d5f1d4e5ecb4e7f61325f8db8d8bc5d24b689443",
-      "ported": "target/linux/generic/hack-7.3/211-darwin-uuid-typedef-clash.patch",
-      "ported_sha256": "7d5a5e9a7261301dc6b07ff9305c3d260259dbb68972a2d2d0d2e3a7a6099059"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/214-spidev_h_portability.patch",
-      "files": [
-        "include/uapi/linux/spi/spidev.h"
-      ],
-      "status": "rebased",
-      "source_sha256": "3b834056b016ad654dedb9ed0305ca2b5b1c746c0dbc06132b23fc537e30fc05",
-      "ported": "target/linux/generic/hack-7.3/214-spidev_h_portability.patch",
-      "ported_sha256": "651f17dc588e14b6f6a79c7d65819cc40076720694caac34c826e6aa573fe0e1"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/230-openwrt_lzma_options.patch",
-      "files": [
-        "lib/decompress.c",
-        "scripts/Makefile.lib"
-      ],
-      "status": "rebased",
-      "source_sha256": "963f45dc0ccd7b6ef4a2886ee899a3590364326cab0173ee6277989df3e065ad",
-      "ported": "target/linux/generic/hack-7.3/230-openwrt_lzma_options.patch",
-      "ported_sha256": "dffadb34816e4bad0aae4ceab52277ba090638bc063fea5c80375f1ee2befe53"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/249-udp-tunnel-selection.patch",
-      "files": [
-        "net/ipv4/Kconfig"
-      ],
-      "status": "rebased",
-      "source_sha256": "4340d373f408ec9a46f598f177e5a7b52c418fe06e659ab77cda85f5c5c6473e",
-      "ported": "target/linux/generic/hack-7.3/249-udp-tunnel-selection.patch",
-      "ported_sha256": "e124a02a979f3d13d187aecaa19241f37a00e0a2c9ac296be8bcb272be2bf03a"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/250-netfilter_depends.patch",
-      "files": [
-        "net/netfilter/Kconfig"
-      ],
-      "status": "upstream",
-      "reason": "Reverse patch applies to v7.3",
-      "source_sha256": "84a3a76a4a306b8029b8af2bbdbff62d47c21e5f61e1d9c14cd603f031b019c8"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/251-kconfig.patch",
-      "files": [
-        "crypto/Kconfig",
-        "drivers/bcma/Kconfig",
-        "drivers/ssb/Kconfig",
-        "lib/Kconfig",
-        "net/netfilter/Kconfig",
-        "sound/core/Kconfig",
-        "net/Kconfig",
-        "lib/crc/Kconfig"
-      ],
-      "status": "merged",
-      "source_sha256": "c5b31a0cebba6548614782d7a9197fa6dd73f34c8dd42aab62601e3d8eae14e7",
-      "ported": "target/linux/generic/hack-7.3/251-kconfig.patch",
-      "ported_sha256": "f4bc83304e86727ade54189c4db272e241096a6aac6c3358a72df70f18b113c7"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/253-ksmbd-config.patch",
-      "files": [
-        "init/Kconfig",
-        "lib/Kconfig"
-      ],
-      "status": "rebased",
-      "source_sha256": "173d8815c5b8a843a8f0e8076f5534f71f2c299570afb612ed0fbe4ffa176aed",
-      "ported": "target/linux/generic/hack-7.3/253-ksmbd-config.patch",
-      "ported_sha256": "d3c10a0cbdee9a68d00a0be4499138a235403608964a413763fc1d0ab4fbf2ad"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/259-regmap_dynamic.patch",
-      "files": [
-        "drivers/base/regmap/Kconfig",
-        "drivers/base/regmap/Makefile",
-        "drivers/base/regmap/regmap.c",
-        "include/linux/regmap.h"
-      ],
-      "status": "merged",
-      "source_sha256": "02e896ac2f51da7548bdb16017070c8919868b35d483e3e7cbf2d6972117d634",
-      "ported": "target/linux/generic/hack-7.3/259-regmap_dynamic.patch",
-      "ported_sha256": "4f57b9d68648be9db3271310e7074416e73d060d7a344670177ae1a7833b68f0"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/260-crypto_test_dependencies.patch",
-      "files": [
-        "crypto/Kconfig",
-        "crypto/algboss.c"
-      ],
-      "status": "merged",
-      "source_sha256": "c308527cc693a184d63a3691e38d5e834b8529ffe5b57cb0c06be64220aa617d",
-      "ported": "target/linux/generic/hack-7.3/260-crypto_test_dependencies.patch",
-      "ported_sha256": "22e43165e0d3d9d6711623836b2114829a819948c7434002a8015b6fa4799af5"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/261-lib-arc4-unhide.patch",
-      "files": [
-        "lib/crypto/Kconfig"
-      ],
-      "status": "rebased",
-      "source_sha256": "f36056613f85c5dd39bef7add4fad38461ede3e78b480f8f127217babc5f6eb7",
-      "ported": "target/linux/generic/hack-7.3/261-lib-arc4-unhide.patch",
-      "ported_sha256": "d72d592ddac46a99ab1b72821866a0397c42f7ae3735a48b2c379811b142e8c0"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/280-rfkill-stubs.patch",
-      "files": [
-        "include/linux/rfkill.h",
-        "net/Makefile",
-        "net/rfkill/Kconfig",
-        "net/rfkill/Makefile"
-      ],
-      "status": "rebased",
-      "source_sha256": "91804a57e9e38bd1cbe8e15654703133068d84b8a41e8c9cc72ebeb9de47c1be",
-      "ported": "target/linux/generic/hack-7.3/280-rfkill-stubs.patch",
-      "ported_sha256": "144840fd46d42da2fe3e67d72b5eac1af778320cee9a997e7bd618246d039a3e"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/300-MIPS-r4k_cache-use-more-efficient-cache-blast.patch",
-      "files": [
-        "arch/mips/include/asm/r4kcache.h"
-      ],
-      "status": "rebased",
-      "source_sha256": "b6c78cef2a80ff69075b3d2bf09f90af80d1ce2bdc0b5bfb400dc1bd830ecdc7",
-      "ported": "target/linux/generic/hack-7.3/300-MIPS-r4k_cache-use-more-efficient-cache-blast.patch",
-      "ported_sha256": "1a882750b06b7cb2a47d5830dc4da2fcdc806605dbb0a2a5e7da9766fc0aecb8"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/301-01-mm-permit-to-declare-custom-execmem-alloc-free-funct.patch",
-      "files": [
-        "include/linux/moduleloader.h",
-        "mm/execmem.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "c5d86932732e37f19401d746f64eebfbcf5c27100339991e68478ec7c2cdfb03",
-      "ported": "target/linux/generic/hack-7.3/301-01-mm-permit-to-declare-custom-execmem-alloc-free-funct.patch",
-      "ported_sha256": "c33ddc0016442a298978c2e525f8f573233d3c782a7ec569c8d2ea26234f3cd3"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/301-02-mips-replace-mlong-calls-with-mno-long-calls-if-poss.patch",
-      "files": [
-        "arch/mips/Makefile",
-        "arch/mips/include/asm/module.h",
-        "arch/mips/kernel/module.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "0b4cced805cb005b308ce45a43e4a854a817ac2b941e09970dce4e686d224ed1",
-      "ported": "target/linux/generic/hack-7.3/301-02-mips-replace-mlong-calls-with-mno-long-calls-if-poss.patch",
-      "ported_sha256": "15c7087fdbb735c9f697139b5f63e166930a68aa41c34271a100c6698292f8d9"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/402-mtd-blktrans-call-add-disks-after-mtd-device.patch",
-      "files": [
-        "drivers/mtd/mtd_blkdevs.c",
-        "drivers/mtd/mtdcore.c",
-        "include/linux/mtd/blktrans.h"
-      ],
-      "status": "merged",
-      "source_sha256": "7b7749b3d64d4365397e845abc6d90eb6865795484c2bbdd8f370a8ea9041369",
-      "ported": "target/linux/generic/hack-7.3/402-mtd-blktrans-call-add-disks-after-mtd-device.patch",
-      "ported_sha256": "47f6e11b32b3ced07f0f999c068db46bf726dff713f4dddb88748204779fcc0d"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/420-mtd-support-OpenWrt-s-MTD_ROOTFS_ROOT_DEV.patch",
-      "files": [
-        "drivers/mtd/mtdcore.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "55dc1297d6282076e2489a6948925d7531cde6b456c1c2fdc9d49a5fc406e953",
-      "ported": "target/linux/generic/hack-7.3/420-mtd-support-OpenWrt-s-MTD_ROOTFS_ROOT_DEV.patch",
-      "ported_sha256": "95feac455dbb550d000e8572ed7e2431c5a9db9b4ed6faef0b86172a41d0afc1"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/421-drivers-mtd-parsers-add-nvmem-support-to-cmdlinepart.patch",
-      "files": [
-        "drivers/mtd/parsers/cmdlinepart.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "999ce0d8d707673078fe281ac2a3379007dde0e0783f6b794e145fa2abd5fcb3",
-      "ported": "target/linux/generic/hack-7.3/421-drivers-mtd-parsers-add-nvmem-support-to-cmdlinepart.patch",
-      "ported_sha256": "c22f4f7abe73d85d868031ca8d92047c2fbff9f55bfcb8e03a1b35ff18b26f5c"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/430-mtk-bmt-support.patch",
-      "files": [
-        "drivers/mtd/nand/Kconfig",
-        "drivers/mtd/nand/Makefile"
-      ],
-      "status": "rebased",
-      "source_sha256": "95dc55c7df18ff64c921b02f5245fc4917014dada86e3b8cbbb8cdbb8b0e9853",
-      "ported": "target/linux/generic/hack-7.3/430-mtk-bmt-support.patch",
-      "ported_sha256": "396ee9a5e1b1d470eb96c2872cb378599f45be161f7fe7e09943df25f272d236"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/499-LEGACY-block-partitions-populate-fwnode.patch",
-      "files": [
-        "block/partitions/core.c",
-        "drivers/mmc/core/bus.c",
-        "drivers/mmc/core/block.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "870a82810852943d1a29786c2061afd77847b1de00467a70cb5c51731e77bacb",
-      "ported": "target/linux/generic/hack-7.3/499-LEGACY-block-partitions-populate-fwnode.patch",
-      "ported_sha256": "db7a266fb46dd18ed11e86d35537ba0a93ffc8e7acfc98b4349915adb8f72de1"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/600-net-enable-fraglist-GRO-by-default.patch",
-      "files": [
-        "include/linux/netdev_features.h"
-      ],
-      "status": "rebased",
-      "source_sha256": "d90b6fa0eb174ad9890f5f154ee48ad0cdb38ea3bfb083befad20aee3392005f",
-      "ported": "target/linux/generic/hack-7.3/600-net-enable-fraglist-GRO-by-default.patch",
-      "ported_sha256": "4f100599ecc0dd45666d91f04e7dd5be57388eeadb3bf87f6890616bfe7ad66c"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/610-net-page_pool-try-to-free-deferred-skbs-while-waitin.patch",
-      "files": [
-        "net/core/page_pool.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "44fa01855cd56b1602ef95f6cb0857fd2fe7500efbf917333c33bbb0c1b7d65a",
-      "ported": "target/linux/generic/hack-7.3/610-net-page_pool-try-to-free-deferred-skbs-while-waitin.patch",
-      "ported_sha256": "810b4986f938d21e603df80742b32bf53fa13bb8cf0bc6f73cf8ac324b55ad0a"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/645-netfilter-connmark-introduce-set-dscpmark.patch",
-      "files": [
-        "include/uapi/linux/netfilter/xt_connmark.h",
-        "net/netfilter/xt_connmark.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "aecd2d0870a20b14f690fe349dbf6c32846cf2349984218ecd353610bcf15b97",
-      "ported": "target/linux/generic/hack-7.3/645-netfilter-connmark-introduce-set-dscpmark.patch",
-      "ported_sha256": "0175080c1fe0648ae6ee12c4c349a91ce0df94949e02711a11ec0e9efc21d37f"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/650-netfilter-add-xt_FLOWOFFLOAD-target.patch",
-      "files": [
-        "include/net/netfilter/nf_flow_table.h",
-        "include/uapi/linux/netfilter/xt_FLOWOFFLOAD.h",
-        "net/netfilter/Kconfig",
-        "net/netfilter/Makefile",
-        "net/netfilter/nf_flow_table_core.c",
-        "net/netfilter/xt_FLOWOFFLOAD.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "49199b876b8035bec637c2c98d2b31c0fce0722c4798aff3a0f64bd8bbed2a8f",
-      "ported": "target/linux/generic/hack-7.3/650-netfilter-add-xt_FLOWOFFLOAD-target.patch",
-      "ported_sha256": "f7689ca4065facd851f9dbbb3a76d89171584b06bd058c92837f2f41ae0e7705"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/651-wireless_mesh_header.patch",
-      "files": [
-        "include/linux/netdevice.h"
-      ],
-      "status": "merged",
-      "source_sha256": "b01b2a315382de9366fbdd482a61f43741b4e674c2045a9feb6bc2642e0e1c31",
-      "ported": "target/linux/generic/hack-7.3/651-wireless_mesh_header.patch",
-      "ported_sha256": "0843211c39bfdb7826670a583b8f3e0dfa9963b81ef26b6369efd480693665e5"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/660-fq_codel_defaults.patch",
-      "files": [
-        "net/sched/sch_fq_codel.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "0853e5df84fd0982dab3165aebe7baf5a5fd8f0aa45a55cfbb466ca78cfd2d61",
-      "ported": "target/linux/generic/hack-7.3/660-fq_codel_defaults.patch",
-      "ported_sha256": "1081d0e44967e236bc0133afaaa8912bd647425a624f3cabdf2bf13511ad1acd"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/661-kernel-ct-size-the-hashtable-more-adequately.patch",
-      "files": [
-        "net/netfilter/nf_conntrack_core.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "0f266dae4242aca2e76a70f142392cebb46c070b2158bb53de0b408c3de2b2e3",
-      "ported": "target/linux/generic/hack-7.3/661-kernel-ct-size-the-hashtable-more-adequately.patch",
-      "ported_sha256": "a18ba562294a431122fb4ee46193c0fab51375f553e22792b3c18ae406aa7b62"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/700-swconfig_switch_drivers.patch",
-      "files": [
-        "drivers/net/phy/Kconfig",
-        "drivers/net/phy/Makefile",
-        "include/linux/platform_data/b53.h"
-      ],
-      "status": "rebased",
-      "source_sha256": "db8a80a75ed903718287684f1990892a513c710a5c0b70a51b6c57e12bcbddc9",
-      "ported": "target/linux/generic/hack-7.3/700-swconfig_switch_drivers.patch",
-      "ported_sha256": "ca08b065897e842ebb8cca5badb64663683c56070d87c3e33a78f2c9058c85ef"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/710-net-sched-sch_cake-configure-sync_time-via-debugfs.patch",
-      "files": [
-        "net/sched/sch_cake.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "effa50dd363690c9fd3afd251ed01527b0ddf97a0c63283488096519d34acc9c",
-      "ported": "target/linux/generic/hack-7.3/710-net-sched-sch_cake-configure-sync_time-via-debugfs.patch",
-      "ported_sha256": "83f86671b3082c28a31ca930e7442f7816a713cdd8acb2e343782756415dd8c5"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/711-net-dsa-mv88e6xxx-disable-ATU-violation.patch",
-      "files": [
-        "drivers/net/dsa/mv88e6xxx/chip.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "84c3531254f5506af82d8647f1d11743ac659cca3be928e5bd8703ee091e1c3f",
-      "ported": "target/linux/generic/hack-7.3/711-net-dsa-mv88e6xxx-disable-ATU-violation.patch",
-      "ported_sha256": "de323a6b14c8e99c013e37733808ea486ace89ba9bd82a5cd4af3185bafb8151"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/721-net-add-packet-mangeling.patch",
-      "files": [
-        "include/linux/netdevice.h",
-        "include/linux/skbuff.h",
-        "net/Kconfig",
-        "net/core/dev.c",
-        "net/core/skbuff.c",
-        "net/ethernet/eth.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "123490f477d8ad9368e3395e8273d49241ec69a3a190d682eb1dda90b6320256",
-      "ported": "target/linux/generic/hack-7.3/721-net-add-packet-mangeling.patch",
-      "ported_sha256": "ddd1454fc2a1227bd93f1c061e0a3f737e64117c10e8db7980b9f22dc54f8de7"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/722-net-phy-aquantia-enable-AQR112-and-AQR412.patch",
-      "files": [
-        "drivers/net/phy/aquantia/aquantia_main.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "702e0a5547c0ce927c96c533e64bd526897f4a29202fde6f3a1dad86e130c962",
-      "ported": "target/linux/generic/hack-7.3/722-net-phy-aquantia-enable-AQR112-and-AQR412.patch",
-      "ported_sha256": "cdbbb9e2e5b5bcd77baab12b49bfb69f8e66768dba1e65083b3aff8ca0c347c3"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/723-net-phy-aquantia-fix-system-side-protocol-mi.patch",
-      "files": [
-        "drivers/net/phy/aquantia/aquantia_main.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "aeef8fec31b633aaf0069bae531f685d80e1c1644d337500f1dd9d8a5cca27d1",
-      "ported": "target/linux/generic/hack-7.3/723-net-phy-aquantia-fix-system-side-protocol-mi.patch",
-      "ported_sha256": "ed640cd643f956a8630989f016a7c2d5fe24e5f2e5192b4a16bed50320591a88"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/725-net-phy-aquantia-add-PHY_IDs-for-AQR112-variants.patch",
-      "files": [
-        "drivers/net/phy/aquantia/aquantia_main.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "b627e1194adbd9e5361ea3be3ebb176973f68cbe2ef77a94664387d371947d86",
-      "ported": "target/linux/generic/hack-7.3/725-net-phy-aquantia-add-PHY_IDs-for-AQR112-variants.patch",
-      "ported_sha256": "19d0c04e166a7c135a55a477b4176316986ad6a21ee50580c7bb33f0fe80ee2f"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/726-net-phy-aquantia-provision-USXGMII-system-interface.patch",
-      "files": [
-        "drivers/net/phy/aquantia/aquantia_main.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "8a862db1c45e9ad685dfd9010fef626b10691b5e678dcbc40b1d5b75ae97450f",
-      "ported": "target/linux/generic/hack-7.3/726-net-phy-aquantia-provision-USXGMII-system-interface.patch",
-      "ported_sha256": "309b16c0fcaa2058b0c92f508af8b087b17fa114bfd3774df4156eab5e1db746"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/730-net-ethernet-mtk_eth_soc-add-hw-dump-for-forced-rese.patch",
-      "files": [
-        "drivers/net/ethernet/mediatek/mtk_eth_soc.c",
-        "drivers/net/ethernet/mediatek/mtk_eth_soc.h"
-      ],
-      "status": "rebased",
-      "source_sha256": "7d95caea69f7ccdd8b7d6fd770624fda58ff449fddb2c4ccb944c794d36e631f",
-      "ported": "target/linux/generic/hack-7.3/730-net-ethernet-mtk_eth_soc-add-hw-dump-for-forced-rese.patch",
-      "ported_sha256": "a0b48e87013935c7e26afadfae6ace62c91b0f37cc67b731929742c081d09684"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/739-net-ethernet-mtk_eth_soc-fix-offload-with-incompatible-.patch",
-      "files": [
-        "drivers/net/ethernet/mediatek/mtk_eth_soc.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "7f6ae66938d01c6998a1fd528ed3d5912d2c021554917e6ca4bdb4296c5673b0",
-      "ported": "target/linux/generic/hack-7.3/739-net-ethernet-mtk_eth_soc-fix-offload-with-incompatible-.patch",
-      "ported_sha256": "b5bae60f289d77fcaa2c8f67c6aa2f2953db364293cad8b29bd078edacc13bfc"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/755-net-phy-motorcomm-yt8821-bus-collision-workaround.patch",
-      "files": [
-        "drivers/net/phy/motorcomm.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "4d65fe3a40e9ebd63c9ec7e286c738cc061ca06f0a3102fb079302e087a0fc36",
-      "ported": "target/linux/generic/hack-7.3/755-net-phy-motorcomm-yt8821-bus-collision-workaround.patch",
-      "ported_sha256": "2031fda27c48638b8373ad7876d7d863fccc8fca335527358c054b20ebd8d078"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/760-net-usb-r8152-add-LED-configuration-from-OF.patch",
-      "files": [
-        "drivers/net/usb/r8152.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "d48bd0d012bc3b32f5c29837d03b283631ab8cc395bab0503bb03ad04bf2b10e",
-      "ported": "target/linux/generic/hack-7.3/760-net-usb-r8152-add-LED-configuration-from-OF.patch",
-      "ported_sha256": "814cfe7bef3519cbdc80179f5c46bc69050f31d5e7cdf7b98dce181d1c69a40d"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/761-dt-bindings-net-add-RTL8152-binding-documentation.patch",
-      "files": [
-        "Documentation/devicetree/bindings/net/realtek,rtl8152.yaml"
-      ],
-      "status": "rebased",
-      "source_sha256": "61a6b9621c41728404f3d55f8e4b4bc7edfabbc7fa5fc727bfe06aadb258365b",
-      "ported": "target/linux/generic/hack-7.3/761-dt-bindings-net-add-RTL8152-binding-documentation.patch",
-      "ported_sha256": "61a6b9621c41728404f3d55f8e4b4bc7edfabbc7fa5fc727bfe06aadb258365b"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/766-net-phy-mediatek-ge-add-LED-configuration-interface.patch",
-      "files": [
-        "drivers/net/phy/mediatek/mtk-ge.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "2b9267fe9245e50fc54f44eba4a4a0463e3e79a0a23f0df06c4c22c29569a645",
-      "ported": "target/linux/generic/hack-7.3/766-net-phy-mediatek-ge-add-LED-configuration-interface.patch",
-      "ported_sha256": "641756add3c678a162d06abf0f516cfb98a47b6e1ec90202c8d11e34f0566dcd"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/770-r8169-LED-uses-original-network-port-name.patch",
-      "files": [
-        "drivers/net/ethernet/realtek/r8169.h",
-        "drivers/net/ethernet/realtek/r8169_leds.c",
-        "drivers/net/ethernet/realtek/r8169_main.c"
-      ],
-      "status": "merged",
-      "source_sha256": "5de71303f05b7c6740d74e1774887eccf0e8da5e4722dfad821a4243d30a5128",
-      "ported": "target/linux/generic/hack-7.3/770-r8169-LED-uses-original-network-port-name.patch",
-      "ported_sha256": "e1d0323197895914268804aef5d76809b4319be3cb9b267fcd6525ed9c5e6d79"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/780-usb-net-MeigLink_modem_support.patch",
-      "files": [
-        "drivers/net/usb/qmi_wwan.c",
-        "drivers/usb/serial/option.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "b06639b7705f58862f3780c76d8185a08274367bea2d59ac0387c17827a00771",
-      "ported": "target/linux/generic/hack-7.3/780-usb-net-MeigLink_modem_support.patch",
-      "ported_sha256": "c97cfaca9e82af643458aaa003825bdc0f4acff36f57ac6ed1f536b3c61607df"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/781-usb-net-rndis-support-asr.patch",
-      "files": [
-        "drivers/net/usb/rndis_host.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "a7b2f8aaa476cbf9982c1814e80d1aaad9503d9c7c0e6ce028d08d807b5e55a0",
-      "ported": "target/linux/generic/hack-7.3/781-usb-net-rndis-support-asr.patch",
-      "ported_sha256": "87ffb9ca1967ee41bd73d1d3fca34d29813dbf368a6f8051f322c84d5d17c2d1"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/790-net-phy-skip-MMD-30-for-RTL8221B-when-reading-C45-PH.patch",
-      "files": [
-        "drivers/net/phy/phy_device.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "7a099feb7b606aeba8796b110d919a3898535adaa4573d3f12f97a7fb3620a8c",
-      "ported": "target/linux/generic/hack-7.3/790-net-phy-skip-MMD-30-for-RTL8221B-when-reading-C45-PH.patch",
-      "ported_sha256": "eaba278c30c4d859711305f0843cbe1ba21604df6f63aa2ec6e4b86507d53a62"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/800-GPIO-add-named-gpio-exports.patch",
-      "files": [
-        "drivers/gpio/gpiolib-of.c",
-        "include/linux/gpio/consumer.h",
-        "drivers/gpio/gpiolib-sysfs.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "bd74c754cace6ea7c1b3abdea743140b3d37b0d8eaacba63fce6e66a1c8c0a62",
-      "ported": "target/linux/generic/hack-7.3/800-GPIO-add-named-gpio-exports.patch",
-      "ported_sha256": "1ad13038a16ba022be224a5a33718af21caa7ee62f6892b8949e7b0335cb1c0a"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/810-bcma-ssb-fallback-sprom.patch",
-      "files": [
-        "drivers/bcma/Kconfig",
-        "drivers/bcma/Makefile",
-        "drivers/bcma/bcma_private.h",
-        "drivers/bcma/main.c",
-        "drivers/bcma/sprom.c",
-        "drivers/ssb/Kconfig",
-        "drivers/ssb/Makefile",
-        "drivers/ssb/main.c",
-        "drivers/ssb/sprom.c",
-        "drivers/ssb/ssb_private.h"
-      ],
-      "status": "rebased",
-      "source_sha256": "e2be196d6f6c8d3d0eff27c682ce75c8887ff2a669f3668616ff8b42a314a042",
-      "ported": "target/linux/generic/hack-7.3/810-bcma-ssb-fallback-sprom.patch",
-      "ported_sha256": "4e58571c812740d4ba269b7320cabfe7aa6565ce9da02ec933a6fc948bc32572"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/820-ledtrig-network-module.patch",
-      "files": [
-        "drivers/leds/trigger/Kconfig",
-        "drivers/leds/trigger/Makefile"
-      ],
-      "status": "rebased",
-      "source_sha256": "a6bc7b06b3632574fa7664be4581b4c57ae4c78dd3b0cd91df9f6f0ac0fe94d3",
-      "ported": "target/linux/generic/hack-7.3/820-ledtrig-network-module.patch",
-      "ported_sha256": "b53ae28e08a691475678d5c1ddb9f50457ff71f3a2b33fa45b61df1f2d2288d1"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/901-debloat_sock_diag.patch",
-      "files": [
-        "net/Kconfig",
-        "net/core/Makefile",
-        "net/core/sock.c",
-        "net/core/sock_diag.c",
-        "net/ipv4/Kconfig",
-        "net/netlink/Kconfig",
-        "net/packet/Kconfig",
-        "net/unix/Kconfig",
-        "net/xdp/Kconfig"
-      ],
-      "status": "merged",
-      "source_sha256": "4d9e5bb9ca9d96501e056c903551d75faa2b11d83ea9dc7fae93b154c9aafc3e",
-      "ported": "target/linux/generic/hack-7.3/901-debloat_sock_diag.patch",
-      "ported_sha256": "9d971284a436f0fe01b6c6f357be1a165c696ba69133ef750f6bf58f22a74da2"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/902-debloat_proc.patch",
-      "files": [
-        "fs/locks.c",
-        "fs/proc/Kconfig",
-        "fs/proc/consoles.c",
-        "fs/proc/proc_tty.c",
-        "include/net/snmp.h",
-        "ipc/msg.c",
-        "ipc/sem.c",
-        "ipc/shm.c",
-        "ipc/util.c",
-        "kernel/exec_domain.c",
-        "kernel/irq/proc.c",
-        "kernel/time/timer_list.c",
-        "mm/vmalloc.c",
-        "mm/vmstat.c",
-        "net/8021q/vlanproc.c",
-        "net/core/net-procfs.c",
-        "net/core/sock.c",
-        "net/ipv4/fib_trie.c",
-        "net/ipv4/proc.c",
-        "net/ipv4/route.c",
-        "net/ipv4/inet_timewait_sock.c"
-      ],
-      "status": "merged",
-      "source_sha256": "b16887963704bdb71d8c2b5cc332b1b004657947cb8393f0bdd3b85c660b2568",
-      "ported": "target/linux/generic/hack-7.3/902-debloat_proc.patch",
-      "ported_sha256": "e9e7c599b59d4e2729117f069422687fdb7e19e6ca1f1e2e291d98e91d9111b5"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/904-debloat_dma_buf.patch",
-      "files": [
-        "drivers/base/Kconfig",
-        "drivers/dma-buf/Makefile",
-        "drivers/dma-buf/dma-buf.c",
-        "kernel/sched/core.c",
-        "fs/d_path.c",
-        "net/Kconfig"
-      ],
-      "status": "merged",
-      "source_sha256": "3085f828f595d11bb59c1661fc9accd495b90a421a612d75d02529e5b220a465",
-      "ported": "target/linux/generic/hack-7.3/904-debloat_dma_buf.patch",
-      "ported_sha256": "9d36f08081f2d1199666efc467f0d787ea1ca685dea04293d5b5a901b1098e2a",
-      "review_findings": [
-        "dmabuf-heaps-kbuild"
-      ]
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/905-io_uring-zcrx-Use-IS_REACHABLE-instead-of-IS_ENABLED.patch",
-      "files": [
-        "io_uring/zcrx.c"
-      ],
-      "status": "merged",
-      "source_sha256": "7b6bdc55d72c7682eb3df9d71eb5df074719f601b2a31a785f4ed1308356f870",
-      "ported": "target/linux/generic/hack-7.3/905-io_uring-zcrx-Use-IS_REACHABLE-instead-of-IS_ENABLED.patch",
-      "ported_sha256": "1d1a42d8e3eb6ea1f5acc845c28623319cfc38eb8cbfae0bda21e61a3529a3ba"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/910-kobject_uevent.patch",
-      "files": [
-        "include/linux/kobject.h",
-        "lib/kobject_uevent.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "d67145c105bc43ca66c723b04ca46014c5f9862e992317a021b4faa0b1659043",
-      "ported": "target/linux/generic/hack-7.3/910-kobject_uevent.patch",
-      "ported_sha256": "03ef6a74cd3de65a3240eaa96f9332a0a13dbab271210c485651a825178247a4"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/911-kobject_add_broadcast_uevent.patch",
-      "files": [
-        "include/linux/kobject.h",
-        "lib/kobject_uevent.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "0e4d840d4ba5255abdde3df7516e84421f6bfdc626897d69f88597a93e20ded4",
-      "ported": "target/linux/generic/hack-7.3/911-kobject_add_broadcast_uevent.patch",
-      "ported_sha256": "8c31f8dc4b9350f837abc0426a6b7c09b6be74bb5df5f5d40a9365efc27f5d9b"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/920-device_tree_cmdline.patch",
-      "files": [
-        "drivers/of/fdt.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "783af4836653f5932b56dc38d32daa3fa676bcb8a8a352f2cf5096ee5659c227",
-      "ported": "target/linux/generic/hack-7.3/920-device_tree_cmdline.patch",
-      "ported_sha256": "3b3719cffc96fb9f0e3155fe5714d6434e9bde7eda1cfe3a62b3be3c513b10a0"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/926-crypto-eip93-use-AES-fallback-for-small-requests.patch",
-      "files": [
-        "drivers/crypto/inside-secure/eip93/Kconfig",
-        "drivers/crypto/inside-secure/eip93/eip93-cipher.c",
-        "drivers/crypto/inside-secure/eip93/eip93-cipher.h"
-      ],
-      "status": "rebased",
-      "source_sha256": "1db3652583d4c2c22a439965cdae8db4dc9572e95e47f98fa47a9bc4af9a4e95",
-      "ported": "target/linux/generic/hack-7.3/926-crypto-eip93-use-AES-fallback-for-small-requests.patch",
-      "ported_sha256": "2f671e744b7ec58d115512d5c7013671e2be672e422be97022a8b47fb9f485ca"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/930-Revert-Revert-Revert-driver-core-Set-fw_devlink-on-b.patch",
-      "files": [
-        "drivers/base/core.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "30ed89efcb397d3adebf424036ee955f1ed15e6bcb563670bc80392a996139bf",
-      "ported": "target/linux/generic/hack-7.3/930-Revert-Revert-Revert-driver-core-Set-fw_devlink-on-b.patch",
-      "ported_sha256": "88952576d455e64438a94a97a76d1c003a3ee31f16db7b7442dbedfe47eb7d01"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/940-kbuild-extract-modules-builtin-modinfo-from-vmlinux_o.patch",
-      "files": [
-        "scripts/Makefile.vmlinux"
-      ],
-      "status": "rebased",
-      "source_sha256": "ef52e4b18f7ca0958041e539ba9394bee8564accb797674f90dff9377e979b70",
-      "ported": "target/linux/generic/hack-7.3/940-kbuild-extract-modules-builtin-modinfo-from-vmlinux_o.patch",
-      "ported_sha256": "5dda0da3547979f31460824f1429e652c88c23367ae03d52000e92db39bfc182"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/950-silence-unused-variable-warnings.patch",
-      "files": [
-        "include/net/ipv6.h",
-        "net/ipv4/tcp_input.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "f355b235c775309397130a073bd7d8a378f406114ab0f1d1068b36b61886b2c4",
-      "ported": "target/linux/generic/hack-7.3/950-silence-unused-variable-warnings.patch",
-      "ported_sha256": "765e49531d9685fbd8c8bfe67f33dd166358f287455c8e82a194048d4748c602"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/970-mux-expose-core-config.patch",
-      "files": [
-        "drivers/mux/Kconfig"
-      ],
-      "status": "merged",
-      "source_sha256": "f4b34a4c642304520e19e45cd2d512ad83a1c6c11e1386a7c802b9ff32d328c8",
-      "ported": "target/linux/generic/hack-7.3/970-mux-expose-core-config.patch",
-      "ported_sha256": "01dfb737acf69d608a9700eafc448b6d51943028c094f63f4cda78112ae27ff8"
-    },
-    {
-      "source": "target/linux/x86/patches-6.18/100-fix_cs5535_clockevt.patch",
-      "files": [
-        "drivers/clocksource/timer-cs5535.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "27bde29140515733caffd5b8ce1969fae9de98cceeefa5dd1d932e768005b2d9",
-      "ported": "target/linux/x86/patches-7.3/100-fix_cs5535_clockevt.patch",
-      "ported_sha256": "1480ebd8898faad8743f5ac682ff0f9be34a1f27f78f1f1b98e486944ec9449c"
-    },
-    {
-      "source": "target/linux/x86/patches-6.18/103-pcengines_apu6_platform.patch",
-      "files": [
-        "drivers/leds/leds-apu.c",
-        "drivers/platform/x86/Kconfig",
-        "drivers/platform/x86/pcengines-apuv2.c"
-      ],
-      "status": "rebased",
-      "source_sha256": "09f7f6ce05f383a0fbfff62112dd20d6ed8c81a55dcf264f64dbdf5945a4b8af",
-      "ported": "target/linux/x86/patches-7.3/103-pcengines_apu6_platform.patch",
-      "ported_sha256": "7252b08c8e932b53a958829f9a1cafce1645b6fbe5368c10acf3c526675d8e9e"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/735-v7.3-net-ethernet-mtk_wed-Fix-dma_unmap_single-size.patch",
-      "files": [
-        "drivers/net/ethernet/mediatek/mtk_wed_wo.c"
-      ],
-      "status": "carried",
-      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
-      "source_sha256": "5d738a09496f53ea415ee00889ba4192f644fa64055e9cdb7f99e0316bdd4d7d",
-      "ported": "target/linux/generic/backport-7.3/735-v7.3-net-ethernet-mtk_wed-Fix-dma_unmap_single-size.patch",
-      "ported_sha256": "5d738a09496f53ea415ee00889ba4192f644fa64055e9cdb7f99e0316bdd4d7d"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/753-net-sfp-add-quirk-for-ZYXEL-PMG3000-D20B.patch",
-      "files": [
-        "drivers/net/phy/sfp.c"
-      ],
-      "status": "carried",
-      "reason": "Hunk offsets refreshed for the new 757/802 backports; Ported after upstream merge 24c13d794c; verified against hash-checked Linux 7.3.4 with zero-fuzz full-stack application",
-      "source_sha256": "c9f3b8009b7b41b86241af71b55a407c8a613f444eb7dd87644d972517554d8e",
-      "ported": "target/linux/generic/pending-7.3/753-net-sfp-add-quirk-for-ZYXEL-PMG3000-D20B.patch",
-      "ported_sha256": "7d0fb12ac6abd21ee7ff0ad8018660dc41c12ac92b47209813e74c65291da687"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/793-01-net-ethernet-mtk_wed-skip-ring-reset-in-wdma_tx_ring.patch",
-      "files": [
-        "drivers/net/ethernet/mediatek/mtk_wed.c"
-      ],
-      "status": "carried",
-      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
-      "source_sha256": "4f6f59e3713983ff7e2536a75a4d7e43f77205e01625dc898d6af92db35b8ded",
-      "ported": "target/linux/generic/pending-7.3/793-01-net-ethernet-mtk_wed-skip-ring-reset-in-wdma_tx_ring.patch",
-      "ported_sha256": "4f6f59e3713983ff7e2536a75a4d7e43f77205e01625dc898d6af92db35b8ded"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/793-02-net-ethernet-mtk_wed-fix-reset-condition-for-rx-wdma.patch",
-      "files": [
-        "drivers/net/ethernet/mediatek/mtk_wed.c"
-      ],
-      "status": "carried",
-      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
-      "source_sha256": "4e40cbc8f00a9f350bd23e0f1189d4454b4d0a149269fb48e3b2eb7401e2a4e0",
-      "ported": "target/linux/generic/pending-7.3/793-02-net-ethernet-mtk_wed-fix-reset-condition-for-rx-wdma.patch",
-      "ported_sha256": "4e40cbc8f00a9f350bd23e0f1189d4454b4d0a149269fb48e3b2eb7401e2a4e0"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/793-03-net-ethernet-mtk_wed-free-up-rings-during-detach.patch",
-      "files": [
-        "drivers/net/ethernet/mediatek/mtk_wed.c"
-      ],
-      "status": "carried",
-      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
-      "source_sha256": "b74f99364e455fc44a45c3d158dd3728298b00577c7d0b88aaa2dee49eb3eddd",
-      "ported": "target/linux/generic/pending-7.3/793-03-net-ethernet-mtk_wed-free-up-rings-during-detach.patch",
-      "ported_sha256": "b74f99364e455fc44a45c3d158dd3728298b00577c7d0b88aaa2dee49eb3eddd"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/793-04-net-ethernet-mtk_wed-setup-WDMA_RING_TX-0-for-non-DB.patch",
-      "files": [
-        "drivers/net/ethernet/mediatek/mtk_wed.c"
-      ],
-      "status": "carried",
-      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
-      "source_sha256": "b7c2bdfeb87561ed6f6aa04d8db37ece2b82d8fb11467c26a358d8e10a33def0",
-      "ported": "target/linux/generic/pending-7.3/793-04-net-ethernet-mtk_wed-setup-WDMA_RING_TX-0-for-non-DB.patch",
-      "ported_sha256": "b7c2bdfeb87561ed6f6aa04d8db37ece2b82d8fb11467c26a358d8e10a33def0"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/794-net-ethernet-mtk_wed-bypass-the-RROQM-when-hw_rro-is.patch",
-      "files": [
-        "drivers/net/ethernet/mediatek/mtk_wed.c",
-        "drivers/net/ethernet/mediatek/mtk_wed_regs.h"
-      ],
-      "status": "carried",
-      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
-      "source_sha256": "63e106394d0ec40fe41e8e3e385ac941571ebda134afb2ede9631726f1028206",
-      "ported": "target/linux/generic/pending-7.3/794-net-ethernet-mtk_wed-bypass-the-RROQM-when-hw_rro-is.patch",
-      "ported_sha256": "63e106394d0ec40fe41e8e3e385ac941571ebda134afb2ede9631726f1028206"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/797-00-wifi-cfg80211-add-the-flow-key-and-flow-description-.patch",
-      "files": [
-        "include/net/cfg80211.h"
-      ],
-      "status": "carried",
-      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
-      "source_sha256": "8aec162e1c1f294d4a2946d02da77a9ac93e0e9d9529f7b09ee29f7cfbf21476",
-      "ported": "target/linux/generic/pending-7.3/797-00-wifi-cfg80211-add-the-flow-key-and-flow-description-.patch",
-      "ported_sha256": "652595247573954cea49275a78a7e078df7b2a6f58b9fcf94107a35187d78799"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/797-01-net-ethernet-mtk_eth_soc-query-the-wireless-driver-f.patch",
-      "files": [
-        "drivers/net/ethernet/mediatek/mtk_eth_soc.h",
-        "drivers/net/ethernet/mediatek/mtk_ppe.c",
-        "drivers/net/ethernet/mediatek/mtk_ppe.h",
-        "drivers/net/ethernet/mediatek/mtk_ppe_offload.c",
-        "drivers/net/ethernet/mediatek/mtk_wed.c",
-        "drivers/net/ethernet/mediatek/mtk_wed.h",
-        "include/linux/soc/mediatek/mtk_wed.h",
-        "drivers/net/ethernet/mediatek/mtk_eth_soc.c"
-      ],
-      "status": "carried",
-      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
-      "source_sha256": "4e22cfd56957174e82d82fd0bf3a329790f2655ff6bbae48a9b13bdebd1c5177",
-      "ported": "target/linux/generic/pending-7.3/797-01-net-ethernet-mtk_eth_soc-query-the-wireless-driver-f.patch",
-      "ported_sha256": "4e22cfd56957174e82d82fd0bf3a329790f2655ff6bbae48a9b13bdebd1c5177"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/797-02-net-ethernet-mtk_eth_soc-report-the-idle-time-of-off.patch",
-      "files": [
-        "drivers/net/ethernet/mediatek/mtk_eth_soc.h",
-        "drivers/net/ethernet/mediatek/mtk_ppe.c",
-        "drivers/net/ethernet/mediatek/mtk_ppe.h",
-        "drivers/net/ethernet/mediatek/mtk_ppe_offload.c",
-        "drivers/net/ethernet/mediatek/mtk_wed.c",
-        "include/linux/soc/mediatek/mtk_wed.h"
-      ],
-      "status": "carried",
-      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
-      "source_sha256": "7082bae64197e6be1a3438b6b0df6a21d5fa59ac1597d1e26c71a52b93c482a3",
-      "ported": "target/linux/generic/pending-7.3/797-02-net-ethernet-mtk_eth_soc-report-the-idle-time-of-off.patch",
-      "ported_sha256": "7082bae64197e6be1a3438b6b0df6a21d5fa59ac1597d1e26c71a52b93c482a3"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/798-net-ethernet-mtk_wed-free-the-hw_rro-buffers-once-in.patch",
-      "files": [
-        "drivers/net/ethernet/mediatek/mtk_wed.c"
-      ],
-      "status": "carried",
-      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
-      "source_sha256": "a30166c0dc5e827ee49984f1aab210439c7eb98b448de43f12dfd12b91edba76",
-      "ported": "target/linux/generic/pending-7.3/798-net-ethernet-mtk_wed-free-the-hw_rro-buffers-once-in.patch",
-      "ported_sha256": "a30166c0dc5e827ee49984f1aab210439c7eb98b448de43f12dfd12b91edba76"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/799-net-ethernet-mtk_wed-attach-a-PCIe-device-of-domain-.patch",
-      "files": [
-        "drivers/net/ethernet/mediatek/mtk_wed.c"
-      ],
-      "status": "carried",
-      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
-      "source_sha256": "4ea6ebfe5b317bbc445823aef92789ce2bb5e7678e63a9719e1d83b2dd8404b8",
-      "ported": "target/linux/generic/pending-7.3/799-net-ethernet-mtk_wed-attach-a-PCIe-device-of-domain-.patch",
-      "ported_sha256": "4ea6ebfe5b317bbc445823aef92789ce2bb5e7678e63a9719e1d83b2dd8404b8"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/835-01-leds-trigger-netdev-put-netdev-on-activate-error-path.patch",
-      "files": [
-        "drivers/leds/trigger/ledtrig-netdev.c"
-      ],
-      "status": "carried",
-      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
-      "source_sha256": "b519dd9be079e4973c73e7900fb4a84acaef1ed060b23d5f9b8a8407f6a981e2",
-      "ported": "target/linux/generic/pending-7.3/835-01-leds-trigger-netdev-put-netdev-on-activate-error-path.patch",
-      "ported_sha256": "b519dd9be079e4973c73e7900fb4a84acaef1ed060b23d5f9b8a8407f6a981e2"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/835-02-leds-trigger-netdev-access-net-dev-under-trigger-data-lock-in-the-worker.patch",
-      "files": [
-        "drivers/leds/trigger/ledtrig-netdev.c"
-      ],
-      "status": "carried",
-      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
-      "source_sha256": "2c409072eee8862a1350ecc44cd38e7625f581841da85130f291dfcaa83b66fd",
-      "ported": "target/linux/generic/pending-7.3/835-02-leds-trigger-netdev-access-net-dev-under-trigger-data-lock-in-the-worker.patch",
-      "ported_sha256": "2c409072eee8862a1350ecc44cd38e7625f581841da85130f291dfcaa83b66fd"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/835-03-leds-trigger-netdev-fix-sysfs-update-group-races.patch",
-      "files": [
-        "drivers/leds/trigger/ledtrig-netdev.c"
-      ],
-      "status": "refreshed",
-      "reason": "Rebased preserving Linux 7.3 high-speed netdev LED modes after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
-      "source_sha256": "d86a3bc369ee9ef64578febe1808e94c1bf72ac846ee9e2fbf218e30df3411d1",
-      "ported": "target/linux/generic/pending-7.3/835-03-leds-trigger-netdev-fix-sysfs-update-group-races.patch",
-      "ported_sha256": "91de66dfe96068cc3194ecde31999b7cedf535efb66f366e2385946fa2dba04d"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/835-04-leds-trigger-netdev-report-invalid-interval-to-user-space.patch",
-      "files": [
-        "drivers/leds/trigger/ledtrig-netdev.c"
-      ],
-      "status": "carried",
-      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
-      "source_sha256": "4cdc6ec9d59feb5be50687f73af9ef83351d3be973c48baabdbc1b6feadb2ad5",
-      "ported": "target/linux/generic/pending-7.3/835-04-leds-trigger-netdev-report-invalid-interval-to-user-space.patch",
-      "ported_sha256": "4cdc6ec9d59feb5be50687f73af9ef83351d3be973c48baabdbc1b6feadb2ad5"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/835-05-leds-trigger-netdev-serialize-mode-interval-stores-with-trigger-lock.patch",
-      "files": [
-        "drivers/leds/trigger/ledtrig-netdev.c"
-      ],
-      "status": "refreshed",
-      "reason": "Rebased preserving Linux 7.3 high-speed netdev LED modes after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
-      "source_sha256": "e58223878cca16335d301a6deeb639c9444505418ccf048850d5b2ede297309a",
-      "ported": "target/linux/generic/pending-7.3/835-05-leds-trigger-netdev-serialize-mode-interval-stores-with-trigger-lock.patch",
-      "ported_sha256": "039818a753498829edfbbf3b17211418152e08d20129e00ef6aad6b8f1e43d38"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/860-01-media-az6007-fix-CAM-status-polling-after-disconnect.patch",
-      "files": [
-        "drivers/media/usb/dvb-usb-v2/az6007.c"
-      ],
-      "status": "carried",
-      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
-      "source_sha256": "0d9b4bc4044ace899d22b3f0496b0db6c27e41425080e09f8b1f8602fb58f2b2",
-      "ported": "target/linux/generic/pending-7.3/860-01-media-az6007-fix-CAM-status-polling-after-disconnect.patch",
-      "ported_sha256": "0d9b4bc4044ace899d22b3f0496b0db6c27e41425080e09f8b1f8602fb58f2b2"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/860-02-media-az6007-propagate-USB-errors-from-I2C-transfers.patch",
-      "files": [
-        "drivers/media/usb/dvb-usb-v2/az6007.c"
-      ],
-      "status": "carried",
-      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
-      "source_sha256": "b681b9bb3c67a57f8f9c0c441a1487e72e5f9c6730010726bc53e3e043573c60",
-      "ported": "target/linux/generic/pending-7.3/860-02-media-az6007-propagate-USB-errors-from-I2C-transfers.patch",
-      "ported_sha256": "b681b9bb3c67a57f8f9c0c441a1487e72e5f9c6730010726bc53e3e043573c60"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/860-03-media-drxk-stop-retrying-after-disconnect.patch",
-      "files": [
-        "drivers/media/dvb-frontends/drxk_hard.c"
-      ],
-      "status": "carried",
-      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
-      "source_sha256": "24282719cdfc802b0d3cde620cbd9c42f551292d60cd87ab7797de68516f602b",
-      "ported": "target/linux/generic/pending-7.3/860-03-media-drxk-stop-retrying-after-disconnect.patch",
-      "ported_sha256": "24282719cdfc802b0d3cde620cbd9c42f551292d60cd87ab7797de68516f602b"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/860-04-media-drxk-stop-accessing-a-disconnected-device.patch",
-      "files": [
-        "drivers/media/dvb-frontends/drxk_hard.c",
-        "drivers/media/dvb-frontends/drxk_hard.h"
-      ],
-      "status": "carried",
-      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
-      "source_sha256": "a06230f78d168dda9283091300629c23feb181266bfe592917bcb9ffaa5a7f71",
-      "ported": "target/linux/generic/pending-7.3/860-04-media-drxk-stop-accessing-a-disconnected-device.patch",
-      "ported_sha256": "a06230f78d168dda9283091300629c23feb181266bfe592917bcb9ffaa5a7f71"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/860-05-media-dvb-core-dmxdev-wake-up-readers-on-release.patch",
-      "files": [
-        "drivers/media/dvb-core/dmxdev.c"
-      ],
-      "status": "carried",
-      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
-      "source_sha256": "f0f7f76b031499b71cd9f266e871c22a1079aec27bcf60802b66c49990f69755",
-      "ported": "target/linux/generic/pending-7.3/860-05-media-dvb-core-dmxdev-wake-up-readers-on-release.patch",
-      "ported_sha256": "f0f7f76b031499b71cd9f266e871c22a1079aec27bcf60802b66c49990f69755"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/860-06-media-dvb-core-wake-up-CA-users-on-release.patch",
-      "files": [
-        "drivers/media/dvb-core/dvb_ca_en50221.c"
-      ],
-      "status": "carried",
-      "reason": "Carried unchanged after upstream merge 795f369b18; verified against hash-checked Linux 7.3 with zero-fuzz full-stack application",
-      "source_sha256": "a06da95a94aed785643a310a517fb0b0f69d36f435d314744387c4f06299ecd8",
-      "ported": "target/linux/generic/pending-7.3/860-06-media-dvb-core-wake-up-CA-users-on-release.patch",
-      "ported_sha256": "a06da95a94aed785643a310a517fb0b0f69d36f435d314744387c4f06299ecd8"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/803-rust-opp-pass-old-opp-to-config_clks.patch",
-      "files": [
-        "rust/kernel/opp.rs"
-      ],
-      "status": "carried",
-      "reason": "Added by OpenWrt c59b9de355; Linux 7.3 rust/kernel/opp.rs still lacks the old_opp argument that ported 802 adds to config_clks_t. The unchanged patch applies with zero fuzz (offset only). Needed only with CONFIG_RUST and CONFIG_PM_OPP.",
-      "source_sha256": "ee0f60566564babb63b6a1a4753ff658bd2af883b340b478d71bf19fb3f551e4",
-      "ported": "target/linux/generic/pending-7.3/803-rust-opp-pass-old-opp-to-config_clks.patch",
-      "ported_sha256": "ee0f60566564babb63b6a1a4753ff658bd2af883b340b478d71bf19fb3f551e4"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/791-net-phy-ax88796b-build-the-Rust-driver-next-to-the-C.patch",
-      "files": [
-        "drivers/net/phy/Kconfig",
-        "drivers/net/phy/Makefile"
-      ],
-      "status": "carried",
-      "reason": "Added by OpenWrt 9115e6ee48 for kmod-phy-ax88796b-rust; Linux 7.3 still builds the Rust driver in place of the C one. The unchanged patch applies with zero fuzz (offsets only).",
-      "source_sha256": "a7179837986243d037aac229722a94f2544506c17d3d9420be32bfb44411731a",
-      "ported": "target/linux/generic/hack-7.3/791-net-phy-ax88796b-build-the-Rust-driver-next-to-the-C.patch",
-      "ported_sha256": "a7179837986243d037aac229722a94f2544506c17d3d9420be32bfb44411731a"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/050-v7.3-nvmem-layouts-u-boot-env-check-earlier-ethaddr.patch",
-      "files": [
-        "drivers/nvmem/layouts/u-boot-env.c"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "9f7ade394de3209166bdd2b8fc7be5f4c60944f6d74f0bc610906a26e4894bd5"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/200-v7.1-driver-core-kconfig-deferred-probe-timeout.patch",
-      "files": [
-        "drivers/base/Kconfig",
-        "drivers/base/dd.c"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "9e7147ae24a5ee60345f6de6fd3e67145997b15520121bb79dc45f18264b16cf"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/856-01-v7.3-xhci-include-all-root-port-children-in-recovery-prevention-on-link-error.patch",
-      "files": [
-        "drivers/usb/host/xhci-ring.c",
-        "drivers/usb/host/xhci.c",
-        "drivers/usb/host/xhci.h"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "27d83ce5cbfbf2b4d1c148dea83839338311185439135374ac0c884fbff090aa"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/856-02-v7.3-xhci-prevent-endpoint-recovery-after-roothub-disconnect.patch",
-      "files": [
-        "drivers/usb/host/xhci-ring.c",
-        "drivers/usb/host/xhci.h"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "f9c090998b3cb2b09aa686d66a2c9f3d50b2a31eb86c9f30088dfdaefd6d063a"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/856-03-v7.3-xhci-avoid-xhc-endpoint-changes-after-disconnect-or-link-error.patch",
-      "files": [
-        "drivers/usb/host/xhci-ring.c",
-        "drivers/usb/host/xhci.c",
-        "drivers/usb/host/xhci.h"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; every added line is present in v7.3 (reverse application fails only on later upstream context such as the BIT() endpoint-state conversion)",
-      "source_sha256": "a7116d77a2dc595f247f7ec866c56ab8b53cadffd70fb9b7d66db959acc1f267"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-01-v6.19-net-dsa-introduce-the-dsa-xmit-port-mask-tagging-pro.patch",
-      "files": [
-        "net/dsa/tag.h"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "a027f9c48b38eac02f72ba74054cb7d7d604d981cc6d104d4af4f6cb4d07f3ef"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-01a-v7.0-flow-offload-add-const-qualifiers-to-function-argume.patch",
-      "files": [
-        "include/net/flow_offload.h"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "3304d650930f06caad0c98f2e01aecad35083555e2750242182225aec23e56d4"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-02-v6.19-net-dsa-tag-yt921x-add-support-for-Motorcomm-YT921x.patch",
-      "files": [
-        "include/net/dsa.h",
-        "include/uapi/linux/if_ether.h",
-        "net/dsa/Kconfig",
-        "net/dsa/Makefile",
-        "net/dsa/tag_yt921x.c"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; the YT921x tagger exists in v7.3 and the ordered 967-01..967-35 backport series reverse-applies there except for tag lines that later upstream commits in the same series rewrite",
-      "source_sha256": "4287ef15788fc4bd1eb68e0b762c80ccf7a2b8627b78d95f1a4001ec2aa69ff1"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-03-v6.19-net-dsa-yt921x-Add-support-for-Motorcomm-YT921x.patch",
-      "files": [
-        "drivers/net/dsa/Kconfig",
-        "drivers/net/dsa/Makefile",
-        "drivers/net/dsa/yt921x.c",
-        "drivers/net/dsa/yt921x.h"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "e91b7307ce7ebb83a8c1a9779f331b530eb72f7e05e5ef3043e285b1fba2854c"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-04-v6.19-net-dsa-yt921x-Fix-spelling-mistake-stucked-stuck.patch",
-      "files": [
-        "drivers/net/dsa/yt921x.c"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "674083307568832d21c0d7603d19759f8b78134da3b78dce31f231cd9e5754ff"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-05-v6.19-net-dsa-yt921x-Fix-parsing-MIB-attributes.patch",
-      "files": [
-        "drivers/net/dsa/yt921x.c"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "7618db8d3b0780f937b3d9b6ad77a3e11c9be0c78cfb195802b191f153c79803"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-06-v6.19-net-dsa-yt921x-Use-macros-for-MIB-locations.patch",
-      "files": [
-        "drivers/net/dsa/yt921x.c",
-        "drivers/net/dsa/yt921x.h"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "0bc7f915702423492eb6ac72a74d1270ea187885627d4cc5af0e7f6f86ab822e"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-07-v6.19-net-dsa-tag-yt921x-use-the-dsa-xmit-port-mask-helper.patch",
-      "files": [
-        "net/dsa/tag_yt921x.c"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "fb3acbb3b25d16765981ab2683dbbe8cc5c68d3bd2769c12fda7426106fea6a7"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-08-v6.19-net-dsa-yt921x-Set-ageing-time-min-ageing-time-max.patch",
-      "files": [
-        "drivers/net/dsa/yt921x.c"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "2488f375d947887f7d197f3d93361a2d42be489ac968a86a9b7286e7b39adecb"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-09-v6.19-net-dsa-yt921x-Use-ULL-bitfield-macros-for-VLAN-CTRL.patch",
-      "files": [
-        "drivers/net/dsa/yt921x.h"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "878e315fbfa40c8624c4c4428583bba11e63cf2c39991ffa5bff09cca3be4ede"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-09a-v6.19-net-dsa-add-simple-HSR-offload-helpers.patch",
-      "files": [
-        "include/net/dsa.h",
-        "net/dsa/dsa.c"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "bde650a9d4bf4830aa230df18fd29c8c5df9dc5b26e332707396db922392c727"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-10-v6.19-net-dsa-yt921x-Add-STP-MST-support.patch",
-      "files": [
-        "drivers/net/dsa/yt921x.c",
-        "drivers/net/dsa/yt921x.h"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "95c618a323e6eaa6cb98b8ec6b4373cf022ab0ac83ce11352ee424cb29b5a7e2"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-11-v6.19-net-dsa-yt921x-use-simple-HSR-offloading-helpers.patch",
-      "files": [
-        "drivers/net/dsa/yt921x.c"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "6c878073c1c60cdb50d6e52cbcb08459dbc75bd993829746b0f8961bc98ada28"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-12-v7.0-net-dsa-yt921x-Add-LAG-offloading-support.patch",
-      "files": [
-        "drivers/net/dsa/yt921x.c",
-        "drivers/net/dsa/yt921x.h"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "5572d6a28d97f740b112685041fce6d5e1eddd940c1c8b47fa111560a249d413"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-13-v6.19-net-dsa-yt921x-Fix-MIB-overflow-wraparound-routine.patch",
-      "files": [
-        "drivers/net/dsa/yt921x.c"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "e3838eca43534da95a27c5c3d5763bae0a49a6f4e59e9f70df78fe97badb8cbf"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-14-v7.0-net-dsa-tag-yt921x-clarify-priority-and-code-fields.patch",
-      "files": [
-        "net/dsa/tag_yt921x.c"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "cfc2c8bbf2986664e6410a93b03bb3ec71685660438181bbb02103d71a17a2ae"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-15-v7.0-net-dsa-tag-yt921x-add-priority-support.patch",
-      "files": [
-        "net/dsa/tag_yt921x.c"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "c3e88713f515526df3e46cfa54898c07a989962b08d24a157e0234b35dc9d821"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-16-v7.0-net-dsa-yt921x-Refactor-VLAN-awareness-setting.patch",
-      "files": [
-        "drivers/net/dsa/yt921x.c"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "bb4b161b448ef75b79f63e47bff2b4e8dfaab60a374bfb90a7b8902eb05ebf4f"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-17-v7.0-net-dsa-yt921x-Refactor-yt921x-chip-setup.patch",
-      "files": [
-        "drivers/net/dsa/yt921x.c"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "9e52d2cb47936d661f774ae99f975ae39b9f7a9a2eb00165c01bd0f558535075"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-18-v7.0-net-dsa-yt921x-Add-DCB-QoS-support.patch",
-      "files": [
-        "drivers/net/dsa/Kconfig",
-        "drivers/net/dsa/yt921x.c",
-        "drivers/net/dsa/yt921x.h"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "e20be78af42e817c36a942754ed6e19eee2b31a348d10062ca15b12d80e6c315"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-19-v7.1-net-dsa-move-dsa-bridge-ports-helper-to-dsa-h.patch",
-      "files": [
-        "drivers/net/dsa/yt921x.c"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "bc76aaf416090bdf4e2f8b54f10065ba43a122151ea268291d08c8fb963d97d2"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-20-v7.2-net-dsa-yt921x-Refactor-long-register-helpers.patch",
-      "files": [
-        "drivers/net/dsa/yt921x.c",
-        "drivers/net/dsa/yt921x.h"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "25c0858a1e89be448379bb6b20bb349df0ea12f2fc5301b18df9487a32e680c4"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-21-v7.2-net-dsa-yt921x-Add-port-police-support.patch",
-      "files": [
-        "drivers/net/dsa/yt921x.c",
-        "drivers/net/dsa/yt921x.h"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "8cbe00ba3185b9b3d23e1f32540c6879057fa0fed7c6998b3c0c77424817b374"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-21a-v7.2-net-sched-tbf-add-extack-to-offload-params.patch",
-      "files": [
-        "include/net/pkt_cls.h",
-        "net/sched/sch_tbf.c"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "625253358df30e8557c97ecf2756553c80b76018ee6af7d987971ee0eb57e42c"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-22-v7.2-net-dsa-yt921x-Add-port-TBF-support.patch",
-      "files": [
-        "drivers/net/dsa/yt921x.c",
-        "drivers/net/dsa/yt921x.h"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "b7b89adfa0dfbb99fe183e85a35f15bc31e6eee8a3b0c2ca506a53db916f7383"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-23-v7.2-net-dsa-tag-yt921x-handle-ACL-tag-code.patch",
-      "files": [
-        "net/dsa/tag_yt921x.c"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "3759cc1174e5451ebefc815d4b7689ba3ac99732bf821535dce6be29ee3b44cf"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-24-v7.2-net-dsa-yt921x-Add-ACL-support.patch",
-      "files": [
-        "drivers/net/dsa/yt921x.c",
-        "drivers/net/dsa/yt921x.h"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "f935fdae7a625ca1f4eaebc3ad4950c8423828e1db78c1022f25639c1ba8594f"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-25-v7.2-net-dsa-Fix-skb-ownership-in-taggers.patch",
-      "files": [
-        "net/dsa/tag_yt921x.c"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "dc7c1d3adcd383fb043ffd3b53bedaa05f0e7832938d086d4d09c8fcb436db68"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-26-v7.3-net-dsa-yt921x-Fix-external-port-detection.patch",
-      "files": [
-        "drivers/net/dsa/yt921x.h"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "1cb471ac2744104602d5b9711d896bf72bb3d11e72b9cd47648dc5ae5b9f4419"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-28-v6.19-net-phy-motorcomm-Add-support-for-PHY-LEDs-on-YT8531.patch",
-      "files": [
-        "drivers/net/phy/motorcomm.c"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "4ab33122c863d008746a45d0dcb9facaf17cc41e05f28c4d41775a4be11881db"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-31-v7.2-net-phy-motorcomm-move-mdio-lock-out-from-yt8531-set.patch",
-      "files": [
-        "drivers/net/phy/motorcomm.c"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "3965ee8df1d24393ca1c8f1af9cb33af7db7c1582a4b5631a05cd812269079c4"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-32-v7.2-net-motorcomm-phy-set-drive-strength-in-YT8531s-RGMI.patch",
-      "files": [
-        "drivers/net/phy/motorcomm.c"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "7b2dffed21b01cb6e41e60a7a012bc86bb0ed4c3258607e4154569e6935497b6"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-33-v7.2-net-phy-motorcomm-Add-YT8522-100M-RMII-PHY-support.patch",
-      "files": [
-        "drivers/net/phy/motorcomm.c"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; every added line is present in v7.3 (reverse application fails only on later upstream context such as the BIT() endpoint-state conversion)",
-      "source_sha256": "274ea1d3c1f18195e92247f748202446e23f25859c2a812ee7c020f8059ff440"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-34-v7.3-net-phy-motorcomm-Enable-optional-clock-for-YT8531.patch",
-      "files": [
-        "drivers/net/phy/motorcomm.c"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; every added line is present in v7.3 (reverse application fails only on later upstream context such as the BIT() endpoint-state conversion)",
-      "source_sha256": "38abdc79b7932476df5ba833124165ceed3985afd143e188c2c0fa06acb47bec"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/967-35-v7.3-net-phy-motorcomm-enable-the-reference-clock-for-YT8.patch",
-      "files": [
-        "drivers/net/phy/motorcomm.c"
-      ],
-      "status": "upstream",
-      "reason": "Added by OpenWrt merge of b455c5b851; reverse patch applies to v7.3 (individually or in ordered series reversal)",
-      "source_sha256": "9a6f46b48d1c1f5f997bec419c8a97a1151d2a15cc7993167d559b33d3263dba"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/644-net-dsa-pass-bridge-VLAN-protocol-changes-to-drivers.patch",
-      "files": [
-        "include/net/dsa.h",
-        "net/dsa/port.c",
-        "net/dsa/port.h",
-        "net/dsa/user.c"
-      ],
-      "status": "carried",
-      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
-      "source_sha256": "266b67eda8066cc418fdd3b8a40a2226666195f907bf9824668f7dff9509226a",
-      "ported": "target/linux/generic/pending-7.3/644-net-dsa-pass-bridge-VLAN-protocol-changes-to-drivers.patch",
-      "ported_sha256": "266b67eda8066cc418fdd3b8a40a2226666195f907bf9824668f7dff9509226a"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/645-net-dsa-pass-bridge-multicast-snooping-changes-to-drivers.patch",
-      "files": [
-        "include/net/dsa.h",
-        "net/dsa/user.c"
-      ],
-      "status": "carried",
-      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
-      "source_sha256": "cec472cfd971bb87fc0d38ab2c017576bed0120437b9f39227f00dac20905f8e",
-      "ported": "target/linux/generic/pending-7.3/645-net-dsa-pass-bridge-multicast-snooping-changes-to-drivers.patch",
-      "ported_sha256": "cec472cfd971bb87fc0d38ab2c017576bed0120437b9f39227f00dac20905f8e"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/792-wireguard-socket-fix-sticky-source-address-on-p2p.patch",
-      "files": [
-        "drivers/net/wireguard/socket.c"
-      ],
-      "status": "carried",
-      "reason": "Added by OpenWrt 4d5d291a26 (pending, Cc stable, absent from Linux 7.3.3 and the 7.3.4 stable changelog); the unchanged patch applies to Linux 7.3.3 with zero fuzz on top of the full x86 stack and socket.o builds. Fixes WireGuard IPv4 replies leaving from the LAN address when a LAN peer targets a point-to-point (PPPoE) local address.",
-      "source_sha256": "9312fab4f20deb8856cc16525f59c80f27913e0d665ff270591c902f53b31a80",
-      "ported": "target/linux/generic/pending-7.3/792-wireguard-socket-fix-sticky-source-address-on-p2p.patch",
-      "ported_sha256": "9312fab4f20deb8856cc16525f59c80f27913e0d665ff270591c902f53b31a80"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/805-01-nvmem-u-boot-env-post-process-ignore-quotes.patch",
-      "files": [
-        "drivers/nvmem/layouts/u-boot-env.c"
-      ],
-      "status": "carried",
-      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
-      "source_sha256": "0df032b42e213e164b696d620aab1680e5569724b3b4a15d4bde3c4c6f9081e7",
-      "ported": "target/linux/generic/pending-7.3/805-01-nvmem-u-boot-env-post-process-ignore-quotes.patch",
-      "ported_sha256": "0df032b42e213e164b696d620aab1680e5569724b3b4a15d4bde3c4c6f9081e7"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/805-02-nvmem-u-boot-env-post-process-more-macaddr-names.patch",
-      "files": [
-        "drivers/nvmem/layouts/u-boot-env.c"
-      ],
-      "status": "carried",
-      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
-      "source_sha256": "b1930d8f360c31a2ca21efee27029e0440f676559bc92a5fa02b27f016505e53",
-      "ported": "target/linux/generic/pending-7.3/805-02-nvmem-u-boot-env-post-process-more-macaddr-names.patch",
-      "ported_sha256": "b1930d8f360c31a2ca21efee27029e0440f676559bc92a5fa02b27f016505e53"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/805-03-nvmem-u-boot-env-post-process-ethaddr-numbered.patch",
-      "files": [
-        "drivers/nvmem/layouts/u-boot-env.c"
-      ],
-      "status": "rebased",
-      "reason": "Added by OpenWrt merge of b455c5b851; context refreshed for the linux/hex.h include already present in Linux 7.3, otherwise unchanged",
-      "source_sha256": "ee0035ee3b00d8b108bd819efd1068eb7af37f775ae60695abe9da5db6876f3e",
-      "ported": "target/linux/generic/pending-7.3/805-03-nvmem-u-boot-env-post-process-ethaddr-numbered.patch",
-      "ported_sha256": "4e975668010d286f769d17843d613800469c6d95a3f691c2dca7ce3f74608144"
-    },
-    {
-      "source": "target/linux/generic/pending-6.18/805-04-nvmem-u-boot-env-post-process-radioaddr-numbered.patch",
-      "files": [
-        "drivers/nvmem/layouts/u-boot-env.c"
-      ],
-      "status": "carried",
-      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
-      "source_sha256": "3701b26f4ae2fbf696ad59530f2af69815fef4e6bcd8c0d160f164bc172dbb23",
-      "ported": "target/linux/generic/pending-7.3/805-04-nvmem-u-boot-env-post-process-radioaddr-numbered.patch",
-      "ported_sha256": "3701b26f4ae2fbf696ad59530f2af69815fef4e6bcd8c0d160f164bc172dbb23"
-    },
-    {
       "source": "target/linux/generic/pending-6.18/967-27-net-dsa-yt92xx-Add-support-for-Motorcomm-YT922x.patch",
       "files": [
         "drivers/net/dsa/Kconfig",
@@ -6190,92 +6295,26 @@
       "ported_sha256": "79420634937a64c75bafffff47a532df0d8be5ac5d2b4ce48f730b53c676d573"
     },
     {
-      "source": "target/linux/generic/hack-6.18/805-nvmem-u-boot-env-probe-defer-on-corrupt-crc.patch",
+      "source": "target/linux/x86/patches-6.18/100-fix_cs5535_clockevt.patch",
       "files": [
-        "drivers/nvmem/layouts/u-boot-env.c"
+        "drivers/clocksource/timer-cs5535.c"
       ],
-      "status": "carried",
-      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
-      "source_sha256": "de607a06604eb2d42af3df6209d5ad677e03fef5fc4d89724b3883d6f25b6774",
-      "ported": "target/linux/generic/hack-7.3/805-nvmem-u-boot-env-probe-defer-on-corrupt-crc.patch",
-      "ported_sha256": "de607a06604eb2d42af3df6209d5ad677e03fef5fc4d89724b3883d6f25b6774"
+      "status": "rebased",
+      "source_sha256": "27bde29140515733caffd5b8ce1969fae9de98cceeefa5dd1d932e768005b2d9",
+      "ported": "target/linux/x86/patches-7.3/100-fix_cs5535_clockevt.patch",
+      "ported_sha256": "1480ebd8898faad8743f5ac682ff0f9be34a1f27f78f1f1b98e486944ec9449c"
     },
     {
-      "source": "target/linux/generic/hack-6.18/960-silence-uninitialized-variable-warnings.patch",
+      "source": "target/linux/x86/patches-6.18/103-pcengines_apu6_platform.patch",
       "files": [
-        "arch/mips/vdso/genvdso.h"
+        "drivers/leds/leds-apu.c",
+        "drivers/platform/x86/Kconfig",
+        "drivers/platform/x86/pcengines-apuv2.c"
       ],
-      "status": "carried",
-      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
-      "source_sha256": "931df1a0595f5e2f8a245ad4324d8d42f59333fca11f8911a73b3e97daa372b2",
-      "ported": "target/linux/generic/hack-7.3/960-silence-uninitialized-variable-warnings.patch",
-      "ported_sha256": "931df1a0595f5e2f8a245ad4324d8d42f59333fca11f8911a73b3e97daa372b2"
-    },
-    {
-      "source": "target/linux/generic/hack-6.18/967-39-fix-mtk-yt922x-tx-checksum-offload.patch",
-      "files": [
-        "drivers/net/ethernet/mediatek/mtk_eth_soc.c"
-      ],
-      "status": "carried",
-      "reason": "Added by OpenWrt merge of b455c5b851; the unchanged patch applies to Linux 7.3.1 with zero fuzz (offsets only) in full-stack order",
-      "source_sha256": "eacdd35fd7eefafd5a0df79e045a36c3c16cc9381f70e847017ae668df9096bf",
-      "ported": "target/linux/generic/hack-7.3/967-39-fix-mtk-yt922x-tx-checksum-offload.patch",
-      "ported_sha256": "eacdd35fd7eefafd5a0df79e045a36c3c16cc9381f70e847017ae668df9096bf"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/757-v7.5-net-sfp-add-quirk-for-OEM-SFP-ONU-XGSPON.patch",
-      "files": [
-        "drivers/net/phy/sfp.c"
-      ],
-      "status": "refreshed",
-      "reason": "Upstream v7.4/v7.5 commit absent from Linux 7.3.4; Ported after upstream merge 24c13d794c; verified against hash-checked Linux 7.3.4 with zero-fuzz full-stack application",
-      "source_sha256": "b5d7ef0e2bb8711c6a1e3eb2cb7af3f276e1fe07d2a0cc56692ba5880a55cc2a",
-      "ported": "target/linux/generic/backport-7.3/757-v7.5-net-sfp-add-quirk-for-OEM-SFP-ONU-XGSPON.patch",
-      "ported_sha256": "692df5062017c17172a34f8cfb6ff18ce1be1c5622a863e053c963ae57a7a52b"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/802-01-v7.4-net-usb-lan78xx-register-the-PHY-interrupt-with-the-.patch",
-      "files": [
-        "drivers/net/usb/lan78xx.c"
-      ],
-      "status": "refreshed",
-      "reason": "Upstream v7.4/v7.5 commit absent from Linux 7.3.4; Ported after upstream merge 24c13d794c; verified against hash-checked Linux 7.3.4 with zero-fuzz full-stack application",
-      "source_sha256": "77a4cd1c6f6bde432a9106625c5f495e06c44686568cf0a5e74d199a28ed10e9",
-      "ported": "target/linux/generic/backport-7.3/802-01-v7.4-net-usb-lan78xx-register-the-PHY-interrupt-with-the-.patch",
-      "ported_sha256": "77a4cd1c6f6bde432a9106625c5f495e06c44686568cf0a5e74d199a28ed10e9"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/802-02-v7.4-net-usb-smsc95xx-register-the-PHY-interrupt-with-the.patch",
-      "files": [
-        "drivers/net/usb/smsc95xx.c"
-      ],
-      "status": "refreshed",
-      "reason": "Upstream v7.4/v7.5 commit absent from Linux 7.3.4; Ported after upstream merge 24c13d794c; verified against hash-checked Linux 7.3.4 with zero-fuzz full-stack application",
-      "source_sha256": "20635bb72516ebb35c83d80f48bf6a5a4a50767864a71d425d1b3f73df080c3e",
-      "ported": "target/linux/generic/backport-7.3/802-02-v7.4-net-usb-smsc95xx-register-the-PHY-interrupt-with-the.patch",
-      "ported_sha256": "93f74ccd2475fe43c570b7f6ce0ff8c3c7b049a4ba9cefaee484a315012e6efe"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/802-03-v7.4-net-phy-take-the-interrupt-back-from-the-bus-on-deta.patch",
-      "files": [
-        "drivers/net/phy/phy_device.c"
-      ],
-      "status": "refreshed",
-      "reason": "Upstream v7.4/v7.5 commit absent from Linux 7.3.4; Ported after upstream merge 24c13d794c; verified against hash-checked Linux 7.3.4 with zero-fuzz full-stack application",
-      "source_sha256": "7601d84e0e9a2339a830601667f0d7782d626d4ec1af02d1386b4bbc1547abd8",
-      "ported": "target/linux/generic/backport-7.3/802-03-v7.4-net-phy-take-the-interrupt-back-from-the-bus-on-deta.patch",
-      "ported_sha256": "3c95782c3ae782999da69c0ec48c6b50409aca2aa51d673ce084eba6eb0e2262"
-    },
-    {
-      "source": "target/linux/generic/backport-6.18/802-04-v7.4-net-phy-restore-the-interrupt-when-the-generic-bind-.patch",
-      "files": [
-        "drivers/net/phy/phy_device.c"
-      ],
-      "status": "refreshed",
-      "reason": "Upstream v7.4/v7.5 commit absent from Linux 7.3.4; Ported after upstream merge 24c13d794c; verified against hash-checked Linux 7.3.4 with zero-fuzz full-stack application",
-      "source_sha256": "aeaaed8335f9c640bf869e3c8c0d55c85d9d9252419b2644140f771a44bcea7f",
-      "ported": "target/linux/generic/backport-7.3/802-04-v7.4-net-phy-restore-the-interrupt-when-the-generic-bind-.patch",
-      "ported_sha256": "925bcb2b8d323b75e181756e0729e9259dcdb41acaaebf36bcfef90a71d6852c"
+      "status": "rebased",
+      "source_sha256": "09f7f6ce05f383a0fbfff62112dd20d6ed8c81a55dcf264f64dbdf5945a4b8af",
+      "ported": "target/linux/x86/patches-7.3/103-pcengines_apu6_platform.patch",
+      "ported_sha256": "7252b08c8e932b53a958829f9a1cafce1645b6fbe5368c10acf3c526675d8e9e"
     }
   ],
   "additions": [

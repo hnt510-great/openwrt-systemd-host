@@ -153,6 +153,19 @@ ifneq ($(CONFIG_CCACHE),)
 	$(STAGING_DIR_HOST)/bin/ccache -s
 endif
 
+ifneq ($(filter rolling-packages,$(MAKECMDGOALS)),)
+  ifeq ($(ROLLING_APK_DIR),)
+    $(error Use build-and-publish.py with --rolling)
+  endif
+  ifneq ($(strip $(IGNORE_ERRORS)$(NO_DEPS)$(QUILT)$(DEVELOPER)),)
+    $(error Rolling builds require the complete package dependency graph)
+  endif
+  rolling-packages: prepare $(package/stamp-cleanup)
+	+$(SUBMAKE) -r package/compile
+	+$(SUBMAKE) -r package/kernel-bundle
+  .PHONY: rolling-packages
+endif
+
 .PHONY: clean dirclean prereq prepare world package/symlinks package/symlinks-install package/symlinks-clean
 
 endif

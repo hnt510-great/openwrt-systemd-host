@@ -644,6 +644,7 @@ sub gen_package_source() {
 
 sub gen_package_auxiliary() {
 	parse_package_metadata($ARGV[0]) or exit 1;
+	my %virtual_providers;
 	foreach my $name (sort {uc($a) cmp uc($b)} keys %package) {
 		my $pkg = $package{$name};
 		if ($pkg->{name} && $pkg->{repository}) {
@@ -657,12 +658,18 @@ sub gen_package_auxiliary() {
 		}
 		my @depends = sort keys %depends;
 		if (@depends > 0) {
-			foreach my $n (@{$pkg->{provides}}) {
-				# A real package of that name keeps its own dependencies
-				next if $n ne $name && $package{$n};
-				print "Package/$n/depends = @depends\n";
-			}
+			print "Package/$name/depends = @depends\n";
 		}
+		foreach my $n (@{$pkg->{provides} || []}) {
+			next if $n eq $name || $package{$n};
+			push @{$virtual_providers{$n}}, $name;
+		}
+	}
+	foreach my $alias (sort {uc($a) cmp uc($b)} keys %virtual_providers) {
+		my %seen;
+		my @provs = grep { !$seen{$_}++ } sort @{$virtual_providers{$alias}};
+		my @exprs = map { "\$(if \$(CONFIG_PACKAGE_$_),$_ \$(Package/$_/depends))" } @provs;
+		print "Package/$alias/depends = @exprs\n";
 	}
 }
 

@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openwrt-appimage
 PKG_VERSION:=1
-PKG_RELEASE:=4
+PKG_RELEASE:=5
 PKG_LICENSE:=MIT
 
 include $(INCLUDE_DIR)/package.mk
@@ -12,7 +12,7 @@ define Package/openwrt-appimage
   CATEGORY:=Utilities
   TITLE:=Ordinary-user AppImage support for GNOME
   DEPENDS:=@TARGET_x86_64 @USE_GLIBC @OPENWRT_SYSTEMD \
-	+openwrt-desktop +xwayland +glibc-distro-compat \
+	+openwrt-desktop-core +xwayland +glibc-distro-compat \
 	+libfuse +fuse-utils +libfuse3 +fuse3-utils +@FUSE3_UTILS_SETUID \
 	+libnss +libcups-runtime +unshare +libgtk3 +alsa-lib +at-spi2-core +fontconfig
 endef

@@ -1,15 +1,18 @@
-#!/bin/sh
+#!/usr/bin/env bash
+set -e -o pipefail
 [ -n "$CROSS" ] || {
-	echo "The variable CROSS must be set to point to the cross-compiler prefix"
+	echo "The variable CROSS must be set to point to the cross-compiler prefix" >&2
 	exit 1
 }
 
 MODULE="$1"
 
 [ "$#" -ne 1 ] && {
-	echo "Usage: $0 <module>"
+	echo "Usage: $0 <module>" >&2
 	exit 1
 }
+
+trap 'rm -f "${MODULE}.tmp" "${MODULE}.tmp1" "${MODULE}.out"' EXIT
 
 ARGS=
 if [ -n "$KEEP_SYMBOLS" ]; then
@@ -50,6 +53,5 @@ $3 && $2 ~ /[brtd]/ && $3 !~ /\$LC/ && !def[$3] {
 }
 ' > "$MODULE.tmp1"
 
-${CROSS}objcopy $(cat ${MODULE}.tmp1) ${MODULE}.tmp ${MODULE}.out
+${CROSS}objcopy $(cat "${MODULE}.tmp1") "${MODULE}.tmp" "${MODULE}.out"
 mv "${MODULE}.out" "${MODULE}"
-rm -f "${MODULE}".t*

@@ -108,6 +108,9 @@ endif
 
 KERNEL_MAKE = $(MAKE) $(KERNEL_MAKEOPTS)
 
+PKG_SYMVERS_PROVIDERS = $(sort $(foreach d,$(call _dep_closure,$(foreach p,$(BUILD_PACKAGES),$(Package/$(p)/depends)) $(PKG_BUILD_DEPENDS),),$(d) $(notdir $(Package/$(d)/subdir))))
+PKG_SYMVERS_FILES = $(sort $(foreach p,$(PKG_SYMVERS_PROVIDERS),$(wildcard $(PKG_SYMVERS_DIR)/$(p).symvers $(PKG_SYMVERS_DIR)/$(p).*.symvers)))
+
 KERNEL_MAKE_FLAGS = \
 	KCFLAGS="$(call iremap,$(BUILD_DIR),$(notdir $(BUILD_DIR))) $(IREMAP_STAGING_DIR) $(IREMAP_TOOLCHAIN_DIR) $(filter-out -fno-plt,$(call qstrip,$(CONFIG_EXTRA_OPTIMIZATION))) $(call qstrip,$(CONFIG_KERNEL_CFLAGS))" \
 	KAFLAGS="$(call iremap,$(BUILD_DIR),$(notdir $(BUILD_DIR))) $(IREMAP_STAGING_DIR) $(IREMAP_TOOLCHAIN_DIR)" \
@@ -124,7 +127,7 @@ KERNEL_MAKE_FLAGS = \
 	$(if $(findstring c,$(OPENWRT_VERBOSE)),V=1,V='') \
 	$(if $(PKG_BUILD_ID),LDFLAGS_MODULE=--build-id=0x$(PKG_BUILD_ID)) \
 	$(if $(call kernel_patchver_lt,7.3),cmd_syscalls=) \
-	$(if $(__package_mk),KBUILD_EXTRA_SYMBOLS="$(wildcard $(PKG_SYMVERS_DIR)/*.symvers)")
+	$(if $(__package_mk),KBUILD_EXTRA_SYMBOLS="$(PKG_SYMVERS_FILES)")
 
 ifneq (,$(KERNEL_CC))
   KERNEL_MAKE_FLAGS += CC="$(KERNEL_CC)"
@@ -160,20 +163,29 @@ endif
 
 PKG_EXTMOD_SUBDIRS ?= .
 
-PKG_SYMVERS_DIR = $(KERNEL_BUILD_DIR)/symvers
+PKG_SYMVERS_DIR = $(KERNEL_BUILD_DIR)/symvers/$(KERNEL_GENERATION)
+PKG_SYMVERS_FILE = $(PKG_SYMVERS_DIR)/$(PKG_NAME)$(if $(BUILD_VARIANT),.$(BUILD_VARIANT),).symvers
 
 define collect_module_symvers
+	set -e; \
+	mkdir -p "$(PKG_SYMVERS_DIR)"; \
+	tmp_raw=$$$$(mktemp "$(PKG_BUILD_DIR)/.Module.symvers.raw.XXXXXX"); \
+	tmp_out=$$$$(mktemp "$(PKG_SYMVERS_DIR)/.$(PKG_NAME).symvers.XXXXXX"); \
+	trap 'rm -f "$$$$tmp_raw" "$$$$tmp_out"' EXIT; \
 	for subdir in $(PKG_EXTMOD_SUBDIRS); do \
 		realdir=$$$$(readlink -f $(PKG_BUILD_DIR)); \
-		grep -F $(PKG_BUILD_DIR) $(PKG_BUILD_DIR)/$$$$subdir/Module.symvers >> $(PKG_BUILD_DIR)/Module.symvers.tmp; \
-		[ "$(PKG_BUILD_DIR)" = "$$$$realdir" ] || \
-			grep -F $$$$realdir $(PKG_BUILD_DIR)/$$$$subdir/Module.symvers >> $(PKG_BUILD_DIR)/Module.symvers.tmp; \
-		sed 's/\.o$$$$//' $(PKG_BUILD_DIR)/$$$$subdir/modules.order | \
-			grep -Ff - $(PKG_BUILD_DIR)/$$$$subdir/Module.symvers >> $(PKG_BUILD_DIR)/Module.symvers.tmp; \
+		if [ -f "$(PKG_BUILD_DIR)/$$$$subdir/Module.symvers" ]; then \
+			grep -F "$(PKG_BUILD_DIR)" "$(PKG_BUILD_DIR)/$$$$subdir/Module.symvers" >> "$$$$tmp_raw" || true; \
+			[ "$(PKG_BUILD_DIR)" = "$$$$realdir" ] || \
+				grep -F "$$$$realdir" "$(PKG_BUILD_DIR)/$$$$subdir/Module.symvers" >> "$$$$tmp_raw" || true; \
+			if [ -f "$(PKG_BUILD_DIR)/$$$$subdir/modules.order" ]; then \
+				sed 's/\.o$$$$//' "$(PKG_BUILD_DIR)/$$$$subdir/modules.order" | \
+					grep -Ff - "$(PKG_BUILD_DIR)/$$$$subdir/Module.symvers" >> "$$$$tmp_raw" || true; \
+			fi; \
+		fi; \
 	done; \
-	sort -u $(PKG_BUILD_DIR)/Module.symvers.tmp > $(PKG_BUILD_DIR)/Module.symvers; \
-	mkdir -p $(PKG_SYMVERS_DIR); \
-	mv $(PKG_BUILD_DIR)/Module.symvers $(PKG_SYMVERS_DIR)/$(PKG_NAME).symvers
+	LC_ALL=C sort -u "$$$$tmp_raw" > "$$$$tmp_out"; \
+	mv -f "$$$$tmp_out" "$(PKG_SYMVERS_FILE)"
 endef
 
 define KernelPackage/hooks
@@ -288,7 +300,9 @@ $(call KernelPackage/$(1)/config)
   endif
   $$(eval $$(call BuildPackage,kmod-$(1)))
 
-  $$(IPKG_kmod-$(1)): $$(wildcard $$(call version_filter,$$(FILES)))
+  ifneq ($$(PACK_kmod-$(1)),)
+    $$(PACK_kmod-$(1)) $(PKG_BUILD_DIR)/.pkgdir/kmod-$(1).installed: $$(wildcard $$(call version_filter,$$(FILES)) $(LINUX_DIR)/modules.builtin $(LINUX_DIR)/.config)
+  endif
 
 endef
 

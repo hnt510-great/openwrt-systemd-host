@@ -99,6 +99,97 @@ class BuildPublicationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'changed'):
             B.verify_artifacts(bundle)
 
+    def test_rolling_publish_requires_expected_output_even_when_old_apk_is_available(self):
+        B.publish(self.tree, self.data)
+        before = self.aliases()
+        missing = self.base / 'user-probe-1-r2.apk'
+        with self.assertRaisesRegex(ValueError, 'Missing expected build APKs'):
+            B.publish(self.tree, self.data, expected={missing: ('user-probe', '1-r2', 'x86_64')})
+        self.assertEqual(self.aliases(), before)
+
+    def test_rolling_publish_checks_retained_version_in_unchanged_snapshot(self):
+        older = self.base / 'user-probe-1-r1.apk'
+        kmod = self.target / 'kmod-nic-1000.1.6.18.55-r1.apk'
+        expected = {older: ('user-probe', '1-r1', 'x86_64'),
+                    kmod: ('kmod-nic', '1000.1.6.18.55-r1', 'x86_64')}
+        B.publish(self.tree, self.data, expected=expected)
+        result = B.publish(self.tree, self.data, dry_run=True, expected=expected)
+        self.assertEqual(result['userspace']['status'], 'unchanged')
+        self.assertEqual(result['kernel']['status'], 'unchanged')
+        newer = self.make_package('user-probe', '1-r2')
+        B.publish(self.tree, self.data, expected={
+            newer: ('user-probe', '1-r2', 'x86_64'), kmod: expected[kmod]})
+        newer.unlink()
+        before = self.aliases()
+        with self.assertRaisesRegex(ValueError, 'Newer retained or staged APK'):
+            B.publish(self.tree, self.data, expected=expected)
+        self.assertEqual(self.aliases(), before)
+
+    def test_rolling_allocation_rebuilds_graph_and_refreshes_inventory(self):
+        old = self.base / 'user-probe-1-r1.apk'
+        new = self.make_package('user-probe', '1-r2')
+        inventories = [{old: ('user-probe', '1-r1', 'x86_64')},
+                       {new: ('user-probe', '1-r2', 'x86_64')}]
+        with patch.object(B, 'run_make'), \
+                patch.object(B, 'rolling_inventory', side_effect=inventories) as rebuild, \
+                patch.object(B.ALLOCATE, 'plan', return_value=[]), \
+                patch.object(B.ALLOCATE, 'apply'), \
+                patch.object(B, 'publish', side_effect=[
+                    B.LAN.SameVersionRebuildError('allocate', []), {'status': 'passed'}]) as publish:
+            result = B.build(self.tree, ['-j16'], rolling=True, allocate_rebuilds=True)
+        self.assertEqual(result['status'], 'passed')
+        self.assertEqual(rebuild.call_args_list[0], rebuild.call_args_list[1])
+        self.assertEqual([call.kwargs['expected'] for call in publish.call_args_list], inventories)
+
+    def test_rolling_publish_checks_actual_retained_bytes_on_noop(self):
+        user = self.base / 'user-probe-1-r1.apk'
+        kmod = self.target / 'kmod-nic-1000.1.6.18.55-r1.apk'
+        expected = {user: ('user-probe', '1-r1', 'x86_64'),
+                    kmod: ('kmod-nic', '1000.1.6.18.55-r1', 'x86_64')}
+        result = B.publish(self.tree, self.data, expected=expected)
+        served = Path(result['userspace']['snapshot']) / 'base' / user.name
+        served.write_bytes(b'corrupt retained package')
+        before = self.aliases()
+        with self.assertRaisesRegex(ValueError, 'Expected rolling APK bytes differ'):
+            B.publish(self.tree, self.data, expected=expected)
+        self.assertEqual(self.aliases(), before)
+
+    def test_vm_artifacts_require_fresh_image_and_iso(self):
+        config = self.tree / '.config'
+        with config.open('a') as stream:
+            stream.write('CONFIG_INSTALLER_ISO_IMAGES=y\nCONFIG_GRUB_EFI_IMAGES=y\nCONFIG_TARGET_IMAGES_GZIP=y\n')
+        media = self.target.parent
+        for name in (B.VM_IMAGE, B.VM_ISO):
+            (media / name).write_bytes(b'preexisting output')
+        bundle = self.root / 'vm-bundle'
+        with patch.object(B, 'run_make'):
+            with self.assertRaisesRegex(ValueError, 'did not produce both'):
+                B.build(self.tree, [], publish_after=False, vm_artifacts=bundle)
+        self.assertFalse(bundle.exists())
+
+        def make(tree, args):
+            sequence = int(B.configuration(self.tree)['CONFIG_OPENWRT_KERNEL_SEQUENCE'])
+            for arg in args:
+                if arg.startswith('VM_MEDIA_DIR='):
+                    directory = Path(arg.split('=', 1)[1])
+                    config_text = config.read_text()
+                    self.generation(sequence)
+                    config.write_text(config_text)
+                    for name in (B.VM_IMAGE, B.VM_ISO):
+                        (media / name).write_bytes(name.encode())
+                        (directory / name).touch()
+                if arg.startswith('ROLLING_APK_DIR='):
+                    directory = Path(arg.split('=', 1)[1])
+                    version = f'1000.{sequence}.6.18.55-r1'
+                    package = self.target / f'kmod-nic-{version}.apk'
+                    (directory / 'kmod-nic').write_text(f'{package}\tkmod-nic\t{version}\tx86_64\n')
+
+        with patch.object(B, 'run_make', side_effect=make):
+            B.build(self.tree, [], publish_after=False, vm_artifacts=bundle)
+        self.assertIn('installer.iso', B.verify_artifacts(bundle)['files'])
+        self.assertEqual((bundle / 'image.img.gz').read_bytes(), B.VM_IMAGE.encode())
+        self.assertEqual((bundle / 'installer.iso').read_bytes(), B.VM_ISO.encode())
+
     def test_foreign_inherited_build_lock_is_rejected(self):
         with (self.root / 'foreign-lock').open('w') as lock:
             with self.assertRaisesRegex(ValueError, 'Inherited build lock'):

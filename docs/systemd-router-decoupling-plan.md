@@ -1,12 +1,12 @@
 # OpenWrt native systemd 纯路由构建与应用解耦
 
-状态：方案已确认。源码审查、Kconfig 试算和相关宿主机测试已完成。纯路由配置和包依赖改动待实现，精简固件待构建和验收。
+状态：纯路由配置、包依赖解耦、隔离构建与纯路由 KVM 验收已完成（2026-11-19），详见 [验证记录](systemd-router-decoupling-validation.md)。可选应用（GNOME 无/含 Flatpak、Podman、Samba、libvirt/virt-manager）的运行时回归测试与实体链路 PPPoE 验收待单独执行；生产发布和实体设备操作未执行。
 
 ## 目标与范围
 
 从当前 x86_64/glibc/APK 树独立构建一个有线纯路由镜像。它应能以 systemd 为 PID 1 冷启动，初始化 LAN，完成 PPPoE 拨号，并为 LAN 客户端提供 DHCP、DNS 和 NAT。GNOME、Flatpak、Podman、Distrobox、Samba 和虚拟化分别选择，保留实际运行所需的单向依赖。
 
-本次范围是构建配置和包依赖。USB 安装器的离线组件选择另见 [安装器可选组件方案](installer-components-plan.md)。现有完整桌面配置、正常启动与恢复路径、已安装设备的配置和 APK 顶层选择继续受支持。
+本次范围是构建配置和包依赖。USB 安装器的离线组件选择另见 [安装器可选组件方案](installer-components-plan.md)。现有完整桌面配置、正常 systemd 启动与原生 `failsafe=true` 恢复路径（按 [systemd 单 init 方案](systemd-only-plan.md) 现行基线）、已安装设备的配置和 APK 顶层选择继续受支持。
 
 ## 审查发现
 
@@ -16,13 +16,13 @@
 - **独立配置试算**。对新 seed 使用现有生成的 Kconfig 元数据执行 `scripts/config/conf --fatalrecursive`，输入、输出均放在内存文件描述符中。配置保留 systemd、procd、ubus、netifd、firewall4、dnsmasq-full、IPv6 和 PPPoE 链，得到 221 个取值为 `y` 的 `PACKAGE_*` 项。GNOME、Flatpak、Podman、Distrobox、Samba、wsdd2、Avahi、libvirt、QEMU 和安装器均未入选。该次试算未选 LuCI，221 是试算计数。空 seed 需要同时设置 `DEVEL=y`、`TOOLCHAINOPTS=y` 和 `LIBC_USE_GLIBC=y`，否则选择会回到 musl，`OPENWRT_SYSTEMD` 随之失效。 [systemd Kconfig](../config/Config-build.in) · [工具链 Kconfig](../toolchain/Config.in)
 - **镜像默认值**。普通 combined 镜像复制根目录 `files/`；安装器 ISO 只复制 Git 跟踪的默认文件。当前本地 overlay 含 PPPoE WAN、Podman 防火墙区和 Passwall include。干净通用 x86 镜像在识别到 WAN 时默认用 DHCP。测试使用干净默认值，在客体注入 WAN 端口、合成账号密码和需要的 VLAN，避免继承或记录现场凭据。 [combined 组装](../package/Makefile) · [ISO 组装](../target/linux/x86/image/Makefile) · [WAN 默认值](../package/base-files/files/lib/functions/uci-defaults.sh)
 
-## 实施顺序
+## 实施顺序与结果
 
-1. 新增 `configs/x86-64-systemd-router.config`。从 x86_64 generic 默认值和顶层包开始，保留 UEFI squashfs、正常 systemd/恢复 procd 启动、签名 APK、kernelctl、SSH、LuCI、dnsmasq-full、odhcp6c/odhcpd-ipv6only、firewall4、ppp 和 ppp-mod-pppoe。保留实际需要的磁盘和网卡支持。试算显式选择了 kmod、kmod-nvme、kmod-r8169、kmod-igc、kmod-igb、kmod-e1000e 和 kmod-e1000。x86 7.3 内核配置已有 VirtIO 网卡和 802.1Q 支持。显式关闭默认选入的 video-support、普通 dnsmasq 和安装器 ISO。安装匹配 feeds 后生成 Kconfig 元数据，用严格归一化和最终 APK 清单验证结果。
-2. 拆开 GNOME 与 Flatpak 运行时。让 `xdg-desktop-portal` 从固定版本、哈希校验的 Flatpak 源码归档提取 `data/org.freedesktop.portal.Flatpak.xml`。当前源码基线是 Flatpak 1.18.4。在 portal 的构建目录放置 XML，通过 Meson 的 `flatpak-interfaces-dir` 传入目录，保留 Flatpak 接口代码生成和 Bubblewrap 图像/音频沙箱，移除 portal 的 `+flatpak` 运行时依赖。由 `openwrt-flatpak` 显式引入运行时，完整桌面保留现有 RDP。
-3. 整理容器与 NAS 的顶层选择。Podman 可单独入镜；Distrobox 继续通过 `openwrt-podman-rootless` 使用 Podman。容器 LuCI 插件、翻译包与 Podman 防火墙配置随容器功能选择。Samba server 与其 LuCI 插件和翻译包一起选择，wsdd2 与 Avahi 按发现需求选择。沿用已存在的 Samba、wsdd2、Avahi native units 和 `nas.slice`。保留完整配置中的现有功能选择。
-4. 拆开虚拟化与桌面。QEMU、libvirt 和现有 LuCI 管理支持无桌面构建。`virt-manager-setup` 目前引用 `desktop-common.sh` 的普通账号校验。将该校验移出桌面脚本依赖后移除 virt-manager 的 `+openwrt-desktop`。保留 UID/GID、主目录、登录 shell、账号密码状态检查以及现有 libvirt socket 权限、render 授权标记和撤销语义。
-5. 在独立 checkout 使用匹配的 feed 修订和受跟踪的默认 overlay 构建。隔离配置、staging 和输出，保留生产工作区以及完整桌面产物。保留包名、UCI、服务入口和已安装系统的 APK `world`。修改过的 APK 配方提高 `PKG_RELEASE`。纯路由构建产物使用独立验收目录，生产发布和设备操作单独授权。
+1. **已完成**：新增 [configs/x86-64-systemd-router.config](../configs/x86-64-systemd-router.config)。从 x86_64 generic 默认值和顶层包开始，保留 UEFI squashfs、正常 systemd 与原生 `failsafe=true` 恢复入口（与 [systemd-only-plan.md](systemd-only-plan.md) 一致）、签名 APK、kernelctl、SSH（含 `openssh-keygen`）、多用户基础工具（`sudo` 与不含 `shadow-login` 的 `shadow-*`）、LuCI（含中文语言包）、dnsmasq-full、odhcp6c/odhcpd-ipv6only、firewall4、ppp、ppp-mod-pppoe、curl、tcpdump 以及 kmod、kmod-nvme、kmod-r8169、kmod-igc、kmod-igb、kmod-e1000e 和 kmod-e1000。显式关闭 video-support、普通 dnsmasq、dropbear、shadow-all/shadow-login 和安装器 ISO。同时修复 [package/utils/busybox/Makefile](../package/utils/busybox/Makefile) 在关闭 `BUSYBOX_CUSTOM` 时漏掉 `BUSYBOX_DEFAULT_PAM:libpam` 的依赖问题（`PKG_RELEASE:=16`）。
+2. **已完成**：拆开 GNOME 与 Flatpak 运行时。修改 [package/custom/xdg-desktop-portal/Makefile](../package/custom/xdg-desktop-portal/Makefile) 从固定版本、SHA-256 校验的 `flatpak-1.18.4.tar.xz` 提取 `data/org.freedesktop.portal.Flatpak.xml`，通过 Meson 的 `-Dflatpak-interfaces-dir=` 传入目录，保留 Flatpak 接口代码生成和 Bubblewrap 沙箱，移除 `+flatpak` 运行时依赖，并将 `PKG_RELEASE` 升至 `5`（避开 `configs/apk-elf-rebuilds.mk` 已保留的 `1.22.1-r4`）。新增 [configs/gnome-desktop-core.config](../configs/gnome-desktop-core.config) 用于在纯路由基线上无 Flatpak 组合 GNOME 与 RDP；`openwrt-flatpak` 显式引入 Flatpak 运行时。
+3. **已完成**：整理容器与 NAS 的顶层选择。新增 [configs/podman.config](../configs/podman.config)（`podman` + `openwrt-podman-rootless` + `luci-app-podman`）与 [configs/distrobox.config](../configs/distrobox.config)（通过 `openwrt-podman-rootless` 单向依赖 Podman）；沿用 [configs/samba4.config](../configs/samba4.config) 及 `SAMBA4_SERVER_WSDD2`/`SAMBA4_SERVER_AVAHI` 可选开关、`nas.slice` 与 native units；保留完整桌面配置中的现有功能选择。
+4. **已完成**：拆开虚拟化与桌面。新增无头虚拟化片段 [configs/virt-headless.config](../configs/virt-headless.config)（`libvirt-daemon` + `virsh` + `virt-install` + `qemu-x86_64-softmmu` + `luci-app-qemu`）。将普通用户校验逻辑内联到 [package/custom/virt-manager/files/virt-manager-setup](../package/custom/virt-manager/files/virt-manager-setup)，移除对 `desktop-common.sh` 与 `+openwrt-desktop` 的依赖，显式补足 `+shadow-usermod`，并将 [package/custom/virt-manager/Makefile](../package/custom/virt-manager/Makefile) 的 `PKG_RELEASE` 升至 `5`。
+5. **已完成（隔离验收）**：在 `/srv/openwrt-validation/systemd-router-decoupling-validation-20261119/checkout` 使用匹配的 feed 修订与受跟踪的 11 个默认 overlay 文件独立构建纯路由固件，未修改主工作区 `.config`、`bin/systemd` 或个人 overlay；未发布 LAN APK feed，也未操作实体设备。详细验证记录与未覆盖边界见 [systemd-router-decoupling-validation.md](systemd-router-decoupling-validation.md)。
 
 ## 验收与证据边界
 
@@ -33,4 +33,4 @@
 | 应用回归 | 验证无 Flatpak 的 GNOME 文件选择、屏幕共享与完整配置 RDP，启用 Flatpak 后验证普通用户应用及 portal。验证无桌面 Podman、Samba、libvirt，及 virt-manager 的授权、连接和撤销。 |
 | APK 与内核 | 在独立环境分别验证现有完整镜像和新纯路由镜像的签名 APK 升级。检查既有 APK world、UCI、功能选择和 `kernelctl check`。记录精确镜像 SHA256、清单及测试结果。物理 NIC、线路 VLAN 和真实 ISP PPPoE 单独验收。 |
 
-本轮已运行 `scripts/tests/test-network-wait-online.py`（14 项）、`test-systemd-udev-boundary.py`（3 项）和 `test-nas-systemd.py`（8 项），均通过。已有的 [完整镜像 VM 记录](auxiliary-systemd-validation.md) 和 [实体 PPPoE 记录](systemd-udev-boundary-validation.md) 属于既有镜像。现有 [双 VM 脚本](../scripts/test-image-network.py) 在 WAN 使用 DHCP，PPPoE AC 场景待补充。接手从独立 checkout 的配置实现与清单验证开始。
+2026-11-19 已在独立 checkout 完成纯路由配置与依赖解耦实现、隔离镜像构建、Kconfig 全矩阵归一化、解耦包独立编译打包、双 VM DHCP/DNS/NAT/LuCI 验收，以及新增的 [PPPoE AC / failsafe 三 VM 脚本](../scripts/tests/test-systemd-router-pppoe-vm.py) 验收，结果见 [纯路由与解耦验证记录](systemd-router-decoupling-validation.md)。应用回归（GNOME 无/含 Flatpak、无桌面 Podman/Samba/libvirt 及 virt-manager 运行时）、完整镜像签名 APK 升级回归和物理线路 PPPoE/VLAN 验收仍作为后续独立验收项保留。

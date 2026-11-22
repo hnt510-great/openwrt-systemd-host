@@ -28,6 +28,8 @@ LAN = load('build_lan_publisher', 'publish-lan-apk-feeds.py')
 KERNEL = load('build_kernel_publisher', 'publish-kernel-upgrade-feed.py')
 INPUTS = load('kernel_build_inputs', 'kernel-build-inputs.py')
 GUARD = load('build_upgrade_preflight', 'apk-upgrade-preflight.py')
+CHECKOUT_LOCK = load('checkout_lock', 'checkout-lock.py')
+COLD_VERIFY = load('rebuild_cold_verify', 'rebuild-cold-verify.py')
 ALLOCATE = LAN.ALLOCATE
 # Each round may change exact-version dependents (ELF_DEP_*), so allow a short
 # cascade, but never loop on a rebuild that keeps producing new bytes.
@@ -308,7 +310,7 @@ def legacy_kernel_package(info):
         any('-owrt-' in dep for dep in info.get('depends', [])))
 
 
-def project(tree, work, apk, progress=None):
+def project(tree, work, apk, progress=None, expected=None):
     config = configuration(tree)
     sequence = int(config.get('CONFIG_OPENWRT_KERNEL_SEQUENCE', '0'))
     abi = (tree / 'staging_dir/target-x86_64_glibc/kernel.version').read_text().strip()
@@ -334,6 +336,8 @@ def project(tree, work, apk, progress=None):
     candidates = {}
     kmods = {}
     support = {}
+    userspace_expected = {}
+    seen = set()
     for repo, paths in inputs:
         output = userspace / ('bin/systemd/targets/x86/64-glibc/packages' if repo == 'target'
                               else 'bin/systemd/packages/x86_64/' + repo)
@@ -345,7 +349,16 @@ def project(tree, work, apk, progress=None):
                          f'{examined}/{total} ({repo})')
             info = metadata['info']
             name = info['name']
+            if expected is not None and path in expected:
+                identity = (name, info['version'], info['arch'])
+                if identity != expected[path]:
+                    raise ValueError(f'Unexpected built APK identity: {path}: {identity}')
+                seen.add(path)
+                if not LAN.kernel_channel_package(info):
+                    userspace_expected[f'{repo}/{path.name}'] = identity
             if legacy_kernel_package(info):
+                if expected is not None and path in expected:
+                    raise ValueError(f'Expected build APK is a legacy kernel payload: {path}')
                 continue
             # Kernel packages and their metapackages form the kernel channel;
             # everything else, including the config-only kmods, is userspace
@@ -354,6 +367,8 @@ def project(tree, work, apk, progress=None):
                     ('linux-image-', 'linux-headers-')):
                 candidates.setdefault(name, []).append((path, info))
                 continue
+            if expected is not None and path not in expected:
+                continue
             if name.startswith('kmod-'):
                 kmods.setdefault(name, []).append(info)
             copy_package(path, output / path.name)
@@ -361,6 +376,9 @@ def project(tree, work, apk, progress=None):
                         'lan-apk-feeds', 'openwrt-kernel-upgrade', 'grub2',
                         'grub2-efi', 'grub2-editenv'}:
                 support.setdefault(name, []).append((path, info))
+    if expected is not None and seen != expected.keys():
+        missing = sorted(str(path) for path in expected.keys() - seen)
+        raise ValueError('Missing expected build APKs: ' + ', '.join(missing))
     for entries in support.values():
         path, _ = newest(entries, apk)
         copy_package(path, channel / path.name)
@@ -394,6 +412,8 @@ def project(tree, work, apk, progress=None):
                 raise ValueError('Missing kmod configuration package for this kernel build: ' + name)
     for name, (path, info) in selected.items():
         copy_package(path, channel / path.name)
+    if expected is not None:
+        return userspace, channel, abi, release, userspace_expected
     return userspace, channel, abi, release
 
 
@@ -414,19 +434,24 @@ def verify_artifacts(bundle):
     return manifest
 
 
-def capture_artifacts(tree, bundle):
+def capture_artifacts(tree, bundle, include_iso=False, expected=None):
     """Called while the checkout build lock is held; never copy signing keys."""
     bundle = Path(bundle)
     bundle.mkdir(mode=0o700, parents=True, exist_ok=False)
-    userspace, channel, abi, release = project(tree, bundle, TREE / 'staging_dir/host/bin/apk')
-    image = tree / 'bin/systemd/targets/x86/64-glibc/openwrt-x86-64-generic-squashfs-combined-efi.img.gz'
+    projection = project(tree, bundle, TREE / 'staging_dir/host/bin/apk', expected=expected)
+    _, _, abi, release = projection[:4]
+    image = tree / 'bin/systemd/targets/x86/64-glibc' / VM_IMAGE
     copy_package(image, bundle / 'image.img.gz')
+    if include_iso:
+        copy_package(image.with_name(VM_ISO), bundle / 'installer.iso')
     copy_package(tree / '.config', bundle / 'build.config')
     copy_package(state_path(tree), bundle / 'kernel-inputs.json')
     manifest = {'schema': 1, 'abi': abi, 'release': release,
                 'public_key_sha256': LAN.sha256(TREE / 'public-key.pem'),
                 'files': {str(p.relative_to(bundle)): LAN.sha256(p)
                           for p in sorted(bundle.rglob('*')) if p.is_file()}}
+    if expected is not None:
+        manifest['expected_userspace'] = projection[4]
     for name in manifest['files']:
         (bundle / name).chmod(0o444)
     (bundle / 'manifest.json').write_text(json.dumps(manifest, sort_keys=True, indent=2) + '\n')
@@ -434,7 +459,7 @@ def capture_artifacts(tree, bundle):
     return manifest
 
 
-def publish(tree, data, dry_run=False, progress=None, artifacts=None):
+def publish(tree, data, dry_run=False, progress=None, artifacts=None, expected=None):
     apk = TREE / 'staging_dir/host/bin/apk'
     if progress:
         progress(0, 'Wait for publication lock')
@@ -451,19 +476,23 @@ def publish(tree, data, dry_run=False, progress=None, artifacts=None):
     destination.mkdir(parents=True, exist_ok=True)
     with (destination / '.upgrade-publish.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        result = publish_locked(tree, data, apk, dry_run, progress, artifacts)
+        result = publish_locked(tree, data, apk, dry_run, progress, artifacts, expected)
     if progress:
         progress(100, 'Dry run complete' if dry_run else 'Publication complete')
     return result
 
 
-def publish_locked(tree, data, apk, dry_run, progress=None, artifacts=None):
+def publish_locked(tree, data, apk, dry_run, progress=None, artifacts=None, expected=None):
     destination = data['destination']
     prepared = []
     with tempfile.TemporaryDirectory(prefix='.build-publish-', dir=destination) as temporary:
         if progress:
             progress(2, 'Read and stage APKs')
-        if artifacts is None:
+        userspace_expected = None
+        if expected is not None:
+            userspace, channel, abi, generation, userspace_expected = project(
+                tree, Path(temporary), apk, progress, expected=expected)
+        elif artifacts is None:
             userspace, channel, abi, generation = project(tree, Path(temporary), apk, progress)
         else:
             artifacts = Path(artifacts).resolve()
@@ -474,11 +503,17 @@ def publish_locked(tree, data, apk, dry_run, progress=None, artifacts=None):
             # substitute inputs between verification and the solver simulations.
             for folder in ('userspace', 'kernel'):
                 shutil.copytree(artifacts / folder, Path(temporary) / folder)
+            staged_names = {str(path.relative_to(temporary))
+                            for path in Path(temporary).rglob('*') if path.is_file()}
+            if staged_names != {name for name in manifest['files']
+                                if name.startswith(('userspace/', 'kernel/'))}:
+                raise ValueError('Artifact file set changed during publication staging')
             for name, digest in manifest['files'].items():
                 if name.startswith(('userspace/', 'kernel/')) and LAN.sha256(Path(temporary) / name) != digest:
                     raise ValueError('Artifact changed during publication staging: ' + name)
             userspace, channel = Path(temporary) / 'userspace', Path(temporary) / 'kernel'
             abi, generation = manifest['abi'], manifest['release']
+            userspace_expected = manifest.get('expected_userspace')
         if data.get('kernel') and data['kernel'] != abi:
             raise ValueError('Requested ABI differs from compiled generation')
         if progress:
@@ -490,7 +525,7 @@ def publish_locked(tree, data, apk, dry_run, progress=None, artifacts=None):
             full=True)
         args = argparse.Namespace(source_root=userspace, kernel=abi, destination=destination,
             base_url=data['base_url'], incremental=True, dry_run=False, kernel_upgrade_view=True,
-            stage_only=True)
+            stage_only=True, expected=userspace_expected, frozen_artifacts=artifacts is not None)
         try:
             if progress:
                 progress(30, 'Prepare userspace feeds', 'signatures and ABI checks')
@@ -509,6 +544,11 @@ def publish_locked(tree, data, apk, dry_run, progress=None, artifacts=None):
             receipt = GUARD.preflight(destination, data['base_url'], lan, kernel,
                                       baseline=baseline, recheck=False,
                                       progress=preflight_progress if progress else None)
+            if userspace_expected:
+                published_files = receipt['stages']['userspace']['files']
+                for path, digest in lan.pop('expected_digests').items():
+                    if published_files.get(path) != digest:
+                        raise ValueError(f'Expected rolling APK bytes differ in prepared snapshot: {path}')
             # Recheck BOTH before moving either alias. These are the exact
             # staged snapshots, never a second projection of mutable bin/.
             for name, result in (('userspace', lan), ('kernel', kernel)):
@@ -571,49 +611,218 @@ def make_options(make_args):
     return options
 
 
-def publish_allocating(tree, data, publish_once, make_args=(), allocate=False):
+def _maybe_cold_verify_entries(tree, entries, *, abi_store=None, cold_runner=None,
+                               evidence_dir=None, attempted_recipes=None,
+                               allow_high_cost=False, authorized_cold_recipes=()):
+    """Run at most one isolated cold rebuild per recipe for reviewable ELF candidates."""
+    attempted = attempted_recipes if attempted_recipes is not None else set()
+    recipes = ALLOCATE.recipe_versions(tree) if (tree / 'tmp/.packageinfo').is_file() else {}
+    by_recipe = {}
+    for idx, entry in enumerate(entries):
+        decision = entry.get('decision') or {}
+        if decision.get('action') != LAN.DIAGNOSE.ACTION_REVIEW:
+            continue
+        if not entry.get('old_path') or not entry.get('new_path'):
+            continue
+        if not Path(entry['old_path']).is_file() or not Path(entry['new_path']).is_file():
+            continue
+        name = entry.get('name')
+        if not name or name not in recipes:
+            continue
+        makefile = recipes[name][1]
+        if makefile in attempted:
+            continue
+        by_recipe.setdefault(makefile, []).append((idx, entry))
+
+    if not by_recipe:
+        return entries
+
+    updated = list(entries)
+    pub_key = tree / 'public-key.pem'
+    for makefile, group in sorted(by_recipe.items()):
+        attempted.add(makefile)
+        candidates = {e['name']: Path(e['new_path']) for _, e in group}
+        if pub_key.is_file():
+            with tempfile.TemporaryDirectory(prefix='cold-verify-keys-') as keys_tmp:
+                shutil.copyfile(pub_key, Path(keys_tmp) / 'public-key.pem')
+                cold = COLD_VERIFY.cold_rebuild_recipe(
+                    tree, makefile, candidates,
+                    apk=TREE / 'staging_dir/host/bin/apk',
+                    keys_dir=Path(keys_tmp),
+                    evidence_dir=evidence_dir,
+                    runner=cold_runner,
+                    allow_high_cost=allow_high_cost,
+                    authorized_recipes=authorized_cold_recipes)
+                for idx, entry in group:
+                    pkg_ev = cold.get('packages', {}).get(entry['name'])
+                    if not pkg_ev:
+                        continue
+                    combined_ev = {
+                        **pkg_ev,
+                        'input_sha256': cold.get('input_sha256'),
+                        'inputs_stable': cold.get('inputs_stable'),
+                        'cold_build_verified': cold.get('cold_build_verified', False),
+                    }
+                    new_entry, _ = ALLOCATE.classify(
+                        entry['old_path'], entry['new_path'], entry['path'],
+                        apk=TREE / 'staging_dir/host/bin/apk',
+                        keys_dir=Path(keys_tmp),
+                        abi_store=abi_store,
+                        cold_evidence=combined_ev)
+                    if entry.get('snapshot'):
+                        new_entry['snapshot'] = entry['snapshot']
+                    updated[idx] = new_entry
+    return updated
+
+
+def publish_allocating(tree, data, publish_once, make_args=(), allocate=False, rebuild=None,
+                       dry_run=False, approvals=None, cold_rebuild=False, abi_store=None,
+                       cold_runner=None, evidence_dir=None, allow_high_cost=False,
+                       authorized_cold_recipes=()):
     """Publish; on same-version rebuilds optionally allocate releases, rebuild, retry."""
+    attempted_recipes = set()
     for round_number in range(ALLOCATION_ROUNDS + 1):
         try:
             return publish_once()
         except LAN.SameVersionRebuildError as error:
             if not allocate or round_number == ALLOCATION_ROUNDS:
                 raise
-            allocations = ALLOCATE.plan(tree, data['destination'], error.entries)
+            entries = error.entries
+            if cold_rebuild and not dry_run:
+                entries = _maybe_cold_verify_entries(
+                    tree, entries, abi_store=abi_store, cold_runner=cold_runner,
+                    evidence_dir=evidence_dir, attempted_recipes=attempted_recipes,
+                    allow_high_cost=allow_high_cost,
+                    authorized_cold_recipes=authorized_cold_recipes)
+            plan_kwargs = {}
+            if approvals is not None:
+                plan_kwargs['approvals'] = approvals
+            if getattr(error, 'snapshot', None):
+                plan_kwargs['snapshot'] = error.snapshot
+            allocations = ALLOCATE.plan(tree, data['destination'], entries, **plan_kwargs)
+            if dry_run:
+                print('Dry run: planned release allocations (no ledger writes or rebuilds):\n' +
+                      ALLOCATE.describe(allocations), file=sys.stderr)
+                return {
+                    'status': 'dry-run-conflict',
+                    'planned_allocations': allocations,
+                    'entries': error.entries,
+                }
             print('Allocating new releases for same-version rebuilds:\n' +
                   ALLOCATE.describe(allocations), file=sys.stderr)
-            ALLOCATE.apply(tree, allocations)
-            targets = ALLOCATE.rebuild_targets(allocations)
-            print('Rebuilding: ' + ' '.join(targets), file=sys.stderr)
-            run_make(tree, [*make_options(list(make_args)), *targets])
+            apply_kwargs = {}
+            if getattr(error, 'snapshot', None):
+                apply_kwargs['destination'] = data['destination']
+            ALLOCATE.apply(tree, allocations, **apply_kwargs)
+            if rebuild is None:
+                targets = ALLOCATE.rebuild_targets(allocations)
+                print('Rebuilding: ' + ' '.join(targets), file=sys.stderr)
+                run_make(tree, [*make_options(list(make_args)), *targets])
+            else:
+                rebuild()
+            pub_key = tree / 'public-key.pem'
+            if pub_key.is_file() and any(a.get('new_path') and Path(a['new_path']).is_file()
+                                         for a in allocations):
+                with tempfile.TemporaryDirectory(prefix='verify-rebuilt-keys-') as keys_tmp:
+                    shutil.copyfile(pub_key, Path(keys_tmp) / 'public-key.pem')
+                    ALLOCATE.verify_rebuilt_packages(
+                        tree, allocations, apk=TREE / 'staging_dir/host/bin/apk',
+                        keys_dir=Path(keys_tmp))
+
+
+_ACTIVE_LOCK = None
 
 
 def run_make(tree, arguments):
     # Package scripts/lists and temporary roots inherit the build's umask.
     # Keep their recorded ACLs stable across shells and validation checkouts.
-    subprocess.run(['make', *arguments], cwd=tree, check=True, umask=0o022)
+    env = None
+    pass_fds = ()
+    if _ACTIVE_LOCK is not None:
+        fd, ident = _ACTIVE_LOCK
+        os.set_inheritable(fd, True)
+        env = {**os.environ, CHECKOUT_LOCK.ENV_FD: str(fd), CHECKOUT_LOCK.ENV_ID: ident}
+        pass_fds = (fd,)
+    subprocess.run(['make', *arguments], cwd=tree, check=True, umask=0o022,
+                   env=env, pass_fds=pass_fds)
+
+
+VM_IMAGE = 'openwrt-x86-64-generic-squashfs-combined-efi.img.gz'
+VM_ISO = 'openwrt-x86-64-generic-installer.iso'
+
+
+def read_apk_inventory(tree, directory):
+    """Read the APK identities evaluated by this invocation of Make."""
+    expected = {}
+    for fragment in sorted(Path(directory).rglob('*')):
+        if not fragment.is_file():
+            continue
+        filename, name, version, arch = fragment.read_text().rstrip('\n').split('\t')
+        path = Path(filename)
+        identity = (name, version, arch)
+        if (not path.is_relative_to(tree / 'bin/systemd') or not path.is_file()
+                or expected.setdefault(path, identity) != identity):
+            raise ValueError(f'Missing or conflicting build APK output: {path}')
+    if not expected:
+        raise ValueError('Build did not report any APKs')
+    return expected
+
+
+def rolling_inventory(tree, arguments):
+    with tempfile.TemporaryDirectory(prefix='rolling-apks-', dir=tree / 'tmp') as directory:
+        run_make(tree, [*arguments, f'ROLLING_APK_DIR={directory}', 'rolling-packages'])
+        return read_apk_inventory(tree, directory)
 
 
 def build(tree, make_args, publish_after=True, artifact_directory=None, lock_fd=None,
-          allocate_rebuilds=False):
+          allocate_rebuilds=False, rolling=False, dry_run=False, vm_artifacts=None):
+    if dry_run and (not rolling or not publish_after or allocate_rebuilds):
+        raise ValueError('Build --dry-run requires --rolling without automatic release allocation')
+    if vm_artifacts is not None and (rolling or publish_after or artifact_directory is not None):
+        raise ValueError('--vm-artifacts requires a full build-only invocation')
     for argument in make_args:
         if argument in ('-n', '--just-print', '--dry-run', '--recon', '-q', '--question', '-t', '--touch'):
             raise ValueError('A make preview/touch cannot be used for build-and-publish')
         if argument.startswith(('-C', '--directory', 'TOPDIR=')):
             raise ValueError('Build-and-publish must build this checkout')
     data = settings(tree)
-    # Serialize the full build against this checkout, not just the final index.
+    # Serialize the full build against this checkout using a lock outside tmp/
+    # so dirclean cannot replace its inode.
     lockdir = tree / 'tmp'
     lockdir.mkdir(exist_ok=True)
-    with (lockdir / '.build-and-publish.lock').open('a') as lock:
-        if lock_fd is None:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-        elif (os.fstat(lock_fd).st_dev, os.fstat(lock_fd).st_ino) != (os.fstat(lock.fileno()).st_dev, os.fstat(lock.fileno()).st_ino):
-            raise ValueError('Inherited build lock does not belong to this checkout')
+    global _ACTIVE_LOCK
+    cfg = configuration(tree)
+    extra_dirs = [cfg['CONFIG_BINARY_FOLDER'].strip('"')] if cfg.get('CONFIG_BINARY_FOLDER', '').strip('"') else []
+    prev_lock = _ACTIVE_LOCK
+    with CHECKOUT_LOCK.acquire_checkout_lock(tree, lock_fd=lock_fd, extra_dirs=extra_dirs) as (held_fd, ident, _):
+        _ACTIVE_LOCK = (held_fd, ident)
+        try:
+            return _build_locked(tree, make_args, data, lockdir, publish_after, artifact_directory,
+                                 allocate_rebuilds, rolling, dry_run, vm_artifacts)
+        finally:
+            _ACTIVE_LOCK = prev_lock
+
+
+def _build_locked(tree, make_args, data, lockdir, publish_after, artifact_directory,
+                  allocate_rebuilds, rolling, dry_run, vm_artifacts):
+    if True:
         targets = [arg for arg in make_args if not arg.startswith('-') and '=' not in arg
                    and not arg.isdigit()]
         enabled = configuration(tree).get('CONFIG_OPENWRT_KERNEL_UPGRADE') == 'y'
         full = not targets or targets == ['world']
+        if rolling and (targets or not enabled or any(
+                arg.startswith(('CONFIG_', 'ROLLING_APK_DIR=', 'VM_MEDIA_DIR=')) for arg in make_args)):
+            raise ValueError('--rolling requires the configured kernel-upgrade target and no make targets or config overrides')
+        if vm_artifacts is not None:
+            if not full or not enabled or any(
+                    arg.startswith(('CONFIG_', 'ROLLING_APK_DIR=', 'VM_MEDIA_DIR=')) for arg in make_args):
+                raise ValueError('--vm-artifacts requires the configured full build')
+            config = configuration(tree)
+            if any(config.get(key) != 'y' for key in (
+                    'CONFIG_INSTALLER_ISO_IMAGES', 'CONFIG_GRUB_EFI_IMAGES', 'CONFIG_TARGET_IMAGES_GZIP')):
+                raise ValueError('--vm-artifacts requires the configured installer ISO and compressed EFI image')
+            if vm_artifacts.exists() or vm_artifacts.is_symlink():
+                raise ValueError(f'Artifact directory already exists: {vm_artifacts}')
         plan = None
         if full or (enabled and state_path(tree).exists()):
             run_make(tree, ['prepare-tmpinfo'])
@@ -632,7 +841,21 @@ def build(tree, make_args, publish_after=True, artifact_directory=None, lock_fd=
                 arguments.extend(migrations)
         if plan and not any(arg.startswith('KBUILD_BUILD_TIMESTAMP=') for arg in arguments):
             arguments.append('KBUILD_BUILD_TIMESTAMP=' + plan['timestamp'])
-        run_make(tree, arguments)
+        expected = None
+        if rolling:
+            expected = rolling_inventory(tree, arguments)
+        elif vm_artifacts is not None:
+            with tempfile.TemporaryDirectory(prefix='vm-media-', dir=lockdir) as directory:
+                media = Path(directory) / 'media'
+                inventory = Path(directory) / 'inventory'
+                media.mkdir()
+                inventory.mkdir()
+                run_make(tree, [*arguments, f'VM_MEDIA_DIR={media}', f'ROLLING_APK_DIR={inventory}'])
+                if any(not (media / name).is_file() for name in (VM_IMAGE, VM_ISO)):
+                    raise ValueError('The build did not produce both required VM media files')
+                expected = read_apk_inventory(tree, inventory)
+        else:
+            run_make(tree, arguments)
         if plan:
             after = INPUTS.fingerprint(tree, configuration(tree), make_args)
             if after['source'] != plan['inputs']['source']:
@@ -647,18 +870,46 @@ def build(tree, make_args, publish_after=True, artifact_directory=None, lock_fd=
             save_state(tree, plan)
         if artifact_directory is not None:
             capture_artifacts(tree, artifact_directory)
+        if vm_artifacts is not None:
+            capture_artifacts(tree, vm_artifacts, include_iso=True, expected=expected)
+        if rolling and publish_after:
+            def rebuild_rolling():
+                nonlocal expected
+                expected = rolling_inventory(tree, arguments)
+                after = INPUTS.fingerprint(tree, configuration(tree), make_args)
+                if not INPUTS.same_inputs(plan['inputs'], after):
+                    raise ValueError('Kernel inputs changed during allocation retry')
+
+            with Progress() as progress:
+                return publish_allocating(tree, data,
+                    lambda: publish(tree, data, dry_run, progress, expected=expected),
+                    make_args, allocate_rebuilds, rebuild=rebuild_rolling)
+        if rolling:
+            for path, metadata in LAN.dump_indexes(TREE / 'staging_dir/host/bin/apk', sorted(expected)):
+                info = metadata['info']
+                if (info['name'], info['version'], info['arch']) != expected[path]:
+                    raise ValueError(f'Unexpected built APK identity: {path}')
         if publish_after:
             return publish_allocating(tree, data, lambda: publish(tree, data), make_args,
                                       allocate_rebuilds)
-        return {'status': 'built', 'tree': str(tree),
-                'sequence': plan['sequence'] if plan else None}
+        result = {'status': 'built', 'tree': str(tree),
+                  'sequence': plan['sequence'] if plan else None}
+        if rolling:
+            result['expected_apks'] = len(expected)
+        return result
 
 
 def main():
     if len(sys.argv) > 1 and sys.argv[1] in ('build', 'build-only'):
-        make_args = [arg for arg in sys.argv[2:] if arg != '--allocate-rebuilds']
+        parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+        parser.add_argument('--allocate-rebuilds', action='store_true')
+        parser.add_argument('--rolling', action='store_true')
+        parser.add_argument('--dry-run', action='store_true')
+        parser.add_argument('--vm-artifacts', type=Path)
+        options, make_args = parser.parse_known_args(sys.argv[2:])
         result = build(TREE, make_args, publish_after=sys.argv[1] == 'build',
-                       allocate_rebuilds='--allocate-rebuilds' in sys.argv[2:])
+                       allocate_rebuilds=options.allocate_rebuilds, rolling=options.rolling,
+                       dry_run=options.dry_run, vm_artifacts=options.vm_artifacts)
     else:
         parser = argparse.ArgumentParser(description=__doc__)
         parser.add_argument('--config', type=Path, default=TREE / 'configs/lan-apk-feeds.json')
@@ -669,10 +920,24 @@ def main():
         parser.add_argument('--incremental', action='store_true', help='Compatibility; always incremental')
         parser.add_argument('--dry-run', action='store_true')
         parser.add_argument('--no-progress', action='store_true', help='Disable progress on stderr')
+        parser.add_argument('--artifacts', type=Path, help='Publish a verified frozen artifact bundle')
         parser.add_argument('--allocate-rebuilds', action='store_true',
                             help='Allocate ELF rebuild ledger releases for same-version rebuilds, '
                                  'rebuild those packages and retry')
+        parser.add_argument('--approval', type=Path,
+                            help='JSON file with digest-bound review approval(s)')
+        parser.add_argument('--cold-rebuild', action='store_true',
+                            help='Run at most one isolated cold rebuild per conflicting recipe (Phase 2b)')
+        parser.add_argument('--allow-high-cost-cold-rebuild', action='store_true',
+                            help='Explicitly authorize cold rebuild of high-cost recipes (Qt/LLVM/Rust)')
+        parser.add_argument('--authorize-cold-recipe', action='append', default=[],
+                            help='Explicitly authorize one high-cost recipe/package for cold rebuild (repeatable)')
+        parser.add_argument('--abi-store', type=Path,
+                            help='Out-of-APK type ABI evidence directory (Phase 2a)')
         args = parser.parse_args()
+        if args.artifacts and args.allocate_rebuilds:
+            parser.error('Frozen artifact publication cannot allocate and rebuild packages')
+        approvals = ALLOCATE.load_approvals(args.approval) if args.approval else None
         data = json.loads(args.config.read_text())
         data.update({k: v for k, v in vars(args).items()
                      if k in ('destination', 'base_url', 'kernel') and v is not None})
@@ -680,12 +945,22 @@ def main():
         tree = args.source_root.resolve()
         lockdir = tree / 'tmp'
         lockdir.mkdir(exist_ok=True)
-        with Progress(enabled=not args.no_progress) as progress, \
-                (lockdir / '.build-and-publish.lock').open('a') as lock:
+        global _ACTIVE_LOCK
+        prev_lock = _ACTIVE_LOCK
+        with Progress(enabled=not args.no_progress) as progress:
             progress(0, 'Wait for build/publication lock')
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            result = publish_allocating(tree, data,
-                lambda: publish(tree, data, args.dry_run, progress), allocate=args.allocate_rebuilds)
+            with CHECKOUT_LOCK.acquire_checkout_lock(tree) as (held_fd, ident, _):
+                _ACTIVE_LOCK = (held_fd, ident)
+                try:
+                    result = publish_allocating(tree, data,
+                        lambda: publish(tree, data, args.dry_run, progress, artifacts=args.artifacts),
+                        allocate=args.allocate_rebuilds, dry_run=args.dry_run,
+                        approvals=approvals, cold_rebuild=args.cold_rebuild,
+                        abi_store=args.abi_store,
+                        allow_high_cost=args.allow_high_cost_cold_rebuild,
+                        authorized_cold_recipes=args.authorize_cold_recipe)
+                finally:
+                    _ACTIVE_LOCK = prev_lock
     print(json.dumps(result, indent=2))
 
 

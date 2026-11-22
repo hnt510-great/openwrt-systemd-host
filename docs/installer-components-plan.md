@@ -1,12 +1,15 @@
 # 安装器可选组件：远期计划与源码调查
 
-状态：**远期计划，尚未实现，未安排执行时间。**
+**远期计划。组件安装尚未实现，执行时间待定。**
 
-记录日期：2026-11-16。本文保存本轮讨论确认的方向和源码调查结果，供以后
-实施时接续工作；不是现有安装器的使用说明，也不是新的验证通过记录。
-实际行为参见 [安装器指南](installer-iso.md)，历史运行证据参见
-[验证记录](installer-iso-validation.md)。未来实施前需重新检查源码、包依赖、
-构建配置和产物，不能把这里的日期快照当作届时的现状。
+初稿为 2026-11-16，2026-11-19 按 `a5650a322c` 更新。纯路由配置已独立构建并
+通过网络和恢复 VM 验证，GNOME 与 Flatpak、virt-manager 与 GNOME 的包依赖
+已解耦。现有安装器仍通过 `TARGET_DIR_ORIG` 生成一份完整 squashfs，供 live
+启动和目标安装共用。独立基础层、签名离线仓库、组件选择、按组件首次初始化
+和新安装组合的滚动升级验收仍待实施。
+
+现有安装流程见 [安装器指南](installer-iso.md)，构建和已有验收见
+[实施进度与验证记录](installer-components-implementation-validation.md)。
 
 ## 1. 已与用户确认的目标
 
@@ -19,9 +22,13 @@
   不趁此改成只有基础联网功能的精简发行版。
 - 功能选择页默认全部勾选，用户取消不需要的组件。
 
-实现方案沿用现有 GNOME，不新增其他 DE。保持 BIOS/UEFI、USB/光盘、整盘 GPT、
+实现方案沿用现有 GNOME。保持 BIOS/UEFI、USB/光盘、整盘 GPT、
 ext4/btrfs/xfs overlay 和后续 kernelctl/APK 升级方式。正常 combined 镜像继续
-沿用自己的构建路径和本地 overlay，不随安装器的组件化一起改变。
+沿用自己的构建路径和本地 overlay。
+
+x86/64 按 [systemd 单 init 基线](systemd-only-plan.md) 运行。安装器和已安装系统
+正常引导均以 systemd 为 PID 1，保留 OpenWrt preinit、原生 `failsafe=true`
+控制台及 systemd 托管的 procd API。整机换盘使用安装介质或离线磁盘镜像。
 
 ## 2. 计划中的组件与行为
 
@@ -54,15 +61,24 @@ RDP 凭据、Sunshine 配对、rootless 用户登记以及虚拟机管理授权�
 ### 构建与 ISO
 
 1. 新增一份 `configs/installer-components.json`，集中维护基础保留包、各组件的
-   顶层包、组件依赖和默认选择。逐项归组现有桌面应用、虚拟化/容器的 LuCI 应用
-   与翻译包，避免组件取消后又通过其他顶层包被带回。
+   顶层包、组件依赖和默认选择。对照当前完整配置，逐项归组桌面应用、容器工具、
+   虚拟化/容器的 LuCI 应用与翻译包，避免组件取消后又通过其他顶层包被带回。
+   [纯路由配置](../configs/x86-64-systemd-router.config) 可用于核对基础网络包。
+   该配置关闭了安装器，也省去了 Passwall、SmartDNS、Samba 和 `router-audit`。
+   安装器基础层应按当前完整配置明确保留这些既有运维功能及 LuCI 集成，并核对
+   签名 feed 同步、APK 事务恢复和 kernelctl 的顶层包与依赖。
 2. 从同次构建的 APK，在独立目录组装基础 rootfs，不再把完整桌面 rootfs 作为
    安装器 squashfs。沿用共享的 live squashfs/基础安装载荷思路；其中须保留
-   安装器运行、分区、文件系统格式化和离线安装必需的工具。
-3. ISO 携带基础 squashfs、组件目录和签名离线 APK 仓库。APK 负责依赖闭包，
-   不自行编写包求解器，不维护多套完整桌面 squashfs 组合。
+   安装器运行、分区、文件系统格式化和离线安装必需的工具。参考
+   [安装器配置片段](../configs/installer-iso.config) 及现有安装器包依赖。
+3. ISO 携带基础 squashfs、组件清单和签名离线 APK 仓库。USB 和光盘均可复用
+   现有只读 ISO9660 的 `/install` 内容入口，继续由 APK 求解依赖闭包。
 4. 只使用同次构建、版本和 ABI 一致的内核、基础系统、索引和软件包；携带公钥，
    不携带私钥。基础系统、仓库和清单的身份要能在预检时核对。
+   2026-11-19 隔离验证的纯路由镜像使用 `7.3.5-1-openwrt`，完整桌面构建使用
+   `7.3.5-70-openwrt`，两者 ABI 不同。新增的 GNOME 构建片段还会修改内核
+   抢占选项。组件清单只表达用户态 APK 请求，所有选择共用支持完整组件集的
+   内核及所选驱动。
 5. 保留现有“干净镜像”边界：仅带受 Git 跟踪的 `files/` 默认值，排除个人账号、
    代理节点、密钥和未跟踪 overlay。不覆盖当前工作 `.config` 来制作精简系统。
 
@@ -80,7 +96,8 @@ RDP 凭据、Sunshine 配对、rootless 用户登记以及虚拟机管理授权�
   必须在破坏性操作之前失败。不得临时联网补齐，以免依赖生产 feed 的即时状态。
 - overlay 保留原最小容量要求，并且能够容纳所选包的解压占用及至少 1 GiB
   预留空间。须计入安装与缓存生成的实际开销，不能只按 APK 压缩大小估算。
-- 基础 squashfs 写入并验证后，在挂载的目标 overlay 中安装所选 APK。
+- 基础 squashfs 写入并验证后，在目标 squashfs 与持久 overlay 合并后的根目录
+  中安装所选 APK。
   安装脚本、用户组、alternatives 和启动链接按离线安装语义处理；不得意外
   启动 live 系统中的服务。全部步骤成功后才显示安装完成。
 - 首次启动完成所需账户、桌面及音频初始化；将桌面初始化与是否自启分开，
@@ -89,23 +106,34 @@ RDP 凭据、Sunshine 配对、rootless 用户登记以及虚拟机管理授权�
 这不是对旧 ISO 格式兼容性的承诺。实施时需给新载荷明确的格式标识，遇到
 不支持的载荷应在擦盘前报错；保留已有 ISO，不原地改写已验证产物。
 
-### 需要拆开的现有依赖
+### 组件包依赖
 
-- `openwrt-desktop` 目前强制依赖 `gnome-remote-desktop`。RDP 独立可选前，
-  必须移除这条强制安装关系，并保证缺少 RDP 时桌面会话正常。
-- `xdg-desktop-portal` 目前强制依赖 `flatpak`、`bubblewrap`，并启用了
-  `flatpak-interfaces`。GNOME 门户会间接带回 Flatpak；需区分通用门户能力
-  与 Flatpak 专属集成，不能只在界面增加复选框。
+- **RDP 待拆分。** `openwrt-desktop` 仍强制依赖 `gnome-remote-desktop`，并提供
+  RDP setup、用户服务配置和 drop-in。拆分时核对这些入口及包归属，确保无 RDP
+  的 GNOME 会话正常，并保留完整桌面中的 RDP 功能和滚动升级兼容性。
+- **Flatpak 已解耦。** `xdg-desktop-portal` 保留 `bubblewrap` 沙箱，在构建期
+  生成 Flatpak 接口。选择 Flatpak 时由 `openwrt-flatpak` 引入运行时。
+  仍需验证不带 Flatpak 的 GNOME 门户，以及安装 Flatpak 后的应用和门户功能。
 - GNOME Shell 直接依赖 `pipewire`、`libpulse`；Mutter、门户及 RDP 还依赖
   `libpipewire`。不应把取消 Audio 实现为删除或全局屏蔽 PipeWire。
 - `sunshine` 依赖 `openwrt-desktop-audio`；后者依赖 `openwrt-desktop`。
   当前 Audio/IME/Flatpak/AppImage 集成均围绕桌面设计。
-- `virt-manager` 依赖 `openwrt-desktop` 和 `libvirt-daemon`。无桌面虚拟化组合
-  应选择 libvirt/QEMU、virsh、virt-install 等后端，不默认安装 virt-manager。
-- `openwrt-podman-rootless` 没有桌面依赖，可用于无桌面组合；用户登记仍是
-  显式操作，不因安装包而自动为普通用户授予额外权限。
+- **virt-manager 已解耦。** 仍依赖 `libvirt-daemon`，已移除对
+  `openwrt-desktop` 和 `desktop-common.sh` 的依赖。无桌面虚拟化的顶层包可参考
+  [无头虚拟化片段](../configs/virt-headless.config)，图形前端按第 2 节的选择规则加入。
+- 容器顶层包可参考 [Podman 片段](../configs/podman.config)。
+  `openwrt-podman-rootless` 可用于无桌面组合，用户登记仍需显式执行。
 
-这些是 2026-11-16 的源码调查结果，不是拆包后已通过的运行验证。
+Flatpak 和 virt-manager 的解耦已通过严格 Kconfig、隔离包构建和 APK 依赖核对。
+待验证的应用运行场景见 [解耦验证记录](systemd-router-decoupling-validation.md#范围与未验证边界)。
+
+### 实施顺序
+
+1. 先在隔离目录从同次构建的 APK 组装基础层和签名仓库。用现有安装路径和临时
+   目标根验证擦盘前的离线预检、合并根上的 APK 事务、目标数据库与 world，
+   以及安装后可用的生产 feed 配置。并行核对 RDP 拆分后的两种桌面依赖闭包。
+2. 接入组件选择、`--answers`、安装摘要和首次初始化，再运行第 6 节的组合
+   安装与滚动升级验收。
 
 ## 4. 以后接手时的源码入口与注意事项
 
@@ -145,9 +173,10 @@ RDP 凭据、Sunshine 配对、rootless 用户登记以及虚拟机管理授权�
 - 新系统必须保留完整 APK 数据库、签名公钥、生产 feed 同步、事务恢复、
   kernelctl 和内核元包。离线安装的路径和精确版本约束不得永久锁死后续升级。
   目标安装必须在合并根目录进行，不能只向 upper 解包而漏掉包数据库。
-- RDP 依赖拆分必须检查旧 world 的升级求解结果，保留已有包、凭据、用户服务
-  与配置；portal 拆分必须保留已安装 Flatpak 的接口能力，不能全局关闭接口来
-  实现可选组件。共享包变化同样影响普通 combined 镜像和现有设备。
+- RDP 依赖拆分时，用旧完整系统的 world 和已安装包对新包求解升级，覆盖 RDP 原先
+  仅由桌面包依赖引入的情况，验证既有 RDP 包、凭据、用户服务和 UCI 配置保留。
+  同时验证已安装 Flatpak 的门户接口。共享包变化需覆盖普通 combined 镜像与
+  既有设备的升级路径。
 - 保留内核首次接管、版本化内核并行安装、启动计数、确认、回退与 rescue；
   不复制 live 环境的 kernelctl 状态到目标，不在离线安装阶段误接管 live 内核。
 - 四组组件 VM 都须在拔除安装介质后刷新生产 feed 并完成用户态升级，检查未选
@@ -156,9 +185,10 @@ RDP 凭据、Sunshine 配对、rootless 用户登记以及虚拟机管理授权�
   空间余量还须考虑后续升级缓存、事务日志和并行内核，不能用 1 GiB 预留代替
   实际升级容量验收。kernelctl 回退不等于用户态或组件状态的整体回退。
 
-## 5. 同轮审查发现的独立小改进
+## 5. 2026-11-16 审查发现及已修复项
 
-这些可以在组件化之前独立修复，不应成为必须一起实施的大改造。
+下表保留初次审查发现。独立修复已并入安装器 `1-r4`，实际改动和测试范围见
+[实施进度与验证记录](installer-components-implementation-validation.md#2026-11-16)。
 
 | 发现 | 证据或触发方式 | 建议 |
 | --- | --- | --- |
@@ -172,22 +202,30 @@ RDP 凭据、Sunshine 配对、rootless 用户登记以及虚拟机管理授权�
 前两条交互问题和静态 WAN 输入的接受行为已通过无写盘探针核对；清理异常、
 磁盘摘要和文案是源码审查发现，未做对应 VM 故障注入或页面截图验收。
 
-## 6. 计划验收与本次证据边界
+## 6. 组件安装验收
 
 未来实施时需要：
 
 - 宿主测试覆盖空选、全选、依赖错误、未知组件、返回保留状态、缺包、坏签名、
   版本不一致和空间不足；确认预检失败没有执行擦盘。
 - 检查基础 squashfs 和目标 APK 清单，验证未选组件真正不存在，公共依赖正常。
-- 可丢弃 VM 验证四组：仅基础系统、GNOME 无音频、完整桌面、无桌面的虚拟化＋容器。
-  拔除安装介质后启动，检查 LAN、DHCP、LuCI、SSH，再按组合检查桌面、音频、
-  虚拟机和容器基本功能。无音频桌面仍需检查录屏/屏幕共享所需的公共路径。
+- 可丢弃 VM 验证四组。每组拔除安装介质后确认 systemd 为 PID 1、overlay 可写、
+  procd API 可用，并检查 LAN、DHCP、LuCI、SSH 和第 4 节的滚动升级。
+
+  | 组合 | 额外检查 |
+  | --- | --- |
+  | 仅基础系统 | 检查保留的路由与运维包。覆盖 DHCP/PPPoE、LAN DNS/NAT、原生 failsafe 控制台及恢复后的正常启动。 |
+  | GNOME 无音频 | 同时取消 RDP 和 Flatpak，关闭桌面自启。确认首次启动创建普通用户且桌面未自启。手动启动桌面后检查 GNOME 会话、门户文件选择、录屏或屏幕共享。核对包清单。 |
+  | 完整桌面 | 按默认全选安装，检查桌面自启、Audio、IME、RDP、Sunshine、Flatpak 门户、AppImage、virt-manager 和容器基本功能。 |
+  | 无桌面的虚拟化及容器 | 验证 libvirt/QEMU、CLI 和 rootless Podman 基本功能，确认没有 GNOME 或 virt-manager。 |
+
 - 在上述用例中分配 BIOS/UEFI、USB/光盘覆盖，复跑 ext4/btrfs/xfs 相关回归，
-  检查正常 combined 镜像构建行为和干净镜像边界。
+  检查正常 combined 镜像构建行为和干净镜像边界。复用现有安装器 VM 和纯路由
+  网络测试的检查项，为组件 ISO 记录实际使用的 SHA-256 和测试结果。
 - 更新指南、验证记录和改动包 release。新功能须有对应运行验证；发布、
   安装到物理设备和用户客户端验收分别记录，不能混称已经完成。
 
-本轮调查运行了现有测试：
+2026-11-16 初次审查运行了现有测试：
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/tests/test-openwrt-installer.py
@@ -199,8 +237,9 @@ PYTHONDONTWRITEBYTECODE=1 python3 scripts/tests/test-installer-optical.py
 分支在工具缺失时也未执行，不能将该组结果表述为完整 UCI 运行矩阵通过。
 `git diff --check` 在调查时通过。
 
-这些测试针对**现有安装器**，不证明本文的组件化方案可用。本次没有修改功能代码、
-构建新软件包/ISO、运行 VM、联系路由器、发布 feed、部署或重启系统。
+这些测试覆盖当时的普通安装器。后续的 `1-r4` 构建、systemd-only ISO VM
+和应用解耦记录见 [验证进度](installer-components-implementation-validation.md)。
+组件 ISO 的安装、启动和滚动升级结果仍待验证。
 
 未来开始时先重新确认需求是否仍相同，核对基础包归属、依赖拆分和离线脚本行为，
 再进入实现。不得因本文存在而自动开始构建、发布或部署。

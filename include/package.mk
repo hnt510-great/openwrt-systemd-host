@@ -116,25 +116,19 @@ define CheckElfRebuildVersion
 endef
 
 find_library_dependency_names = \
-		$(filter-out $(BUILD_PACKAGES), $(sort $(foreach dep4, \
-			$(sort $(foreach dep3, \
-				$(sort $(foreach dep2, \
-					$(sort $(foreach dep1, \
-						$(sort $(foreach dep0, \
-							$(Package/$(1)/depends), \
-							$(Package/$(dep0)/depends) $(dep0) \
-						)), \
-						$(Package/$(dep1)/depends) $(dep1) \
-					)), \
-					$(Package/$(dep2)/depends) $(dep2) \
-				)), \
-				$(Package/$(dep3)/depends) $(dep3) \
-			)), \
-			$(Package/$(dep4)/depends) $(dep4) \
-		)))
+	$(filter-out $(BUILD_PACKAGES),$(call _dep_closure,$(Package/$(1)/depends),))
+
+_dep_closure = $(if $(strip $(1)),\
+	$(call _dep_closure,\
+		$(filter-out $(2) $(1),$(sort $(foreach d,$(1),$(Package/$(d)/depends)))),\
+		$(sort $(2) $(1))),\
+	$(2))
 
 find_library_dependencies = $(foreach dep,$(call find_library_dependency_names,$(1)),\
 	$(wildcard $(STAGING_DIR)/pkginfo/$(dep).version $(STAGING_DIR)/pkginfo/$(dep).sonames))
+
+find_private_library_dependencies = $(foreach dep,$(call find_library_dependency_names,$(1)),\
+	$(wildcard $(STAGING_DIR)/pkginfo/$(dep).private))
 
 
 # External modules must be rebuilt even when only the generation changes.
@@ -160,15 +154,12 @@ STAMP_INSTALLED:=$(STAGING_DIR)/stamp/.$(PKG_DIR_NAME)$(if $(BUILD_VARIANT),.$(B
 STAGING_FILES_LIST:=$(PKG_DIR_NAME)$(if $(BUILD_VARIANT),.$(BUILD_VARIANT),).list
 STAGING_TMP_DIR:=$(TMP_DIR)/stage-$(PKG_DIR_NAME)$(if $(BUILD_VARIANT),.$(BUILD_VARIANT),)
 
+STAGE_DEV = python3 "$(SCRIPT_DIR)/stage-package.py" --root "$(STAGING_DIR)" \
+	--lock "$(TMP_DIR)/.staging-dir.flock" --manifest "$(STAGING_DIR)/packages/$(STAGING_FILES_LIST)"
+
 define CleanStaging
 	rm -f $(STAMP_INSTALLED)
-	@-(\
-		if [ -f $(STAGING_DIR)/packages/$(STAGING_FILES_LIST) ]; then \
-			$(SCRIPT_DIR)/clean-package.sh \
-				"$(STAGING_DIR)/packages/$(STAGING_FILES_LIST)" \
-				"$(STAGING_DIR)"; \
-		fi; \
-	)
+	$(STAGE_DEV)
 endef
 
 
@@ -220,7 +211,7 @@ CONFIG_SITE:=$(INCLUDE_DIR)/site/cache
 # changes CPPFLAGS or CFLAGS inside an AC_CACHE_VAL body is not safe: a warm
 # cache restores the value and skips the change. Compare the generated
 # Makefile, not only config.h, because that is where the difference shows.
-PKG_CONFIGURE_CACHE_FILE = $(CONFIGURE_CACHE_BASE)/$(TOOLCHAIN_DIR_NAME)/$(notdir $(PKG_BUILD_DIR))/$(call strhash,$(CONFIGURE_ARGS) $(CONFIGURE_VARS)).cache
+PKG_CONFIGURE_CACHE_FILE = $(CONFIGURE_CACHE_BASE)/$(TOOLCHAIN_DIR_NAME)/$(notdir $(PKG_BUILD_DIR))/$(call strhash,$(TOPDIR) $(BUILD_VARIANT) $(CONFIGURE_ARGS) $(CONFIGURE_VARS)).cache
 CUR_MAKEFILE:=$(filter-out Makefile,$(firstword $(MAKEFILE_LIST)))
 SUBMAKE:=$(NO_TRACE_MAKE) $(if $(CUR_MAKEFILE),-f $(CUR_MAKEFILE))
 PKG_CONFIG_PATH=$(STAGING_DIR)/usr/lib/pkgconfig:$(STAGING_DIR)/usr/share/pkgconfig
@@ -295,7 +286,6 @@ define Build/CoreTargets
   $(STAMP_CONFIGURED): $(STAMP_PREPARED) $(STAMP_CONFIGURED_DEPENDS)
 	$(call BuildTimeLog,begin,configure)
 	rm -f $(STAMP_CONFIGURED_WILDCARD)
-	$(CleanStaging)
 	$(foreach hook,$(Hooks/Configure/Pre),$(call $(hook))$(sep))
 	$(Build/Configure)
 	$(foreach hook,$(Hooks/Configure/Post),$(call $(hook))$(sep))
@@ -316,7 +306,7 @@ define Build/CoreTargets
 	$(call BuildTimeLog,end,compile)
 
   $(STAMP_INSTALLED) : export PATH=$$(TARGET_PATH_PKG)
-  $(STAMP_INSTALLED): $(STAMP_BUILT)
+  $(STAMP_INSTALLED): $(STAMP_BUILT) $(SCRIPT_DIR)/stage-package.py
 	$(call BuildTimeLog,begin,install)
 	rm -rf $(STAGING_TMP_DIR)
 	mkdir -p $(STAGING_TMP_DIR)/host $(STAGING_DIR)/packages
@@ -327,18 +317,7 @@ define Build/CoreTargets
 	$(foreach hook,$(Hooks/InstallDev/Post),\
 		$(call $(hook),$(STAGING_TMP_DIR),$(STAGING_TMP_DIR)/host)$(sep)\
 	)
-	if [ -f $(STAGING_DIR)/packages/$(STAGING_FILES_LIST) ]; then \
-		$(SCRIPT_DIR)/clean-package.sh \
-			"$(STAGING_DIR)/packages/$(STAGING_FILES_LIST)" \
-			"$(STAGING_DIR)"; \
-	fi
-	if [ -d $(STAGING_TMP_DIR) ]; then \
-		(cd $(STAGING_TMP_DIR); find ./ > $(STAGING_TMP_DIR).files); \
-		$(call locked, \
-			mv $(STAGING_TMP_DIR).files $(STAGING_DIR)/packages/$(STAGING_FILES_LIST) && \
-			$(CP) $(STAGING_TMP_DIR)/* $(STAGING_DIR)/; \
-		,staging-dir); \
-	fi
+	$(STAGE_DEV) --source "$(STAGING_TMP_DIR)"
 	rm -rf $(STAGING_TMP_DIR)
 	touch $$@
 	$(call BuildTimeLog,end,install)
@@ -448,7 +427,6 @@ clean: force-clean-build
 	$(CleanStaging)
 	$(call Build/UninstallDev,$(STAGING_DIR),$(STAGING_DIR)/host)
 	$(Build/Clean)
-	rm -f $(STAGING_DIR)/packages/$(STAGING_FILES_LIST)
 
 dist:
 	$(Build/Dist)

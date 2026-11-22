@@ -24,7 +24,7 @@ include $(INCLUDE_DIR)/host-build.mk
 define Host/Compile
 	+$(HOST_MAKE_VARS) \
 	$(MAKE) $(HOST_JOBS) -C $(HOST_BUILD_DIR)/squashfs-tools \
-		LZ4_SUPPORT=0 \
+		LZ4_SUPPORT=1 \
 		LZO_SUPPORT=0 \
 		ZSTD_SUPPORT=0 \
 		GZIP_SUPPORT=1 \

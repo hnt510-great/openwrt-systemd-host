@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=xdg-desktop-portal
 PKG_VERSION:=1.22.1
-PKG_RELEASE:=1
+PKG_RELEASE:=5
 PKG_SOURCE:=xdg-desktop-portal-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=https://github.com/flatpak/xdg-desktop-portal/releases/download/$(PKG_VERSION)
 PKG_HASH:=d4879ddb3d65ff1a8f19187497e6f13dc5d267bcac404a5d501218be355753d3
@@ -12,20 +12,42 @@ PKG_INSTALL:=1
 PKG_BUILD_PARALLEL:=1
 PKG_BUILD_DEPENDS:=glib2/host
 
+FLATPAK_INTERFACES_VERSION:=1.18.4
+FLATPAK_INTERFACES_FILE:=flatpak-$(FLATPAK_INTERFACES_VERSION).tar.xz
+FLATPAK_INTERFACES_HASH:=b899a7a00c48d2c626cb8ec33fe556720b376c25805d7222430c0fdca4c6ac8d
+
 include $(INCLUDE_DIR)/package.mk
 include $(INCLUDE_DIR)/meson.mk
+
+FLATPAK_INTERFACES_DIR:=$(PKG_BUILD_DIR)/flatpak-interfaces
+
+define Download/flatpak-interfaces
+  URL:=https://github.com/flatpak/flatpak/releases/download/$(FLATPAK_INTERFACES_VERSION)
+  URL_FILE:=$(FLATPAK_INTERFACES_FILE)
+  FILE:=$(FLATPAK_INTERFACES_FILE)
+  HASH:=$(FLATPAK_INTERFACES_HASH)
+endef
 
 define Package/xdg-desktop-portal
   SECTION:=libs
   CATEGORY:=Libraries
-  TITLE:=xdg-desktop-portal for the native Flatpak desktop
-  DEPENDS:=@TARGET_x86_64 @USE_GLIBC @OPENWRT_SYSTEMD +glib2 +json-glib +libfuse3 +fuse3-utils +libgdk-pixbuf +libgst1pbutils +libpipewire +libsystemd +flatpak +bubblewrap
+  TITLE:=xdg-desktop-portal for the native desktop
+  DEPENDS:=@TARGET_x86_64 @USE_GLIBC @OPENWRT_SYSTEMD +glib2 +json-glib +libfuse3 +fuse3-utils +libgdk-pixbuf +libgst1pbutils +libpipewire +libsystemd +bubblewrap
 endef
 
 MESON_ARGS += --prefix=/usr --libdir=lib --sysconfdir=/etc --localstatedir=/var \
-	-Ddefault_library=shared --wrap-mode=nodownload -Dflatpak-interfaces=enabled -Dgeoclue=disabled \
+	-Ddefault_library=shared --wrap-mode=nodownload -Dflatpak-interfaces=enabled \
+	-Dflatpak-interfaces-dir=$(FLATPAK_INTERFACES_DIR) -Dgeoclue=disabled \
 	-Dgudev=disabled -Dsystemd=enabled -Ddocumentation=disabled -Dtests=disabled \
 	-Dinstalled-tests=false -Dman-pages=disabled -Dsystemd-user-unit-dir=/usr/lib/systemd/user
+
+define Build/Prepare
+	$(call Build/Prepare/Default)
+	rm -rf $(FLATPAK_INTERFACES_DIR)
+	mkdir -p $(FLATPAK_INTERFACES_DIR)
+	$(HOST_TAR) -C $(FLATPAK_INTERFACES_DIR) --strip-components=2 -xJf $(DL_DIR)/$(FLATPAK_INTERFACES_FILE) \
+		flatpak-$(FLATPAK_INTERFACES_VERSION)/data/org.freedesktop.portal.Flatpak.xml
+endef
 
 define Build/InstallDev
 	$(INSTALL_DIR) $(1)/usr/share/dbus-1/interfaces $(1)/usr/share/pkgconfig
@@ -39,4 +61,5 @@ define Package/xdg-desktop-portal/install
 	$(CP) $(PKG_INSTALL_DIR)/usr/share/dbus-1 $(1)/usr/share/
 endef
 
+$(eval $(call Download,flatpak-interfaces))
 $(eval $(call BuildPackage,xdg-desktop-portal))

@@ -293,7 +293,7 @@ menu "Target Images"
 
 	config INSTALLER_ISO_IMAGES
 		bool "Build installer ISO (USB or optical, UEFI + BIOS)"
-		depends on TARGET_x86 && TARGET_x86_64 && GRUB_EFI_IMAGES && TARGET_ROOTFS_SQUASHFS && OPENWRT_SYSTEMD
+		depends on TARGET_x86 && TARGET_x86_64 && GRUB_EFI_IMAGES && TARGET_ROOTFS_SQUASHFS && OPENWRT_SYSTEMD && SIGNED_PACKAGES
 		select PACKAGE_openwrt-installer
 
 	config VDI_IMAGES

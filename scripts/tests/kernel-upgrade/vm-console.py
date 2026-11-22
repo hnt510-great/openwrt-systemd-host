@@ -61,7 +61,12 @@ child = pexpect.spawn('qemu-system-x86_64', options, encoding='utf-8', codec_err
 (args.out / 'qemu.pid').write_text(str(child.pid) + '\n')
 
 
+connected = False
+
+
 def connect(timeout=180):
+    global connected
+    connected = False
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
@@ -80,8 +85,23 @@ def connect(timeout=180):
         else:
             child.sendline("stty -echo; export TERM=dumb PS1='KERNEL_TEST# '; exec /bin/ash")
             child.expect(r'[\r\n]KERNEL_TEST# ')
+            connected = True
             return
     raise TimeoutError('No serial shell')
+
+
+def shutdown():
+    """Power the guest off so pending vfat writes reach the medium."""
+    if not connected or not child.isalive():
+        return
+    try:
+        child.sendline('sync; sync; systemctl poweroff')
+        index = child.expect([r'Power down|reboot: Power down|Restarting system',
+                              pexpect.EOF], timeout=60)
+        if index == 0:
+            child.expect(pexpect.EOF, timeout=30)
+    except (pexpect.TIMEOUT, pexpect.EOF, OSError, ValueError):
+        pass
 
 
 try:
@@ -126,5 +146,9 @@ try:
         child.expect('KERNEL_TEST# ')
         print(json.dumps({'status': status, 'output': output}), flush=True)
 finally:
-    child.terminate(force=True)
-    log.close()
+    try:
+        shutdown()
+    finally:
+        if child.isalive():
+            child.terminate(force=True)
+        log.close()

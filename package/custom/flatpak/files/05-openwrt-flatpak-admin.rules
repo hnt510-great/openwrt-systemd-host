@@ -1,0 +1,7 @@
+// Flatpak system operations authenticate existing OpenWrt desktop administrators.
+// Keep the root-only administrator policy for every other polkit action.
+polkit.addAdminRule(function(action, subject) {
+    if (action.id.indexOf("org.freedesktop.Flatpak.") === 0) {
+        return ["unix-group:sudo"];
+    }
+});

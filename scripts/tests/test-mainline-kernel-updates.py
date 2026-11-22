@@ -209,9 +209,11 @@ class KernelUpdates(unittest.TestCase):
         self.assertEqual(path.read_bytes(), b'local corrupt archive')
 
     def test_concurrent_build_blocks_update(self):
-        (self.root / 'tmp').mkdir()
-        with (self.root / 'tmp/.build-and-publish.lock').open('a') as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        import importlib.util
+        cl_spec = importlib.util.spec_from_file_location('checkout_lock', Path(__file__).resolve().parents[1] / 'checkout-lock.py')
+        cl_mod = importlib.util.module_from_spec(cl_spec)
+        cl_spec.loader.exec_module(cl_mod)
+        with cl_mod.acquire_checkout_lock(self.root):
             with self.assertRaisesRegex(U.SyncError, 'already running'):
                 self.run_sync(True)
 

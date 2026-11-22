@@ -58,7 +58,7 @@ rebuild_check = \
 
 endif
 
-subdir_variants = $(filter-out *,$(if $(BUILD_VARIANT),$(BUILD_VARIANT),$(if $(strip $($(1)/variants)),$($(1)/variants),$(if $($(1)/default-variant),$($(1)/default-variant),__default))))
+subdir_variants = $(filter-out *,$(if $(and $(BUILD_VARIANT),$(filter $(BUILD_VARIANT),$($(1)/variants))),$(BUILD_VARIANT),$(if $(strip $($(1)/variants)),$($(1)/variants),$(if $($(1)/default-variant),$($(1)/default-variant),__default))))
 
 # Parameters: <subdir> <builddir> <target> <variant>
 define subdir_variant

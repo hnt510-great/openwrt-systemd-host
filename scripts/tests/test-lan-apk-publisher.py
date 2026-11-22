@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import zlib
 from unittest import mock
 
 TREE = Path(__file__).resolve().parents[2]
@@ -322,6 +323,32 @@ class PublisherTests(unittest.TestCase):
         shutil.copyfile(package, self.upstream / package.name)
         shutil.copyfile(self.before / 'base' / package.name, package)
         self.assert_failed_publication('Conflicting custom APKs')
+
+    def test_identical_adb_stream_reuses_published_apk_and_records_both_digests(self):
+        published = self.before / 'base/feed-probe-1.0-r1.apk'
+        orig_bytes = published.read_bytes()
+        self.assertEqual(orig_bytes[:4], b'ADBd')
+        decomp = zlib.decompressobj(-15)
+        raw_adb = decomp.decompress(orig_bytes[4:]) + decomp.flush()
+        comp = zlib.compressobj(level=1, method=zlib.DEFLATED, wbits=-15)
+        reencoded = b'ADBd' + comp.compress(raw_adb) + comp.flush()
+        self.assertNotEqual(reencoded, orig_bytes)
+        candidate = self.base / 'feed-probe-1.0-r1.apk'
+        candidate.write_bytes(reencoded)
+        # Also publish a real new package so a new snapshot is created.
+        self.make_package('other-probe', '1.0-r1', 'new pkg')
+        result = self.publish()
+        self.assertEqual(result['status'], 'published')
+        reused = result.get('reused_published_apks', {})
+        self.assertIn('base/feed-probe-1.0-r1.apk', reused)
+        rec = reused['base/feed-probe-1.0-r1.apk']
+        self.assertEqual(rec['candidate_sha256'], digest(candidate))
+        self.assertEqual(rec['selected_sha256'], digest(published))
+        self.assertEqual(rec['reason'], 'identical_adb_stream_outer_framing_only')
+        snap = Path(result['snapshot'])
+        self.assertEqual(digest(snap / 'base/feed-probe-1.0-r1.apk'), digest(published))
+        manifest = json.loads((snap / 'manifest.json').read_text())
+        self.assertEqual(manifest['reused_published_apks']['base/feed-probe-1.0-r1.apk'], rec)
 
 
 if __name__ == '__main__':

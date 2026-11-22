@@ -405,7 +405,13 @@ def preflight(destination, origin, userspace, kernel, *, progress=None, expected
                'migrations_sha256': digest(TREE / 'configs/apk-migrations.json'),
                'elf_policy_sha256': digest(ELF.POLICY_FILE),
                'elf_scanner_sha256': digest(TREE / 'scripts/elf-abi.py'),
-               'elf_rebuilds_sha256': digest(ELF.REBUILDS_FILE)}
+               'elf_rebuilds_sha256': digest(ELF.REBUILDS_FILE),
+               'diagnoser_sha256': digest(TREE / 'scripts/diagnose-apk-rebuild.py'),
+               'allocator_sha256': digest(TREE / 'scripts/allocate-rebuild-releases.py'),
+               'elf_type_abi_sha256': digest(TREE / 'scripts/elf-type-abi.py'),
+               'cold_verify_sha256': digest(TREE / 'scripts/rebuild-cold-verify.py')}
+    if userspace.get('reused_published_apks'):
+        receipt['reused_published_apks'] = userspace['reused_published_apks']
     if selected_policy:
         target = selected_policy['ssh_target']
         if baseline is not None:
@@ -498,7 +504,15 @@ def authorize(destination, result, receipt, kind):
             receipt['migrations_sha256'] != digest(TREE / 'configs/apk-migrations.json') or
             receipt.get('elf_policy_sha256') != digest(ELF.POLICY_FILE) or
             receipt.get('elf_scanner_sha256') != digest(TREE / 'scripts/elf-abi.py') or
-            receipt.get('elf_rebuilds_sha256') != digest(ELF.REBUILDS_FILE)):
+            receipt.get('elf_rebuilds_sha256') != digest(ELF.REBUILDS_FILE) or
+            ('diagnoser_sha256' in receipt and
+             receipt['diagnoser_sha256'] != digest(TREE / 'scripts/diagnose-apk-rebuild.py')) or
+            ('allocator_sha256' in receipt and
+             receipt['allocator_sha256'] != digest(TREE / 'scripts/allocate-rebuild-releases.py')) or
+            ('elf_type_abi_sha256' in receipt and
+             receipt['elf_type_abi_sha256'] != digest(TREE / 'scripts/elf-type-abi.py')) or
+            ('cold_verify_sha256' in receipt and
+             receipt['cold_verify_sha256'] != digest(TREE / 'scripts/rebuild-cold-verify.py'))):
         raise ValueError('Upgrade policy changed after validation')
     check_prepared(result, receipt['stages'][kind])
 

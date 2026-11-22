@@ -83,3 +83,47 @@ complete Windows installation or physical peripheral operation. Physical
 audio, webcam, Bluetooth/Wi-Fi devices and PCI passthrough require testing
 on their intended hardware. Sensor modules without corresponding emulated
 hardware may report that they could not be probed.
+
+---
+
+## Linux 7.3.5 generation-73 desktop & security hardening additions (2026-11-20)
+
+Validated on 2026-11-20 after adding the P0 security/hardening, desktop/VM
+compatibility, storage/firmware, audio/input, networking and tracing options to
+`target/linux/x86/64/config-7.3`, `package/kernel/linux/modules/{input,netdevices,sound,video,virt}.mk`,
+`configs/desktop-kernel.config`, `configs/x86-64-systemd-desktop.config`, and
+`configs/x86-64-systemd-router.config`.
+
+Firmware:
+
+```text
+bin/systemd/targets/x86/64-glibc/openwrt-x86-64-generic-squashfs-combined-efi.img.gz
+SHA256: 7eaeb5813293f22c864c1859f71abbf0d4d5c9649efcc37fa567bf564d4e736a
+Size: 966195475 bytes
+Kernel: 7.3.5-73-openwrt
+```
+
+| Check | Scope | Result |
+| --- | --- | --- |
+| Linux 7.3.5 `listnewconfig` (desktop & pure-router configs) | Source | Passed: 0 unanswered Kconfig prompts |
+| `python3 scripts/tests/test-systemd-router-decoupling.py` | Source | Passed: 12/12 |
+| `python3 scripts/tests/test-installer-components.py` | Source | Passed: 12/12 |
+| `python3 scripts/build-and-publish.py build-only -j16 V=s` | Build | Passed: generation 73 (`linux-image-7.3.5-73-openwrt-7.3.5-r73.apk`) |
+| `scripts/test-image-network.py` (2-VM boot, systemd, DHCP, DNS, NAT, LuCI, ubus) | Disposable VM | Passed: 9/9 (`guest_kernel=7.3.5-73-openwrt`) |
+| P0 kernel features & on-demand module probe (`p0-probe.log`) | Disposable VM | Passed: `LSM=capability,landlock,yama`, `YAMA=1`, `SOFT_WATCHDOG=1`, `/dev/ntsync`, `/dev/udmabuf`, `binfmt_misc`, `uprobe_events`; `vkms`/`snd_aloop` not auto-loaded; all 15 modules `modprobe` cleanly |
+| `./scripts/publish-changed-feeds.sh` (live-router preflight + publication) | Publication | Passed: userspace snapshot `20261119T181834.019510Z`, kernel snapshot `1795112362393083342` |
+| Router `apk upgrade`, `apk add` of 16 new kmods, reboot to `7.3.5-73-openwrt` | Physical router (`192.0.2.1`) | Passed: `SYSTEMD=running` (0 failed units), `kernelctl` blessed `known_good=7.3.5-73-openwrt`, `kernelctl check` passed, all 19 `/proc/config.gz` flags and 17 `modinfo` entries verified, `snd_hrtimer` active, `vkms`/`snd_aloop` not auto-loaded |
+
+VM evidence directory:
+
+```text
+/srv/openwrt-validation/desktop-kernel-validation-20261120/
+```
+
+Scope note: Physical validation confirmed boot, systemd service health,
+`kernelctl` blessing, LSM activation, `/proc/config.gz`, `/dev/ntsync`,
+`/dev/udmabuf`, `binfmt_misc`, `uprobe_events`, and module presence on the
+router (`7.3.5-73-openwrt`). Unattached USB HID peripherals (Logitech DJ/HID++,
+PlayStation, Nintendo, Xbox controllers) were verified for module packaging and
+`modprobe`/`modinfo` resolution rather than with physical controllers plugged
+in.

@@ -7,10 +7,71 @@ import re
 import uuid
 
 MIB = 1024 * 1024
+MIN_OVERLAY_MIB = 2048
+OVERLAY_RESERVE_MIB = 1024
 ESP = 'C12A7328-F81F-11D2-BA4B-00A0C93EC93B'
 LINUX = '0FC63DAF-8483-4772-8E79-3D69D8477DE4'
 BIOS = '21686148-6449-6E6F-744E-656564454649'
 FILESYSTEMS = ('ext4', 'btrfs', 'xfs')
+
+
+def default_components(catalog):
+    if not catalog:
+        return []
+    return [c['id'] for c in catalog['components'] if c.get('default', True)]
+
+
+def validate_components(selected, catalog):
+    if not catalog:
+        if selected is None or selected == []:
+            return []
+        raise ValueError('Installer media does not provide optional components')
+    known = {c['id']: c for c in catalog['components']}
+    if selected is None:
+        return default_components(catalog)
+    if not isinstance(selected, list) or any(not isinstance(item, str) for item in selected):
+        raise ValueError('Components must be a list of component IDs')
+    unknown = [item for item in selected if item not in known]
+    if unknown:
+        raise ValueError('Unknown component(s): ' + ', '.join(unknown))
+    chosen = set(selected)
+    ordered = [c['id'] for c in catalog['components'] if c['id'] in chosen]
+    for cid in ordered:
+        missing = [dep for dep in known[cid].get('depends', []) if dep not in chosen]
+        if missing:
+            raise ValueError(f"{known[cid]['label']} ({cid}) requires: {', '.join(missing)}")
+    return ordered
+
+
+def resolve_component_packages(selected, catalog):
+    if not catalog or not selected:
+        return []
+    chosen = set(selected)
+    packages = []
+    seen = set()
+    for comp in catalog['components']:
+        if comp['id'] not in chosen:
+            continue
+        for pkg in comp.get('packages', []):
+            if pkg not in seen:
+                seen.add(pkg)
+                packages.append(pkg)
+        for cond in comp.get('conditional_packages', []):
+            if all(req in chosen for req in cond.get('when_all', [])):
+                for pkg in cond.get('packages', []):
+                    if pkg not in seen:
+                        seen.add(pkg)
+                        packages.append(pkg)
+    return packages
+
+
+def min_overlay_mib(installed_bytes=0):
+    if installed_bytes <= 0:
+        return MIN_OVERLAY_MIB
+    # Include 15% filesystem/cache overhead plus at least 1 GiB free reserve.
+    overhead = (installed_bytes * 115 + 99) // 100
+    needed = (overhead + MIB - 1) // MIB + OVERLAY_RESERVE_MIB
+    return max(MIN_OVERLAY_MIB, needed)
 
 
 def partition(disk, number):
@@ -23,7 +84,7 @@ def guided(payload_size, fs='ext4'):
             {'role': 'overlay', 'fs': fs, 'size_mib': None}]
 
 
-def layout(parts, disk_size, payload_size, disk_guid=None):
+def layout(parts, disk_size, payload_size, disk_guid=None, min_overlay=MIN_OVERLAY_MIB):
     if [p['role'] for p in parts[:3]] != ['boot', 'rom', 'overlay']:
         raise ValueError('Partitions 1, 2 and 3 must be boot, rom and overlay')
     if len(parts) > 127 or any(p['role'] != 'data' for p in parts[3:]):
@@ -45,7 +106,7 @@ def layout(parts, disk_size, payload_size, disk_guid=None):
     result, start = [], 2048
     for n, p in enumerate(parts, 1):
         size = remaining if p.get('size_mib') is None else p['size_mib']
-        minimum = {1: 64, 2: (payload_size + MIB - 1) // MIB, 3: 2048}.get(n, 1)
+        minimum = {1: 64, 2: (payload_size + MIB - 1) // MIB, 3: max(MIN_OVERLAY_MIB, min_overlay)}.get(n, 1)
         if size < minimum:
             raise ValueError(f'Partition {n} requires at least {minimum} MiB')
         fs = p.get('fs')
@@ -103,10 +164,14 @@ def validate_wan(net):
                 raise ValueError('PPPoE requires username and password')
 
 
-def validate_answers(answers, existing_users=()):
+def validate_answers(answers, existing_users=(), catalog=None):
     a = copy.deepcopy(answers)
     if not re.fullmatch(r'/dev/[a-zA-Z0-9_.-]+', a['disk']):
         raise ValueError('Invalid disk path')
+    if catalog is not None:
+        a['components'] = validate_components(a.get('components'), catalog)
+    elif 'components' in a and a['components'] is not None:
+        validate_components(a['components'], None)
     net = a['network']; lan = net['lan']; wan = net['wan']
     validate_lan(lan)
     ports = net['lan_ports'] + ([net['wan_port']] if net.get('wan_port') else [])
@@ -120,6 +185,8 @@ def validate_answers(answers, existing_users=()):
             raise ValueError('Invalid or existing username')
         if type(user.get('gnome_autostart')) is not bool:
             raise ValueError('GNOME autostart must be a boolean')
+        if catalog is not None and user['gnome_autostart'] and 'gnome' not in a['components']:
+            raise ValueError('GNOME autostart requires the gnome component')
         hashes.append(user['password_hash'])
     if any(not re.fullmatch(r'\$6\$(?:rounds=[0-9]+\$)?[./a-zA-Z0-9]{1,16}\$[./a-zA-Z0-9]{86}', h) for h in hashes):
         raise ValueError('Accounts require SHA-512 crypt password hashes')
@@ -241,13 +308,20 @@ def summary(a):
     return json.dumps(safe, indent=2)
 
 
-def display_summary(a, plan):
+def display_summary(a, plan, component_plan=None):
     """A readable confirmation, with the actual planned sizes and no secrets."""
     n = a['network']; lan = n['lan']; wan = n['wan']; fw = a['firewall']
     enabled = lambda value: 'yes' if value else 'no'
     lines = ['Erase entire disk: ' + a['disk'], 'Partitions:']
     for p in plan['partitions']:
         lines.append(f"  p{p['number']} {p['role']}: {p['size_mib']} MiB {p.get('fs', 'FAT32' if p['number'] == 1 else 'squashfs')}")
+    if component_plan is not None:
+        comps = component_plan.get('components') or []
+        lines.append('Components: ' + (', '.join(comps) if comps else 'base system only'))
+        unpacked_mib = (component_plan.get('installed_bytes', 0) + MIB - 1) // MIB
+        lines.append(f"Component packages: {component_plan.get('install_count', 0)}  unpacked: {unpacked_mib} MiB  overlay min: {component_plan.get('min_overlay_mib', MIN_OVERLAY_MIB)} MiB")
+    elif 'components' in a and a['components'] is not None:
+        lines.append('Components: ' + (', '.join(a['components']) if a['components'] else 'base system only'))
     lines += ['LAN ports: ' + ', '.join(n['lan_ports']),
               f"LAN: {lan['ipaddr']}  mask {lan['netmask']}",
               f"DHCP: {enabled(lan['dhcp'])}  start {lan['start']}  count {lan['limit']}",

@@ -18,8 +18,8 @@ import tempfile
 RELEASE = re.compile(r'[0-9][A-Za-z0-9._+-]{1,62}')
 
 
-def replace_tree(entries, destination):
-    """Atomically replace destination with the given (source, relative) moves."""
+def replace_tree(entries, destination, copies=()):
+    """Atomically replace destination with the given (source, relative) moves and copies."""
     destination.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix='.' + destination.name + '.', dir=destination.parent))
     try:
@@ -30,6 +30,10 @@ def replace_tree(entries, destination):
                 shutil.move(str(source), target)
             elif source.is_dir():
                 shutil.move(str(source), target)
+        for source, relative in copies:
+            target = staging / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, target)
         old = destination.with_name('.' + destination.name + '.old')
         if destination.exists():
             if old.exists():
@@ -72,15 +76,15 @@ def stage(args):
         if actual != release:
             raise ValueError('Compiled kernel release differs from the configured release')
         entries = [(modules, Path('usr/lib/modules') / release)] if modules.exists() else []
-        replace_tree(entries, args.stage / 'kernel')
-        kernel = args.stage / 'kernel'
-        for source, target in ((args.linux / 'arch/x86/boot/bzImage', 'vmlinuz'),
-                               (args.linux / '.config', 'config'),
-                               (args.linux / 'System.map', 'System.map')):
-            if source.is_file():
-                shutil.copyfile(source, kernel / target)
-        if not (kernel / 'vmlinuz').is_file():
+        bzimage = args.linux / 'arch/x86/boot/bzImage'
+        if not bzimage.is_file():
             raise ValueError('Kernel image is missing; build the kernel first')
+        copies = [(bzimage, Path('vmlinuz'))]
+        for source, target in ((args.linux / '.config', Path('config')),
+                               (args.linux / 'System.map', Path('System.map'))):
+            if source.is_file():
+                copies.append((source, target))
+        replace_tree(entries, args.stage / 'kernel', copies=copies)
     elif name == 'kernel-dev-headers':
         headers = root / 'usr/src' / ('linux-headers-' + release)
         entries = [(path, path.relative_to(root)) for path in (headers, modules) if path.exists()]

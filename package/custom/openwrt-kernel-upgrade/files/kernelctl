@@ -281,6 +281,29 @@ class KernelManager:
         self.command('grub-editenv', str(self.boot / 'grub/grubenv'), 'unset', *names)
         os.sync()
 
+    def sync_boot(self):
+        """Flush the boot filesystem before a mutating command exits.
+
+        FAT may reject the directory fsync in atomic(), so a rename can remain
+        in the page cache. Flush the mount where syncfs() exists, otherwise
+        every filesystem, before APK or an operator can reboot the router.
+        """
+        syncfs = getattr(os, 'syncfs', None)
+        if syncfs is not None:
+            try:
+                descriptor = os.open(self.boot, os.O_RDONLY | os.O_DIRECTORY)
+            except OSError:
+                pass
+            else:
+                try:
+                    syncfs(descriptor)
+                    return
+                except OSError:
+                    pass
+                finally:
+                    os.close(descriptor)
+        os.sync()
+
     def getenv(self):
         output = self.command('grub-editenv', str(self.boot / 'grub/grubenv'), 'list')
         return dict(line.split('=', 1) for line in output.splitlines() if '=' in line)
@@ -1178,59 +1201,63 @@ def main():
     manager.policy.mkdir(parents=True, exist_ok=True)
     if args.command == 'prune':
         manager.prune()
+        manager.sync_boot()
         return
     remove_packages = None
-    # APK calls occur under its database lock; never recursively invoke APK.
-    with (manager.policy / '.lock').open('a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        if args.command in ('apk-pre', 'apk-post'):
-            if len(args.arguments) != 4:
-                raise KernelError('Invalid transaction contract')
-            manager.transaction(args.command, *args.arguments)
-        elif args.command == 'boot':
-            if not (manager.policy / 'state.json').exists() or manager.state().get('phase') == 'adopting':
-                manager.wait_healthy(None, 90)
-                manager.migrate()
-            manager.prepare()
-            manager.assess()
-        elif args.command == 'microcode':
-            state = manager.state()
-            if state.get('phase', 'ready') != 'ready':
-                raise KernelError('Finish kernelctl migrate first')
-            print('updated' if manager.refresh_microcode(state) else 'current')
-        elif args.command == 'retain':
-            if (manager.policy / 'state.json').exists():
-                manager.retain(manager.state())
-        elif args.command == 'install':
-            # Re-register an installed kernel package (like kernel-install add).
-            if len(args.arguments) != 1:
-                raise KernelError('Specify a kernel release')
-            if 'linux-image-' + identifier(args.arguments[0]) not in manager.installed():
-                raise KernelError('Kernel package is not installed: ' + args.arguments[0])
-            state = manager.install(args.arguments[0])
-            manager.save(state)
-            manager.write_grub(state)
-            manager.protect()
-        elif args.command == 'set-default':
-            if len(args.arguments) != 1:
-                raise KernelError('Specify a kernel release')
-            manager.set_default(args.arguments[0])
-        elif args.command == 'remove':
-            if len(args.arguments) != 1:
-                raise KernelError('Specify a kernel release')
-            remove_packages = manager.remove(args.arguments[0])
-        else:
-            getattr(manager, args.command)()
-    if remove_packages is not None:
-        success = False
-        try:
-            if remove_packages:
-                manager.command('apk', 'del', *remove_packages)
-            success = True  # finish_remove() checks the packages are really gone
-        finally:
-            with (manager.policy / '.lock').open('a') as lock:
-                fcntl.flock(lock, fcntl.LOCK_EX)
-                manager.finish_remove(args.arguments[0], success)
+    try:
+        # APK calls occur under its database lock; never recursively invoke APK.
+        with (manager.policy / '.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            if args.command in ('apk-pre', 'apk-post'):
+                if len(args.arguments) != 4:
+                    raise KernelError('Invalid transaction contract')
+                manager.transaction(args.command, *args.arguments)
+            elif args.command == 'boot':
+                if not (manager.policy / 'state.json').exists() or manager.state().get('phase') == 'adopting':
+                    manager.wait_healthy(None, 90)
+                    manager.migrate()
+                manager.prepare()
+                manager.assess()
+            elif args.command == 'microcode':
+                state = manager.state()
+                if state.get('phase', 'ready') != 'ready':
+                    raise KernelError('Finish kernelctl migrate first')
+                print('updated' if manager.refresh_microcode(state) else 'current')
+            elif args.command == 'retain':
+                if (manager.policy / 'state.json').exists():
+                    manager.retain(manager.state())
+            elif args.command == 'install':
+                # Re-register an installed kernel package (like kernel-install add).
+                if len(args.arguments) != 1:
+                    raise KernelError('Specify a kernel release')
+                if 'linux-image-' + identifier(args.arguments[0]) not in manager.installed():
+                    raise KernelError('Kernel package is not installed: ' + args.arguments[0])
+                state = manager.install(args.arguments[0])
+                manager.save(state)
+                manager.write_grub(state)
+                manager.protect()
+            elif args.command == 'set-default':
+                if len(args.arguments) != 1:
+                    raise KernelError('Specify a kernel release')
+                manager.set_default(args.arguments[0])
+            elif args.command == 'remove':
+                if len(args.arguments) != 1:
+                    raise KernelError('Specify a kernel release')
+                remove_packages = manager.remove(args.arguments[0])
+            else:
+                getattr(manager, args.command)()
+        if remove_packages is not None:
+            success = False
+            try:
+                if remove_packages:
+                    manager.command('apk', 'del', *remove_packages)
+                success = True  # finish_remove() checks the packages are really gone
+            finally:
+                with (manager.policy / '.lock').open('a') as lock:
+                    fcntl.flock(lock, fcntl.LOCK_EX)
+                    manager.finish_remove(args.arguments[0], success)
+    finally:
+        manager.sync_boot()
 
 
 if __name__ == '__main__':

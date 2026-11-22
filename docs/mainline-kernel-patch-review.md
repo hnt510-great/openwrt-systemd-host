@@ -1388,3 +1388,153 @@ details.
   `lib/crypto/Kconfig` (`MIPS && CPU_CAVIUM_OCTEON && CPU_BIG_ENDIAN` defaults
   for SHA1/SHA256/SHA512), leaving the x86/64 kernel configuration unchanged.
   The optional MAP-E tunnel finding remains open.
+
+## Upstream synchronization review, 2026-11-19
+
+Merged OpenWrt through `ecd9120f0451` (8 incoming main-tree commits) as
+`5009212efb`, plus 23 `packages`, 1 `luci`, and 2 `passwall_luci` commits.
+Backup branches are `backup/pre-upstream-20261119T020337Z` across all 11
+repositories; preservation receipts and audit logs are in
+`.git/pull-preserve/20261119T020337Z/`. See
+[the synchronization report](upstream-sync-20261119.md) for package and feed
+details.
+
+- **Mainline Linux 7.3**: `update-mainline-kernel.py --check` reports Linux
+  `7.3.5` (`8f293f83d54f0b7b9be56863ebc5e4ea79d73e530b4ae55c572be97ef39f0990`)
+  is current.
+- **Incoming 6.18 patches**: Zero files under `target/linux/generic/` or
+  `target/linux/x86/` were added, modified, or removed. The only incoming
+  kernel changes are target-specific (`qualcommax` IPQ50xx and `realtek`
+  `mdio-realtek-otto-serdes.c` / DTS / `hwmon_fancontrol`).
+- **Full 6.18 / 7.3 audit**: The 586-patch generic/x86 6.18 stack has no new
+  backport candidates; the four unregistered 6.18 patches remain the previously
+  reviewed non-x86 entries (`hack-6.18/301-03-mips-*` and
+  `pending-6.18/799-01..03` MediaTek WED, plus the offset-only `799` refresh).
+  All **355 carried Linux 7.3 patches** match their registered SHA-256 hashes
+  and apply with `--fuzz=0` to a fresh extraction of verified Linux `7.3.5` plus
+  current generic/x86 overlays. The optional MAP-E tunnel finding remains open.
+
+## Upstream synchronization review, 2026-11-20
+
+Merged OpenWrt through `8b34d6283fc5` (21 incoming main-tree commits, including
+the `6.18.60` -> `6.18.64` stable bumps and GCC default 15 switch) as
+`49f4f53f74`, plus 20 `packages`, 7 `luci`, 3 `passwall_luci`, and 1 `video`
+commits. Backup branches are `backup/pre-upstream-20261120T015903Z` across all
+repositories; preservation receipts and audit logs are in
+`.git/pull-preserve/20261120T015903Z/`. See
+[the synchronization report](upstream-sync-20261120.md) for package and feed
+details.
+
+- **Mainline Linux 7.3**: `update-mainline-kernel.py --check` reports Linux
+  `7.3.5` (`8f293f83d54f0b7b9be56863ebc5e4ea79d73e530b4ae55c572be97ef39f0990`)
+  is current.
+- **Incoming 6.18 patches**: Zero files under `target/linux/x86/` changed. Six
+  dropped `backport-6.18` patches (`439`, `441`, `503-01`, `734`, `755`,
+  `856-01`) are already upstream in Linux `7.3.5`; 58 generic patches had
+  context/hunk-only refreshes (plus `pending-6.18/739-03` for the non-x86
+  MT7988 Lynxi PCS driver). Two new generic patches landed in commit
+  `93f90a5385` for `drivers/net/phy/realtek/realtek_hwmon.c`:
+  - `backport-6.18/787-v7.5-net-phy-realtek-return-MDIO-read-errors-from-hwmon.patch`
+    (upstream `d5b5ab50d2f6`, v7.5): **recommended backport candidate** for
+    Linux 7.3. `CONFIG_REALTEK_PHY=m` and `CONFIG_REALTEK_PHY_HWMON=y` are
+    enabled on x86/64; without it, failed MDIO reads in `rtl822x_hwmon_read()`
+    are masked/shifted into bogus temperatures instead of returning the error.
+    Absent from 7.3.5 and applies with zero fuzz and zero offsets.
+  - `pending-6.18/744-net-phy-realtek-register-hwmon-thermal-zone.patch`:
+    **optional parity candidate** only. Registers `HWMON_C_REGISTER_TZ` for
+    device-tree thermal zones alongside carried `742`/`743`; applies cleanly
+    after `787` with zero fuzz/offsets, but is a no-op on ACPI x86/64 because
+    `drivers/hwmon/hwmon.c` gates it on `hdev->of_node` and `CONFIG_THERMAL_OF`.
+  - `target/linux/generic/config-6.18` removed `CONFIG_ARCH_FORCE_MAX_ORDER=11`
+    (`4a90fed434`); `config-7.3` still carries it as a no-op on x86/64
+    (optional config hygiene sync).
+- **Full 6.18 / 7.3 audit**: This check leaves the 7.3 patch stack and
+  `configs/mainline-kernel-patches.json` unchanged pending backport
+  authorization. All **355 carried Linux 7.3 patches** match their registered
+  SHA-256 hashes and apply with `--fuzz=0` to a fresh extraction of verified
+  Linux `7.3.5` plus current generic/x86 overlays. The optional MAP-E tunnel
+  finding remains open.
+
+### Realtek PHY hwmon backports completed, 2026-11-20
+
+The authorized follow-up carries both `787` (`backport-7.3/`) and `744`
+(`pending-7.3/`) byte-identically from 6.18, removes
+`CONFIG_ARCH_FORCE_MAX_ORDER=11` from `target/linux/generic/config-7.3`, and
+updates `configs/mainline-kernel-patches.json` (registering both ports and
+marking the 6 upstream-dropped `6.18.61-6.18.64` backports with `removed_in`).
+All **357 carried Linux 7.3 patches** match their registered SHA-256 hashes and
+apply with `--fuzz=0` to a fresh extraction of verified Linux `7.3.5` plus
+current overlays; `scripts/checkpatch.pl` reports 0 errors / 0 warnings on both
+patches, and the resulting patched `drivers/net/phy/realtek/realtek_hwmon.c`
+compiles cleanly against the selected x86/64 kernel headers in isolation. No
+full kernel or generation rebuild was performed.
+
+## Upstream synchronization review, 2026-11-21
+
+Merged OpenWrt through `e7f788a9c1` (five incoming main-tree commits) as
+`3ced84a7dc`, plus three LuCI and three Passwall packages commits. The other
+feeds were already current. All merges completed without conflicts and retain
+their previous local HEADs. Backup refs and preservation evidence are recorded
+in [the synchronization report](upstream-sync-20261121.md).
+
+- **Mainline Linux 7.3**: `update-mainline-kernel.py --check` reports 7.3.5 is
+  current. No incoming generic or x86 6.18 files changed, so no new native 7.3
+  backport is needed. All 357 carried patches apply with zero fuzz to the
+  SHA-256-verified 7.3.5 archive. The incoming mac80211 AP-VLAN fix remains in
+  its separate backports package and prepares successfully.
+- **Custom packages**: all 188 entries pass the updater: 147 current, 36 local
+  and five intentional review pins. No custom recipe or Argon update is
+  available.
+- **Validation**: feed update/install, nine nonempty indexes, generated-link
+  checks, strict isolated Kconfig, 109 focused Python tests and two local LuCI
+  JavaScript tests pass. No selected Kconfig option changes; the working
+  `.config` and all original local repository states are preserved.
+
+This was a source-only synchronization. No full build, VM test, publication,
+Git push, router deployment, restart or reboot was performed.
+
+### Upstream follow-up through `6bd48701eff9`, 2026-11-21
+
+Merged 17 main-tree commits as `47d93490b2`, 29 packages-feed commits as
+`18cf20a1b`, and three LuCI commits as `fde0243793`. The other six Git feeds
+were current. The custom updater checked all 188 entries (147 current, 36
+local, five review pins) and made no recipe or Argon update.
+
+OpenWrt commit `6dcd4886b389` adds the only new patch in the generic/x86
+6.18 stacks, `pending-6.18/550-drm-amd-display-fix-frame-size-warning.patch`.
+It applies to patched Linux 7.3.5 with zero fuzz and a four-line offset. It
+adds per-object frame-warning flags to seven AMDGPU display objects for
+GCC 15 on x86/generic with `CONFIG_FRAME_WARN=1024`. The selected x86/64
+kernel has `CONFIG_DRM_AMDGPU` disabled and `CONFIG_FRAME_WARN=2048`. No
+backport is needed for this configuration. Reassess if AMDGPU display is
+enabled with a lower frame-warning threshold.
+
+Kernel.org still lists 7.3.5 as the latest final release. All 357 carried
+patches match their registered hashes and apply with zero fuzz to the
+verified archive. The 6.18 registry audit records the new AMDGPU patch
+alongside the four previously reviewed unregistered patches and 60
+existing source-hash differences.
+
+The Netfilter split adds `kmod-nf-xtables` to the working, desktop and router
+profiles. Strict Kconfig preserves every previous selection, and the kernel
+module mapping and legacy `kmod-iptables` dependency chain were checked.
+Preserved the kmod basename behavior using kmod 34.3's implementation and
+verified it with a disposable depmod and modprobe fixture. The kmod,
+nginx, iperf3 and mbedTLS package builds and APK signature checks passed.
+mbedTLS uses release 3 because release 2 is reserved by the migration ledger.
+Feed indexes, package links and original repository state were checked.
+Evidence is under `.git/pull-preserve/20261121T135536Z/`.
+
+### AMDGPU frame-warning backport
+
+Carried OpenWrt's `550-drm-amd-display-fix-frame-size-warning.patch` byte for
+byte into `pending-7.3/` and registered both hashes. The patch lets seven
+display objects use Linux 7.3's existing per-object frame-warning limit while
+preserving the kernel-wide setting. All 358 patches match the registry and
+apply with zero fuzz to the SHA-256-verified Linux 7.3.5 source.
+
+Built all seven objects through the AMDGPU Kbuild rules using GCC 15.3 in
+an isolated x86/64 configuration with AMDGPU display enabled,
+`CONFIG_WERROR=y` and `CONFIG_FRAME_WARN=1024`. Each compile used the
+3072-byte AMDGPU override after the 1024-byte global flag. Validation
+covered object compilation without a full driver link or hardware test.

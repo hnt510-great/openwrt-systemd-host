@@ -463,11 +463,15 @@ else
     $(SCRIPT_DIR)/rstrip.sh
 endif
 
-NINJA = \
-	MAKEFLAGS="$(MAKE_JOBSERVER)" \
+NINJA_FIFO_JOBSERVER = $(filter --jobserver-auth=fifo:%,$(MAKE_JOBSERVER))
+NINJA_BASE = \
+	$(if $(NINJA_FIFO_JOBSERVER),MAKEFLAGS="$(NINJA_FIFO_JOBSERVER)") \
 	$(STAGING_DIR_HOST)/bin/ninja \
-		$(if $(findstring c,$(OPENWRT_VERBOSE)),-v) \
-		$(if $(MAKE_JOBSERVER),,-j1)
+		$(if $(findstring c,$(OPENWRT_VERBOSE)),-v)
+
+NINJA = $(NINJA_BASE) $(if $(NINJA_FIFO_JOBSERVER),,-j1)
+NINJA_TARGET = $(NINJA_BASE) $(if $(filter 0,$(strip $(PKG_BUILD_PARALLEL))),-j1,$(if $(NINJA_FIFO_JOBSERVER),,-j1))
+NINJA_HOST = $(NINJA_BASE) $(if $(filter 0,$(strip $(HOST_BUILD_PARALLEL))),-j1,$(if $(NINJA_FIFO_JOBSERVER),,-j1))
 
 ifeq ($(CONFIG_IPV6),y)
   DISABLE_IPV6:=
@@ -524,15 +528,23 @@ endef
 # @param 1: The shell expression.
 # @param 2: The lock name. If not given, the global lock will be used.
 ##
-ifneq ($(wildcard $(STAGING_DIR_HOST)/bin/flock),)
+FLOCK_BIN:=$(if $(wildcard $(STAGING_DIR_HOST)/bin/flock),$(STAGING_DIR_HOST)/bin/flock,$(shell command -v flock 2>/dev/null))
+ifneq ($(FLOCK_BIN),)
   define locked
+	mkdir -p $(TMP_DIR) && \
 	SHELL= \
-	flock \
+	$(FLOCK_BIN) \
 		$(TMP_DIR)/.$(if $(2),$(strip $(2)),global).flock \
 		-c '$(subst ','\'',$(1))'
   endef
 else
-  locked=$(1)
+  define locked
+	mkdir -p $(TMP_DIR) && \
+	SHELL= \
+	python3 -c 'import fcntl, subprocess, sys; f=open(sys.argv[1], "a"); fcntl.flock(f, fcntl.LOCK_EX); sys.exit(subprocess.call(["/bin/sh", "-c", sys.argv[2]]))' \
+		$(TMP_DIR)/.$(if $(2),$(strip $(2)),global).flock \
+		'$(subst ','\'',$(1))'
+  endef
 endif
 
 

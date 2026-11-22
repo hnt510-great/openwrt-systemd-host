@@ -391,6 +391,40 @@ endef
 
 $(eval $(call KernelPackage,sound-dummy))
 
+define KernelPackage/sound-aloop
+  $(call AddDepends/sound)
+  TITLE:=Generic loopback sound driver (PCM)
+  KCONFIG:= \
+	CONFIG_SND_ALOOP
+  FILES:= \
+	$(LINUX_DIR)/sound/drivers/snd-aloop.ko
+endef
+
+define KernelPackage/sound-aloop/description
+ Virtual ALSA loopback sound card for routing and testing audio streams.
+ Loaded on demand via modprobe snd-aloop so it does not claim the default
+ sink at boot.
+endef
+
+$(eval $(call KernelPackage,sound-aloop))
+
+define KernelPackage/sound-hrtimer
+  $(call AddDepends/sound)
+  TITLE:=High-resolution ALSA timer backend
+  KCONFIG:= \
+	CONFIG_SND_HRTIMER \
+	CONFIG_SND_SEQ_HRTIMER_DEFAULT=y
+  FILES:= \
+	$(LINUX_DIR)/sound/core/snd-hrtimer.ko
+  AUTOLOAD:=$(call AutoLoad,35,snd-hrtimer)
+endef
+
+define KernelPackage/sound-hrtimer/description
+ High-resolution timer backend for ALSA/PipeWire low-latency audio.
+endef
+
+$(eval $(call KernelPackage,sound-hrtimer))
+
 define KernelPackage/sound-hda-core
   SUBMENU:=$(SOUND_MENU)
   TITLE:=HD Audio Sound Core Support
@@ -398,9 +432,9 @@ define KernelPackage/sound-hda-core
 	CONFIG_SND_HDA_CORE \
 	CONFIG_SND_HDA \
 	CONFIG_SND_HDA_HWDEP=y \
-	CONFIG_SND_HDA_RECONFIG=n \
+	CONFIG_SND_HDA_RECONFIG=y \
 	CONFIG_SND_HDA_INPUT_BEEP=n \
-	CONFIG_SND_HDA_PATCH_LOADER=n \
+	CONFIG_SND_HDA_PATCH_LOADER=y \
 	CONFIG_SND_HDA_GENERIC
   FILES:= \
 	$(LINUX_DIR)/sound/hda/core/snd-hda-core.ko \

@@ -2,13 +2,13 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=cmake-bin
 # Updated by package/custom/scripts/update-prebuilt-packages.sh.
-PKG_VERSION:=4.5.0
+PKG_VERSION:=4.5.1
 PKG_VERSION_MAJOR:=$(word 1,$(subst ., ,$(PKG_VERSION))).$(word 2,$(subst ., ,$(PKG_VERSION)))
 PKG_RELEASE:=1
 
 PKG_SOURCE:=cmake-$(PKG_VERSION)-linux-x86_64.tar.gz
 PKG_SOURCE_URL:=https://github.com/Kitware/CMake/releases/download/v$(PKG_VERSION)/
-PKG_HASH:=81f0d5b0960fb6adc8197030ffc827fba937640d51e73e39e0e9e40d88c66f6f
+PKG_HASH:=83b71181fb62b4fe8f26067a9321448572e7a43bd04ff6c7f54a24c33698f16d
 
 PKG_BUILD_DIR:=$(BUILD_DIR)/cmake-$(PKG_VERSION)-linux-x86_64
 

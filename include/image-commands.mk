@@ -479,6 +479,11 @@ define Build/libdeflate-gzip
 	@mv $@.new $@
 endef
 
+define Build/pigz
+	$(STAGING_DIR_HOST)/bin/pigz -f -1 -n -p 8 -k -S .new $(1) $@
+	@mv $@.new $@
+endef
+
 define Build/gzip
 	$(STAGING_DIR_HOST)/bin/gzip -f -9n -c $@ $(1) > $@.new
 	@mv $@.new $@

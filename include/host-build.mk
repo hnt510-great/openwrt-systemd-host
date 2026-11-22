@@ -114,7 +114,7 @@ HOST_CONFIG_SITE:=$(INCLUDE_DIR)/site/cache
 # Set HOST_CONFIGURE_CACHE:=1 to keep the autoconf result cache of this host
 # build between builds. Read the note above PKG_CONFIGURE_CACHE in package.mk
 # before you opt a package in.
-HOST_CONFIGURE_CACHE_FILE = $(CONFIGURE_CACHE_BASE)/$(notdir $(BUILD_DIR_HOST))-$(host_cc_id)/$(notdir $(HOST_BUILD_DIR))/$(call strhash,$(HOST_CONFIGURE_ARGS) $(HOST_CONFIGURE_VARS)).cache
+HOST_CONFIGURE_CACHE_FILE = $(CONFIGURE_CACHE_BASE)/$(notdir $(BUILD_DIR_HOST))-$(host_cc_id)/$(notdir $(HOST_BUILD_DIR))/$(call strhash,$(TOPDIR) $(HOST_CONFIGURE_ARGS) $(HOST_CONFIGURE_VARS)).cache
 
 define Host/Configure/Default
 	$(if $(HOST_CONFIGURE_PARALLEL),+)(cd $(HOST_BUILD_DIR)/$(3); \
@@ -214,11 +214,17 @@ ifndef DUMP
 		touch $$@
 		$(call BuildTimeLog,end,compile)
 
+  HOST_KEY_OUTPUTS += $(foreach program,$(PKG_PROGRAMS),$(HOST_BUILD_PREFIX)/bin/$(program))
+  HOST_MISSING_OUTPUTS = $(foreach f,$(HOST_KEY_OUTPUTS),$(if $(wildcard $(f)),,missing))
+
   $(call Host/Exports,$(HOST_STAMP_INSTALLED))
-  $(HOST_STAMP_INSTALLED): $(HOST_STAMP_BUILT) $(if $(FORCE_HOST_INSTALL),FORCE)
+  $(HOST_STAMP_INSTALLED): $(HOST_STAMP_BUILT) $(if $(or $(FORCE_HOST_INSTALL),$(HOST_MISSING_OUTPUTS)),FORCE)
 		$(call BuildTimeLog,begin,install)
 		$(call Host/Install,$(HOST_BUILD_PREFIX))
 		$(foreach hook,$(Hooks/HostInstall/Post),$(call $(hook))$(sep))
+		@for f in $(HOST_KEY_OUTPUTS); do \
+			[ -e "$$f" ] || { echo "ERROR: host install did not produce expected output $$f" >&2; exit 1; }; \
+		done
 		mkdir -p $$(shell dirname $$@)
 		touch $(HOST_STAMP_BUILT)
 		touch $$@ $(HOST_STAMP_PROGRAMS)

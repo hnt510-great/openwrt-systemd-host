@@ -46,20 +46,20 @@ endif
 define PackageDir
   $(TMP_DIR)/.$(SCAN_TARGET): $(TMP_DIR)/info/.$(SCAN_TARGET)-$(1)
   $(TMP_DIR)/info/.$(SCAN_TARGET)-$(1): $(SCAN_DIR)/$(2)/Makefile $(foreach DEP,$(DEPS_$(SCAN_DIR)/$(2)/Makefile) $(SCAN_DEPS),$(wildcard $(if $(filter /%,$(DEP)),$(DEP),$(SCAN_DIR)/$(2)/$(DEP))))
-	{ \
-		$$(call progress,Collecting $(SCAN_NAME) info: $(SCAN_DIR)/$(2)) \
-		echo Source-Makefile: $(SCAN_DIR)/$(2)/Makefile; \
+	@set -e; fragment=$$$$(mktemp "$$@.XXXXXX"); diagnostic="$$$$fragment.log"; \
+	trap 'rm -f "$$$$fragment" "$$$$diagnostic"' EXIT; \
+	$$(call progress,Collecting $(SCAN_NAME) info: $(SCAN_DIR)/$(2)) \
+	{ echo Source-Makefile: $(SCAN_DIR)/$(2)/Makefile; \
 		$(if $(3),echo Override: $(3),true); \
-		$(if $(findstring c,$(OPENWRT_VERBOSE)),$(MAKE),$(NO_TRACE_MAKE) --no-print-dir) -r DUMP=1 FEED="$(call feedname,$(2))" -C $(SCAN_DIR)/$(2) $(SCAN_MAKEOPTS) \
-			$(if $(findstring c,$(OPENWRT_VERBOSE)),,2>/dev/null) || { \
-			mkdir -p "$(TOPDIR)/logs/$(SCAN_DIR)/$(2)"; \
-			$(NO_TRACE_MAKE) --no-print-dir -r DUMP=1 FEED="$(call feedname,$(2))" -C $(SCAN_DIR)/$(2) $(SCAN_MAKEOPTS) > $(TOPDIR)/logs/$(SCAN_DIR)/$(2)/dump.txt 2>&1; \
-			$$(call progress,ERROR: please fix $(SCAN_DIR)/$(2)/Makefile - see logs/$(SCAN_DIR)/$(2)/dump.txt for details\n) \
-			rm -f $$@; \
+		$(if $(findstring c,$(OPENWRT_VERBOSE)),$(MAKE),$(NO_TRACE_MAKE) --no-print-dir) -r DUMP=1 FEED="$(call feedname,$(2))" -C $(SCAN_DIR)/$(2) $(SCAN_MAKEOPTS) 2>"$$$$diagnostic" || { \
+			rc=$$$$?; mkdir -p "$(TOPDIR)/logs/$(SCAN_DIR)/$(2)"; \
+			cat "$$$$diagnostic" >&2; \
+			mv "$$$$diagnostic" "$(TOPDIR)/logs/$(SCAN_DIR)/$(2)/dump.txt"; exit $$$$rc; \
 		}; \
+		$(if $(findstring c,$(OPENWRT_VERBOSE)),cat "$$$$diagnostic" >&2;) \
 		echo; \
-	} > $$@.tmp
-	mv $$@.tmp $$@
+	} > "$$$$fragment"; \
+	mv "$$$$fragment" $$@
 endef
 
 $(OVERRIDELIST):
@@ -102,7 +102,7 @@ $(TMP_DIR)/info/.files-$(SCAN_TARGET).mk: $(FILELIST)
 
 $(TARGET_STAMP)::
 	+( \
-		$(NO_TRACE_MAKE) $(FILELIST); \
+		$(NO_TRACE_MAKE) $(FILELIST) || exit $$?; \
 		MD5SUM=$$(cat $(FILELIST) $(OVERRIDELIST) | $(MKHASH) md5 | awk '{print $$1}'); \
 		[ -f "$@.$$MD5SUM" ] || { \
 			rm -f $@.*; \
@@ -113,7 +113,9 @@ $(TARGET_STAMP)::
 
 $(TMP_DIR)/.$(SCAN_TARGET): $(TARGET_STAMP)
 	$(call progress,Collecting $(SCAN_NAME) info: merging...)
-	-cat $(FILELIST) | awk '{gsub(/\//, "_", $$0);print "$(TMP_DIR)/info/.$(SCAN_TARGET)-" $$0}' | xargs cat > $@ 2>/dev/null
+	@set -e; out=$$(mktemp "$@.XXXXXX"); trap 'rm -f "$$out" "$$out.list"' EXIT; \
+		awk '{gsub(/\//, "_", $$0);print "$(TMP_DIR)/info/.$(SCAN_TARGET)-" $$0}' $(FILELIST) > "$$out.list"; \
+		xargs -r cat < "$$out.list" > "$$out"; mv "$$out" $@
 	$(call progress,Collecting $(SCAN_NAME) info: done)
 	echo
 

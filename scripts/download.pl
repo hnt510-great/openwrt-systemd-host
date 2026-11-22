@@ -9,9 +9,12 @@
 
 use strict;
 use warnings;
+use Cwd qw(realpath);
 use File::Basename;
 use File::Copy;
-use File::Path;
+use File::Path qw(make_path);
+use File::Temp qw(tempdir);
+use Fcntl qw(:flock);
 use Text::ParseWords;
 use JSON::PP;
 
@@ -158,6 +161,36 @@ sub download_cmd {
 my $hash_cmd = hash_cmd();
 $hash_cmd or ($file_hash eq "skip") or die "Cannot find appropriate hash command, ensure the provided hash is either a MD5 or SHA256 checksum.\n";
 
+make_path($target) unless -d $target;
+my $real_target = realpath($target) // $target;
+my $lock;
+if (($ENV{OPENWRT_DL_LOCKED} // '') ne "$real_target:$filename") {
+	make_path("$real_target/.locks");
+	open $lock, '>>', "$real_target/.locks/$filename" or die "Cannot open download lock: $!\n";
+	flock $lock, LOCK_EX or die "Cannot lock $filename: $!\n";
+}
+my $work = tempdir('.download-XXXXXXXX', DIR => $real_target, CLEANUP => 1);
+my $candidate = "$work/archive";
+
+sub checksum {
+	my ($path) = @_;
+	my $sum;
+	if ($ENV{MKHASH}) {
+		open my $pipe, '-|', $ENV{MKHASH}, (length($file_hash) == 64 ? 'sha256' : 'md5'), $path
+			or die "Cannot run mkhash: $!\n";
+		$sum = <$pipe>;
+		close $pipe or die "Could not hash $path\n";
+	} else {
+		my $tool = length($file_hash) == 64 ? 'sha256sum' : 'md5sum';
+		open my $pipe, '-|', $tool, $path
+			or die "Cannot run $tool: $!\n";
+		$sum = <$pipe>;
+		close $pipe or die "Could not hash $path\n";
+	}
+	defined $sum && $sum =~ /^(\w+)/ or die "Could not generate file hash\n";
+	return $1;
+}
+
 sub download
 {
 	my $mirror = shift;
@@ -201,14 +234,7 @@ sub download
 		}
 
 		print("Copying $filename from $link\n");
-		copy($link, "$target/$filename.dl");
-
-		$hash_cmd and do {
-			if (system("cat '$target/$filename.dl' | $hash_cmd > '$target/$filename.hash'")) {
-				print("Failed to generate hash for $filename\n");
-				return;
-			}
-		};
+		copy($link, $candidate) or die "Cannot copy $link: $!\n";
 	} else {
 		if ($mirror =~ /a=snapshot/) {
 			@cmd = download_cmd("$mirror", $download_filename, @additional_mirrors);
@@ -217,20 +243,15 @@ sub download
 		}
 		print STDERR "+ ".join(" ",@cmd)."\n";
 		open(FETCH_FD, '-|', @cmd) or die "Cannot launch aria2c, curl or wget.\n";
-		$hash_cmd and do {
-			open MD5SUM, "| $hash_cmd > '$target/$filename.hash'" or die "Cannot launch $hash_cmd.\n";
-		};
-		open OUTPUT, "> $target/$filename.dl" or die "Cannot create file $target/$filename.dl: $!\n";
+		open my $output, '>', $candidate or die "Cannot create $candidate: $!\n";
 		my $buffer;
-		while (read FETCH_FD, $buffer, 1048576) {
-			$hash_cmd and print MD5SUM $buffer;
-			print OUTPUT $buffer;
+		my $size;
+		while ($size = read FETCH_FD, $buffer, 1048576) {
+			print {$output} $buffer or die "Cannot write $candidate: $!\n";
 		}
-		$hash_cmd and close MD5SUM;
-		close FETCH_FD;
-		close OUTPUT;
-
-		if ($? >> 8) {
+		defined $size or die "Cannot read download: $!\n";
+		close $output or die "Cannot finish $candidate: $!\n";
+		if (!close FETCH_FD) {
 			print STDERR "Download failed.\n";
 			cleanup();
 			return;
@@ -238,9 +259,7 @@ sub download
 	}
 
 	$hash_cmd and do {
-		my $sum = `cat "$target/$filename.hash"`;
-		$sum =~ /^(\w+)\s*/ or die "Could not generate file hash\n";
-		$sum = $1;
+		my $sum = checksum($candidate);
 
 		if ($sum ne $file_hash) {
 			print STDERR "Hash of the downloaded file does not match (file: $sum, requested: $file_hash) - deleting download.\n";
@@ -249,15 +268,13 @@ sub download
 		}
 	};
 
-	unlink "$target/$filename";
-	move("$target/$filename.dl", "$target/$filename");
+	rename $candidate, "$real_target/$filename" or die "Cannot publish $filename: $!\n";
 	cleanup();
 }
 
 sub cleanup
 {
-	unlink "$target/$filename.dl";
-	unlink "$target/$filename.hash";
+	unlink $candidate if defined $candidate && -e $candidate;
 }
 
 @mirrors = localmirrors();
@@ -302,22 +319,11 @@ foreach my $mirror (@ARGV) {
 
 projectsmirrors '@OPENWRT';
 
-if (-f "$target/$filename") {
-	$hash_cmd and do {
-		if (system("cat '$target/$filename' | $hash_cmd > '$target/$filename.hash'")) {
-			die "Failed to generate hash for $filename\n";
-		}
-
-		my $sum = `cat "$target/$filename.hash"`;
-		$sum =~ /^(\w+)\s*/ or die "Could not generate file hash\n";
-		$sum = $1;
-
-		cleanup();
-		exit 0 if $sum eq $file_hash;
-
-		unlink "$target/$filename";
-		die "Hash of the local file $filename does not match (file: $sum, requested: $file_hash) - deleting download.\n";
-	};
+if (-f "$real_target/$filename") {
+	exit 0 unless $hash_cmd;
+	my $sum = checksum("$real_target/$filename");
+	exit 0 if $sum eq $file_hash;
+	die "Cached $filename has hash $sum, requested $file_hash; existing archive retained.\n";
 }
 
 $download_tool = select_tool();
@@ -330,15 +336,13 @@ if ($mirror =~ /snapshot/) {
 	$mirror = shift @mirrors;
 }
 
-while (!-f "$target/$filename") {
+while (!-f "$real_target/$filename") {
 	$mirror or die "No more mirrors to try - giving up.\n";
 
 	download($mirror, $url_filename, @mirrors);
-	if (!-f "$target/$filename" && $url_filename ne $filename) {
+	if (!-f "$real_target/$filename" && $url_filename ne $filename) {
 		download($mirror, $filename, @mirrors);
 	}
 
 	$mirror = shift @mirrors;
 }
-
-$SIG{INT} = \&cleanup;

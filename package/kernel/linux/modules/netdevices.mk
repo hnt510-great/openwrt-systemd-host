@@ -1714,6 +1714,35 @@ endef
 $(eval $(call KernelPackage,macvlan))
 
 
+define KernelPackage/tap
+  SUBMENU:=$(NETWORK_DEVICES_MENU)
+  TITLE:=Generic TAP interface support
+  HIDDEN:=1
+  KCONFIG:=CONFIG_TAP
+  FILES:=$(LINUX_DIR)/drivers/net/tap.ko
+  AUTOLOAD:=$(call AutoProbe,tap)
+endef
+
+$(eval $(call KernelPackage,tap))
+
+
+define KernelPackage/macvtap
+  SUBMENU:=$(NETWORK_DEVICES_MENU)
+  TITLE:=MAC-VLAN based tap driver
+  DEPENDS:=+kmod-macvlan +kmod-tap
+  KCONFIG:=CONFIG_MACVTAP
+  FILES:=$(LINUX_DIR)/drivers/net/macvtap.ko
+  AUTOLOAD:=$(call AutoProbe,macvtap)
+endef
+
+define KernelPackage/macvtap/description
+ A kernel module providing a tap character device interface over MAC-VLAN,
+ used by QEMU/libvirt to attach virtual machines directly to host NICs.
+endef
+
+$(eval $(call KernelPackage,macvtap))
+
+
 define KernelPackage/ipvlan
   SUBMENU:=$(NETWORK_DEVICES_MENU)
   TITLE:=IP-VLAN support

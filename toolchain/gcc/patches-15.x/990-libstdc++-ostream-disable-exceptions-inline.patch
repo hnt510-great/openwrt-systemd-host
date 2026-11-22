@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: OpenWrt local <openwrt@localhost>
+Date: Fri, 20 Nov 2026 13:20:00 +0800
+Subject: [PATCH] libstdc++: always_inline basic_ostream::_Disable_exceptions
+
+The nested _Disable_exceptions helper is odr-used from the explicit
+instantiations of std::basic_ostream<char> and <wchar_t>. Because the
+enclosing class is extern-templated, user code such as Boost.Log emits
+calls to the helper instead of instantiating it, but libstdc++ builds
+those inline members with hidden visibility, so the calls cannot be
+resolved when linking a shared library:
+
+  undefined reference to `std::ostream::_Disable_exceptions::~_Disable_exceptions()'
+  (libboost_log.so.1.92.0)
+
+The helper is two trivial assignments. Mark its constructor and
+destructor always_inline so every use site expands them local to the
+caller and no hidden-symbol dependency is left in the object.
+
+This is an OpenWrt-local workaround until the upstream visibility
+handling of nested classes in extern-templated classes is fixed.
+
+---
+ libstdc++-v3/include/bits/ostream.h | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/libstdc++-v3/include/bits/ostream.h b/libstdc++-v3/include/bits/ostream.h
+--- a/libstdc++-v3/include/bits/ostream.h
++++ b/libstdc++-v3/include/bits/ostream.h
+@@ -511,10 +511,12 @@
+       // RAII type to clear and restore an ostream's exceptions mask.
+       struct _Disable_exceptions
+       {
++	__attribute__((__always_inline__))
+ 	_Disable_exceptions(basic_ostream& __os)
+ 	: _M_os(__os), _M_exception(_M_os._M_exception)
+ 	{ _M_os._M_exception = ios_base::goodbit; }
+ 
++	__attribute__((__always_inline__))
+ 	~_Disable_exceptions()
+ 	{ _M_os._M_exception = _M_exception; }
+ 

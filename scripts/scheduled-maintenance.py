@@ -463,15 +463,33 @@ def execute(config, run):
         log = run / f'build-{attempt}.log'
         try:
             source_before = workflow_fingerprint(worker, repositories, source_only=True)
-            with (worker / 'tmp/.build-and-publish.lock').open('a') as build_lock:
-                fcntl.flock(build_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                run_logged(['make', 'defconfig'], worker, log, 600)
-                run_logged(['scripts/config/conf', '--fatalrecursive', '--defconfig=.config',
-                            '-w', '.config', 'Config.in'], worker, log, 600)
-                verify_feature_config(run / 'input.config', worker)
-                run_logged([sys.executable, str(SOURCE / 'scripts/scheduled-maintenance.py'),
-                            '--build-worker', str(worker), '--jobs', str(jobs), '--artifact-directory', str(run / 'artifacts'), '--build-lock-fd', str(build_lock.fileno())],
-                            worker, log, config['build_timeout'], pass_fds=(build_lock.fileno(),))
+            import importlib.util
+            cl_spec = importlib.util.spec_from_file_location('checkout_lock', SOURCE / 'scripts/checkout-lock.py')
+            cl_mod = importlib.util.module_from_spec(cl_spec)
+            cl_spec.loader.exec_module(cl_mod)
+            with cl_mod.acquire_checkout_lock(worker, nonblocking=True) as (lock_fd, lock_ident, _):
+                os.set_inheritable(lock_fd, True)
+                prev_fd = os.environ.get(cl_mod.ENV_FD)
+                prev_id = os.environ.get(cl_mod.ENV_ID)
+                os.environ[cl_mod.ENV_FD] = str(lock_fd)
+                os.environ[cl_mod.ENV_ID] = lock_ident
+                try:
+                    run_logged(['make', 'defconfig'], worker, log, 600, pass_fds=(lock_fd,))
+                    run_logged(['scripts/config/conf', '--fatalrecursive', '--defconfig=.config',
+                                '-w', '.config', 'Config.in'], worker, log, 600)
+                    verify_feature_config(run / 'input.config', worker)
+                    run_logged([sys.executable, str(SOURCE / 'scripts/scheduled-maintenance.py'),
+                                '--build-worker', str(worker), '--jobs', str(jobs), '--artifact-directory', str(run / 'artifacts'), '--build-lock-fd', str(lock_fd)],
+                                worker, log, config['build_timeout'], pass_fds=(lock_fd,))
+                finally:
+                    if prev_fd is None:
+                        os.environ.pop(cl_mod.ENV_FD, None)
+                    else:
+                        os.environ[cl_mod.ENV_FD] = prev_fd
+                    if prev_id is None:
+                        os.environ.pop(cl_mod.ENV_ID, None)
+                    else:
+                        os.environ[cl_mod.ENV_ID] = prev_id
             if source_before != workflow_fingerprint(worker, repositories, source_only=True):
                 raise ValueError('Source or overlay changed during the build; saved artifacts cannot be published')
             break

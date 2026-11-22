@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Derive APK shared-library contracts from ELF payloads without executing them."""
 import argparse
+import fcntl
+import importlib.util
 import json
 import mmap
 import os
@@ -167,32 +169,50 @@ class Context(dict):
     def __init__(self, records):
         super().__init__(records)
         self.files, self.links, self.owners, self.inherited = {}, {}, {}, {}
-        for package, record in records.items():
+        for package, record in sorted(records.items(), key=lambda entry: (not entry[0].startswith('@'), entry[0])):
             owner = record.get('package', package)
-            self.files.update(record['files'])
-            self.links.update(record['links'])
-            if not package.startswith('@'):
-                self.owners.update({p: (owner, record.get('version')) for p in record['files']})
-                for path in record['files']:
-                    self.inherited[path] = set(POLICY['loader_paths'].get(owner, []))
-        # DT_RPATH is inherited by descendants; DT_RUNPATH is direct-only.
+            version = record.get('version')
+            for path, item in sorted(record['files'].items()):
+                if not package.startswith('@') and path in self.files and path in self.owners:
+                    other_owners = sorted({o for o, _ in self.owners[path] if o != owner})
+                    if other_owners and self.files[path] != item:
+                        raise ValueError(
+                            f'ELF ABI: conflicting owners for {path}: {", ".join(other_owners)} vs {owner}'
+                        )
+                self.files[path] = item
+                if not package.startswith('@'):
+                    owners = self.owners.setdefault(path, [])
+                    entry = (owner, version)
+                    if entry not in owners:
+                        owners.append(entry)
+                        owners.sort()
+                    policy_paths = list(POLICY['loader_paths'].get(owner, []))
+                    cur = self.inherited.setdefault(path, [])
+                    for p in policy_paths:
+                        if p not in cur:
+                            cur.append(p)
+            for link_path, target in sorted(record['links'].items()):
+                self.links[link_path] = target
+        # DT_RPATH is inherited by descendants in loader search order; DT_RUNPATH is direct-only.
         changed = True
         while changed:
             changed = False
-            for path, item in self.files.items():
-                inherited = self.inherited.setdefault(path, set())
-                propagated = set(search_paths(path, item, inherited)) - set(PUBLIC)
+            for path, item in sorted(self.files.items()):
+                inherited = self.inherited.setdefault(path, [])
                 if item.get('runpath') is not None:
-                    propagated = inherited
+                    propagated = list(inherited)
+                else:
+                    propagated = [p for p in search_paths(path, item, inherited) if p not in PUBLIC]
                 if not propagated:
                     continue
                 for needed in item['needed']:
                     targets = [needed] if '/' in needed else [posixpath.join(p, needed) for p in search_paths(path, item, inherited)]
                     child = next((r for p in targets if (r := resolve(p, self.files, self.links))), None)
                     if child:
-                        before = self.inherited.setdefault(child, set())
-                        if propagated - before:
-                            before.update(propagated)
+                        before = self.inherited.setdefault(child, [])
+                        extra = [p for p in propagated if p not in before]
+                        if extra:
+                            before.extend(extra)
                             changed = True
 
 
@@ -211,12 +231,21 @@ def public_provides(inventory):
     return sorted(result)
 
 
+def has_private_libraries(inventory):
+    for path, item in inventory['files'].items():
+        if posixpath.dirname(path) in PUBLIC:
+            continue
+        soname = item.get('soname') or posixpath.basename(path)
+        if '.so' in soname:
+            return True
+    return False
+
+
 def contracts(inventory, name, context=None):
     """Private libraries satisfy only objects whose real search path reaches them."""
     files = dict(inventory['files'])
     links = dict(inventory['links'])
     owners = {}
-    inherited = {p: set(POLICY['loader_paths'].get(name, [])) for p in files}
     if context:
         index = context if isinstance(context, Context) else Context({**context, name: inventory})
         files = {**index.files, **files}
@@ -226,7 +255,7 @@ def contracts(inventory, name, context=None):
     else:
         inherited = Context({name: inventory}).inherited
     dependencies = set()
-    for path, item in inventory['files'].items():
+    for path, item in sorted(inventory['files'].items()):
         for needed in item['needed'] + ([item['interpreter']] if item['interpreter'] else []):
             if '/' in needed and not needed.startswith('/'):
                 raise ValueError(f'{name}: {path}: relative ELF dependency cannot be verified: {needed}')
@@ -237,9 +266,10 @@ def contracts(inventory, name, context=None):
             if target in inventory['files']:
                 continue
             if target and posixpath.dirname(target) not in PUBLIC:
-                package, version = owners.get(target, (None, None))
-                if not package or not version:
+                owner_list = owners.get(target) or []
+                if not owner_list or not owner_list[0][0] or not owner_list[0][1]:
                     raise ValueError(f'{name}: {path} -> {needed}: private library has no versioned package owner')
+                package, version = owner_list[0]
                 dependencies.add(f'{package}={version}')
             else:
                 soname = posixpath.basename(needed)
@@ -341,17 +371,29 @@ def staged_inventory(root, inventory, merged_usr=True):
     return result
 
 
+def _recover_staging(staging_root):
+    stage_script = Path(__file__).resolve().with_name('stage-package.py')
+    if not stage_script.is_file():
+        return
+    spec = importlib.util.spec_from_file_location('stage_package', stage_script)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    mod.recover_if_pending(staging_root, staging_root / 'stamp/packages')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, required=True)
     parser.add_argument('--package', required=True)
     parser.add_argument('--version', required=True)
     parser.add_argument('--staging-root', type=Path)
+    parser.add_argument('--staging-lock', type=Path)
     parser.add_argument('--bootstrap-root', type=Path,
                         help='Current toolchain sysroot, only for toolchain runtime packages')
     parser.add_argument('--depends-output', type=Path, required=True)
     parser.add_argument('--provides-output', type=Path, required=True)
     parser.add_argument('--stamp', type=Path)
+    parser.add_argument('--private-stamp', type=Path)
     args = parser.parse_args()
     try:
         inventory = inspect(args.root)
@@ -359,12 +401,30 @@ def main():
         context = None
         if args.staging_root:
             context = {}
-            for path in (args.staging_root / 'usr/lib/apk/packages').glob('*.elf.json'):
-                record = json.loads(path.read_text())
-                context[record['package']] = record
-            # Bootstrap the metadata migration from the actual staged payload.
-            staged = staged_inventory(args.staging_root, inventory)
-            context['@staged'] = staged
+
+            def read_staging():
+                pkg_dir = args.staging_root / 'usr/lib/apk/packages'
+                if pkg_dir.is_dir():
+                    for path in sorted(pkg_dir.glob('*.elf.json')):
+                        record = json.loads(path.read_text())
+                        context[record['package']] = record
+                # Bootstrap the metadata migration from the actual staged payload.
+                staged = staged_inventory(args.staging_root, inventory)
+                context['@staged'] = staged
+
+            if args.staging_lock:
+                args.staging_lock.parent.mkdir(parents=True, exist_ok=True)
+                with args.staging_lock.open('a') as lock:
+                    fcntl.flock(lock, fcntl.LOCK_SH)
+                    pending = args.staging_root / 'stamp/packages/.stage-pending'
+                    if pending.is_symlink():
+                        fcntl.flock(lock, fcntl.LOCK_EX)
+                        if pending.is_symlink():
+                            _recover_staging(args.staging_root)
+                        fcntl.flock(lock, fcntl.LOCK_SH)
+                    read_staging()
+            else:
+                read_staging()
         if args.bootstrap_root:
             if context is None:
                 context = {}
@@ -384,6 +444,9 @@ def main():
                     ['/usr/lib/apk/packages/' + args.package + '.elf.json']))) + '\n')
         if args.stamp:
             write_changed(args.stamp, '\n'.join(provides) + '\n')
+        if args.private_stamp:
+            priv_content = f'{args.package}={args.version}\n' if has_private_libraries(inventory) else ''
+            write_changed(args.private_stamp, priv_content)
     except (OSError, ValueError, struct.error) as error:
         parser.exit(1, str(error) + '\n')
 

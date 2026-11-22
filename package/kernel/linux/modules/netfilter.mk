@@ -59,6 +59,7 @@ define KernelPackage/nf-ipt
 	$(KCONFIG_NF_IPT) \
 	CONFIG_IP_NF_IPTABLES_LEGACY \
 	CONFIG_NETFILTER_XTABLES_LEGACY=y
+  DEPENDS:=+kmod-nf-xtables
   FILES:=$(foreach mod,$(NF_IPT-m),$(LINUX_DIR)/net/$(mod).ko)
   AUTOLOAD:=$(call AutoProbe,$(notdir $(NF_IPT-m)))
 endef
@@ -82,9 +83,10 @@ endef
 
 define KernelPackage/iptables/description
  Preserve the installed kmod-iptables name across kernel ABI upgrades after
- upstream ca454c00b6 moved its modules and flags to kmod-nf-ipt. The replacement
- owns ip_tables.ko, x_tables.ko and their autoload entries; this package only
- retains the dependency and immutable generation metadata.
+ upstream ca454c00b6 moved its modules and flags to kmod-nf-ipt.
+ The replacement owns the ip_tables autoload entry and depends on
+ kmod-nf-xtables for x_tables and xt_tcpudp. This tracker retains the
+ dependency and immutable generation metadata.
 endef
 
 $(eval $(call KernelPackage,iptables))
@@ -111,7 +113,7 @@ define KernelPackage/ipt-core
   KCONFIG:=$(KCONFIG_IPT_CORE)
   FILES:=$(foreach mod,$(IPT_CORE-m),$(LINUX_DIR)/net/$(mod).ko)
   AUTOLOAD:=$(call AutoProbe,$(notdir $(IPT_CORE-m)))
-  DEPENDS:=+kmod-nf-reject +kmod-nf-ipt +kmod-nf-log
+  DEPENDS:=+kmod-nf-reject +kmod-nf-ipt +kmod-nf-log +kmod-nf-xtables
 endef
 
 define KernelPackage/ipt-core/description
@@ -242,6 +244,15 @@ define AddDepends/ipt
   DEPENDS+= +kmod-ipt-core $(1)
 endef
 
+define KernelPackage/nf-xtables
+  SUBMENU:=$(NF_MENU)
+  TITLE:=Netfilter Xtables support
+  KCONFIG:=$(KCONFIG_NF_XTABLES)
+  FILES:=$(foreach mod,$(NF_XTABLES-m),$(LINUX_DIR)/net/$(mod).ko)
+  AUTOLOAD:=$(call AutoProbe,$(notdir $(NF_XTABLES-m)))
+endef
+
+$(eval $(call KernelPackage,nf-xtables))
 
 define KernelPackage/ipt-conntrack
   TITLE:=Basic connection tracking modules
@@ -445,7 +456,7 @@ IPVS_MODULES:= \
 define KernelPackage/nf-ipvs
   SUBMENU:=Netfilter Extensions
   TITLE:=IP Virtual Server modules
-  DEPENDS:=@IPV6 +kmod-ipt-conntrack +kmod-nf-conntrack
+  DEPENDS:=@IPV6 +kmod-nf-conntrack +kmod-nf-xtables
   KCONFIG:= \
 	CONFIG_IP_VS \
 	CONFIG_IP_VS_IPV6=y \
@@ -473,7 +484,6 @@ define KernelPackage/nf-ipvs
 	CONFIG_IP_VS_NFCT=y \
 	CONFIG_NETFILTER_XT_MATCH_IPVS
   FILES:=$(foreach mod,$(IPVS_MODULES),$(LINUX_DIR)/net/netfilter/$(mod).ko)
-  $(call AddDepends/ipt,+kmod-ipt-conntrack,+kmod-nf-conntrack)
 endef
 
 define KernelPackage/nf-ipvs/description
@@ -1460,7 +1470,7 @@ $(eval $(call KernelPackage,nft-tproxy))
 define KernelPackage/nft-compat
   SUBMENU:=$(NF_MENU)
   TITLE:=Netfilter nf_tables compat support
-  DEPENDS:=+kmod-nft-core +kmod-nf-ipt
+  DEPENDS:=+kmod-nf-xtables +kmod-nft-core
   FILES:=$(foreach mod,$(NFT_COMPAT-m),$(LINUX_DIR)/net/$(mod).ko)
   AUTOLOAD:=$(call AutoProbe,$(notdir $(NFT_COMPAT-m)))
   KCONFIG:=$(KCONFIG_NFT_COMPAT)

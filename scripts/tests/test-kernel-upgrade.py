@@ -208,6 +208,24 @@ class RuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(K.KernelError, 'not mounted'):
             self.manager.check()
 
+    def test_sync_boot_prefers_syncfs_and_closes_the_descriptor(self):
+        calls = []
+        descriptor = 99
+        with patch.object(K.os, 'syncfs', lambda fd: calls.append(('syncfs', fd)), create=True), \
+                patch.object(K.os, 'open', lambda *args, **kwargs: descriptor), \
+                patch.object(K.os, 'close', lambda fd: calls.append(('close', fd))), \
+                patch.object(K.os, 'sync', lambda: calls.append(('sync',))):
+            self.manager.sync_boot()
+        self.assertEqual(calls, [('syncfs', descriptor), ('close', descriptor)])
+
+    def test_sync_boot_falls_back_when_syncfs_is_unavailable(self):
+        with patch.object(K.os, 'syncfs', None, create=True), \
+                patch.object(K.os, 'sync') as sync, \
+                patch.object(K.os, 'open') as open_file:
+            self.manager.sync_boot()
+        open_file.assert_not_called()
+        sync.assert_called_once_with()
+
     def test_migrate_replaces_old_grub_entries_and_preserves_counting(self):
         self.adopt()
         name = self.install(2)

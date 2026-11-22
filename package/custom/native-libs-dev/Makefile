@@ -4,7 +4,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=native-libs-dev
 PKG_VERSION:=1
-PKG_RELEASE:=8
+PKG_RELEASE:=13
 
 # Export only target development files; never copy host staging or the whole
 # target sysroot. Runtime libraries remain owned by their original packages.
@@ -21,7 +21,12 @@ NATIVE_DEV_HEADERS:= \
 	glib-2.0 gio-unix-2.0 json-glib-1.0 gnutls nettle security crypt.h \
 	libtasn1.h \
 	attr acl sys/acl.h sys/capability.h dbus-1.0 uv uv.h yaml.h \
-	libxslt libexslt libusb-1.0 archive.h archive_entry.h
+	libxslt libexslt libusb-1.0 archive.h archive_entry.h \
+	X11 xcb GL GLES2 GLES3 EGL KHR gbm.h libdrm alsa xkbcommon \
+	wayland-client.h wayland-client-core.h wayland-client-protocol.h \
+	wayland-server.h wayland-server-core.h wayland-server-protocol.h \
+	wayland-egl.h wayland-egl-core.h wayland-util.h wayland-version.h \
+	wayland-cursor.h harfbuzz freetype2 fontconfig
 
 # The other unversioned library names are already supplied by runtime packages.
 NATIVE_DEV_LINKS:= \
@@ -32,7 +37,11 @@ NATIVE_DEV_LINKS:= \
 	libevent_core.so libmnl.so libnl-3.so libnl-route-3.so libsystemd.so \
 	libubox.so libubus.so libuci.so libblobmsg_json.so libjson_script.so \
 	libjson-glib-1.0.so libgnutls.so libnettle.so libhogweed.so \
-	libtasn1.so libdbus-1.so libarchive.so
+	libtasn1.so libdbus-1.so libarchive.so \
+	libGL.so libOpenGL.so libGLESv2.so libEGL.so libdrm.so \
+	libxkbcommon.so libxkbcommon-x11.so \
+	libwayland-client.so libwayland-server.so libwayland-egl.so \
+	libwayland-cursor.so
 
 NATIVE_DEV_PC:= \
 	openssl libcrypto libssl libcurl sqlite3 json-c libffi \
@@ -44,7 +53,9 @@ NATIVE_DEV_PC:= \
 	gmodule-no-export-2.0 gthread-2.0 gio-2.0 gio-unix-2.0 \
 	json-glib-1.0 gnutls nettle hogweed libcrypt libtasn1 \
 	libcap libattr libacl dbus-1 libuv yaml-0.1 libxslt libexslt \
-	libusb-1.0 libarchive
+	libusb-1.0 libarchive \
+	gl opengl glesv2 egl gbm libdrm xkbcommon wayland-client \
+	wayland-server wayland-egl wayland-cursor
 
 NATIVE_DEV_OPENWRT_LIBS:=libubox libubus libuci libblobmsg-json libjson-script
 

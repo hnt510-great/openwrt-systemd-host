@@ -4,16 +4,18 @@ set +x
 . /usr/libexec/desktop-common.sh
 [ "$(id -u)" = 0 ] || { desktop_error 'Run desktop-setup as root'; exit 1; }
 [ "$#" -ge 1 ] || {
-	printf 'Usage: desktop-setup USER [--refresh-keyring] [--keyring-password-stdin]\n' >&2; exit 1;
+	printf 'Usage: desktop-setup USER [--refresh-keyring] [--keyring-password-stdin] [--no-autostart]\n' >&2; exit 1;
 }
 user=$1
 shift
 refresh_keyring=0
 keyring_stdin=0
+autostart=1
 for option in "$@"; do
 	case "$option" in
 		--refresh-keyring) refresh_keyring=1 ;;
 		--keyring-password-stdin) keyring_stdin=1 ;;
+		--no-autostart) autostart=0 ;;
 		*) desktop_error 'Invalid desktop-setup option'; exit 1 ;;
 	esac
 done
@@ -135,12 +137,22 @@ fi || {
 }
 su -s /bin/sh -c /usr/libexec/desktop-user-setup "$user"
 uci set desktop.main.user="$user"
-uci set desktop.main.enabled=1
+uci set desktop.main.enabled="$autostart"
 case "$(uci -q get desktop.main.sunshine_capture || :)" in
 	''|weston) uci set desktop.main.sunshine_capture=portal ;;
 esac
 uci commit desktop
-/etc/init.d/desktop enable
-/etc/init.d/desktop restart
-printf 'GNOME configured for %s. Run desktop-rdp-setup %s to provision RDP credentials.\n' "$user" "$user"
-printf 'Use sunshine-setup %s --capture=portal for Moonlight.\n' "$user"
+if [ "$autostart" = 1 ]; then
+	/etc/init.d/desktop enable
+	/etc/init.d/desktop restart
+else
+	/etc/init.d/desktop disable
+fi
+if [ -x /usr/sbin/desktop-rdp-setup ]; then
+	printf 'GNOME configured for %s. Run desktop-rdp-setup %s to provision RDP credentials.\n' "$user" "$user"
+else
+	printf 'GNOME configured for %s.\n' "$user"
+fi
+if [ -x /usr/sbin/sunshine-setup ]; then
+	printf 'Use sunshine-setup %s --capture=portal for Moonlight.\n' "$user"
+fi

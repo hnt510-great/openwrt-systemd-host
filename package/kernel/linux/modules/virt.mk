@@ -131,7 +131,7 @@ $(eval $(call KernelPackage,vhost))
 define KernelPackage/vhost-net
   SUBMENU:=Virtualization
   TITLE:=Host kernel accelerator for virtio-net
-  DEPENDS:=+kmod-tun +kmod-vhost
+  DEPENDS:=+kmod-tun +kmod-vhost +PACKAGE_kmod-tap:kmod-tap
   KCONFIG:=CONFIG_VHOST_NET
   FILES:=$(LINUX_DIR)/drivers/vhost/vhost_net.ko
   AUTOLOAD:=$(call AutoProbe,vhost_net)

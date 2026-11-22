@@ -9,7 +9,7 @@
 在新 checkout 中可以复制为 `.config`，安装匹配 feeds 后再正常化配置。
 它不包含测试账号、测试 SSH 密钥或个人路由器凭据。
 
-纯路由构建与可选应用的依赖拆分见 [native systemd 纯路由方案](systemd-router-decoupling-plan.md)。
+纯路由独立构建配置保存在 `configs/x86-64-systemd-router.config`，可按需通过 `scripts/kconfig.pl +` 叠加模块化片段（`configs/gnome-desktop-core.config`、`configs/flatpak.config`、`configs/podman.config`、`configs/distrobox.config`、`configs/samba4.config`、`configs/virt-headless.config`）。纯路由构建应在独立 checkout 中执行，避免覆盖主工作区完整桌面 `.config` 与 `bin/systemd` 输出，也避免普通 combined 镜像纳入根目录未跟踪的个人 `files/`。详见 [native systemd 纯路由方案](systemd-router-decoupling-plan.md) 与 [纯路由与解耦验证记录](systemd-router-decoupling-validation.md)。
 
 x86/64 正式目标自动启用 glibc、APK 和 systemd。原生 failsafe 使用
 `failsafe=true`，整机安装使用安装介质或离线写盘。详见 [systemd 单 init](systemd-only-plan.md)。

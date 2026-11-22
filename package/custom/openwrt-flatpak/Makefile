@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openwrt-flatpak
 PKG_VERSION:=1
-PKG_RELEASE:=10
+PKG_RELEASE:=11
 PKG_LICENSE:=MIT
 
 include $(INCLUDE_DIR)/package.mk
@@ -11,7 +11,7 @@ define Package/openwrt-flatpak
   SECTION:=utils
   CATEGORY:=Utilities
   TITLE:=Ordinary-user Flatpak integration for GNOME
-  DEPENDS:=@TARGET_x86_64 @USE_GLIBC @OPENWRT_SYSTEMD +flatpak +xdg-desktop-portal-gtk +xdg-desktop-portal-gnome +openwrt-desktop
+  DEPENDS:=@TARGET_x86_64 @USE_GLIBC @OPENWRT_SYSTEMD +flatpak +xdg-desktop-portal-gtk +xdg-desktop-portal-gnome +openwrt-desktop-core
 endef
 
 define Build/Compile

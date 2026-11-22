@@ -1,0 +1,23 @@
+--- a/modules/ECMPoQmTools.cmake
++++ b/modules/ECMPoQmTools.cmake
+@@ -151,6 +151,20 @@
+     # Find lrelease and lconvert
+     if (QT_MAJOR_VERSION EQUAL "5")
+         find_package(Qt5LinguistTools CONFIG REQUIRED)
++    elseif (QT_HOST_PATH AND EXISTS "${QT_HOST_PATH}/bin/qt6/lrelease")
++        # Cross builds use the host Qt Linguist tools.  The target Qt
++        # installation does not carry Qt6LinguistTools, but QT_HOST_PATH
++        # points at the host Qt that built lrelease/lconvert.
++        if (NOT TARGET Qt6::lrelease)
++            add_executable(Qt6::lrelease IMPORTED)
++            set_target_properties(Qt6::lrelease PROPERTIES
++                IMPORTED_LOCATION "${QT_HOST_PATH}/bin/qt6/lrelease")
++        endif()
++        if (NOT TARGET Qt6::lconvert)
++            add_executable(Qt6::lconvert IMPORTED)
++            set_target_properties(Qt6::lconvert PROPERTIES
++                IMPORTED_LOCATION "${QT_HOST_PATH}/bin/qt6/lconvert")
++        endif()
+     else()
+         find_package(Qt6 COMPONENTS LinguistTools CONFIG REQUIRED)
+     endif()

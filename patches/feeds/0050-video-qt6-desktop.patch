@@ -1,0 +1,763 @@
+diff --git a/frameworks/qt6/common.mk b/frameworks/qt6/common.mk
+index 12ce3f0..dba59f5 100644
+--- a/frameworks/qt6/common.mk
++++ b/frameworks/qt6/common.mk
+@@ -217,22 +217,21 @@ define Build/Install/Plugins
+ 	fi
+ endef
+ 
+-# Installs the qmldir, the type information and the plugin of the QML module
+-# in $(2). If the qmldir has a "prefer" line, the QML engine loads the .qml
+-# and .js files of the module from the resources compiled into its binaries,
+-# so they are not installed; otherwise it loads them from the module's
+-# directory, so they are installed as well. The module's directory has to
+-# exist and contain at least one of the files to install.
++# Installs the qmldir, the type information, the plugin and the .qml/.js
++# sources of the QML module in $(2). The sources are installed even when the
++# qmldir has a "prefer" line: the QML engine can load the compiled resources,
++# but qmlcachegen and the on-device tooling need the source files as well.
++# The module's directory has to exist and contain at least one of the files
++# to install.
+ define Build/Install/QMLplugin
+ 	$(INSTALL_DIR) \
+ 		$(1)/$(QT_INSTALL_QML)/$(2)
+ 
+ 	dir=$(PKG_INSTALL_DIR)/$(QT_INSTALL_QML)/$(2) && \
+-	if grep -q '^prefer ' "$$$$dir/qmldir" 2>/dev/null; then sources=; else sources=1; fi && \
+ 	files="$$$$($(FIND) "$$$$dir" \
+ 	  -mindepth 1 -maxdepth 1 \
+ 	  \( -name plugins.qmltypes -o -name qmldir -o -name '$(3).so' \
+-	  $$$${sources:+-o -name '$(3).qml' -o -name '$(3).js'} \))" && \
++	  -o -name '*.qml' -o -name '*.js' \))" && \
+ 	[ -n "$$$$files" ] && \
+ 	$(CP) \
+ 	  $$$$files \
+diff --git a/frameworks/qt6/qt6base/Config_qt6base-core.in b/frameworks/qt6/qt6base/Config_qt6base-core.in
+index 3b811bd..5fa9f4e 100644
+--- a/frameworks/qt6/qt6base/Config_qt6base-core.in
++++ b/frameworks/qt6/qt6base/Config_qt6base-core.in
+@@ -10,3 +10,11 @@ config BUILD_qt6base-core_ICU
+     bool "Compile with ICU internationalization support"
+     depends on PACKAGE_qt6base-core
+     default y
++
++config BUILD_qt6base_SQL
++    bool "Build the SQL module with the SQLite driver"
++    default n
++    help
++        Builds QtSql and its SQLite driver plugin. The
++        qt6base-sql and qt6base-plugin-sqldrivers-sqlite packages install
++        the library and driver.
+diff --git a/frameworks/qt6/qt6base/Config_qt6base-gui.in b/frameworks/qt6/qt6base/Config_qt6base-gui.in
+index 37707f4..0d93a01 100644
+--- a/frameworks/qt6/qt6base/Config_qt6base-gui.in
++++ b/frameworks/qt6/qt6base/Config_qt6base-gui.in
+@@ -35,6 +35,7 @@ endchoice
+ 
+ choice
+     prompt "Default platform plugin"
++    default BUILD_qt6base-gui_QPA_DEFAULT_XCB if PACKAGE_qt6base-plugin-platforms-xcb
+     default BUILD_qt6base-gui_QPA_DEFAULT_EGLFS if PACKAGE_qt6base-plugin-platforms-eglfs
+     default BUILD_qt6base-gui_QPA_DEFAULT_LINUXFB if PACKAGE_qt6base-plugin-platforms-linuxfb
+     default BUILD_qt6base-gui_QPA_DEFAULT_VNC if PACKAGE_qt6base-plugin-platforms-vnc
+@@ -44,6 +45,10 @@ choice
+         Platform plugin compiled into Qt6Gui as the default, used when
+         neither QT_QPA_PLATFORM nor -platform select one at runtime.
+ 
++config BUILD_qt6base-gui_QPA_DEFAULT_XCB
++    bool "xcb"
++    depends on PACKAGE_qt6base-plugin-platforms-xcb
++
+ config BUILD_qt6base-gui_QPA_DEFAULT_EGLFS
+     bool "eglfs"
+     depends on PACKAGE_qt6base-plugin-platforms-eglfs
+diff --git a/frameworks/qt6/qt6base/Makefile b/frameworks/qt6/qt6base/Makefile
+index 64968e0..6938d0b 100644
+--- a/frameworks/qt6/qt6base/Makefile
++++ b/frameworks/qt6/qt6base/Makefile
+@@ -13,7 +13,7 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=qt6base
+-PKG_RELEASE:=1
++PKG_RELEASE:=6
+ PKG_HASH:=c5a1a2f660356ec081febfa782998ae5ddbc5925117e64f50e4be9cd45b8dc6e
+ 
+ PKG_MAINTAINER:=Mirko Vogt <mirko-openwrt@nanl.de>
+@@ -51,9 +51,11 @@ include ../cmake.mk
+ PKG_CONFIG_DEPENDS:= \
+   CONFIG_BUILD_qt6base-core_ICU \
+   CONFIG_BUILD_qt6base-core_INOTIFY \
++  CONFIG_BUILD_qt6base_SQL \
+   CONFIG_BUILD_qt6base-gui_DRM \
+   CONFIG_BUILD_qt6base-gui_OPENGL_NONE \
+   CONFIG_BUILD_qt6base-gui_OPENGL_OPENGLES2 \
++  CONFIG_BUILD_qt6base-gui_QPA_DEFAULT_XCB \
+   CONFIG_BUILD_qt6base-gui_QPA_DEFAULT_EGLFS \
+   CONFIG_BUILD_qt6base-gui_QPA_DEFAULT_LINUXFB \
+   CONFIG_BUILD_qt6base-gui_QPA_DEFAULT_VNC \
+@@ -63,6 +65,10 @@ PKG_CONFIG_DEPENDS:= \
+   CONFIG_BUILD_qt6base-network_SSL \
+   CONFIG_PACKAGE_qt6base-gui \
+   CONFIG_PACKAGE_qt6base-widgets \
++  CONFIG_PACKAGE_qt6base-dbus \
++  CONFIG_PACKAGE_qt6base-printsupport \
++  CONFIG_PACKAGE_qt6base-plugin-platforms-xcb \
++  CONFIG_PACKAGE_qt6waylandclient \
+   CONFIG_PACKAGE_qt6base-plugin-platforms-linuxfb \
+   CONFIG_PACKAGE_qt6base-plugin-platforms-vnc \
+   CONFIG_PACKAGE_qt6base-plugin-imageformats-gif
+@@ -72,12 +78,33 @@ HOST_BUILD_DEPENDS:=pcre2/host libdouble-conversion/host
+ # FEATURE_libudev is forced on whenever UDEV is enabled, FEATURE_kms whenever
+ # DRM is enabled. Neither is guaranteed through the DEPENDS of the selected
+ # subpackages.
+-PKG_BUILD_DEPENDS:=qt6base/host BUILD_qt6base-gui_UDEV:libudev-zero BUILD_qt6base-gui_DRM:libdrm
++PKG_BUILD_DEPENDS:=qt6base/host BUILD_qt6base-gui_UDEV:$(if $(CONFIG_PACKAGE_libudev-systemd),libudev-systemd,libudev-zero) BUILD_qt6base-gui_DRM:libdrm \
++	BUILD_qt6base-gui_OPENGL_OPENGLES2:mesa \
++	PACKAGE_qt6base-plugin-platforms-xcb:fontconfig \
++	PACKAGE_qt6base-plugin-platforms-xcb:harfbuzz \
++	PACKAGE_qt6base-plugin-platforms-xcb:libX11 \
++	PACKAGE_qt6base-plugin-platforms-xcb:libxcb \
++	PACKAGE_qt6base-plugin-platforms-xcb:libxcb-util \
++	PACKAGE_qt6base-plugin-platforms-xcb:libxcb-image \
++	PACKAGE_qt6base-plugin-platforms-xcb:libxcb-keysyms \
++	PACKAGE_qt6base-plugin-platforms-xcb:libxcb-render-util \
++	PACKAGE_qt6base-plugin-platforms-xcb:libxcb-wm \
++	PACKAGE_qt6base-plugin-platforms-xcb:libxcb-cursor \
++	PACKAGE_qt6base-plugin-platforms-xcb:libxkbcommon \
++	PACKAGE_qt6waylandclient:wayland \
++	PACKAGE_qt6waylandclient:libxkbcommon
+ 
+ # KMS-based EGLFS integrations require both OpenGL ES and DRM
+ QT6BASE_EGLFS_KMS:=$(and $(CONFIG_BUILD_qt6base-gui_OPENGL_OPENGLES2),$(CONFIG_BUILD_qt6base-gui_DRM))
+ 
++# The xcb platform plugin is the desktop entry point used by KF6 applications.
++# It requires fontconfig/harfbuzz for text and the xcb-util libraries Qt's
++# plugin links against.
++QT6BASE_XCB:=$(CONFIG_PACKAGE_qt6base-plugin-platforms-xcb)
++QT6BASE_XKBCOMMON:=$(or $(QT6BASE_XCB),$(CONFIG_PACKAGE_qt6waylandclient))
++
+ QT6BASE_QPA_DEFAULT_PLATFORM:=$(strip \
++  $(if $(CONFIG_BUILD_qt6base-gui_QPA_DEFAULT_XCB),xcb) \
+   $(if $(CONFIG_BUILD_qt6base-gui_QPA_DEFAULT_EGLFS),eglfs) \
+   $(if $(CONFIG_BUILD_qt6base-gui_QPA_DEFAULT_LINUXFB),linuxfb) \
+   $(if $(CONFIG_BUILD_qt6base-gui_QPA_DEFAULT_VNC),vnc) \
+@@ -113,7 +140,11 @@ endef
+ define Package/qt6base-gui
+   $(call Package/qt6base/Default)
+   TITLE+=gui
+-  DEPENDS+=+qt6base-core +libpng +libfreetype +BUILD_qt6base-gui_OPENGL_OPENGLES2:libmesa
++  DEPENDS+=+qt6base-core +libpng +libfreetype \
++	$(if $(CONFIG_PACKAGE_qt6base-plugin-platforms-xcb),+fontconfig +harfbuzz +qt6base-dbus) \
++	$(if $(QT6BASE_XKBCOMMON),+libxkbcommon) \
++	$(if $(CONFIG_PACKAGE_qt6waylandclient),+libwayland) \
++	+BUILD_qt6base-gui_OPENGL_OPENGLES2:libmesa
+ 
+ endef
+ 
+@@ -143,6 +174,18 @@ define Package/qt6base-widgets
+   DEPENDS+=+qt6base-gui
+ endef
+ 
++define Package/qt6base-dbus
++  $(call Package/qt6base/Default)
++  TITLE+=dbus
++  DEPENDS+=+qt6base-core +libdbus
++endef
++
++define Package/qt6base-printsupport
++  $(call Package/qt6base/Default)
++  TITLE+=printsupport
++  DEPENDS+=+qt6base-core +qt6base-gui +qt6base-widgets
++endef
++
+ define Package/qt6base-openglwidgets
+   $(call Package/qt6base/Default)
+   TITLE+=opengl widgets
+@@ -161,8 +204,28 @@ define Package/qt6base-opengl
+   DEPENDS+=+qt6base-gui +libmesa @BUILD_qt6base-gui_OPENGL_OPENGLES2
+ endef
+ 
++define Package/qt6base-sql
++  $(call Package/qt6base/Default)
++  TITLE+=sql
++  DEPENDS+=+qt6base-core @BUILD_qt6base_SQL
++endef
++
++define Package/qt6base-plugin-sqldrivers-sqlite
++  $(call Package/qt6base/Default)
++  TITLE+=SQLite SQL driver
++  DEPENDS+=+qt6base-sql @BUILD_qt6base_SQL
++endef
++
+ #### plugins
+ 
++####### input methods
++
++define Package/qt6base-plugin-inputcontexts-ibus
++  $(call Package/qt6base/Default)
++  TITLE+=IBus input context (plugin)
++  DEPENDS+=+qt6base-core +qt6base-gui +qt6base-dbus
++endef
++
+ ####### generic / input
+ 
+ define Package/qt6base-plugin-input-evdevkeyboard
+@@ -217,6 +280,14 @@ define Package/qt6base-plugin-platforms-offscreen
+   DEPENDS+=+qt6base-gui
+ endef
+ 
++define Package/qt6base-plugin-platforms-xcb
++  $(call Package/qt6base/Default)
++  TITLE+=platform xcb (plugin)
++  DEPENDS+=+qt6base-gui +fontconfig +harfbuzz +libX11 +libxcb +libxcb-util \
++	+libxcb-image +libxcb-keysyms +libxcb-render-util +libxcb-wm \
++	+libxcb-cursor +libxkbcommon +libxkbcommon-x11
++endef
++
+ define Package/qt6base-plugin-platforms-linuxfb
+   $(call Package/qt6base/Default)
+   TITLE+=platform linuxfb (plugin)
+@@ -297,8 +368,9 @@ CMAKE_OPTIONS += \
+ 	-DFEATURE_pkg_config=ON \
+ 	-DFEATURE_gui=$(if $(CONFIG_PACKAGE_qt6base-gui),ON,OFF) \
+ 	-DFEATURE_widgets=$(if $(CONFIG_PACKAGE_qt6base-widgets),ON,OFF) \
+-	-DFEATURE_printsupport=OFF \
+-	-DFEATURE_dbus=OFF \
++	-DFEATURE_printsupport=$(if $(CONFIG_PACKAGE_qt6base-printsupport),ON,OFF) \
++	-DFEATURE_dbus=$(if $(CONFIG_PACKAGE_qt6base-dbus),ON,OFF) \
++	-DINPUT_dbus=$(if $(CONFIG_PACKAGE_qt6base-dbus),runtime,no) \
+ 	-DFEATURE_accessibility=ON \
+ 	-DFEATURE_accessibility_atspi_bridge=OFF \
+ 	-DINPUT_doubleconversion=system \
+@@ -323,10 +395,10 @@ CMAKE_OPTIONS += \
+ 	-DFEATURE_system_proxies=ON \
+ 	-DFEATURE_cups=OFF \
+ 	-DFEATURE_emojisegmenter=OFF \
+-	-DFEATURE_fontconfig=OFF \
++	-DFEATURE_fontconfig=$(if $(QT6BASE_XCB),ON,OFF) \
+ 	-DINPUT_freetype=system \
+-	-DFEATURE_harfbuzz=OFF \
+-	-DFEATURE_system_harfbuzz=OFF \
++	-DFEATURE_harfbuzz=$(if $(QT6BASE_XCB),ON,OFF) \
++	-DFEATURE_system_harfbuzz=$(if $(QT6BASE_XCB),ON,OFF) \
+ 	-DFEATURE_system_textmarkdownreader=OFF \
+ 	-DFEATURE_gtk3=OFF \
+ 	-DINPUT_opengl=$(if $(CONFIG_BUILD_qt6base-gui_OPENGL_OPENGLES2),es2,no) \
+@@ -345,24 +417,25 @@ CMAKE_OPTIONS += \
+ 	-DFEATURE_drm_atomic=$(if $(CONFIG_BUILD_qt6base-gui_DRM),ON,OFF) \
+ 	-DFEATURE_linuxfb=$(if $(CONFIG_PACKAGE_qt6base-plugin-platforms-linuxfb),ON,OFF) \
+ 	-DFEATURE_vnc=$(if $(CONFIG_PACKAGE_qt6base-plugin-platforms-vnc),ON,OFF) \
+-	-DFEATURE_wayland=OFF \
+-	-DFEATURE_xcb=OFF \
++	-DFEATURE_wayland=$(if $(CONFIG_PACKAGE_qt6waylandclient),ON,OFF) \
++	-DFEATURE_xcb=$(if $(QT6BASE_XCB),ON,OFF) \
++	-DFEATURE_xkbcommon=$(if $(QT6BASE_XKBCOMMON),ON,OFF) \
++	-DFEATURE_xkbcommon_x11=$(if $(QT6BASE_XCB),ON,OFF) \
++	-DFEATURE_xlib=$(if $(QT6BASE_XCB),ON,OFF) \
++	-DFEATURE_xcb_xlib=$(if $(QT6BASE_XCB),ON,OFF) \
+ 	-DFEATURE_libudev=$(if $(CONFIG_BUILD_qt6base-gui_UDEV),ON,OFF) \
+ 	-DFEATURE_evdev=ON \
+ 	-DFEATURE_tuiotouch=OFF \
+ 	-DFEATURE_libinput=OFF \
+ 	-DFEATURE_mtdev=OFF \
+ 	-DFEATURE_tslib=OFF \
+-	-DFEATURE_xkbcommon=OFF \
+-	-DFEATURE_xkbcommon_x11=OFF \
+-	-DFEATURE_xlib=OFF \
+-	-DFEATURE_xcb_xlib=OFF \
+ 	-DFEATURE_gif=$(if $(CONFIG_PACKAGE_qt6base-plugin-imageformats-gif),ON,OFF) \
+ 	-DFEATURE_ico=OFF \
+ 	-DINPUT_libpng=system \
+ 	-DINPUT_libjpeg=system \
+-	-DFEATURE_sql=OFF \
+-	-DFEATURE_sqlmodel=OFF
++	-DFEATURE_sql=$(if $(CONFIG_BUILD_qt6base_SQL),ON,OFF) \
++	-DFEATURE_sqlmodel=$(if $(CONFIG_BUILD_qt6base_SQL),ON,OFF) \
++	-DFEATURE_sql_sqlite=$(if $(CONFIG_BUILD_qt6base_SQL),ON,OFF)
+ 
+ 
+ # BUILD_SHARED_LIBS=ON (set in ../cmake.mk) is needed for the host build:
+@@ -414,9 +487,10 @@ CMAKE_HOST_OPTIONS += \
+ 	-DINPUT_linker=bfd \
+ 	-DFEATURE_pkg_config=ON \
+ 	-DFEATURE_gui=ON \
+-	-DFEATURE_widgets=OFF \
++	-DFEATURE_widgets=ON \
+ 	-DFEATURE_printsupport=OFF \
+-	-DFEATURE_dbus=OFF \
++	-DFEATURE_dbus=ON \
++	-DINPUT_dbus=runtime \
+ 	-DFEATURE_accessibility=OFF \
+ 	-DFEATURE_accessibility_atspi_bridge=OFF \
+ 	-DINPUT_doubleconversion=system \
+@@ -544,6 +618,14 @@ define Package/qt6base-widgets/install
+ 	$(call Build/Install/Libs,$(1),libQt6Widgets)
+ endef
+ 
++define Package/qt6base-dbus/install
++	$(call Build/Install/Libs,$(1),libQt6DBus)
++endef
++
++define Package/qt6base-printsupport/install
++	$(call Build/Install/Libs,$(1),libQt6PrintSupport)
++endef
++
+ define Package/qt6base-openglwidgets/install
+ 	$(call Build/Install/Libs,$(1),libQt6OpenGLWidgets)
+ endef
+@@ -556,6 +638,14 @@ define Package/qt6base-opengl/install
+ 	$(call Build/Install/Libs,$(1),libQt6OpenGL)
+ endef
+ 
++define Package/qt6base-sql/install
++	$(call Build/Install/Libs,$(1),libQt6Sql)
++endef
++
++define Package/qt6base-plugin-sqldrivers-sqlite/install
++	$(call Build/Install/Plugins,$(1),sqldrivers,libqsqlite)
++endef
++
+ define Package/qt6base-plugin-platforms-eglfs/install
+ 	$(call Build/Install/Libs,$(1),libQt6EglFSDeviceIntegration)
+ 	$(call Build/Install/Plugins,$(1),platforms,libqeglfs)
+@@ -565,6 +655,10 @@ define Package/qt6base-plugin-platforms-eglfs/install
+ 	$(if $(QT6BASE_EGLFS_KMS),$(call Build/Install/Plugins,$(1),egldeviceintegrations,libqeglfs-kms-integration))
+ endef
+ 
++define Package/qt6base-plugin-inputcontexts-ibus/install
++	$(call Build/Install/Plugins,$(1),platforminputcontexts,libibusplatforminputcontextplugin)
++endef
++
+ define Package/qt6base-plugin-input-evdevkeyboard/install
+ 	$(call Build/Install/Plugins,$(1),generic,libqevdevkeyboardplugin)
+ endef
+@@ -601,20 +695,92 @@ define Package/qt6base-plugin-platforms-offscreen/install
+ 	$(call Build/Install/Plugins,$(1),platforms,libqoffscreen)
+ endef
+ 
++define Package/qt6base-plugin-platforms-xcb/install
++	$(call Build/Install/Libs,$(1),libQt6XcbQpa)
++	$(call Build/Install/Plugins,$(1),platforms,libqxcb)
++endef
++
+ define Package/qt6base-plugin-platforms-vnc/install
+ 	$(call Build/Install/Plugins,$(1),platforms,libqvnc)
+ endef
+ 
++
++define Package/qt6base-dev
++  $(call Package/qt6base/Default)
++  SECTION:=devel
++  CATEGORY:=Development
++  SUBMENU:=Libraries
++  TITLE+=development files
++  DEPENDS:=+qt6base-core +qt6base-gui +qt6base-widgets +qt6base-network \
++	+qt6base-dbus +qt6base-xml +qt6base-printsupport \
++	+qt6base-plugin-platforms-xcb +native-libs-dev +gcc +cmake-bin \
++	+BUILD_qt6base_SQL:qt6base-sql \
++	+BUILD_qt6base_SQL:qt6base-plugin-sqldrivers-sqlite \
++	+BUILD_qt6base-gui_OPENGL_OPENGLES2:qt6base-opengl \
++	+BUILD_qt6base-gui_OPENGL_OPENGLES2:qt6base-openglwidgets
++endef
++
++define Package/qt6base-dev/install
++	$(INSTALL_DIR) $(1)/usr/include/qt6 $(1)/usr/lib/cmake $(1)/usr/lib/pkgconfig \
++		$(1)/usr/lib/qt6/mkspecs $(1)/usr/lib/qt6/libexec \
++		$(1)/usr/lib/qt6/metatypes $(1)/usr/bin/qt6
++	$(CP) $(PKG_INSTALL_DIR)/usr/include/qt6/. $(1)/usr/include/qt6/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/cmake/. $(1)/usr/lib/cmake/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/Qt6*.pc $(1)/usr/lib/pkgconfig/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/qt6/mkspecs/. $(1)/usr/lib/qt6/mkspecs/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/qt6/metatypes/. $(1)/usr/lib/qt6/metatypes/
++	$(CP) $(STAGING_DIR_HOSTPKG)/lib/qt6/mkspecs/linux-openwrt-host-g++ \
++		$(1)/usr/lib/qt6/mkspecs/
++	# Host-built command line tools run against the target Qt libraries.
++	for tool in moc uic rcc syncqt tracepointgen tracegen cmake_automoc_parser \
++		qlalr qvkgen; do \
++		[ ! -f $(STAGING_DIR_HOSTPKG)/lib/qt6/libexec/$$$$tool ] || \
++			$(INSTALL_BIN) $(STAGING_DIR_HOSTPKG)/lib/qt6/libexec/$$$$tool \
++				$(1)/usr/lib/qt6/libexec/; \
++	done
++	for tool in qmake6 qtpaths6 qdbuscpp2xml qdbusxml2cpp; do \
++		[ ! -f $(STAGING_DIR_HOSTPKG)/bin/qt6/$$$$tool ] || \
++			$(INSTALL_BIN) $(STAGING_DIR_HOSTPKG)/bin/qt6/$$$$tool $(1)/usr/bin/qt6/; \
++	done
++	$(LN) qmake6 $(1)/usr/bin/qt6/qmake
++	$(LN) qtpaths6 $(1)/usr/bin/qt6/qtpaths
++	$(INSTALL_DATA) ./files/qt.conf $(1)/usr/bin/qt6/qt.conf
++	$(INSTALL_BIN) ./files/qt-cmake $(1)/usr/bin/qt-cmake
++	$(LN) qt6/qmake6 $(1)/usr/bin/qmake6
++	$(LN) qt6/qmake6 $(1)/usr/bin/qmake
++	$(LN) qt6/qtpaths6 $(1)/usr/bin/qtpaths6
++	for tool in moc uic rcc; do $(LN) ../lib/qt6/libexec/$$$$tool $(1)/usr/bin/$$$$tool; done
++	# Plugin CMake targets describe every plugin built for the target. The
++	# runtime packages install only a subset, so keep their CMake packages out
++	# of the on-device tree; Qt loads plugins by path at runtime.
++	rm -rf $(1)/usr/lib/cmake/Qt6*/Qt6Q*Plugin*
++	rm -f $(1)/usr/lib/cmake/Qt6Gui/Qt6GuiPlugins.cmake
++	# The target CMake files embed the cross-build host prefix. On the device
++	# the host tools live under the same /usr prefix.
++	for m in Tools CoreTools GuiTools WidgetsTools DBusTools; do \
++		[ ! -d $(STAGING_DIR_HOSTPKG)/lib/cmake/Qt6$$$$m ] || \
++			$(CP) $(STAGING_DIR_HOSTPKG)/lib/cmake/Qt6$$$$m $(1)/usr/lib/cmake/; \
++	done
++	find $(1)/usr/lib/cmake -type f -name '*.cmake' -exec \
++		sed -i 's|$(STAGING_DIR_HOSTPKG)|/usr|g' {} +
++endef
++
+ # $(eval $(call BuildPackage,qt6base))
+ $(eval $(call BuildPackage,qt6base-concurrent))
+ $(eval $(call BuildPackage,qt6base-core))
+ $(eval $(call BuildPackage,qt6base-gui))
+ $(eval $(call BuildPackage,qt6base-opengl))
++$(eval $(call BuildPackage,qt6base-sql))
++$(eval $(call BuildPackage,qt6base-plugin-sqldrivers-sqlite))
+ $(eval $(call BuildPackage,qt6base-network))
+ $(eval $(call BuildPackage,qt6base-test))
+ $(eval $(call BuildPackage,qt6base-widgets))
++$(eval $(call BuildPackage,qt6base-dbus))
++$(eval $(call BuildPackage,qt6base-printsupport))
+ $(eval $(call BuildPackage,qt6base-openglwidgets))
+ $(eval $(call BuildPackage,qt6base-xml))
++$(eval $(call BuildPackage,qt6base-dev))
++$(eval $(call BuildPackage,qt6base-plugin-inputcontexts-ibus))
+ $(eval $(call BuildPackage,qt6base-plugin-input-evdevkeyboard))
+ $(eval $(call BuildPackage,qt6base-plugin-input-evdevmouse))
+ $(eval $(call BuildPackage,qt6base-plugin-input-evdevtablet))
+@@ -624,6 +790,7 @@ $(eval $(call BuildPackage,qt6base-plugin-imageformats-jpeg))
+ $(eval $(call BuildPackage,qt6base-plugin-platforms-minimal))
+ $(eval $(call BuildPackage,qt6base-plugin-platforms-linuxfb))
+ $(eval $(call BuildPackage,qt6base-plugin-platforms-offscreen))
++$(eval $(call BuildPackage,qt6base-plugin-platforms-xcb))
+ $(eval $(call BuildPackage,qt6base-plugin-platforms-vnc))
+ $(eval $(call BuildPackage,qt6base-plugin-platforms-eglfs))
+ $(eval $(call HostBuild))
+diff --git a/frameworks/qt6/qt6base/files/qt-cmake b/frameworks/qt6/qt6base/files/qt-cmake
+new file mode 100755
+index 0000000..5b8f826
+--- /dev/null
++++ b/frameworks/qt6/qt6base/files/qt-cmake
+@@ -0,0 +1,2 @@
++#!/bin/sh
++exec cmake "$@"
+diff --git a/frameworks/qt6/qt6base/files/qt.conf b/frameworks/qt6/qt6base/files/qt.conf
+new file mode 100644
+index 0000000..ec39a39
+--- /dev/null
++++ b/frameworks/qt6/qt6base/files/qt.conf
+@@ -0,0 +1,21 @@
++[Paths]
++Prefix=../../
++Headers=include/qt6
++Libraries=lib
++LibraryExecutables=lib/qt6/libexec
++Binaries=bin/qt6
++Plugins=lib/qt6/plugins
++QmlImports=lib/qt6/qml
++ArchData=lib/qt6
++Data=share/qt6
++Translations=share/qt6/translations
++Settings=/etc/qt6
++HostPrefix=../../
++HostBinaries=bin/qt6
++HostLibraries=lib
++HostLibraryExecutables=lib/qt6/libexec
++HostData=lib/qt6
++TargetSpec=linux-openwrt-g++
++HostSpec=
++Sysroot=
++SysrootifyPrefix=false
+diff --git a/frameworks/qt6/qt6quick/Makefile b/frameworks/qt6/qt6quick/Makefile
+index 107674f..3013c2e 100644
+--- a/frameworks/qt6/qt6quick/Makefile
++++ b/frameworks/qt6/qt6quick/Makefile
+@@ -8,7 +8,7 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=qt6declarative
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ PKG_HASH:=5a071b227229afbf5c976b7b59a0d850818d06ae861fcdf6d690351ca3f8a260
+ 
+ PKG_MAINTAINER:=Mirko Vogt <mirko-openwrt@nanl.de>
+@@ -278,6 +278,28 @@ define Package/qt6quick-widgets
+   DEPENDS+=+qt6quick +qt6base-widgets
+ endef
+ 
++define Package/qt6quick-tools
++  $(call Package/qt6quick/Default)
++  TITLE+=QML runtime and development tools
++  DEPENDS+=+qt6quick +qt6quick-qml +qt6quick-qml-meta +qt6quick-qml-models \
++	+qt6quick-qml-workerscript +qt6quick-test +qt6quick-effects \
++	+qt6quick-qml-mod-qtqml +qt6quick-qml-mod-qtquick \
++	+qt6quick-qml-mod-qttest +qt6base-gui +qt6base-network \
++	+qt6base-widgets +qt6base-test \
++	+PACKAGE_qt6base-plugin-platforms-xcb:qt6base-plugin-platforms-xcb \
++	+PACKAGE_qt6base-plugin-platforms-offscreen:qt6base-plugin-platforms-offscreen \
++	+PACKAGE_qt6base-plugin-platforms-minimal:qt6base-plugin-platforms-minimal
++endef
++
++define Package/qt6quick-dev
++  $(call Package/qt6quick/Default)
++  TITLE+=development files
++  DEPENDS:=+qt6base-dev +qt6quick-tools +qt6quick +qt6quick-qml \
++	+qt6quick-qml-meta +qt6quick-controls2 +qt6quick-templates2 \
++	+qt6quick-layouts +qt6quick-shapes +qt6quick-effects \
++	+qt6quick-widgets +qt6quick-test
++endef
++
+ ###
+ 
+ define Package/qt6quick-qml
+@@ -571,6 +593,63 @@ define Package/qt6quick-widgets/install
+ 	$(call Build/Install/Libs,$(1),libQt6QuickWidgets)
+ endef
+ 
++define Package/qt6quick-tools/install
++	$(INSTALL_DIR) $(1)/usr/bin/qt6 $(1)/usr/lib \
++		$(1)/usr/lib/qt6/libexec
++	# qml, qmlscene and qmltestrunner are target binaries built with the
++	# module. qmllint and the other tooling binaries are host builds, like
++	# moc and uic in qt6base-dev; x86_64 host and target share the ABI, and
++	# the tools resolve the target Qt libraries through their RUNPATH.
++	for tool in qml qmlscene qmltestrunner qmleasing; do \
++		[ ! -x $(PKG_INSTALL_DIR)/$(QT_INSTALL_BINS)/$$$$tool ] || { \
++			$(INSTALL_BIN) $(PKG_INSTALL_DIR)/$(QT_INSTALL_BINS)/$$$$tool \
++				$(1)/usr/bin/qt6/; \
++			$(LN) qt6/$$$$tool $(1)/usr/bin/$$$$tool; \
++		}; \
++	done
++	for tool in qmllint qmlformat qmldom qmltc qmlplugindump \
++		qmlprofiler qmltime; do \
++		[ ! -x $(STAGING_DIR_HOSTPKG)/bin/qt6/$$$$tool ] || { \
++			$(INSTALL_BIN) $(STAGING_DIR_HOSTPKG)/bin/qt6/$$$$tool \
++				$(1)/usr/bin/qt6/; \
++			$(LN) qt6/$$$$tool $(1)/usr/bin/$$$$tool; \
++		}; \
++	done
++	# Build-time helpers referenced by Qt6QmlTools; CMake calls them by path.
++	for tool in qmlaotstats qmlcachegen qmlimportscanner qmljsrootgen \
++		qmltyperegistrar; do \
++		[ ! -x $(STAGING_DIR_HOSTPKG)/lib/qt6/libexec/$$$$tool ] || \
++			$(INSTALL_BIN) $(STAGING_DIR_HOSTPKG)/lib/qt6/libexec/$$$$tool \
++				$(1)/usr/lib/qt6/libexec/; \
++	done
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libQt6QmlCompiler.so.* $(1)/usr/lib/
++endef
++
++define Package/qt6quick-dev/install
++	$(INSTALL_DIR) $(1)/usr/include/qt6 $(1)/usr/lib/cmake \
++		$(1)/usr/lib/pkgconfig $(1)/usr/lib/qt6/metatypes
++	$(CP) $(PKG_INSTALL_DIR)/usr/include/qt6/. $(1)/usr/include/qt6/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/cmake/Qt6Qml* \
++		$(PKG_INSTALL_DIR)/usr/lib/cmake/Qt6Quick* \
++		$(PKG_INSTALL_DIR)/usr/lib/cmake/Qt6Labs* $(1)/usr/lib/cmake/
++	# Qt6QmlConfig requires the host tools package; its imported paths are
++	# relative to the /usr prefix, so it can be copied unchanged.
++	$(CP) $(STAGING_DIR_HOSTPKG)/lib/cmake/Qt6QmlTools $(1)/usr/lib/cmake/
++	[ ! -d $(PKG_INSTALL_DIR)/usr/lib/qt6/metatypes ] || \
++		$(CP) $(PKG_INSTALL_DIR)/usr/lib/qt6/metatypes/. \
++			$(1)/usr/lib/qt6/metatypes/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/Qt6Qml*.pc \
++		$(PKG_INSTALL_DIR)/usr/lib/pkgconfig/Qt6Quick*.pc \
++		$(PKG_INSTALL_DIR)/usr/lib/pkgconfig/Qt6Labs*.pc \
++		$(1)/usr/lib/pkgconfig/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/*.a $(1)/usr/lib/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/*.prl $(1)/usr/lib/
++	# Plugin CMake targets describe every QML plugin built for the target.
++	# Runtime packages install only a subset, so keep them out of the
++	# on-device tree; Qt loads QML modules by path at runtime.
++	find $(1)/usr/lib/cmake -type d -name QmlPlugins -exec rm -rf {} +
++endef
++
+ ### libQt6Qml*.so*
+ 
+ define Package/qt6quick-qml/install
+@@ -760,6 +839,8 @@ $(eval $(call BuildPackage,qt6quick-shapes))
+ $(eval $(call BuildPackage,qt6quick-templates2))
+ $(eval $(call BuildPackage,qt6quick-test))
+ $(eval $(call BuildPackage,qt6quick-widgets))
++$(eval $(call BuildPackage,qt6quick-tools))
++$(eval $(call BuildPackage,qt6quick-dev))
+ 
+ $(eval $(call BuildPackage,qt6quick-qml))
+ $(eval $(call BuildPackage,qt6quick-qml-core))
+diff --git a/frameworks/qt6/qt6svg/Makefile b/frameworks/qt6/qt6svg/Makefile
+index d0a132c..92db411 100644
+--- a/frameworks/qt6/qt6svg/Makefile
++++ b/frameworks/qt6/qt6svg/Makefile
+@@ -8,7 +8,7 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=qt6svg
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ PKG_HASH:=db76aa3358cbbe6fce7da576ff4669cb9801920188c750d3b12783bbe97026e2
+ 
+ PKG_MAINTAINER:=Mirko Vogt <mirko-openwrt@nanl.de>
+@@ -60,6 +60,12 @@ define Package/qt6svg-widgets
+   DEPENDS+=+qt6svg +qt6base-widgets
+ endef
+ 
++define Package/qt6svg-dev
++  $(call Package/qt6svg/Default)
++  TITLE+=development files
++  DEPENDS:=+qt6base-dev +qt6svg +PACKAGE_qt6svg-widgets:qt6svg-widgets
++endef
++
+ Build/InstallDev = $(Build/InstallDev/Qt)
+ 
+ define Package/qt6svg/install
+@@ -72,6 +78,18 @@ define Package/qt6svg-widgets/install
+ 	$(call Build/Install/Libs,$(1),libQt6SvgWidgets)
+ endef
+ 
++define Package/qt6svg-dev/install
++	$(INSTALL_DIR) $(1)/usr/include/qt6 $(1)/usr/lib/cmake \
++		$(1)/usr/lib/pkgconfig $(1)/usr/lib/qt6/metatypes
++	$(CP) $(PKG_INSTALL_DIR)/usr/include/qt6/. $(1)/usr/include/qt6/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/cmake/Qt6Svg* $(1)/usr/lib/cmake/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/Qt6Svg*.pc \
++		$(1)/usr/lib/pkgconfig/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/qt6/metatypes/. \
++		$(1)/usr/lib/qt6/metatypes/
++endef
++
+ $(eval $(call BuildPackage,qt6svg))
+ $(eval $(call BuildPackage,qt6svg-widgets))
++$(eval $(call BuildPackage,qt6svg-dev))
+ $(eval $(call HostBuild))
+diff --git a/frameworks/qt6/qt6tools/Makefile b/frameworks/qt6/qt6tools/Makefile
+index 1e57c28..0caaed7 100644
+--- a/frameworks/qt6/qt6tools/Makefile
++++ b/frameworks/qt6/qt6tools/Makefile
+@@ -8,7 +8,7 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=qt6tools
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ PKG_HASH:=0cf7ab0e975fc57f5ce1375576a0a76e9ede25e6b01db3cf2339cd4d9750b4e9
+ 
+ PKG_MAINTAINER:=Mirko Vogt <mirko-openwrt@nanl.de>
+@@ -70,11 +70,12 @@ CMAKE_OPTIONS += \
+ 	-DCMAKE_DISABLE_FIND_PACKAGE_Qt6Qml=ON
+ 
+ # lupdate uses Qt QML to extract translatable strings from QML and JavaScript
+-# files. Qt Network is needed, as the host's Qt QML depends on it.
++# files. Qt Network is needed, as the host's Qt QML depends on it. kmap2qmap is
++# not built: it is the only tool that needs Qt's private input support, and KF6
++# only needs lrelease from this host build.
+ CMAKE_HOST_OPTIONS += \
+ 	$(QT6TOOLS_OPTIONS) \
+-	-DFEATURE_kmap2qmap=ON \
+-	-DCMAKE_REQUIRE_FIND_PACKAGE_Qt6InputSupportPrivate=ON \
++	-DFEATURE_kmap2qmap=OFF \
+ 	-DCMAKE_REQUIRE_FIND_PACKAGE_Qt6Network=ON \
+ 	-DCMAKE_REQUIRE_FIND_PACKAGE_Qt6Qml=ON
+ 
+@@ -82,9 +83,24 @@ define Package/qt6tools
+   SECTION:=video-frameworks
+   CATEGORY:=Video
+   SUBMENU:=Frameworks and Toolkits
+-  TITLE:=Qt6Tools
++  TITLE:=Qt6 Linguist tools
+   URL:=https://www.qt.io
+-  BUILDONLY:=1
++  DEPENDS:=+qt6base-core +qt6quick-qml +libstdcpp
++endef
++
++define Package/qt6tools/install
++	$(INSTALL_DIR) $(1)/usr/bin/qt6
++	# The Linguist tools are host builds, like moc and uic in qt6base-dev.
++	# x86_64 host and target share the ABI, and the binaries resolve the
++	# target Qt libraries through their RUNPATH. Designer and Linguist (the
++	# GUI applications) remain disabled in this build.
++	for tool in lupdate lrelease lconvert; do \
++		[ ! -x $(STAGING_DIR_HOSTPKG)/bin/qt6/$$$$tool ] || { \
++			$(INSTALL_BIN) $(STAGING_DIR_HOSTPKG)/bin/qt6/$$$$tool \
++				$(1)/usr/bin/qt6/; \
++			$(LN) qt6/$$$$tool $(1)/usr/bin/$$$$tool; \
++		}; \
++	done
+ endef
+ 
+ # The target build is still needed: it installs the CMake packages through
+diff --git a/frameworks/wayland/Makefile b/frameworks/wayland/Makefile
+index d927afa..105580d 100644
+--- a/frameworks/wayland/Makefile
++++ b/frameworks/wayland/Makefile
+@@ -68,6 +68,8 @@ define Build/InstallDev
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/lib*.so* $(1)/usr/lib/
+ 	$(INSTALL_DIR) $(1)/usr/lib/pkgconfig
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/*.pc $(1)/usr/lib/pkgconfig
++	$(INSTALL_DIR) $(1)/usr/share/wayland
++	$(CP) $(PKG_INSTALL_DIR)/usr/share/wayland/wayland.xml $(1)/usr/share/wayland/
+ 	$(SED) 's/^wayland_scanner=$$$${bindir}\/\(.*\)/wayland_scanner=$$$${prefix_hostpkg}\/bin\/\1/' $(1)/usr/lib/pkgconfig/wayland-scanner.pc
+ endef
+ 
+diff --git a/libs/libxkbcommon/Makefile b/libs/libxkbcommon/Makefile
+index e8c414d..38225bd 100644
+--- a/libs/libxkbcommon/Makefile
++++ b/libs/libxkbcommon/Makefile
+@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=libxkbcommon
+ PKG_VERSION:=1.13.2
+-PKG_RELEASE:=1
++PKG_RELEASE:=5
+ 
+ PKG_SOURCE_PROTO:=git
+ PKG_SOURCE_VERSION:=xkbcommon-$(PKG_VERSION)
+@@ -14,13 +14,13 @@ PKG_LICENSE:=BSD-3-Clause
+ 
+ PKG_INSTALL:=1
+ 
+-PKG_BUILD_DEPENDS:=wayland
++PKG_BUILD_DEPENDS:=wayland libxcb
+ 
+ include $(INCLUDE_DIR)/package.mk
+ include $(INCLUDE_DIR)/meson.mk
+ 
+ MESON_ARGS += \
+-	-Denable-x11=false \
++	-Denable-x11=true \
+ 	-Denable-docs=false \
+ 	-Denable-wayland=true \
+ 	-Dxkb-config-unversioned-extensions-path=/usr/share/xkeyboard-config.d \
+@@ -46,13 +46,33 @@ define Build/InstallDev
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/*.pc $(1)/usr/lib/pkgconfig/
+ endef
+ 
++define Package/libxkbcommon-x11
++  SECTION:=libs
++  CATEGORY:=Libraries
++  TITLE:=libxkbcommon X11 support
++  URL:=https://xkbcommon.org/
++  DEPENDS:=+libxkbcommon +libxcb
++endef
++
+ define Package/libxkbcommon/install
+ 	$(INSTALL_DIR) $(1)/usr/lib
+-	$(CP) $(PKG_INSTALL_DIR)/usr/lib/*.so* $(1)/usr/lib/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libxkbcommon.so.* $(1)/usr/lib/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libxkbregistry.so.* $(1)/usr/lib/
+ 	$(INSTALL_DIR) $(1)/usr/libexec/xkbcommon
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/libexec/xkbcommon/* $(1)/usr/libexec/xkbcommon/
++	rm -f $(1)/usr/libexec/xkbcommon/*-x11
+ 	$(INSTALL_DIR) $(1)/usr/bin
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/xkbcli $(1)/usr/bin/
+ endef
+ 
++define Package/libxkbcommon-x11/install
++	$(INSTALL_DIR) $(1)/usr/lib
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libxkbcommon-x11.so.* $(1)/usr/lib/
++	$(INSTALL_DIR) $(1)/usr/libexec/xkbcommon
++	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/libexec/xkbcommon/xkbcli-dump-keymap-x11 \
++		$(PKG_INSTALL_DIR)/usr/libexec/xkbcommon/xkbcli-interactive-x11 \
++		$(1)/usr/libexec/xkbcommon/
++endef
++
+ $(eval $(call BuildPackage,libxkbcommon))
++$(eval $(call BuildPackage,libxkbcommon-x11))

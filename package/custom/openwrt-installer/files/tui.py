@@ -143,12 +143,36 @@ def fs_choice(extra=False):
     return menu('Filesystem', [(x, x) for x in choices])
 
 
-def partitioning(a, size, payload):
+def components(a, catalog):
+    import shlex
+    while True:
+        current = set(a.get('components') or [])
+        options = []
+        for comp in catalog['components']:
+            label = comp['label']
+            if comp.get('depends'):
+                label += ' (requires: ' + ', '.join(comp['depends']) + ')'
+            options.extend([comp['id'], label, 'ON' if comp['id'] in current else 'OFF'])
+        selected = shlex.split(dialog(
+            'checklist',
+            'Select optional components to install offline (base router and ops tools are always installed).',
+            options,
+        ))
+        # Preserve the user's exact selection even if validation fails.
+        a['components'] = selected
+        try:
+            a['components'] = core.validate_components(selected, catalog)
+            return
+        except ValueError as exc:
+            dialog('msgbox', str(exc))
+
+
+def partitioning(a, size, payload, min_overlay=core.MIN_OVERLAY_MIB):
     mode = menu('Create a fresh GPT on the whole disk', [('guided', 'Guided — use entire disk (recommended)'), ('manual', 'Manual — edit the new layout')])
     if mode == 'guided':
         a['partitions'] = core.guided(payload, fs_choice())
     while True:
-        plan = core.layout(a['partitions'], size, payload)
+        plan = core.layout(a['partitions'], size, payload, min_overlay=min_overlay)
         preview = '\n'.join(f"p{p['number']}: {p['role']} {p['size_mib']} MiB {p.get('fs', '')}" for p in plan['partitions'])
         if mode == 'guided':
             dialog('msgbox', preview)
@@ -171,7 +195,7 @@ def partitioning(a, size, payload):
                 else:
                     value = dialog('inputbox', 'Size in MiB (blank = remaining space)', default=a['partitions'][i]['size_mib'] or '')
                     a['partitions'][i]['size_mib'] = int(value) if value else None
-            core.layout(a['partitions'], size, payload)
+            core.layout(a['partitions'], size, payload, min_overlay=min_overlay)
         except Back:
             a['partitions'] = old
         except ValueError as exc:
@@ -249,18 +273,19 @@ def firewall(a):
     a['firewall'] = {key: key in selected for key in ('masq', 'fullcone', 'lan_to_wan')}
 
 
-def accounts(a):
+def accounts(a, has_gnome=True):
     root = password('Root password (required)')
     name = dialog('inputbox', 'Regular username (optional)')
     user = None
     if name:
-        user = {'name': name, 'password_hash': password('User password'), 'gnome_autostart': yes('Start GNOME automatically at boot?')}
+        autostart = yes('Start GNOME automatically at boot?') if has_gnome else False
+        user = {'name': name, 'password_hash': password('User password'), 'gnome_autostart': autostart}
     a['accounts'] = {'root_password_hash': root, 'user': user}
 
 
-def show_summary(a, plan, disk=None):
+def show_summary(a, plan, disk=None, component_plan=None):
     with tempfile.NamedTemporaryFile(mode='w') as f:
-        f.write(core.display_summary(a, plan))
+        f.write(core.display_summary(a, plan, component_plan=component_plan))
         if disk:
             f.write('Disk: ' + str(disk.get('model') or 'unknown model') + '  ' + str(int(disk['size']) // core.MIB) + ' MiB  serial: ' + str(disk.get('serial') or 'unavailable') + '\n')
         f.flush()
@@ -278,39 +303,50 @@ def progress_install(a, manifest, payload):
 
 
 def main(manifest, payload):
+    catalog = apply.load_components_catalog(manifest, payload)
     a = {'partitions': core.guided(manifest['squashfs_size']),
          'network': {'wan_port': 'eth1', 'lan_ports': ['eth0'],
                      'lan': {'ipaddr': '192.168.1.1', 'netmask': '255.255.255.0', 'dhcp': True, 'start': 100, 'limit': 150},
                      'wan': {'proto': 'dhcp'}, 'ipv6': True},
          'firewall': {'masq': True, 'fullcone': False, 'lan_to_wan': True}}
-    step = 0; disk_size = 0
+    if catalog is not None:
+        a['components'] = core.default_components(catalog)
+    step = 0; disk_size = 0; min_overlay = core.MIN_OVERLAY_MIB
+    steps = ['welcome', 'disk', *(['components'] if catalog is not None else []),
+             'partitioning', 'ports', 'lan', 'wan', 'firewall', 'accounts', 'summary']
     while True:
         try:
-            if step == 0:
+            current = steps[step]
+            if current == 'welcome':
                 choice = menu('Welcome. This installer erases the entire selected disk.', [('install', 'Install OpenWrt'), ('shell', 'Open shell'), ('reboot', 'Reboot')])
                 if choice == 'shell':
                     subprocess.run(['/bin/sh']); continue
                 if choice == 'reboot':
                     apply.run('systemctl', 'reboot'); return
-            elif step == 1:
+            elif current == 'disk':
                 _, _, disks = apply.discover()
                 a['disk'] = menu('Target disk (installer USB is hidden)', [(d['path'], f"{int(d['size']) // core.MIB} MiB {d.get('model') or ''}") for d in disks])
                 disk_size = int(next(d['size'] for d in disks if d['path'] == a['disk']))
-            elif step == 2:
-                partitioning(a, disk_size, manifest['squashfs_size'])
-            elif step == 3:
+            elif current == 'components':
+                components(a, catalog)
+                plan_preview = apply.preflight_components(a['components'], catalog, payload)
+                min_overlay = plan_preview['min_overlay_mib'] if plan_preview else core.MIN_OVERLAY_MIB
+            elif current == 'partitioning':
+                partitioning(a, disk_size, manifest['squashfs_size'], min_overlay=min_overlay)
+            elif current == 'ports':
                 ports(a)
-            elif step == 4:
+            elif current == 'lan':
                 lan(a)
-            elif step == 5:
+            elif current == 'wan':
                 wan(a)
-            elif step == 6:
+            elif current == 'firewall':
                 firewall(a)
-            elif step == 7:
-                accounts(a)
-            elif step == 8:
+            elif current == 'accounts':
+                has_gnome = True if catalog is None else ('gnome' in (a.get('components') or []))
+                accounts(a, has_gnome=has_gnome)
+            elif current == 'summary':
                 validated = apply.install(a, manifest, payload, dry_run=True)
-                show_summary(a, validated['layout'], validated['disk'])
+                show_summary(a, validated['layout'], validated['disk'], validated.get('components'))
                 if not yes('ALL DATA ON ' + a['disk'] + ' WILL BE ERASED. Install?', False):
                     continue
                 try:

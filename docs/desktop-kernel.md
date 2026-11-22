@@ -43,10 +43,38 @@ pool is configured. `kmod-ikconfig` exposes the actual running kernel config
 at `/proc/config.gz`. VFIO requires IOMMU protection; unsafe no-IOMMU support
 remains disabled. No host PCI device is assigned automatically.
 
-New kmod definitions provide `kmod-hid-multitouch` and `kmod-vhost-vsock`.
-The vsock package explicitly disables the unselected packet-monitor driver,
-so enabling the transport does not leave an unanswered kernel configuration
-prompt during the build.
+New kmod definitions provide `kmod-hid-multitouch`, `kmod-vhost-vsock`,
+`kmod-drm-vkms`, `kmod-sound-hrtimer`, `kmod-sound-aloop`,
+`kmod-input-ff-memless`, `kmod-hid-logitech`, `kmod-hid-playstation`,
+`kmod-hid-nintendo`, `kmod-input-xpad`, `kmod-tap`, and `kmod-macvtap`.
+`kmod-vhost-vsock` explicitly disables the unselected packet-monitor driver, and
+`kmod-input-xpad` explicitly disables unselected legacy joystick drivers, so
+enabling them does not leave unanswered kernel configuration prompts during the
+build. `kmod-drm-vkms` and `kmod-sound-aloop` intentionally omit `AUTOLOAD` so
+they are loaded on demand (`modprobe vkms` / `modprobe snd-aloop`) without
+adding a virtual DRM display or audio sink at boot. `kmod-vhost-net` declares a
+conditional `+PACKAGE_kmod-tap:kmod-tap` dependency when `CONFIG_TAP` is built
+for `kmod-macvtap`.
+
+In Linux 7.3 (`target/linux/x86/64/config-7.3` plus `configs/desktop-kernel.config`
+and `configs/x86-64-systemd-router.config`), the x86-64 baseline also enables:
+
+- **Security and hardening**: `CONFIG_SECURITY=y`, `CONFIG_SECURITYFS=y`,
+  `CONFIG_SECURITY_LANDLOCK=y`, `CONFIG_SECURITY_YAMA=y` (default
+  `CONFIG_LSM="landlock,lockdown,yama,loadpin,safesetid,ipe,bpf"`),
+  `CONFIG_RANDOMIZE_BASE=y` / `CONFIG_RANDOMIZE_MEMORY=y` (KASLR), and
+  `CONFIG_KERNEL_CC_STACKPROTECTOR_STRONG=y`.
+- **Desktop/VM/container runtime & storage**: `CONFIG_BLK_WBT=y` /
+  `CONFIG_BLK_WBT_MQ=y`, `CONFIG_BINFMT_MISC=y`, `CONFIG_USERFAULTFD=y` /
+  `CONFIG_PTE_MARKER_UFFD_WP=y`, `CONFIG_NTSYNC=y`, `CONFIG_UDMABUF=y`,
+  `CONFIG_FW_LOADER_COMPRESS=y` (`XZ` + `ZSTD`), `CONFIG_FUSE_PASSTHROUGH=y` /
+  `CONFIG_FUSE_IO_URING=y`, `CONFIG_SQUASHFS_ZSTD=y` / `CONFIG_SQUASHFS_LZ4=y`,
+  `CONFIG_NTFS3_LZX_XPRESS=y`, and `CONFIG_SND_HDA_RECONFIG=y` /
+  `CONFIG_SND_HDA_PATCH_LOADER=y` in `kmod-sound-hda-core`.
+- **Diagnostics & networking**: `CONFIG_UPROBES=y` / `CONFIG_UPROBE_EVENTS=y`,
+  `CONFIG_KERNEL_SOFTLOCKUP_DETECTOR=y`, `CONFIG_KERNEL_CGROUP_PERF=y`, and
+  `kmod-macvlan`, `kmod-macvtap`, `kmod-ipvlan`, `kmod-dummy`, `kmod-tls`,
+  `kmod-unix-diag`, `kmod-packet-diag`.
 
 Full kmod tools use dependency/alias indexes. Native early init generates
 them after mounting the overlay and before starting systemd; procd recovery

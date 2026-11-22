@@ -235,35 +235,86 @@ class ElfAbiTests(unittest.TestCase):
                         self.assertNotIn('Circular', result.stderr)
 
     def test_release_ledger_change_restages_provider_before_consumer(self):
-        source = (TREE / 'include/package-pack.mk').read_text().splitlines()
+        text = (TREE / 'include/package-pack.mk').read_text()
+        source = text.splitlines()
         staged_rule = next(line.strip() for line in source
                            if line.strip().startswith('$(PKG_BUILD_DIR)/.pkgdir/$(1).installed:'))
         package_rule = next(line.strip() for line in source
-                            if line.strip().startswith('$(PKG_INFO_DIR)/$(1).provides $$(PACK_$(1)):'))
+                            if line.strip().startswith('$$(PACK_$(1)):') and '$(STAMP_BUILT)' in line)
+        pack_key_block = text[text.index('$(_define) Package/$(1)/PACK_KEY'):text.index('$$(PACK_$(1)) : export CONTROL')]
+        pack_key_block = (pack_key_block
+                          .replace('$(_define)', 'define')
+                          .replace('$(_endef)', 'endef')
+                          .replace('$(1)', 'library')
+                          .replace('$$', '$'))
         for relative in ('built', '.config', 'include/package-pack.mk', 'scripts/elf-abi.py',
                          'scripts/ucode-abi.py', 'configs/elf-abi-policy.json'):
             target = self.work / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.touch()
         ledger = self.work / 'configs/apk-elf-rebuilds.mk'
-        ledger.write_text('1\n')
+        ledger.write_text('ELF_REBUILD_library_1.0-r1:=1.0-r1\nELF_DEP_dep_1.0-r1:=dep=1.0-r1\n')
         self.work.joinpath('Makefile').write_text(
+            '-include configs/apk-elf-rebuilds.mk\n'
             'TOPDIR:=.\nINCLUDE_DIR:=include\nSCRIPT_DIR:=scripts\n'
             'CONFIG_USE_APK:=y\nSTAMP_BUILT:=built\nPKG_BUILD_DIR:=build\n'
             'PKG_INFO_DIR:=info\nPACK_library:=library.apk\n'
-            'all: app\n'
+            'PKGARCH:=x86_64\nmergelist = $(strip $(1))\n'
+            'VERSION:=$(or $(ELF_REBUILD_library_1.0-r1),1.0-r1)\n'
+            'Package/library/DEPENDS = $(or $(ELF_DEP_dep_1.0-r1),dep=1.0-r1)\n'
+            'all: app\nFORCE:\n'
+            + pack_key_block + '\n'
             + staged_rule.replace('$(1)', 'library').replace('$$', '$') + '\n'
-            '\t@mkdir -p $(@D); cp configs/apk-elf-rebuilds.mk $@\n'
+            '\t@mkdir -p $(@D); printf "%s|%s\\n" "$(VERSION)" "$(Package/library/DEPENDS)" > $@; '
+            'echo stage >> build/events.log\n'
             + package_rule.replace('$(1)', 'library').replace('$$', '$') + '\n'
-            '\t@mkdir -p $(@D); touch $@\n'
+            '\t@mkdir -p $(@D) $(PKG_INFO_DIR); touch $@ $(PKG_INFO_DIR)/library.provides; echo pack >> build/events.log\n'
             'root/version: build/.pkgdir/library.installed\n'
             '\t@mkdir -p $(@D); cp $< $@\n'
             'app: root/version library.apk\n\t@cp root/version app\n')
-        for version in ('1', '2'):
-            ledger.write_text(version + '\n')
-            result = subprocess.run(['make', '-j3'], cwd=self.work, capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertEqual((self.work / 'app').read_text().strip(), version)
+
+        events = self.work / 'build/events.log'
+
+        # 1. Initial build stages and packs library.
+        result = subprocess.run(['make', '-j3'], cwd=self.work, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((self.work / 'app').read_text().strip(), '1.0-r1|dep=1.0-r1')
+        self.assertEqual(events.read_text().splitlines(), ['stage', 'pack'])
+
+        # 2. Unrelated ledger entry must NOT restage or repack library.
+        events.write_text('')
+        ledger.write_text(
+            'ELF_REBUILD_library_1.0-r1:=1.0-r1\n'
+            'ELF_DEP_dep_1.0-r1:=dep=1.0-r1\n'
+            'ELF_REBUILD_other_2.0-r1:=2.0-r2\n')
+        os.utime(ledger, (ledger.stat().st_atime + 2, ledger.stat().st_mtime + 2))
+        result = subprocess.run(['make', '-j3'], cwd=self.work, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(events.read_text().splitlines(), [])
+
+        # 3. Changing library's own effective release MUST restage and repack.
+        events.write_text('')
+        ledger.write_text(
+            'ELF_REBUILD_library_1.0-r1:=1.0-r2\n'
+            'ELF_DEP_dep_1.0-r1:=dep=1.0-r1\n'
+            'ELF_REBUILD_other_2.0-r1:=2.0-r2\n')
+        os.utime(ledger, (ledger.stat().st_atime + 4, ledger.stat().st_mtime + 4))
+        result = subprocess.run(['make', '-j3'], cwd=self.work, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((self.work / 'app').read_text().strip(), '1.0-r2|dep=1.0-r1')
+        self.assertEqual(events.read_text().splitlines(), ['stage', 'pack'])
+
+        # 4. Changing an ELF_DEP entry referenced by library MUST restage and repack.
+        events.write_text('')
+        ledger.write_text(
+            'ELF_REBUILD_library_1.0-r1:=1.0-r2\n'
+            'ELF_DEP_dep_1.0-r1:=dep=1.0-r2\n'
+            'ELF_REBUILD_other_2.0-r1:=2.0-r2\n')
+        os.utime(ledger, (ledger.stat().st_atime + 6, ledger.stat().st_mtime + 6))
+        result = subprocess.run(['make', '-j3'], cwd=self.work, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((self.work / 'app').read_text().strip(), '1.0-r2|dep=1.0-r2')
+        self.assertEqual(events.read_text().splitlines(), ['stage', 'pack'])
 
     def test_libc_version_stamp_uses_effective_package_version(self):
         source = (TREE / 'package/libs/toolchain/Makefile').read_text()
@@ -296,12 +347,12 @@ class ElfAbiTests(unittest.TestCase):
         cases = [
             ('libcups-runtime', '2.4.20-r1', '2.4.20-r2'),
             ('libcups-runtime', '2.4.20-r2', None),
-            ('libcups-runtime', '2.4.20-r3', '2.4.20-r3'),
+            ('libcups-runtime', '2.4.20-r3', '2.4.20-r4'),
             ('libcups-runtime', '2.4.21-r2', '2.4.21-r2'),
-            ('mtd', '29', '29-r2'),
+            ('mtd', '29', '29-r3'),
             ('mtd', '29-r1', '29-r2'),
             ('mtd', '29-r2', None),
-            ('mtd', '29-r3', '29-r3'),
+            ('mtd', '29-r3', None),
             ('samba4-libs', '4.24.5-r2', '4.24.5-r4'),
             ('samba4-libs', '4.24.5-r3', '4.24.5-r4'),
             ('samba4-libs', '4.24.5-r4', None),
@@ -381,7 +432,7 @@ class ElfAbiTests(unittest.TestCase):
         (self.work / 'Makefile').write_text(
             'empty:=\nspace:=$(empty) $(empty)\ncomma:=,\nparen_left:=(\nparen_right:=)\n'
             + helpers + '\nELF_DEP_pinned_1.0-r1:=pinned=1.0-r2\n'
-            'Package/probe/DEPENDS:=libc, libpthread, pinned (= 1.0-r1)\n'
+            'Package/probe/DEPENDS_FMT:=libc, libpthread, pinned (= 1.0-r1)\n'
             + assignment + '\nall:\n'
             '\t@echo "$(subst $(comma),$(space),$(subst $(space),,$(Package/probe/DEPENDS)))"\n')
         result = subprocess.check_output(['make', '-s'], cwd=self.work, text=True)

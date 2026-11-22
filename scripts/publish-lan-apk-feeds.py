@@ -46,9 +46,10 @@ DIAGNOSE_LIMIT = 8
 class SameVersionRebuildError(ValueError):
     """Published identities whose rebuilt bytes changed; entries feed the allocator."""
 
-    def __init__(self, message, entries):
+    def __init__(self, message, entries, snapshot=None):
         super().__init__(message)
         self.entries = entries
+        self.snapshot = snapshot
 
 
 def sha256(path):
@@ -98,26 +99,35 @@ def dump_indexes(apk, paths):
                 yield from results
 
 
-def same_version_rebuild_error(apk, previous, payload, paths):
+def same_version_rebuild_error(apk, previous, payload, paths, keys_dir=None,
+                               snapshot=None, destination=None):
     """Name every same-version rebuild, classify it and explain the first few."""
     lines = ['Published APK changed without a new version; bump PKG_RELEASE: ' + ', '.join(paths)]
-    entries = []
+    raw_entries = []
+    context = {'baseline_snapshot': snapshot, 'destination': destination}
     for number, path in enumerate(paths):
         try:
-            entry, report = ALLOCATE.classify(previous / path, payload / path, path, apk)
+            entry, report = ALLOCATE.classify(
+                previous / path, payload / path, path, apk,
+                keys_dir=keys_dir, context=context)
             if number < DIAGNOSE_LIMIT:
                 lines.append(DIAGNOSE.format_report(report, label=path))
         except Exception as error:  # Diagnosis must never hide the publication error.
             entry = {'path': path, 'name': None, 'version': None, 'verdict': 'unknown',
                      'so_changed': False, 'so_removed': [], 'so_added': []}
             lines.append(f'{path}: diagnosis failed: {error}')
-        entries.append(entry)
+        raw_entries.append(entry)
+    try:
+        entries = ALLOCATE.deduplicate_entries(raw_entries)
+    except ValueError as error:
+        lines.append(f'Conflicting candidate digests: {error}')
+        entries = raw_entries
     if len(paths) > DIAGNOSE_LIMIT:
         lines.append(f'{len(paths) - DIAGNOSE_LIMIT} more not shown in detail; run '
                      'scripts/diagnose-apk-rebuild.py REPOSITORY/FILE.apk')
     lines.append('Allocate releases with scripts/allocate-rebuild-releases.py, or rerun '
                  'build-and-publish.py with --allocate-rebuilds')
-    return SameVersionRebuildError('\n'.join(lines), entries)
+    return SameVersionRebuildError('\n'.join(lines), entries, snapshot=snapshot)
 
 
 def verify(apk, keys, files):
@@ -474,6 +484,38 @@ def point_current(public, snapshot):
     return previous
 
 
+def validate_expected_apks(apk, expected, indexes, hashes):
+    """Prove the signed indexes contain each current APK and no newer rival."""
+    candidates = {}
+    for repo, index in indexes.items():
+        for info in index['packages']:
+            candidates.setdefault(info['name'], []).append((repo, info))
+    compared = {}
+    for path, (name, version, arch) in expected.items():
+        digest = hashes.get(path)
+        entries = candidates.get(name, ())
+        if not digest or not any(
+                f'{repo}/{package_filename(info)}' == path
+                and (info['version'], info['arch']) == (version, arch)
+                for repo, info in entries):
+            raise ValueError(f'Expected rolling APK is missing from the signed index: {path}')
+        for repo, info in entries:
+            other_version = info['version']
+            if version == other_version:
+                order = '='
+            else:
+                key = (version, other_version)
+                if key not in compared:
+                    compared[key] = subprocess.check_output(
+                        [str(apk), 'version', '--test', version, other_version], text=True).strip()
+                order = compared[key]
+            other = f'{repo}/{package_filename(info)}'
+            if order == '<':
+                raise ValueError(f'Newer retained or staged APK supersedes {path}: {other}')
+            if order == '=' and hashes.get(other) != digest:
+                raise ValueError(f'Conflicting APK with the same version as {path}: {other}')
+
+
 def publish(args):
     tree = Path(__file__).resolve().parent.parent
     source_root = (args.source_root or tree).resolve()
@@ -529,13 +571,26 @@ def publish(args):
                 source_files[f'{name}/{package.name}'] = (package, sha256(package))
         changes = sorted(path for path, (_, digest) in source_files.items()
                          if not args.incremental or previous_hashes.get(path) != digest)
+        expected = getattr(args, 'expected', None)
+        if expected:
+            missing = sorted(expected.keys() - source_files.keys())
+            if missing:
+                raise ValueError('Missing expected staged APKs: ' + ', '.join(missing))
+        expected_digests = {path: source_files[path][1] for path in expected or ()}
         origin = args.base_url.rstrip('/')
         baseline_needed = bool(old and old.get('schema_version') != SCHEMA_VERSION)
         if args.incremental and old and not changes and not baseline_needed and old.get('base_url') == origin:
-            return {'status': 'unchanged', 'kernel': args.kernel,
+            if expected:
+                validate_expected_apks(apk, expected, {
+                    name: dump_index(apk, previous / name / 'packages.adb')
+                    for name in old['repositories']}, previous_hashes)
+            result = {'status': 'unchanged', 'kernel': args.kernel,
                     'snapshot': str(previous.resolve()), 'changed_packages': [],
                     'affected_repositories': [], 'source_files_examined': len(source_files),
                     'alias': str(previous), 'previous': str(previous.resolve())}
+            if expected:
+                result['expected_digests'] = expected_digests
+            return result
         snapshot_name = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ')
         work = Path(tempfile.mkdtemp(prefix='.publish-', dir=destination))
         try:
@@ -545,6 +600,8 @@ def publish(args):
             keys.mkdir()
             shutil.copyfile(tree / 'public-key.pem', keys / 'public-key.pem')
             changed_files = {}
+            reused_published_apks = {}
+            frozen_artifacts = getattr(args, 'frozen_artifacts', False)
             if args.incremental and old:
                 for name in old['repositories']:
                     repo = payload / name
@@ -556,8 +613,30 @@ def publish(args):
                     link_file(old_index, repo / 'packages.adb')
             for name, _ in sources:
                 (payload / name).mkdir(exist_ok=True)
+            effective_changes = []
             for path in changes:
                 source, digest = source_files[path]
+                prev_file = previous / path if (args.incremental and old) else None
+                if (not frozen_artifacts and prev_file is not None and prev_file.is_file()
+                        and path in previous_hashes and previous_hashes[path] != digest):
+                    # Reuse the published APK if both files pass signature verification
+                    # and decode to the exact same uncompressed ADB stream.
+                    try:
+                        verify(apk, keys, [prev_file, source])
+                        same_stream = DIAGNOSE.adb_streams_identical(prev_file, source)
+                    except (subprocess.CalledProcessError, OSError):
+                        same_stream = False
+                    if same_stream and sha256(prev_file) == previous_hashes[path]:
+                        reused_published_apks[path] = {
+                            'candidate_sha256': digest,
+                            'selected_sha256': previous_hashes[path],
+                            'reason': 'identical_adb_stream_outer_framing_only',
+                        }
+                        source_files[path] = (prev_file, previous_hashes[path])
+                        if expected and path in expected_digests:
+                            expected_digests[path] = previous_hashes[path]
+                        continue
+                effective_changes.append(path)
                 target = payload / path
                 # Copy through a new inode so retained snapshots never change.
                 temporary = target.with_name('.' + target.name + '.new')
@@ -567,6 +646,7 @@ def publish(args):
                     raise ValueError(f'APK changed during publication; finish the build first: {path}')
                 os.replace(temporary, target)
                 changed_files.setdefault(target.parent.name, []).append(target)
+            changes = effective_changes
             indexes = {}
             affected = set()
             for repo in sorted(payload.iterdir()):
@@ -661,8 +741,18 @@ def publish(args):
                         raise ValueError(f'Existing ABI package changed or disappeared: {path}')
             manifest['ucode_abi'] = validate_ucode_abi(apk, keys, payload, indexes, work)
             manifest['elf_abi'] = validate_elf_abi(apk, keys, payload, indexes, work)
+            if reused_published_apks:
+                manifest['reused_published_apks'] = reused_published_apks
             if same_version_rebuilds:
-                raise same_version_rebuild_error(apk, previous, payload, same_version_rebuilds)
+                raise same_version_rebuild_error(
+                    apk, previous, payload, same_version_rebuilds,
+                    keys_dir=keys, snapshot=str(previous.resolve()),
+                    destination=str(destination))
+            if expected:
+                for path, digest in expected_digests.items():
+                    if manifest['apk_files'].get(path) != digest:
+                        raise ValueError(f'Expected staged APK digest differs from candidate: {path}')
+                validate_expected_apks(apk, expected, indexes, manifest['apk_files'])
             urls = [f'{origin}/abi/{args.kernel}/{name}/packages.adb' for name in indexes]
             (payload / 'repositories.list').write_text(
                 '# Local native-systemd/glibc feeds; kernel packages are in kernel-upgrades.\n' +
@@ -679,6 +769,10 @@ def publish(args):
                       'repositories': urls, 'packages': sum(r['packages'] for r in manifest['repositories'].values()),
                       'kernel_packages': len(manifest['kernel_packages'])}
             result['ucode_abi'] = manifest['ucode_abi']
+            if reused_published_apks:
+                result['reused_published_apks'] = reused_published_apks
+            if expected:
+                result['expected_digests'] = expected_digests
             if stage_only:
                 final = snapshots / snapshot_name
                 payload.rename(final)

@@ -26,9 +26,12 @@ small fixes within an already validated behavior. Classify the actual diff
 and dependency impact: a version bump alone does not prove a change is small.
 
 Major behavior changes or new functionality need relevant runtime validation
-before publication. Use a disposable VM for boot/init, kernel/module,
-installer/storage, APK transaction/recovery and routing/firewall changes that
-it can exercise. For hardware or desktop/client behavior a VM cannot cover,
+before publication. Kernel changes require VM validation for a kernel series
+upgrade (for example, 7.3 to 7.4) or broad kernel configuration changes. Routine
+point releases, small patches and narrow configuration changes use the package,
+module, ABI and coordinated publication checks. Use a disposable VM for relevant
+boot/init, installer/storage, APK transaction/recovery and routing/firewall changes.
+For hardware or desktop/client behavior a VM cannot cover,
 record the appropriate device/client checks and any remaining gaps instead
 of treating a generic boot/network VM pass as acceptance. Follow explicit
 user-requested checks and applicable feature validation procedures.
@@ -52,6 +55,19 @@ This policy update does not change that runner or enable its schedule. See
 [scheduled maintenance](scheduled-maintenance.md).
 
 ## Build and validate
+
+For routine rolling publication from current sources:
+
+```sh
+./scripts/build-and-publish.sh --rolling -j16
+```
+
+Add `--dry-run` to build the same packages and run the coordinated preflight
+without advancing the feed pointers. Use `build-only --rolling` for local APK
+builds. The rolling build includes signed kernel packages and checks the
+expected APK identities against the candidate feeds. Use the
+[rolling build and VM artifact workflow](incremental-build-acceleration-validation.md)
+for full media validation and saved candidates.
 
 For a complete build followed by publication:
 

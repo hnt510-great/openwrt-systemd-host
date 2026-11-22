@@ -55,11 +55,7 @@ PACKAGE_INDEX_FILE:=$(PACKAGE_DIR_ALL)/$(if $(CONFIG_USE_APK),packages.adb,Packa
 PACKAGE_MERGE_LIST:=$(PACKAGE_DIR_ALL).list
 
 define package_merge_links
-	rm -rf $(PACKAGE_DIR_ALL); \
-	mkdir -p $(PACKAGE_DIR_ALL); \
-	$(foreach pdir,$(PACKAGE_SUBDIRS), \
-		$(if $(wildcard $(pdir)/*.$(PACKAGE_EXT)), \
-			ln -s $(pdir)/*.$(PACKAGE_EXT) $(PACKAGE_DIR_ALL) || true;))
+	python3 $(SCRIPT_DIR)/apk-index.py merge --dest "$(PACKAGE_DIR_ALL)" --ext "$(PACKAGE_EXT)" $(PACKAGE_SUBDIRS);
 endef
 
 # Kernel packages are assembled from every packed kmod, so they must be built
@@ -89,15 +85,12 @@ $(BUILD_KEY_APK_PUB): $(BUILD_KEY_APK_SEC)
 
 $(curdir)/merge-index: $(curdir)/merge
 ifneq ($(CONFIG_USE_APK),)
-	[ -f $(PACKAGE_INDEX_FILE) ] || \
-	(cd $(PACKAGE_DIR_ALL) && $(STAGING_DIR_HOST)/bin/apk mkndx \
-			--root $(TOPDIR) \
-			--keys-dir $(TOPDIR) \
-			--allow-untrusted \
-			$(if $(CONFIG_SIGNED_PACKAGES),--sign $(BUILD_KEY_APK_SEC),) \
-			--output packages.adb \
-			*.apk; \
-	)
+	python3 $(SCRIPT_DIR)/apk-index.py index \
+		--dir "$(PACKAGE_DIR_ALL)" \
+		--apk "$(STAGING_DIR_HOST)/bin/apk" \
+		--root "$(TOPDIR)" \
+		--keys-dir "$(TOPDIR)" \
+		$(if $(CONFIG_SIGNED_PACKAGES),--sign "$(BUILD_KEY_APK_SEC)")
 else
 	[ -f $(PACKAGE_INDEX_FILE) ] || \
 	(cd $(PACKAGE_DIR_ALL) && $(SCRIPT_DIR)/ipkg-make-index.sh . 2>&1 > Packages; )
@@ -123,17 +116,19 @@ endif
 ROOTFS_CACHE:=$(TARGET_ROOTFS_DIR)/rootfs-cache-$(BOARD)$(if $(CONFIG_OPENWRT_SYSTEMD),-systemd)
 
 define rootfs_cache_key
-$(shell ( \
-	echo '$(subst ','\'',$(1))'; \
-	echo $(SOURCE_DATE_EPOCH); \
-	cat $(PACKAGE_DIR_ALL)/packages.adb $(TOPDIR)/.config $(STAGING_DIR_HOST)/bin/apk \
-		$(STAGING_DIR_HOST)/bin/tar $(STAGING_DIR_HOST)/bin/gzip \
-		$(if $(CONFIG_USE_MKLIBS),$(SCRIPT_DIR)/rstrip.sh) \
-		$(INCLUDE_DIR)/rootfs.mk $(TOPDIR)/package/Makefile; \
-	[ ! -d $(TOPDIR)/files ] || ( cd $(TOPDIR)/files && \
-		find . -printf '%p %y %m %l\n' | LC_ALL=C sort && \
-		find . -type f -print0 | LC_ALL=C sort -z | xargs -0 -r cat ); \
-) | $(MKHASH) sha256)
+$(shell python3 $(SCRIPT_DIR)/rootfs-cache-key.py \
+	--install-args '$(subst ','\'',$(1))' \
+	--epoch '$(SOURCE_DATE_EPOCH)' \
+	--input-file '$(PACKAGE_DIR_ALL)/packages.adb' \
+	--input-file '$(TOPDIR)/.config' \
+	--input-file '$(STAGING_DIR_HOST)/bin/apk' \
+	--input-file '$(STAGING_DIR_HOST)/bin/tar' \
+	--input-file '$(STAGING_DIR_HOST)/bin/gzip' \
+	$(if $(CONFIG_SIGNED_PACKAGES),--input-file '$(BUILD_KEY_APK_PUB)') \
+	$(if $(CONFIG_OPENWRT_SYSTEMD),--input-file '$(SCRIPT_DIR)/merge-usr.py') \
+	--input-file '$(INCLUDE_DIR)/rootfs.mk' \
+	--input-file '$(TOPDIR)/package/Makefile' \
+	--overlay-dir '$(TOPDIR)/files')
 endef
 
 define rootfs_cache_restore
@@ -141,36 +136,47 @@ define rootfs_cache_restore
 	cp -a $(ROOTFS_CACHE)/root.orig $(TARGET_DIR_ORIG)
 endef
 
+KERNEL_PIN_VERSION = $(strip $(shell cat $(STAGING_DIR)/kernel-package.version 2>/dev/null))
 APK_INSTALL_ARGS = \
-	$(if $(CONFIG_OPENWRT_KERNEL_UPGRADE),linux-image-openwrt) \
-	$(foreach pkg,$(shell cat $(PACKAGE_INSTALL_FILES) 2>/dev/null),$(pkg)$(call GetABISuffix,$(pkg))) \
+	$(if $(CONFIG_OPENWRT_KERNEL_UPGRADE),linux-image-openwrt$(if $(KERNEL_PIN_VERSION),=$(KERNEL_PIN_VERSION))) \
+	$(foreach pkg,$(shell cat $(TMP_DIR)/apk_install_pkgs 2>/dev/null),$(pkg)$(call GetABISuffix,$(pkg))) \
 	base-files=$(shell cat $(STAGING_DIR)/base-files.version) \
 	libc=$(shell cat $(STAGING_DIR)/libc.version) \
 	kernel=$(subst -rc,_rc,$(shell cat $(STAGING_DIR)/kernel.version))
 
 define apk_install_rootfs
 	mkdir -p $(TARGET_DIR)/tmp
-	$(file >$(TMP_DIR)/apk_install_list,$(APK_INSTALL_ARGS))
 	$(call apk,$(TARGET_DIR)) add --no-cache --initdb --no-scripts --arch $(ARCH_PACKAGES) \
 		--repositories-file /dev/null --repository file://$(PACKAGE_DIR_ALL)/packages.adb \
 		$(if $(CONFIG_SIGNED_PACKAGES),,--allow-untrusted) \
 		$$(cat $(TMP_DIR)/apk_install_list)
+	$(if $(and $(CONFIG_OPENWRT_KERNEL_UPGRADE),$(KERNEL_PIN_VERSION)), \
+		sed -i 's/^linux-image-openwrt=.*$$/linux-image-openwrt/' $(TARGET_DIR)/etc/apk/world)
 	$(if $(CONFIG_OPENWRT_SYSTEMD),find $(TARGET_DIR)/run -mindepth 1 ! -name .keep -delete,rm -rf $(TARGET_DIR)/run)
 	$(CP) $(TARGET_DIR) $(TARGET_DIR_ORIG)
 	$(call prepare_rootfs,$(TARGET_DIR),$(TOPDIR)/files)
-	rm -rf $(ROOTFS_CACHE)
-	mkdir -p $(ROOTFS_CACHE)
-	cp -a $(TARGET_DIR) $(ROOTFS_CACHE)/root
-	cp -a $(TARGET_DIR_ORIG) $(ROOTFS_CACHE)/root.orig
-	echo $(ROOTFS_KEY) > $(ROOTFS_CACHE)/key
+	$(if $(CONFIG_USE_MKLIBS),, \
+		rm -rf $(ROOTFS_CACHE).new; \
+		mkdir -p $(ROOTFS_CACHE).new; \
+		cp -a $(TARGET_DIR) $(ROOTFS_CACHE).new/root; \
+		cp -a $(TARGET_DIR_ORIG) $(ROOTFS_CACHE).new/root.orig; \
+		echo $(ROOTFS_KEY) > $(ROOTFS_CACHE).new/key; \
+		rm -rf $(ROOTFS_CACHE); \
+		mv $(ROOTFS_CACHE).new $(ROOTFS_CACHE))
 endef
 
-$(curdir)/install: $(TMP_DIR)/.build $(curdir)/merge $(curdir)/merge-index
+$(curdir)/verify-install-set: $(TMP_DIR)/.build $(curdir)/merge $(curdir)/merge-index
+ifneq ($(CONFIG_USE_APK),)
+	python3 $(SCRIPT_DIR)/verify-install-set.py --packageinfo $(TMP_DIR)/.packageinfo --config $(TOPDIR)/.config --output-pkgs $(TMP_DIR)/apk_install_pkgs --install-files $(PACKAGE_INSTALL_FILES)
+endif
+
+$(curdir)/install: $(curdir)/verify-install-set
 	- find $(STAGING_DIR_ROOT) -type d | $(XARGS) chmod 0755
 	rm -rf $(TARGET_DIR) $(TARGET_DIR_ORIG)
 ifneq ($(CONFIG_USE_APK),)
 	$(eval ROOTFS_KEY:=$(call rootfs_cache_key,$(APK_INSTALL_ARGS)))
-	$(if $(filter $(ROOTFS_KEY),$(shell cat $(ROOTFS_CACHE)/key 2>/dev/null)),$(rootfs_cache_restore),$(apk_install_rootfs))
+	$(file >$(TMP_DIR)/apk_install_list,$(APK_INSTALL_ARGS))
+	$(if $(and $(if $(CONFIG_USE_MKLIBS),,1),$(wildcard $(ROOTFS_CACHE)/root),$(wildcard $(ROOTFS_CACHE)/root.orig),$(filter $(ROOTFS_KEY),$(shell cat $(ROOTFS_CACHE)/key 2>/dev/null))),$(rootfs_cache_restore),$(apk_install_rootfs))
 else
 	mkdir -p $(TARGET_DIR)/tmp
 	$(file >$(TMP_DIR)/opkg_install_list,\
@@ -190,25 +196,15 @@ endif
 $(curdir)/index: FORCE
 	@echo Generating package index...
 ifneq ($(CONFIG_USE_APK),)
-	@for d in $(PACKAGE_SUBDIRS); do \
-		set -e; \
-		mkdir -p $$d; \
-		cd $$d || continue; \
-		ls *.apk >/dev/null 2>&1 || continue; \
-		if [ -f packages.adb ] && [ -f index.json ] && \
-		   [ -z "$$(find . -maxdepth 1 \( -name '*.apk' -o -type d \) \
-				-newer index.json -print -quit 2>/dev/null)" ]; then \
-			continue; \
-		fi; \
-		$(STAGING_DIR_HOST)/bin/apk mkndx \
-			--root $(TOPDIR) \
-			--keys-dir $(TOPDIR) \
-			--allow-untrusted \
-			$(if $(CONFIG_SIGNED_PACKAGES),--sign $(BUILD_KEY_APK_SEC),) \
-			--output packages.adb \
-			*.apk; \
-		$(STAGING_DIR_HOST)/bin/apk adbdump --format json packages.adb | \
-			$(SCRIPT_DIR)/make-index-json.py -f apk -a "$(ARCH_PACKAGES)" - > index.json; \
+	@set -e; for d in $(PACKAGE_SUBDIRS); do \
+		python3 $(SCRIPT_DIR)/apk-index.py index \
+			--dir "$$d" \
+			--apk "$(STAGING_DIR_HOST)/bin/apk" \
+			--root "$(TOPDIR)" \
+			--keys-dir "$(TOPDIR)" \
+			$(if $(CONFIG_SIGNED_PACKAGES),--sign "$(BUILD_KEY_APK_SEC)") \
+			--make-index-json "$(SCRIPT_DIR)/make-index-json.py" \
+			--arch "$(ARCH_PACKAGES)"; \
 	done
 ifdef CONFIG_JSON_CYCLONEDX_SBOM
 	@echo Creating CycloneDX package SBOMs...

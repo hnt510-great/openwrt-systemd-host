@@ -86,6 +86,127 @@ endef
 
 $(eval $(call KernelPackage,hid-multitouch))
 
+define KernelPackage/input-ff-memless
+  SUBMENU:=$(INPUT_MODULES_MENU)
+  TITLE:=Memoryless force-feedback input support
+  DEPENDS:=+kmod-input-core
+  KCONFIG:=CONFIG_INPUT_FF_MEMLESS
+  FILES:=$(LINUX_DIR)/drivers/input/ff-memless.ko
+  AUTOLOAD:=$(call AutoProbe,ff-memless)
+endef
+
+define KernelPackage/input-ff-memless/description
+ Support for memoryless force-feedback (rumble) input devices.
+endef
+
+$(eval $(call KernelPackage,input-ff-memless))
+
+define KernelPackage/hid-logitech
+  SUBMENU:=$(INPUT_MODULES_MENU)
+  TITLE:=Logitech HID, Unifying/Bolt DJ and HID++ support
+  DEPENDS:=+kmod-hid +kmod-input-ff-memless
+  KCONFIG:= \
+	CONFIG_HID_LOGITECH \
+	CONFIG_HID_LOGITECH_DJ \
+	CONFIG_HID_LOGITECH_HIDPP \
+	CONFIG_LOGITECH_FF=y \
+	CONFIG_LOGIRUMBLEPAD2_FF=y \
+	CONFIG_LOGIG940_FF=y \
+	CONFIG_LOGIWHEELS_FF=y
+  FILES:= \
+	$(LINUX_DIR)/drivers/hid/hid-logitech.ko \
+	$(LINUX_DIR)/drivers/hid/hid-lg-g15.ko \
+	$(LINUX_DIR)/drivers/hid/hid-logitech-dj.ko \
+	$(LINUX_DIR)/drivers/hid/hid-logitech-hidpp.ko
+  AUTOLOAD:=$(call AutoProbe,hid-logitech hid-lg-g15 hid-logitech-dj hid-logitech-hidpp)
+endef
+
+define KernelPackage/hid-logitech/description
+ Support for Logitech HID keyboards, mice, Unifying/Bolt wireless receivers
+ (DJ/HID++) and force-feedback peripherals.
+endef
+
+$(eval $(call KernelPackage,hid-logitech))
+
+define KernelPackage/hid-playstation
+  SUBMENU:=$(INPUT_MODULES_MENU)
+  TITLE:=Sony PlayStation HID controller support
+  DEPENDS:=+kmod-hid +kmod-input-ff-memless
+  KCONFIG:= \
+	CONFIG_HID_PLAYSTATION \
+	CONFIG_PLAYSTATION_FF=y
+  FILES:=$(LINUX_DIR)/drivers/hid/hid-playstation.ko
+  AUTOLOAD:=$(call AutoProbe,hid-playstation)
+endef
+
+define KernelPackage/hid-playstation/description
+ Support for Sony PlayStation DualShock 4 and DualSense HID controllers.
+endef
+
+$(eval $(call KernelPackage,hid-playstation))
+
+define KernelPackage/hid-nintendo
+  SUBMENU:=$(INPUT_MODULES_MENU)
+  TITLE:=Nintendo Switch HID controller support
+  DEPENDS:=+kmod-hid +kmod-input-ff-memless
+  KCONFIG:= \
+	CONFIG_HID_NINTENDO \
+	CONFIG_NINTENDO_FF=y
+  FILES:=$(LINUX_DIR)/drivers/hid/hid-nintendo.ko
+  AUTOLOAD:=$(call AutoProbe,hid-nintendo)
+endef
+
+define KernelPackage/hid-nintendo/description
+ Support for Nintendo Joy-Con, NSO and Pro Controller HID gamepads.
+endef
+
+$(eval $(call KernelPackage,hid-nintendo))
+
+define KernelPackage/input-xpad
+  SUBMENU:=$(INPUT_MODULES_MENU)
+  TITLE:=Xbox USB gamepad support
+  DEPENDS:=+kmod-input-core +kmod-input-ff-memless +kmod-usb-core
+  KCONFIG:= \
+	CONFIG_INPUT_JOYSTICK=y \
+	CONFIG_JOYSTICK_XPAD \
+	CONFIG_JOYSTICK_XPAD_FF=y \
+	CONFIG_JOYSTICK_XPAD_LEDS=y \
+	CONFIG_JOYSTICK_ANALOG=n \
+	CONFIG_JOYSTICK_A3D=n \
+	CONFIG_JOYSTICK_ADI=n \
+	CONFIG_JOYSTICK_COBRA=n \
+	CONFIG_JOYSTICK_GF2K=n \
+	CONFIG_JOYSTICK_GRIP=n \
+	CONFIG_JOYSTICK_GRIP_MP=n \
+	CONFIG_JOYSTICK_GUILLEMOT=n \
+	CONFIG_JOYSTICK_INTERACT=n \
+	CONFIG_JOYSTICK_SIDEWINDER=n \
+	CONFIG_JOYSTICK_TMDC=n \
+	CONFIG_JOYSTICK_IFORCE=n \
+	CONFIG_JOYSTICK_WARRIOR=n \
+	CONFIG_JOYSTICK_MAGELLAN=n \
+	CONFIG_JOYSTICK_SPACEORB=n \
+	CONFIG_JOYSTICK_SPACEBALL=n \
+	CONFIG_JOYSTICK_STINGER=n \
+	CONFIG_JOYSTICK_TWIDJOY=n \
+	CONFIG_JOYSTICK_ZHENHUA=n \
+	CONFIG_JOYSTICK_AS5011=n \
+	CONFIG_JOYSTICK_JOYDUMP=n \
+	CONFIG_JOYSTICK_PXRC=n \
+	CONFIG_JOYSTICK_QWIIC=n \
+	CONFIG_JOYSTICK_FSIA6B=n \
+	CONFIG_JOYSTICK_SENSEHAT=n \
+	CONFIG_JOYSTICK_SEESAW=n
+  FILES:=$(LINUX_DIR)/drivers/input/joystick/xpad.ko
+  AUTOLOAD:=$(call AutoProbe,xpad)
+endef
+
+define KernelPackage/input-xpad/description
+ Support for Microsoft Xbox and compatible USB gamepads with rumble and LEDs.
+endef
+
+$(eval $(call KernelPackage,input-xpad))
+
 define KernelPackage/input-adc-keys
   SUBMENU:=$(INPUT_MODULES_MENU)
   TITLE:=ADC Ladder Buttons support

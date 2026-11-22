@@ -14,10 +14,19 @@ def run(*args):
     subprocess.run([str(x) for x in args], check=True)
 
 
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with path.open('rb') as f:
+        for chunk in iter(lambda: f.read(4 * 1024 * 1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     for name in ('output', 'squashfs', 'esp-tree', 'grub-dir', 'kernel', 'template', 'initramfs'):
         p.add_argument('--' + name, required=True, type=Path)
+    p.add_argument('--components-dir', type=Path)
     for name in ('epoch', 'signature', 'root-partuuid', 'release', 'version', 'serial', 'terminal', 'cmdline', 'title', 'timeout'):
         p.add_argument('--' + name, required=True)
     a = p.parse_args()
@@ -38,13 +47,29 @@ def main():
     for key, value in values.items():
         cfg = cfg.replace('@' + key + '@', value)
     (tree / 'boot/grub/grub.cfg').write_text(cfg)
-    digest = hashlib.sha256()
-    with a.squashfs.open('rb') as f:
-        for chunk in iter(lambda: f.read(4 * 1024 * 1024), b''):
-            digest.update(chunk)
-    (tree / 'install/manifest.json').write_text(json.dumps({'version': a.version, 'kernel_release': a.release,
-        'squashfs_size': a.squashfs.stat().st_size, 'squashfs_sha256': digest.hexdigest(),
-        'root_partuuid': a.root_partuuid}, indent=2) + '\n')
+    manifest = {
+        'format_version': 1,
+        'version': a.version,
+        'kernel_release': a.release,
+        'squashfs_size': a.squashfs.stat().st_size,
+        'squashfs_sha256': sha256_file(a.squashfs),
+        'root_partuuid': a.root_partuuid,
+    }
+    if a.components_dir:
+        comp_dst = tree / 'install/components'
+        shutil.copytree(a.components_dir, comp_dst, symlinks=False)
+        for path in comp_dst.rglob('*'):
+            if path.is_file() and 'private' in path.name.lower():
+                raise ValueError(f'Refusing to embed private key in ISO: {path}')
+        comp_json = comp_dst / 'components.json'
+        repo_index = comp_dst / 'repo/packages.adb'
+        manifest.update({
+            'format_version': 2,
+            'components_manifest': 'components/components.json',
+            'components_sha256': sha256_file(comp_json),
+            'repo_index_sha256': sha256_file(repo_index),
+        })
+    (tree / 'install/manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     # GRUB uses ISO9660 modification time as YYYY-MM-DD-hh-mm-ss-cc UUID.
     date = datetime.datetime.fromtimestamp(int(a.epoch), datetime.timezone.utc)
     iso_date = date.strftime('%Y%m%d%H%M%S') + '00'
