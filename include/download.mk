@@ -72,7 +72,7 @@ define gen_sha256sum_cached
 $(shell \
 	stat_cmd="$(STAGING_DIR_HOST)/bin/stat"; \
 	[ -x "$$stat_cmd" ] || stat_cmd=stat; \
-	meta="$$("$$stat_cmd" -c '%i %s %Y %Z' $(DL_DIR)/$(1) 2>/dev/null)"; \
+	meta="$$("$$stat_cmd" -c '%d %i %s %y %z' $(DL_DIR)/$(1) 2>/dev/null)"; \
 	id="$(2) $$meta"; \
 	stamp="$(DL_VERIFIED_DIR)/$(1)"; \
 	if [ -n "$(2)" ] && [ -n "$$meta" ] && [ "$$(cat "$$stamp" 2>/dev/null)" = "$$id" ]; then \
@@ -80,7 +80,8 @@ $(shell \
 	else \
 		hash="$$($(MKHASH) sha256 $(DL_DIR)/$(1))"; \
 		[ "$$hash" != "$(2)" ] || [ -z "$$meta" ] || \
-			{ mkdir -p $(DL_VERIFIED_DIR); echo "$$id" > "$$stamp"; }; \
+			{ [ "$$meta" = "$$("$$stat_cmd" -c '%d %i %s %y %z' $(DL_DIR)/$(1) 2>/dev/null)" ] && mkdir -p $(DL_VERIFIED_DIR) && \
+			  tmp=$$(mktemp "$$stamp.XXXXXX") && echo "$$id" > "$$tmp" && mv "$$tmp" "$$stamp"; }; \
 		echo "$$hash"; \
 	fi)
 endef
@@ -163,7 +164,7 @@ define DownloadMethod/unknown
 endef
 
 define DownloadMethod/default
-	$(SCRIPT_DIR)/download.pl "$(DL_DIR)" "$(FILE)" "$(HASH)" "$(URL_FILE)" $(foreach url,$(URL),"$(url)") \
+	$(SCRIPT_DIR)/download.pl "$$$$dl_output" "$(FILE)" "$(HASH)" "$(URL_FILE)" $(foreach url,$(URL),"$(url)") \
 	$(if $(filter check,$(1)), \
 		$(call check_hash,$(FILE),$(HASH),$(2)$(call hash_var,$(MD5SUM))) \
 		$(call check_md5,$(MD5SUM),$(2)MD5SUM,$(2)HASH) \
@@ -186,7 +187,7 @@ endef
 # $(2): "PKG_" if <name> as in Download/<name> is "default", otherwise "Download/<name>:"
 # $(3): mode and arguments of scripts/gen-cargo-vendor-tarball.sh
 define vendor_generate
-	$(SCRIPT_DIR)/download.pl "$(DL_DIR)" "$(FILE)" "$(HASH)" "$(URL_FILE)" \
+	$(SCRIPT_DIR)/download.pl "$$$$dl_output" "$(FILE)" "$(HASH)" "$(URL_FILE)" \
 		$(foreach url,$(URL),"$(url)") || \
 	( \
 		$(SCRIPT_DIR)/download.pl "$(DL_DIR)" "$(VENDOR_FILE)" "$(VENDOR_HASH)" "" \
@@ -194,7 +195,7 @@ define vendor_generate
 		RUST_CARGO_URL="$(RUST_CARGO_URL)" RUST_CARGO_HASH="$(RUST_CARGO_HASH)" \
 			$(SCRIPT_DIR)/gen-cargo-vendor-tarball.sh $(3) \
 			--cached-source "$(DL_DIR)/$(VENDOR_FILE)" \
-			--output "$(DL_DIR)/$(FILE)" \
+			--output "$$$$dl_output/$(FILE)" \
 			--hash "$(HASH)" \
 			$(if $(VENDOR_TOPDIR),--top-dir "$(VENDOR_TOPDIR)") \
 			$(if $(VENDOR_SUBDIR),--subdir "$(VENDOR_SUBDIR)") \
@@ -250,10 +251,10 @@ Validate/meson-vendor-wraps=VENDOR_FILE VENDOR_URL VENDOR_WRAPS
 # $(3): shell command sequence to do the download
 define wrap_mirror
 $(if $(if $(MIRROR), \
-	$(filter-out x,$(MIRROR_HASH))),$(SCRIPT_DIR)/download.pl "$(DL_DIR)" "$(FILE)" "$(MIRROR_HASH)" "" || \
+	$(filter-out x,$(MIRROR_HASH))),$(SCRIPT_DIR)/download.pl "$$$$dl_output" "$(FILE)" "$(MIRROR_HASH)" "" || \
 		( $(3) ) \
 		$(if $(filter-out x,$(MIRROR_HASH)), && ( \
-			file_hash="$$$$($(MKHASH) sha256 "$(DL_DIR)/$(FILE)")"; \
+			file_hash="$$$$($(MKHASH) sha256 "$$$$dl_output/$(FILE)")"; \
 			[ "$$$$file_hash" = "$(MIRROR_HASH)" ] || [ "$(MIRROR_HASH)" = "skip" ] || { \
 				echo "Hash mismatch for file $(FILE): expected $(MIRROR_HASH), got $$$$file_hash"; \
 				false; \
@@ -269,8 +270,8 @@ endef
 define DownloadMethod/svn
 	$(call wrap_mirror,$(1),$(2), \
 		echo "Checking out files from the svn repository..."; \
-		mkdir -p $(TMP_DIR)/dl && \
-		cd $(TMP_DIR)/dl && \
+		mkdir -p $$$$dl_work && \
+		cd $$$$dl_work && \
 		rm -rf $(SUBDIR) && \
 		[ \! -d $(SUBDIR) ] && \
 		( svn help export | grep -q trust-server-cert && \
@@ -278,8 +279,8 @@ define DownloadMethod/svn
 		svn export --non-interactive -r$(SOURCE_VERSION) $(URL) $(SUBDIR) ) && \
 		echo "Packing checkout..." && \
 		export TAR_TIMESTAMP="`svn info -r$(SOURCE_VERSION) --show-item last-changed-date $(URL)`" && \
-		$(call dl_tar_pack,$(TMP_DIR)/dl/$(FILE),$(SUBDIR)) && \
-		mv $(TMP_DIR)/dl/$(FILE) $(DL_DIR)/ && \
+		$(call dl_tar_pack,$$$$dl_work/$(FILE),$(SUBDIR)) && \
+		mv $$$$dl_work/$(FILE) $$$$dl_output/ && \
 		rm -rf $(SUBDIR); \
 	)
 endef
@@ -293,7 +294,7 @@ endef
 define DownloadMethod/github_archive
 	$(call wrap_mirror,$(1),$(2), \
 		$(SCRIPT_DIR)/dl_github_archive.py \
-			--dl-dir="$(DL_DIR)" \
+			--dl-dir="$$$$dl_output" \
 			--url="$(URL)" \
 			--version="$(SOURCE_VERSION)" \
 			--subdir="$(SUBDIR)" \
@@ -312,8 +313,8 @@ endef
 # the short hash to 8 (default is 7). (for git log related usage)
 define DownloadMethod/rawgit
 	echo "Checking out files from the git repository..."; \
-	mkdir -p $(TMP_DIR)/dl && \
-	cd $(TMP_DIR)/dl && \
+	mkdir -p $$$$dl_work && \
+	cd $$$$dl_work && \
 	rm -rf $(SUBDIR) && \
 	[ \! -d $(SUBDIR) ] && \
 	git clone $(OPTS) $(URL) $(SUBDIR) && \
@@ -330,23 +331,23 @@ define DownloadMethod/rawgit
 	(cd $(SUBDIR) && $(if $(filter skip,$(SUBMODULES)),true,git submodule update --init --recursive -- $(SUBMODULES) && \
 	rm -rf .git .gitmodules)) && \
 	echo "Packing checkout..." && \
-	$(call dl_tar_pack,$(TMP_DIR)/dl/$(FILE),$(SUBDIR)) && \
-	mv $(TMP_DIR)/dl/$(FILE) $(DL_DIR)/ && \
+	$(call dl_tar_pack,$$$$dl_work/$(FILE),$(SUBDIR)) && \
+	mv $$$$dl_work/$(FILE) $$$$dl_output/ && \
 	rm -rf $(SUBDIR);
 endef
 
 define DownloadMethod/bzr
 	$(call wrap_mirror,$(1),$(2), \
 		echo "Checking out files from the bzr repository..."; \
-		mkdir -p $(TMP_DIR)/dl && \
-		cd $(TMP_DIR)/dl && \
+		mkdir -p $$$$dl_work && \
+		cd $$$$dl_work && \
 		rm -rf $(SUBDIR) && \
 		[ \! -d $(SUBDIR) ] && \
 		bzr export --per-file-timestamps -r$(SOURCE_VERSION) $(SUBDIR) $(URL) && \
 		echo "Packing checkout..." && \
 		export TAR_TIMESTAMP="" && \
-		$(call dl_tar_pack,$(TMP_DIR)/dl/$(FILE),$(SUBDIR)) && \
-		mv $(TMP_DIR)/dl/$(FILE) $(DL_DIR)/ && \
+		$(call dl_tar_pack,$$$$dl_work/$(FILE),$(SUBDIR)) && \
+		mv $$$$dl_work/$(FILE) $$$$dl_output/ && \
 		rm -rf $(SUBDIR); \
 	)
 endef
@@ -354,16 +355,16 @@ endef
 define DownloadMethod/hg
 	$(call wrap_mirror,$(1),$(2), \
 		echo "Checking out files from the hg repository..."; \
-		mkdir -p $(TMP_DIR)/dl && \
-		cd $(TMP_DIR)/dl && \
+		mkdir -p $$$$dl_work && \
+		cd $$$$dl_work && \
 		rm -rf $(SUBDIR) && \
 		[ \! -d $(SUBDIR) ] && \
 		hg clone -r $(SOURCE_VERSION) $(URL) $(SUBDIR) && \
 		export TAR_TIMESTAMP=`cd $(SUBDIR) && hg log --template '@{date}' -l 1` && \
 		find $(SUBDIR) -name .hg | xargs rm -rf && \
 		echo "Packing checkout..." && \
-		$(call dl_tar_pack,$(TMP_DIR)/dl/$(FILE),$(SUBDIR)) && \
-		mv $(TMP_DIR)/dl/$(FILE) $(DL_DIR)/ && \
+		$(call dl_tar_pack,$$$$dl_work/$(FILE),$(SUBDIR)) && \
+		mv $$$$dl_work/$(FILE) $$$$dl_output/ && \
 		rm -rf $(SUBDIR); \
 	)
 endef
@@ -371,16 +372,16 @@ endef
 define DownloadMethod/darcs
 	$(call wrap_mirror, $(1), $(2), \
 		echo "Checking out files from the darcs repository..."; \
-		mkdir -p $(TMP_DIR)/dl && \
-		cd $(TMP_DIR)/dl && \
+		mkdir -p $$$$dl_work && \
+		cd $$$$dl_work && \
 		rm -rf $(SUBDIR) && \
 		[ \! -d $(SUBDIR) ] && \
 		darcs get -t $(SOURCE_VERSION) $(URL) $(SUBDIR) && \
 		export TAR_TIMESTAMP=`cd $(SUBDIR) && LC_ALL=C darcs log --last 1 | sed -ne 's!^Date: \+!!p'` && \
 		find $(SUBDIR) -name _darcs | xargs rm -rf && \
 		echo "Packing checkout..." && \
-		$(call dl_tar_pack,$(TMP_DIR)/dl/$(FILE),$(SUBDIR)) && \
-		mv $(TMP_DIR)/dl/$(FILE) $(DL_DIR)/ && \
+		$(call dl_tar_pack,$$$$dl_work/$(FILE),$(SUBDIR)) && \
+		mv $$$$dl_work/$(FILE) $$$$dl_output/ && \
 		rm -rf $(SUBDIR); \
 	)
 endef
@@ -460,11 +461,10 @@ define Download
 
   $(DL_DIR)/$(FILE):
 	mkdir -p $(DL_DIR)
-	$(call locked, \
+	python3 "$(SCRIPT_DIR)/cached-download.py" "$(DL_DIR)" "$(FILE)" "$(or $(filter-out x,$(HASH)),$(MIRROR_HASH))" '$(subst ','\'',$(strip \
 		$(if $(DownloadMethod/$(call dl_method,$(URL),$(PROTO))), \
 			$(call DownloadMethod/$(call dl_method,$(URL),$(PROTO)),check,$(if $(filter default,$(1)),PKG_,Download/$(1):)), \
 			$(DownloadMethod/unknown) \
-		),\
-		$(FILE))
+		)))'
 
 endef

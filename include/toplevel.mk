@@ -100,7 +100,8 @@ scan_unchanged=[ -f $(SCAN_STAMP) ] && \
 # $(1): output file, $(2): package-metadata.pl command
 tmpinfo_gen=[ $(1) -nt tmp/.packageinfo ] && [ $(1) -nt scripts/package-metadata.pl ] && \
 	[ $(1) -nt scripts/metadata.pm ] || \
-	./scripts/package-metadata.pl $(2) tmp/.packageinfo > $(1) || { rm -f $(1); false; }
+	{ out=$$(mktemp "$(1).XXXXXX") && trap 'rm -f "$$out"' EXIT && \
+	./scripts/package-metadata.pl $(2) tmp/.packageinfo > "$$out" && mv "$$out" $(1); }
 
 prepare-tmpinfo: FORCE
 	@+$(MAKE) -r -s $(STAGING_DIR_HOST)/.prereq-build $(PREP_MK)
@@ -116,7 +117,8 @@ prepare-tmpinfo: FORCE
 		f=tmp/.$${type}info; t=tmp/.config-$${type}.in; \
 		[ "$$t" -nt "$$f" ] && [ "$$t" -nt "scripts/$${type}-metadata.pl" ] && \
 		[ "$$t" -nt scripts/metadata.pm ] || \
-		./scripts/$${type}-metadata.pl $(_ignore) config "$$f" > "$$t" || { rm -f "$$t"; echo "Failed to build $$t"; false; break; }; \
+		{ out=$$(mktemp "$$t.XXXXXX") && trap 'rm -f "$$out"' EXIT && \
+			./scripts/$${type}-metadata.pl $(_ignore) config "$$f" > "$$out" && mv "$$out" "$$t"; } || exit 1; \
 	done
 	./scripts/feeds feed_config > tmp/.config-feeds.in.new
 	cmp -s tmp/.config-feeds.in.new tmp/.config-feeds.in && rm -f tmp/.config-feeds.in.new || \
@@ -236,11 +238,15 @@ else
   DOWNLOAD_DIRS = package/download
 endif
 
+CHECKOUT_LOCK_EXTRA:=$(if $(call qstrip,$(CONFIG_BINARY_FOLDER)),--extra-dir "$(call qstrip,$(CONFIG_BINARY_FOLDER))")
+CHECKOUT_LOCK=python3 "$(TOPDIR)/scripts/checkout-lock.py" --tree "$(TOPDIR)" $(CHECKOUT_LOCK_EXTRA)
+run_checkout_locked=$(CHECKOUT_LOCK) --sh '$(subst ','\'',$(1))'
+
 download: .config FORCE $(if $(wildcard $(STAGING_DIR_HOST)/bin/flock),,tools/flock/compile) $(if $(wildcard $(STAGING_DIR_HOST)/bin/zstd),,tools/zstd/compile)
-	@+$(foreach dir,$(DOWNLOAD_DIRS),$(SUBMAKE) $(dir);)
+	@+$(call run_checkout_locked,$(foreach dir,$(DOWNLOAD_DIRS),$(SUBMAKE) $(dir) || exit $$?;))
 
 clean dirclean: .config
-	@+$(SUBMAKE) -r $@
+	@+$(call run_checkout_locked,$(SUBMAKE) -r $@)
 
 prereq:: prepare-tmpinfo .config
 	@+$(NO_TRACE_MAKE) -r -s $@
@@ -268,25 +274,32 @@ CONFIG_CHECK_STAMP:=tmp/.config-check
 CONFIG_CHECK_FILES:=.config Config.in config target toolchain package feeds \
 	tmp/.config-package.in tmp/.config-target.in tmp/.config-feeds.in scripts/config/conf
 
+define TOPLEVEL_DISPATCH_CMD
+set -e; \
+$(PREP_MK) $(NO_TRACE_MAKE) -r -s prereq; \
+if [ ! -f "$(CONFIG_CHECK_STAMP)" ] || [ -n "$$(find $(CONFIG_CHECK_FILES) -newer "$(CONFIG_CHECK_STAMP)" \
+	\( -name .config -o -name conf -o -name "*.in" -o -name "Config.*" \) -print -quit 2>/dev/null)" ]; then \
+	mkdir -p tmp; \
+	work=$$(mktemp -d tmp/config-check.XXXXXXXX); trap 'rm -rf "$$work"' EXIT; \
+	touch "$$work/stamp"; cp .config "$$work/config"; \
+	./scripts/config/conf $(KCONF_FLAGS) --defconfig="$$work/config" -w "$$work/config" Config.in >/dev/null; \
+	./scripts/kconfig.pl ">" .config "$$work/config" > "$$work/diff"; \
+	if grep -q CONFIG "$$work/diff"; then \
+		rm -f "$(CONFIG_CHECK_STAMP)"; \
+		printf "$(_R)WARNING: your configuration is out of sync. Please run make menuconfig, oldconfig or defconfig!$(_N)\n" >&2; \
+	else \
+		mv "$$work/stamp" "$(CONFIG_CHECK_STAMP)"; \
+	fi; \
+	rm -rf "$$work"; trap - EXIT; \
+fi; \
+$(ULIMIT_FIX) $(SUBMAKE) -r $@ $(if $(WARN_PARALLEL_ERROR), || { \
+	printf "$(_R)Build failed - please re-run with -j1 to see the real error message$(_N)\n" >&2; \
+	false; \
+} )
+endef
+
 %::
-	@+$(PREP_MK) $(NO_TRACE_MAKE) -r -s prereq
-	@( \
-		[ -f $(CONFIG_CHECK_STAMP) ] && [ -z "$$(find $(CONFIG_CHECK_FILES) -newer $(CONFIG_CHECK_STAMP) \
-			\( -name .config -o -name conf -o -name '*.in' -o -name 'Config.*' \) -print -quit 2>/dev/null)" ] && exit 0; \
-		touch $(CONFIG_CHECK_STAMP).new; \
-		cp .config tmp/.config; \
-		./scripts/config/conf $(KCONF_FLAGS) --defconfig=tmp/.config -w tmp/.config Config.in > /dev/null 2>&1; \
-		if ./scripts/kconfig.pl '>' .config tmp/.config | grep -q CONFIG; then \
-			rm -f $(CONFIG_CHECK_STAMP) $(CONFIG_CHECK_STAMP).new; \
-			printf "$(_R)WARNING: your configuration is out of sync. Please run make menuconfig, oldconfig or defconfig!$(_N)\n" >&2; \
-		else \
-			mv $(CONFIG_CHECK_STAMP).new $(CONFIG_CHECK_STAMP); \
-		fi \
-	)
-	@+$(ULIMIT_FIX) $(SUBMAKE) -r $@ $(if $(WARN_PARALLEL_ERROR), || { \
-		printf "$(_R)Build failed - please re-run with -j1 to see the real error message$(_N)\n" >&2; \
-		false; \
-	} )
+	@+$(CHECKOUT_LOCK) --sh '$(subst ','\'',$(TOPLEVEL_DISPATCH_CMD))'
 
 endif
 
@@ -308,8 +321,7 @@ help:
 	cat README.md
 
 distclean:
-	rm -rf bin build_dir .ccache .sccache .config* dl feeds key-build* logs package/feeds target/linux/feeds staging_dir tmp
-	@$(_SINGLE)$(SUBMAKE) -C scripts/config clean
+	@$(call run_checkout_locked,rm -rf bin build_dir .ccache .sccache .config* dl feeds key-build* logs package/feeds target/linux/feeds staging_dir tmp && $(SUBMAKE) -C scripts/config clean)
 
 ifeq ($(findstring v,$(DEBUG)),)
   .SILENT: symlinkclean clean dirclean distclean config-clean download help tmpinfo-clean .config scripts/config/mconf scripts/config/conf menuconfig $(STAGING_DIR_HOST)/.prereq-build tmp/.prereq-package prepare-tmpinfo

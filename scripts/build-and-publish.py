@@ -28,6 +28,7 @@ LAN = load('build_lan_publisher', 'publish-lan-apk-feeds.py')
 KERNEL = load('build_kernel_publisher', 'publish-kernel-upgrade-feed.py')
 INPUTS = load('kernel_build_inputs', 'kernel-build-inputs.py')
 GUARD = load('build_upgrade_preflight', 'apk-upgrade-preflight.py')
+CHECKOUT_LOCK = load('checkout_lock', 'checkout-lock.py')
 ALLOCATE = LAN.ALLOCATE
 # Each round may change exact-version dependents (ELF_DEP_*), so allow a short
 # cascade, but never loop on a rebuild that keeps producing new bytes.
@@ -629,10 +630,21 @@ def publish_allocating(tree, data, publish_once, make_args=(), allocate=False, r
                 rebuild()
 
 
+_ACTIVE_LOCK = None
+
+
 def run_make(tree, arguments):
     # Package scripts/lists and temporary roots inherit the build's umask.
     # Keep their recorded ACLs stable across shells and validation checkouts.
-    subprocess.run(['make', *arguments], cwd=tree, check=True, umask=0o022)
+    env = None
+    pass_fds = ()
+    if _ACTIVE_LOCK is not None:
+        fd, ident = _ACTIVE_LOCK
+        os.set_inheritable(fd, True)
+        env = {**os.environ, CHECKOUT_LOCK.ENV_FD: str(fd), CHECKOUT_LOCK.ENV_ID: ident}
+        pass_fds = (fd,)
+    subprocess.run(['make', *arguments], cwd=tree, check=True, umask=0o022,
+                   env=env, pass_fds=pass_fds)
 
 
 VM_IMAGE = 'openwrt-x86-64-generic-squashfs-combined-efi.img.gz'
@@ -674,14 +686,26 @@ def build(tree, make_args, publish_after=True, artifact_directory=None, lock_fd=
         if argument.startswith(('-C', '--directory', 'TOPDIR=')):
             raise ValueError('Build-and-publish must build this checkout')
     data = settings(tree)
-    # Serialize the full build against this checkout, not just the final index.
+    # Serialize the full build against this checkout using a lock outside tmp/
+    # so dirclean cannot replace its inode.
     lockdir = tree / 'tmp'
     lockdir.mkdir(exist_ok=True)
-    with (lockdir / '.build-and-publish.lock').open('a') as lock:
-        if lock_fd is None:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-        elif (os.fstat(lock_fd).st_dev, os.fstat(lock_fd).st_ino) != (os.fstat(lock.fileno()).st_dev, os.fstat(lock.fileno()).st_ino):
-            raise ValueError('Inherited build lock does not belong to this checkout')
+    global _ACTIVE_LOCK
+    cfg = configuration(tree)
+    extra_dirs = [cfg['CONFIG_BINARY_FOLDER'].strip('"')] if cfg.get('CONFIG_BINARY_FOLDER', '').strip('"') else []
+    prev_lock = _ACTIVE_LOCK
+    with CHECKOUT_LOCK.acquire_checkout_lock(tree, lock_fd=lock_fd, extra_dirs=extra_dirs) as (held_fd, ident, _):
+        _ACTIVE_LOCK = (held_fd, ident)
+        try:
+            return _build_locked(tree, make_args, data, lockdir, publish_after, artifact_directory,
+                                 allocate_rebuilds, rolling, dry_run, vm_artifacts)
+        finally:
+            _ACTIVE_LOCK = prev_lock
+
+
+def _build_locked(tree, make_args, data, lockdir, publish_after, artifact_directory,
+                  allocate_rebuilds, rolling, dry_run, vm_artifacts):
+    if True:
         targets = [arg for arg in make_args if not arg.startswith('-') and '=' not in arg
                    and not arg.isdigit()]
         enabled = configuration(tree).get('CONFIG_OPENWRT_KERNEL_UPGRADE') == 'y'
@@ -810,13 +834,18 @@ def main():
         tree = args.source_root.resolve()
         lockdir = tree / 'tmp'
         lockdir.mkdir(exist_ok=True)
-        with Progress(enabled=not args.no_progress) as progress, \
-                (lockdir / '.build-and-publish.lock').open('a') as lock:
+        global _ACTIVE_LOCK
+        prev_lock = _ACTIVE_LOCK
+        with Progress(enabled=not args.no_progress) as progress:
             progress(0, 'Wait for build/publication lock')
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            result = publish_allocating(tree, data,
-                lambda: publish(tree, data, args.dry_run, progress, artifacts=args.artifacts),
-                allocate=args.allocate_rebuilds)
+            with CHECKOUT_LOCK.acquire_checkout_lock(tree) as (held_fd, ident, _):
+                _ACTIVE_LOCK = (held_fd, ident)
+                try:
+                    result = publish_allocating(tree, data,
+                        lambda: publish(tree, data, args.dry_run, progress, artifacts=args.artifacts),
+                        allocate=args.allocate_rebuilds)
+                finally:
+                    _ACTIVE_LOCK = prev_lock
     print(json.dumps(result, indent=2))
 
 

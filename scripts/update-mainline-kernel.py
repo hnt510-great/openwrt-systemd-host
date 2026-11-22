@@ -159,15 +159,18 @@ def sync(root, update=False, fetcher=None, validator=validate_patches):
     fetcher = fetcher or Fetcher()
     with ExitStack() as stack:
         if update:
+            import importlib.util
             gitdir = Path(subprocess.check_output(
                 ['git', '-C', str(root), 'rev-parse', '--absolute-git-dir'], text=True).strip())
-            (root / 'tmp').mkdir(exist_ok=True)
-            for path in (gitdir / 'mainline-kernel-update.lock', root / 'tmp/.build-and-publish.lock'):
-                lock = stack.enter_context(path.open('a'))
-                try:
-                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError as error:
-                    raise SyncError('A kernel sync or build is already running') from error
+            spec = importlib.util.spec_from_file_location('checkout_lock', Path(__file__).resolve().parent / 'checkout-lock.py')
+            cl = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(cl)
+            lock = stack.enter_context((gitdir / 'mainline-kernel-update.lock').open('a'))
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                stack.enter_context(cl.acquire_checkout_lock(root, nonblocking=True))
+            except BlockingIOError as error:
+                raise SyncError('A kernel sync or build is already running') from error
         series, current, metadata = current_kernel(root)
         latest = latest_release(json.loads(fetcher.get(RELEASES)))
         report = {'current': current, 'latest': latest, 'series': series}
