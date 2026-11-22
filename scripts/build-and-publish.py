@@ -29,6 +29,7 @@ KERNEL = load('build_kernel_publisher', 'publish-kernel-upgrade-feed.py')
 INPUTS = load('kernel_build_inputs', 'kernel-build-inputs.py')
 GUARD = load('build_upgrade_preflight', 'apk-upgrade-preflight.py')
 CHECKOUT_LOCK = load('checkout_lock', 'checkout-lock.py')
+COLD_VERIFY = load('rebuild_cold_verify', 'rebuild-cold-verify.py')
 ALLOCATE = LAN.ALLOCATE
 # Each round may change exact-version dependents (ELF_DEP_*), so allow a short
 # cascade, but never loop on a rebuild that keeps producing new bytes.
@@ -524,7 +525,7 @@ def publish_locked(tree, data, apk, dry_run, progress=None, artifacts=None, expe
             full=True)
         args = argparse.Namespace(source_root=userspace, kernel=abi, destination=destination,
             base_url=data['base_url'], incremental=True, dry_run=False, kernel_upgrade_view=True,
-            stage_only=True, expected=userspace_expected)
+            stage_only=True, expected=userspace_expected, frozen_artifacts=artifacts is not None)
         try:
             if progress:
                 progress(30, 'Prepare userspace feeds', 'signatures and ABI checks')
@@ -610,24 +611,123 @@ def make_options(make_args):
     return options
 
 
-def publish_allocating(tree, data, publish_once, make_args=(), allocate=False, rebuild=None):
+def _maybe_cold_verify_entries(tree, entries, *, abi_store=None, cold_runner=None,
+                               evidence_dir=None, attempted_recipes=None,
+                               allow_high_cost=False, authorized_cold_recipes=()):
+    """Run at most one isolated cold rebuild per recipe for reviewable ELF candidates."""
+    attempted = attempted_recipes if attempted_recipes is not None else set()
+    recipes = ALLOCATE.recipe_versions(tree) if (tree / 'tmp/.packageinfo').is_file() else {}
+    by_recipe = {}
+    for idx, entry in enumerate(entries):
+        decision = entry.get('decision') or {}
+        if decision.get('action') != LAN.DIAGNOSE.ACTION_REVIEW:
+            continue
+        if not entry.get('old_path') or not entry.get('new_path'):
+            continue
+        if not Path(entry['old_path']).is_file() or not Path(entry['new_path']).is_file():
+            continue
+        name = entry.get('name')
+        if not name or name not in recipes:
+            continue
+        makefile = recipes[name][1]
+        if makefile in attempted:
+            continue
+        by_recipe.setdefault(makefile, []).append((idx, entry))
+
+    if not by_recipe:
+        return entries
+
+    updated = list(entries)
+    pub_key = tree / 'public-key.pem'
+    for makefile, group in sorted(by_recipe.items()):
+        attempted.add(makefile)
+        candidates = {e['name']: Path(e['new_path']) for _, e in group}
+        if pub_key.is_file():
+            with tempfile.TemporaryDirectory(prefix='cold-verify-keys-') as keys_tmp:
+                shutil.copyfile(pub_key, Path(keys_tmp) / 'public-key.pem')
+                cold = COLD_VERIFY.cold_rebuild_recipe(
+                    tree, makefile, candidates,
+                    apk=TREE / 'staging_dir/host/bin/apk',
+                    keys_dir=Path(keys_tmp),
+                    evidence_dir=evidence_dir,
+                    runner=cold_runner,
+                    allow_high_cost=allow_high_cost,
+                    authorized_recipes=authorized_cold_recipes)
+                for idx, entry in group:
+                    pkg_ev = cold.get('packages', {}).get(entry['name'])
+                    if not pkg_ev:
+                        continue
+                    combined_ev = {
+                        **pkg_ev,
+                        'input_sha256': cold.get('input_sha256'),
+                        'inputs_stable': cold.get('inputs_stable'),
+                        'cold_build_verified': cold.get('cold_build_verified', False),
+                    }
+                    new_entry, _ = ALLOCATE.classify(
+                        entry['old_path'], entry['new_path'], entry['path'],
+                        apk=TREE / 'staging_dir/host/bin/apk',
+                        keys_dir=Path(keys_tmp),
+                        abi_store=abi_store,
+                        cold_evidence=combined_ev)
+                    if entry.get('snapshot'):
+                        new_entry['snapshot'] = entry['snapshot']
+                    updated[idx] = new_entry
+    return updated
+
+
+def publish_allocating(tree, data, publish_once, make_args=(), allocate=False, rebuild=None,
+                       dry_run=False, approvals=None, cold_rebuild=False, abi_store=None,
+                       cold_runner=None, evidence_dir=None, allow_high_cost=False,
+                       authorized_cold_recipes=()):
     """Publish; on same-version rebuilds optionally allocate releases, rebuild, retry."""
+    attempted_recipes = set()
     for round_number in range(ALLOCATION_ROUNDS + 1):
         try:
             return publish_once()
         except LAN.SameVersionRebuildError as error:
             if not allocate or round_number == ALLOCATION_ROUNDS:
                 raise
-            allocations = ALLOCATE.plan(tree, data['destination'], error.entries)
+            entries = error.entries
+            if cold_rebuild and not dry_run:
+                entries = _maybe_cold_verify_entries(
+                    tree, entries, abi_store=abi_store, cold_runner=cold_runner,
+                    evidence_dir=evidence_dir, attempted_recipes=attempted_recipes,
+                    allow_high_cost=allow_high_cost,
+                    authorized_cold_recipes=authorized_cold_recipes)
+            plan_kwargs = {}
+            if approvals is not None:
+                plan_kwargs['approvals'] = approvals
+            if getattr(error, 'snapshot', None):
+                plan_kwargs['snapshot'] = error.snapshot
+            allocations = ALLOCATE.plan(tree, data['destination'], entries, **plan_kwargs)
+            if dry_run:
+                print('Dry run: planned release allocations (no ledger writes or rebuilds):\n' +
+                      ALLOCATE.describe(allocations), file=sys.stderr)
+                return {
+                    'status': 'dry-run-conflict',
+                    'planned_allocations': allocations,
+                    'entries': error.entries,
+                }
             print('Allocating new releases for same-version rebuilds:\n' +
                   ALLOCATE.describe(allocations), file=sys.stderr)
-            ALLOCATE.apply(tree, allocations)
+            apply_kwargs = {}
+            if getattr(error, 'snapshot', None):
+                apply_kwargs['destination'] = data['destination']
+            ALLOCATE.apply(tree, allocations, **apply_kwargs)
             if rebuild is None:
                 targets = ALLOCATE.rebuild_targets(allocations)
                 print('Rebuilding: ' + ' '.join(targets), file=sys.stderr)
                 run_make(tree, [*make_options(list(make_args)), *targets])
             else:
                 rebuild()
+            pub_key = tree / 'public-key.pem'
+            if pub_key.is_file() and any(a.get('new_path') and Path(a['new_path']).is_file()
+                                         for a in allocations):
+                with tempfile.TemporaryDirectory(prefix='verify-rebuilt-keys-') as keys_tmp:
+                    shutil.copyfile(pub_key, Path(keys_tmp) / 'public-key.pem')
+                    ALLOCATE.verify_rebuilt_packages(
+                        tree, allocations, apk=TREE / 'staging_dir/host/bin/apk',
+                        keys_dir=Path(keys_tmp))
 
 
 _ACTIVE_LOCK = None
@@ -824,9 +924,20 @@ def main():
         parser.add_argument('--allocate-rebuilds', action='store_true',
                             help='Allocate ELF rebuild ledger releases for same-version rebuilds, '
                                  'rebuild those packages and retry')
+        parser.add_argument('--approval', type=Path,
+                            help='JSON file with digest-bound review approval(s)')
+        parser.add_argument('--cold-rebuild', action='store_true',
+                            help='Run at most one isolated cold rebuild per conflicting recipe (Phase 2b)')
+        parser.add_argument('--allow-high-cost-cold-rebuild', action='store_true',
+                            help='Explicitly authorize cold rebuild of high-cost recipes (Qt/LLVM/Rust)')
+        parser.add_argument('--authorize-cold-recipe', action='append', default=[],
+                            help='Explicitly authorize one high-cost recipe/package for cold rebuild (repeatable)')
+        parser.add_argument('--abi-store', type=Path,
+                            help='Out-of-APK type ABI evidence directory (Phase 2a)')
         args = parser.parse_args()
         if args.artifacts and args.allocate_rebuilds:
             parser.error('Frozen artifact publication cannot allocate and rebuild packages')
+        approvals = ALLOCATE.load_approvals(args.approval) if args.approval else None
         data = json.loads(args.config.read_text())
         data.update({k: v for k, v in vars(args).items()
                      if k in ('destination', 'base_url', 'kernel') and v is not None})
@@ -843,7 +954,11 @@ def main():
                 try:
                     result = publish_allocating(tree, data,
                         lambda: publish(tree, data, args.dry_run, progress, artifacts=args.artifacts),
-                        allocate=args.allocate_rebuilds)
+                        allocate=args.allocate_rebuilds, dry_run=args.dry_run,
+                        approvals=approvals, cold_rebuild=args.cold_rebuild,
+                        abi_store=args.abi_store,
+                        allow_high_cost=args.allow_high_cost_cold_rebuild,
+                        authorized_cold_recipes=args.authorize_cold_recipe)
                 finally:
                     _ACTIVE_LOCK = prev_lock
     print(json.dumps(result, indent=2))

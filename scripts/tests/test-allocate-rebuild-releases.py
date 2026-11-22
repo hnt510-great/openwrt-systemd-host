@@ -2,6 +2,8 @@
 """Automatic ELF rebuild ledger allocation for same-version rebuilds."""
 import importlib.util
 from pathlib import Path
+import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -78,13 +80,19 @@ class AllocationTests(unittest.TestCase):
     def test_allocates_next_free_release_beyond_published_built_and_ledger(self):
         plan = A.plan(self.tree, self.destination, [
             entry('base/nautilus-51.1-r3.apk', 'nautilus', '51.1-r3'),
-            entry('packages/samba4-libs-4.24.5-r5.apk', 'samba4-libs', '4.24.5-r5', 'unknown', True),
+            entry('packages/samba4-libs-4.24.5-r5.apk', 'samba4-libs', '4.24.5-r5', 'change', True),
             entry('base/mtd-29-r2.apk', 'mtd', '29-r2')])
         self.assertEqual({a['name']: a['release'] for a in plan},
                          {'nautilus': '51.1-r4', 'samba4-libs': '4.24.5-r6', 'mtd': '29-r3'})
         self.assertEqual(A.rebuild_targets(plan), [
             'package/custom/nautilus/compile', 'package/feeds/packages/samba4/compile',
             'package/system/mtd/compile'])
+
+    def test_unknown_with_so_changed_is_refused(self):
+        self.assertFalse(A.eligible({'verdict': 'unknown', 'so_changed': True}))
+        with self.assertRaisesRegex(ValueError, 'Refusing'):
+            A.plan(self.tree, self.destination, [
+                entry('packages/samba4-libs-4.24.5-r5.apk', 'samba4-libs', '4.24.5-r5', 'unknown', True)])
 
     def test_unrelated_package_with_name_prefix_does_not_reserve(self):
         plan = A.plan(self.tree, self.destination,
@@ -127,6 +135,7 @@ class AllocationTests(unittest.TestCase):
         self.assertEqual(text.count('# 2026-11-09 ' + A.SECTION), 1)
         tail = text.split('# 2026-11-09 ' + A.SECTION + '\n', 1)[1]
         self.assertEqual(tail.splitlines(), [
+            '# reserved: ELF_REBUILD_mtd_29 -> 29-r2',
             'ELF_DEP_mtd_29:=mtd=29-r3',
             'ELF_REBUILD_nautilus_51.1-r3:=51.1-r4',
             'ELF_DEP_nautilus_51.1-r3:=nautilus=51.1-r4',
@@ -249,6 +258,71 @@ class AllocationTests(unittest.TestCase):
                          ['1.0.8-r1', 'feeds/packages/utils/bzip2/Makefile', '1.0'])
         self.assertNotIn('no-version', versions)
 
+    def test_deduplicates_projected_custom_and_rejects_digest_conflict(self):
+        e1 = {**entry('base/nautilus-51.1-r3.apk', 'nautilus', '51.1-r3'),
+              'old_sha256': 'aaa', 'new_sha256': 'bbb'}
+        e2 = {**entry('custom/nautilus-51.1-r3.apk', 'nautilus', '51.1-r3'),
+              'old_sha256': 'aaa', 'new_sha256': 'bbb'}
+        planned = A.plan(self.tree, self.destination, [e1, e2])
+        self.assertEqual(len(planned), 1)
+        self.assertEqual(planned[0]['sources'],
+                         ['base/nautilus-51.1-r3.apk', 'custom/nautilus-51.1-r3.apk'])
+
+        e3 = {**entry('custom/nautilus-51.1-r3.apk', 'nautilus', '51.1-r3'),
+              'old_sha256': 'aaa', 'new_sha256': 'ccc'}
+        with self.assertRaisesRegex(ValueError, 'conflicting candidate digests'):
+            A.plan(self.tree, self.destination, [e1, e3])
+
+    def test_digest_bound_approval_and_policy_mismatch(self):
+        review_entry = {
+            **entry('base/nautilus-51.1-r3.apk', 'nautilus', '51.1-r3', 'unknown'),
+            'old_sha256': 'old111',
+            'new_sha256': 'new222',
+            'report_sha256': 'rep333',
+            'decision': {'action': A.DIAGNOSE.ACTION_REVIEW, 'reasons': ['missing_type_abi_evidence'],
+                         'blockers': ['missing type'], 'unresolved': [{'path': 'x', 'detail': 'y'}]},
+        }
+        good_approval = [{
+            'schema': 1,
+            'policy_version': A.DIAGNOSE.POLICY_VERSION,
+            'old_sha256': 'old111',
+            'new_sha256': 'new222',
+            'report_sha256': 'rep333',
+            'name': 'nautilus',
+            'reason': 'maintainer verified ABI',
+        }]
+        bad_policy = [{**good_approval[0], 'policy_version': 'old-policy'}]
+        bad_digest = [{**good_approval[0], 'new_sha256': 'different'}]
+        self.assertFalse(A.eligible(review_entry))
+        self.assertFalse(A.eligible(review_entry, approvals=bad_policy))
+        self.assertFalse(A.eligible(review_entry, approvals=bad_digest))
+        self.assertTrue(A.eligible(review_entry, approvals=good_approval))
+        planned = A.plan(self.tree, self.destination, [review_entry], approvals=good_approval)
+        self.assertEqual(planned[0]['release'], '51.1-r4')
+
+    def test_concurrent_ledger_change_and_crash_recovery(self):
+        e = {**entry('base/nautilus-51.1-r3.apk', 'nautilus', '51.1-r3'),
+             'old_sha256': 'old111', 'new_sha256': 'new222', 'report_sha256': 'rep333'}
+        planned = A.plan(self.tree, self.destination, [e])
+        # Simulate concurrent modification before apply.
+        (self.tree / A.LEDGER).write_text(self.ledger() + '# concurrent edit\n')
+        with self.assertRaisesRegex(ValueError, 'Ledger changed concurrently'):
+            A.apply(self.tree, planned, today='2026-11-22')
+
+        # Re-plan and apply cleanly.
+        planned = A.plan(self.tree, self.destination, [e])
+        A.apply(self.tree, planned, today='2026-11-22')
+        self.assertIn('ELF_REBUILD_nautilus_51.1-r3:=51.1-r4\n', self.ledger())
+
+        # Simulate interrupted rebuild: retry planning with the exact same conflict.
+        # Must recover 51.1-r4 instead of failing or allocating 51.1-r5!
+        recovered = A.plan(self.tree, self.destination, [e])
+        self.assertEqual(recovered[0]['release'], '51.1-r4')
+        self.assertTrue(recovered[0]['recovered'])
+        ledger_before = self.ledger()
+        A.apply(self.tree, recovered, today='2026-11-22')
+        self.assertEqual(self.ledger(), ledger_before)
+
 
 class PublishAllocatingTests(unittest.TestCase):
     def setUp(self):
@@ -295,6 +369,52 @@ class PublishAllocatingTests(unittest.TestCase):
             B.publish_allocating(TREE, self.data, publish_once, [], True)
         self.assertEqual(make.call_count, B.ALLOCATION_ROUNDS)
         self.assertTrue(make.call_args.args[1][0].startswith('-j'))
+
+    def test_dry_run_with_allocate_has_zero_ledger_or_make_side_effects(self):
+        def publish_once():
+            raise self.error
+        with patch.object(B.ALLOCATE, 'plan', return_value=self.allocation) as plan, \
+                patch.object(B.ALLOCATE, 'apply') as apply, \
+                patch.object(B, 'run_make') as make:
+            result = B.publish_allocating(TREE, self.data, publish_once, [], True, dry_run=True)
+        self.assertEqual(result['status'], 'dry-run-conflict')
+        self.assertEqual(result['planned_allocations'], self.allocation)
+        plan.assert_called_once()
+        apply.assert_not_called()
+        make.assert_not_called()
+
+
+@unittest.skipUnless(A.APK.exists() and (TREE / 'public-key.pem').is_file()
+                     and (TREE / 'private-key.pem').is_file(),
+                     'host apk or signing keys not present')
+class PostAllocationVerificationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='verify-rebuilt-')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.keys = self.root / 'keys'
+        self.keys.mkdir()
+        shutil.copyfile(TREE / 'public-key.pem', self.keys / 'public-key.pem')
+
+    def build_apk(self, label, version, payload_bytes):
+        payload = self.root / ('payload-' + label)
+        (payload / 'usr/share/demo').mkdir(parents=True)
+        (payload / 'usr/share/demo/file.txt').write_bytes(payload_bytes)
+        out = self.root / f'demo-{version}-{label}.apk'
+        subprocess.run([str(A.APK), 'mkpkg', '--sign-key', str(TREE / 'private-key.pem'),
+                        '--info', 'name:demo', '--info', f'version:{version}',
+                        '--info', 'arch:x86_64', '--info', 'license:MIT',
+                        '--info', 'description:test', '--files', str(payload),
+                        '--output', str(out)], check=True, capture_output=True)
+        return out
+
+    def test_accepts_release_bump_only_and_rejects_payload_drift(self):
+        cand = self.build_apk('cand', '1.0-r1', b'same content\n')
+        good = self.build_apk('good', '1.0-r2', b'same content\n')
+        drift = self.build_apk('drift', '1.0-r2', b'drifted content\n')
+        A.verify_rebuilt_package(cand, good, 'demo', apk=A.APK, keys_dir=self.keys)
+        with self.assertRaisesRegex(ValueError, 'drifted beyond release-bump metadata'):
+            A.verify_rebuilt_package(cand, drift, 'demo', apk=A.APK, keys_dir=self.keys)
 
 
 if __name__ == '__main__':
