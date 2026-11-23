@@ -737,6 +737,107 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(path.read_bytes(), before)
         self.assertFalse(self.fetcher.downloads)
 
+    def test_versioned_directory_with_group_follow_updates_atomically(self):
+        xz_payload = b'\xfd7zXZ\x00fixture xz archive'
+        xz_digest = hashlib.sha256(xz_payload).hexdigest()
+        ecm = self.root / 'package/custom/extra-cmake-modules/Makefile'
+        ecm.parent.mkdir(parents=True)
+        ecm.write_text(
+            'PKG_NAME:=extra-cmake-modules\nPKG_VERSION:=6.20.0\nPKG_RELEASE:=1\n'
+            'PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz\n'
+            'PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.20/\n'
+            'PKG_HASH:=' + 'a' * 64 + '\n')
+        kf6 = self.root / 'package/custom/kf6-kcoreaddons/Makefile'
+        kf6.parent.mkdir(parents=True)
+        kf6.write_text(
+            'PKG_NAME:=kf6-kcoreaddons\nPKG_VERSION:=6.20.0\nPKG_RELEASE:=2\n'
+            'PKG_SOURCE:=kcoreaddons-$(PKG_VERSION).tar.xz\n'
+            'PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.20/\n'
+            'PKG_HASH:=' + 'a' * 64 + '\n')
+        self.entries['extra-cmake-modules'] = {
+            'provider': 'directory',
+            'policy': 'major',
+            'index': 'https://download.kde.org/stable/frameworks/',
+            'version_dir_pattern': r'[0-9]+\.[0-9]+',
+            'filename_pattern': r'extra\-cmake\-modules\-(?P<version>[0-9]+(?:\.[0-9]+)*)\.tar\.xz',
+        }
+        self.entries['kf6-kcoreaddons'] = {
+            'provider': 'follow',
+            'recipe': 'package/custom/extra-cmake-modules/Makefile',
+        }
+        self.fetcher.data['https://download.kde.org/stable/frameworks/'] = (
+            b'<a href="6.20/">6.20/</a><a href="6.21/">6.21/</a><a href="7.0/">7.0/</a>')
+        self.fetcher.data['https://download.kde.org/stable/frameworks/6.21/'] = (
+            b'<a href="extra-cmake-modules-6.21.0.tar.xz">ecm</a>')
+        self.fetcher.data['https://download.kde.org/stable/frameworks/6.21/extra-cmake-modules-6.21.0.tar.xz'] = xz_payload
+        self.fetcher.data['https://download.kde.org/stable/frameworks/6.21/kcoreaddons-6.21.0.tar.xz'] = xz_payload
+        self.commit()
+        updater = self.updater()
+        self.assertEqual(self.execute(updater), 0)
+        self.assertIn('PKG_VERSION:=6.21.0\n', ecm.read_text())
+        self.assertIn('PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.21/\n', ecm.read_text())
+        self.assertIn('PKG_HASH:=' + xz_digest + '\n', ecm.read_text())
+        self.assertIn('PKG_VERSION:=6.21.0\n', kf6.read_text())
+        self.assertIn('PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.21/\n', kf6.read_text())
+        self.assertIn('PKG_RELEASE:=1\n', kf6.read_text())
+        self.assertEqual(updater.report['packages']['extra-cmake-modules']['review_version'], '7.0')
+        # Only the highest in-branch directory should be fetched, not older 6.20/ or out-of-branch 7.0/.
+        self.assertNotIn('https://download.kde.org/stable/frameworks/6.20/', self.fetcher.requests)
+        self.assertNotIn('https://download.kde.org/stable/frameworks/7.0/', self.fetcher.requests)
+
+    def test_versioned_directory_with_subdir_and_qt_follow_default_assignment(self):
+        xz_payload = b'\xfd7zXZ\x00fixture xz archive'
+        xz_digest = hashlib.sha256(xz_payload).hexdigest()
+        konsole = self.root / 'package/custom/konsole/Makefile'
+        konsole.parent.mkdir(parents=True)
+        konsole.write_text(
+            'PKG_NAME:=konsole\nPKG_VERSION:=26.08.3\nPKG_RELEASE:=2\n'
+            'PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz\n'
+            'PKG_SOURCE_URL:=https://download.kde.org/stable/release-service/26.08.3/src/\n'
+            'PKG_HASH:=' + 'a' * 64 + '\n')
+        self.entries['konsole'] = {
+            'provider': 'directory',
+            'policy': 'stable',
+            'index': 'https://download.kde.org/stable/release-service/',
+            'version_dir_pattern': r'[0-9]+\.[0-9]+\.[0-9]+',
+            'subdir': 'src/',
+            'filename_pattern': r'konsole\-(?P<version>[0-9]+(?:\.[0-9]+)*)\.tar\.xz',
+        }
+        self.fetcher.data['https://download.kde.org/stable/release-service/'] = (
+            b'<a href="26.08.3/">26.08.3/</a><a href="26.12.0/">26.12.0/</a>')
+        self.fetcher.data['https://download.kde.org/stable/release-service/26.12.0/src/'] = (
+            b'<a href="konsole-26.12.0.tar.xz">konsole</a>')
+        self.fetcher.data['https://download.kde.org/stable/release-service/26.12.0/src/konsole-26.12.0.tar.xz'] = xz_payload
+
+        common = self.root / 'feeds/video/frameworks/qt6/common.mk'
+        common.parent.mkdir(parents=True)
+        common.write_text('PKG_VERSION?=6.10.1\nPKG_SOURCE_URL?=https://download.qt.io/archive/qt/6.10/6.10.1/submodules\n')
+        qt = self.root / 'package/custom/qt6wayland/Makefile'
+        qt.parent.mkdir(parents=True)
+        qt.write_text(
+            'PKG_NAME:=qt6wayland\nPKG_VERSION:=6.9.3\nPKG_RELEASE:=2\n'
+            'PKG_SOURCE:=qtwayland-everywhere-src-$(PKG_VERSION).tar.xz\n'
+            'PKG_SOURCE_URL:=https://download.qt.io/archive/qt/6.9/$(PKG_VERSION)/submodules/\n'
+            'PKG_HASH:=' + 'a' * 64 + '\n')
+        self.entries['qt6wayland'] = {
+            'provider': 'follow',
+            'recipe': 'feeds/video/frameworks/qt6/common.mk',
+        }
+        self.fetcher.data['https://download.qt.io/archive/qt/6.10/6.10.1/submodules/qtwayland-everywhere-src-6.10.1.tar.xz'] = xz_payload
+        self.commit()
+        updater = self.updater()
+        self.assertEqual(self.execute(updater), 0)
+        self.assertIn('PKG_VERSION:=26.12.0\n', konsole.read_text())
+        self.assertIn('PKG_SOURCE_URL:=https://download.kde.org/stable/release-service/26.12.0/src/\n', konsole.read_text())
+        self.assertIn('PKG_HASH:=' + xz_digest + '\n', konsole.read_text())
+        self.assertIn('PKG_VERSION:=6.10.1\n', qt.read_text())
+        self.assertIn('PKG_SOURCE_URL:=https://download.qt.io/archive/qt/6.10/$(PKG_VERSION)/submodules/\n', qt.read_text())
+        self.assertIn('PKG_HASH:=' + xz_digest + '\n', qt.read_text())
+
+        zst = self.root / 'sample.tar.zst'
+        zst.write_bytes(b'\x28\xb5\x2f\xfdfixture zst')
+        U.validate_payload(zst, 'sample.tar.zst')
+
     def test_live_registry_covers_all_recipe_directories(self):
         data = json.loads((TREE / 'configs/custom-package-updates.json').read_text())
         self.assertEqual(data['schema'], 1)

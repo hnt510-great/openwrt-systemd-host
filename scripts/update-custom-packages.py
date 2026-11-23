@@ -26,9 +26,10 @@ class FetchError(UpdateError):
         self.status = status
 
 
-def fields(text, names=None):
+def fields(text, names=None, allow_default=False):
     result = {}
-    for key, value in re.findall(r'^(PKG_[A-Z_]+):=(.*)$', text, re.M):
+    pattern = r'^(PKG_[A-Z_]+)[?:]=(.*)$' if allow_default else r'^(PKG_[A-Z_]+):=(.*)$'
+    for key, value in re.findall(pattern, text, re.M):
         if names is not None and key not in names:
             continue
         if key in result:
@@ -172,7 +173,7 @@ def stable_tag(tag, pattern=r'v?(?P<version>[0-9]+(?:\.[0-9]+)*)'):
     return match['version'] if match else None
 
 
-def catalog(entry, fetcher):
+def catalog(entry, fetcher, current=None):
     provider = entry['provider']
     versions = {}
     if provider == 'github':
@@ -198,28 +199,61 @@ def catalog(entry, fetcher):
                 versions[version] = {'catalog': url}
     elif provider == 'directory':
         url = entry['index']
-        links = Links(fetcher.get(url).decode(), url).links
-        by_name = {unquote(urlparse(link).path.rsplit('/', 1)[-1]): link for link in links}
-        for name, link in by_name.items():
-            match = re.fullmatch(entry['filename_pattern'], name)
-            if match:
-                source_version = match.groupdict().get('source_version')
-                version = package_version(match['version'].replace('_', '.') if source_version
-                                          else match['version'])
-                if entry.get('stable_pattern') and not re.fullmatch(entry['stable_pattern'], version):
-                    continue
-                meta = {'catalog': url}
-                if source_version:
-                    meta['source_version'] = source_version
-                    previous = versions.get(version, {})
-                    if previous.get('ambiguous_source') or (previous.get('source_version') and
-                            previous['source_version'] != source_version):
-                        meta['ambiguous_source'] = True
-                for suffix in ('.sha256sum', '.sha256'):
-                    if name + suffix in by_name:
-                        meta['checksums'] = by_name[name + suffix]
-                        break
-                versions[version] = meta
+        if entry.get('version_dir_pattern'):
+            parent = url
+            dirs = {}
+            for link in Links(fetcher.get(parent).decode(), parent).links:
+                segment = unquote(urlparse(link).path.rstrip('/').rsplit('/', 1)[-1])
+                if re.fullmatch(entry['version_dir_pattern'], segment):
+                    target = link if link.endswith('/') else link + '/'
+                    if entry.get('subdir'):
+                        target = urljoin(target, entry['subdir'].lstrip('/'))
+                        if not target.endswith('/'):
+                            target += '/'
+                    dirs[segment] = target
+            if not dirs:
+                raise UpdateError('No recognizable release directories from ' + parent)
+            policy = entry.get('policy', 'series')
+            ordered = sorted(dirs, key=version_key, reverse=True)
+            if current is not None:
+                allowed_dirs = [d for d in ordered if in_branch(d, current, policy)]
+                newest = ordered[0]
+                if not in_branch(newest, current, policy) and version_key(newest) > version_key(current):
+                    review_ver = newest + '.0' if newest.count('.') == 1 else newest
+                    versions.setdefault(review_ver, {'catalog': parent, 'review_only': True,
+                                                     'review_series': newest})
+            else:
+                allowed_dirs = ordered
+            scan_urls = [dirs[d] for d in allowed_dirs]
+        else:
+            scan_urls = [url]
+        for scan_url in scan_urls:
+            found_in_dir = False
+            links = Links(fetcher.get(scan_url).decode(), scan_url).links
+            by_name = {unquote(urlparse(link).path.rsplit('/', 1)[-1]): link for link in links}
+            for name, link in by_name.items():
+                match = re.fullmatch(entry['filename_pattern'], name)
+                if match:
+                    found_in_dir = True
+                    source_version = match.groupdict().get('source_version')
+                    version = package_version(match['version'].replace('_', '.') if source_version
+                                              else match['version'])
+                    if entry.get('stable_pattern') and not re.fullmatch(entry['stable_pattern'], version):
+                        continue
+                    meta = {'catalog': scan_url}
+                    if source_version:
+                        meta['source_version'] = source_version
+                        previous = versions.get(version, {})
+                        if previous.get('ambiguous_source') or (previous.get('source_version') and
+                                previous['source_version'] != source_version):
+                            meta['ambiguous_source'] = True
+                    for suffix in ('.sha256sum', '.sha256'):
+                        if name + suffix in by_name:
+                            meta['checksums'] = by_name[name + suffix]
+                            break
+                    versions[version] = meta
+            if entry.get('version_dir_pattern') and found_in_dir:
+                break
         # GNOME publishes maintenance branches in separate directories.
         if entry.get('series_index'):
             parent = entry['series_index']
@@ -394,7 +428,7 @@ def validate_payload(path, filename):
         prefix = stream.read(8)
     signature = next((magic for suffix, magic in (('.gz', b'\x1f\x8b'), ('.xz', b'\xfd7zXZ\x00'),
                          ('.bz2', b'BZh'), ('.otf', b'OTTO'), ('.zip', b'PK\x03\x04'),
-                         ('.deb', b'!<arch>\n'))
+                         ('.deb', b'!<arch>\n'), ('.zst', b'\x28\xb5\x2f\xfd'))
                       if filename.endswith(suffix)), None)
     if signature is None or not prefix.startswith(signature):
         raise UpdateError('Unexpected source format for ' + filename)
@@ -482,7 +516,8 @@ class Updater:
             path = self.root / entry['recipe']
             self.followed_inputs[path] = path.read_text()
             followed_text = planned.get(path, self.followed_inputs[path])
-            followed = fields(followed_text)
+            followed_names = {'PKG_VERSION', 'PKG_HASH'} if entry.get('same_source') else {'PKG_VERSION'}
+            followed = fields(followed_text, followed_names, allow_default=True)
             version = followed['PKG_VERSION']
             if version_key(version) < version_key(current):
                 raise UpdateError('Refusing followed-source downgrade for ' + name)
@@ -490,7 +525,7 @@ class Updater:
             if entry.get('same_source'):
                 meta['hash'] = valid_hash(followed['PKG_HASH'])
         else:
-            versions = catalog(entry, self.fetcher)
+            versions = catalog(entry, self.fetcher, current=current)
             allowed = [v for v, info in versions.items() if not info.get('review_only') and
                        in_branch(v, current, entry.get('policy', 'series'))]
             # Existing pinned versions need no release-history request. Validate

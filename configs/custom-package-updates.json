@@ -117,8 +117,11 @@
       "series_index": "https://download.gnome.org/sources/evolution-data-server/"
     },
     "extra-cmake-modules": {
-      "provider": "local",
-      "reason": "Pinned CMake modules for desktop input methods and the KF6/Konsole build"
+      "provider": "directory",
+      "policy": "major",
+      "index": "https://download.kde.org/stable/frameworks/",
+      "version_dir_pattern": "[0-9]+\\.[0-9]+",
+      "filename_pattern": "extra\\-cmake\\-modules\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
     },
     "fastfetch": {
       "provider": "github",
@@ -428,177 +431,123 @@
       "reason": "Version follows the target kernel/libc"
     },
     "kf6-karchive": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "karchive\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kbookmarks": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kbookmarks\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kcodecs": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kcodecs\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kcolorscheme": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kcolorscheme\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kcompletion": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kcompletion\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kconfig": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kconfig\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kconfigwidgets": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kconfigwidgets\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kcoreaddons": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kcoreaddons\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kcrash": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kcrash\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kdbusaddons": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kdbusaddons\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kglobalaccel": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kglobalaccel\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kguiaddons": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kguiaddons\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-ki18n": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "ki18n\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kiconthemes": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kiconthemes\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kio": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kio\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kitemviews": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kitemviews\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kjobwidgets": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kjobwidgets\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-knotifications": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "knotifications\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-knotifyconfig": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "knotifyconfig\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kparts": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kparts\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kpty": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kpty\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kservice": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kservice\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-ktextwidgets": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "ktextwidgets\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kwidgetsaddons": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kwidgetsaddons\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kwindowsystem": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kwindowsystem\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kxmlgui": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kxmlgui\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-solid": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "solid\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-sonnet": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "sonnet\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "konsole": {
       "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/release-service/26.08.3/src/",
+      "policy": "stable",
+      "index": "https://download.kde.org/stable/release-service/",
+      "version_dir_pattern": "[0-9]+\\.[0-9]+\\.[0-9]+",
+      "subdir": "src/",
       "filename_pattern": "konsole\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
     },
     "lan-apk-feeds": {
@@ -1339,58 +1288,42 @@
       "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
     },
     "kf6-attica": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "attica\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kcmutils": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kcmutils\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kirigami": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kirigami\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-knewstuff": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "knewstuff\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kpackage": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kpackage\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "plasma-wayland-protocols": {
       "provider": "directory",
-      "policy": "series",
+      "policy": "major",
       "index": "https://download.kde.org/stable/plasma-wayland-protocols/",
       "filename_pattern": "plasma\\-wayland\\-protocols\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
     },
     "qt6multimedia": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.qt.io/archive/qt/6.9/6.9.3/submodules/",
-      "filename_pattern": "qtmultimedia\\-everywhere\\-src\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "feeds/video/frameworks/qt6/common.mk"
     },
     "qt6speech": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.qt.io/archive/qt/6.9/6.9.3/submodules/",
-      "filename_pattern": "qtspeech\\-everywhere\\-src\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "feeds/video/frameworks/qt6/common.mk"
     },
     "qt6wayland": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.qt.io/archive/qt/6.9/6.9.3/submodules/",
-      "filename_pattern": "qtwayland\\-everywhere\\-src\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "feeds/video/frameworks/qt6/common.mk"
     },
     "fcitx5-qt": {
       "provider": "directory",
@@ -1421,10 +1354,8 @@
       "reason": "Pinned altlinux/libutempter commit (no tagged release)"
     },
     "kf6-breeze-icons": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "breeze\\-icons\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     }
   }
 }
