@@ -11,6 +11,7 @@ import sys
 
 SCHEMA_VERSION = 1
 SESSIONS_DIR = Path('/usr/libexec/openwrt-desktop/sessions.d')
+SYSTEMD_USER_DIR = Path('/usr/lib/systemd/user')
 RUN_DIR = Path('/run/openwrt-desktop')
 SECRET_DIR = Path('/etc/desktop/gnome')
 TLS_DIR = Path('/etc/desktop/tls')
@@ -28,7 +29,7 @@ DRIFT_KEYS = ('session', 'user', 'kms_scheduling', 'output', 'mode')
 CONFIG_DEFAULTS = {
     'enabled': '0',
     'user': '',
-    'session': 'gnome',
+    'session': '',
     'output': 'auto',
     'mode': 'preferred',
     'kms_scheduling': 'high-priority',
@@ -140,6 +141,8 @@ def parse_session_plugin(path):
         'available': available,
         'supports_rdp': fields.get('SESSION_SUPPORTS_RDP') == '1',
         'supports_kms_scheduling': fields.get('SESSION_SUPPORTS_KMS_SCHEDULING') == '1',
+        'credential_backend': fields.get('SESSION_CREDENTIAL_BACKEND') or '',
+        'rdp_unit': fields.get('SESSION_RDP_UNIT') or '',
     }
 
 
@@ -152,6 +155,22 @@ def discover_sessions():
         if parsed is not None:
             sessions.append(parsed)
     return sessions
+
+
+def resolve_session(configured, sessions):
+    by_id = {s['id']: s for s in sessions}
+    if configured:
+        sess = by_id.get(configured)
+        if sess and sess['available']:
+            return sess, None
+        return None, f"Desktop session '{configured}' is not installed or unavailable"
+    available = [s for s in sessions if s['available']]
+    if len(available) == 1:
+        return available[0], None
+    if not available:
+        return None, 'No desktop session is installed or available'
+    ids = ', '.join(s['id'] for s in available)
+    return None, f'Multiple desktop sessions are available ({ids}); configure desktop.main.session explicitly'
 
 
 def discover_outputs():
@@ -226,12 +245,14 @@ def read_active_state():
     }
 
 
-def inspect_user_and_credentials(username):
+def inspect_user_and_credentials(username, session_info=None):
+    requires_keyring = bool(session_info and session_info.get('credential_backend') == 'gnome-keyring')
     info = {
         'user_valid': False,
         'uid': None,
         'gid': None,
-        'keyring_credential': 'missing',
+        'keyring_required': requires_keyring,
+        'keyring_credential': 'missing' if requires_keyring else 'not_applicable',
         'tls_present': False,
         'error': None,
     }
@@ -271,14 +292,17 @@ def inspect_user_and_credentials(username):
     info['uid'] = uid
     info['gid'] = gid
 
-    secret = SECRET_DIR / f'{uid}.keyring-passphrase'
-    cred = SECRET_DIR / f'{uid}.keyring-passphrase.cred'
-    if is_safe_regular_file(cred, require_root=REQUIRE_ROOT_PLUGIN, exact_mode=0o600, nonempty=True):
-        info['keyring_credential'] = 'tpm2'
-    elif is_safe_regular_file(secret, require_root=REQUIRE_ROOT_PLUGIN, exact_mode=0o600, nonempty=True):
-        info['keyring_credential'] = 'plaintext'
+    if requires_keyring:
+        secret = SECRET_DIR / f'{uid}.keyring-passphrase'
+        cred = SECRET_DIR / f'{uid}.keyring-passphrase.cred'
+        if is_safe_regular_file(cred, require_root=REQUIRE_ROOT_PLUGIN, exact_mode=0o600, nonempty=True):
+            info['keyring_credential'] = 'tpm2'
+        elif is_safe_regular_file(secret, require_root=REQUIRE_ROOT_PLUGIN, exact_mode=0o600, nonempty=True):
+            info['keyring_credential'] = 'plaintext'
+        else:
+            info['keyring_credential'] = 'missing'
     else:
-        info['keyring_credential'] = 'missing'
+        info['keyring_credential'] = 'not_applicable'
 
     crt = TLS_DIR / f'{username}.crt'
     key = TLS_DIR / f'{username}.key'
@@ -286,10 +310,18 @@ def inspect_user_and_credentials(username):
     return info
 
 
-def probe_runtime(service, provisioned):
+def probe_runtime(service, provisioned, session_info=None):
+    rdp_unit = (session_info or {}).get('rdp_unit') or ''
+    rdp_available = bool(
+        session_info
+        and session_info.get('supports_rdp')
+        and rdp_unit
+        and (SYSTEMD_USER_DIR / rdp_unit).is_file()
+    )
     runtime = {
         'lan_address': None,
         'keyring_unlocked': None,
+        'rdp_available': rdp_available,
         'rdp_active': False,
         'sunshine_active': False,
         'audio_active': False,
@@ -317,26 +349,28 @@ def probe_runtime(service, provisioned):
         'DBUS_SESSION_BUS_ADDRESS': f'unix:path={bus_path}',
     }
 
-    locked_res = run_cmd([
-        'gdbus', 'call', '--session',
-        '--dest', 'org.freedesktop.secrets',
-        '--object-path', '/org/freedesktop/secrets/aliases/default',
-        '--method', 'org.freedesktop.DBus.Properties.Get',
-        'org.freedesktop.Secret.Collection', 'Locked',
-    ], timeout=3, user=uid, group=gid, env=user_env)
-    if locked_res.returncode == 0:
-        out = locked_res.stdout.strip()
-        if out == '(<false>,)':
-            runtime['keyring_unlocked'] = True
-        elif out == '(<true>,)':
-            runtime['keyring_unlocked'] = False
+    if provisioned.get('keyring_required'):
+        locked_res = run_cmd([
+            'gdbus', 'call', '--session',
+            '--dest', 'org.freedesktop.secrets',
+            '--object-path', '/org/freedesktop/secrets/aliases/default',
+            '--method', 'org.freedesktop.DBus.Properties.Get',
+            'org.freedesktop.Secret.Collection', 'Locked',
+        ], timeout=3, user=uid, group=gid, env=user_env)
+        if locked_res.returncode == 0:
+            out = locked_res.stdout.strip()
+            if out == '(<false>,)':
+                runtime['keyring_unlocked'] = True
+            elif out == '(<true>,)':
+                runtime['keyring_unlocked'] = False
 
     def unit_active(unit):
         res = run_cmd(['systemctl', '--user', 'is-active', unit],
                       timeout=3, user=uid, group=gid, env=user_env)
         return res.returncode == 0 and res.stdout.strip() == 'active'
 
-    runtime['rdp_active'] = unit_active('gnome-remote-desktop.service')
+    if rdp_available:
+        runtime['rdp_active'] = unit_active(rdp_unit)
     runtime['sunshine_active'] = unit_active('sunshine.service')
     runtime['audio_active'] = unit_active('wireplumber.service') or unit_active('pipewire.socket')
     return runtime
@@ -347,20 +381,35 @@ def get_status():
     service = read_service_state()
     active = read_active_state() if service['active_state'] in ('active', 'activating') else None
     sessions = discover_sessions()
+    by_id = {s['id']: s for s in sessions}
+    selected_session, selection_error = resolve_session(config['session'], sessions)
+    effective_session = None
+    if active and active.get('session') in by_id:
+        effective_session = by_id[active['session']]
+    elif selected_session is not None:
+        effective_session = selected_session
+    elif config['session'] in by_id:
+        effective_session = by_id[config['session']]
+
     outputs = discover_outputs()
-    provisioned = inspect_user_and_credentials(config['user'])
-    runtime = probe_runtime(service, provisioned)
+    provisioned = inspect_user_and_credentials(config['user'], session_info=effective_session)
+    runtime = probe_runtime(service, provisioned, session_info=effective_session)
 
     drifted_keys = []
     if active is not None:
         for key in DRIFT_KEYS:
-            if active.get(key) and active.get(key) != config.get(key):
+            expected = config.get(key)
+            if key == 'session' and not expected and selected_session is not None:
+                expected = selected_session['id']
+            if active.get(key) and expected and active.get(key) != expected:
                 drifted_keys.append(key)
 
     return success(
         service=service,
         config=config,
         active=active,
+        selected_session=selected_session['id'] if selected_session else None,
+        selection_error=selection_error,
         restart_required=bool(drifted_keys),
         drifted_keys=drifted_keys,
         provisioned=provisioned,
@@ -372,16 +421,19 @@ def get_status():
 
 def preflight_start(status_data, target_session=None):
     config = status_data['config']
-    provisioned = status_data['provisioned']
-    sessions = {s['id']: s for s in status_data['sessions']}
-    session_id = target_session or config['session']
+    sessions = status_data['sessions']
+    if target_session is not None:
+        resolved, err_msg = resolve_session(target_session, sessions)
+    else:
+        resolved, err_msg = resolve_session(config['session'], sessions)
+    if resolved is None:
+        return failure(2, err_msg)
 
+    provisioned = inspect_user_and_credentials(config['user'], session_info=resolved)
     if not provisioned['user_valid']:
         return failure(2, provisioned['error'] or 'Desktop user is not provisioned')
-    if provisioned['keyring_credential'] == 'missing':
+    if provisioned['keyring_required'] and provisioned['keyring_credential'] == 'missing':
         return failure(2, 'Keyring bootstrap credential is missing; run desktop-setup USER over SSH')
-    if session_id not in sessions or not sessions[session_id]['available']:
-        return failure(2, f"Desktop session '{session_id}' is not installed or unavailable")
     return None
 
 
@@ -410,9 +462,9 @@ def do_switch(session_id):
     if not SESSION_ID_RE.match(session_id):
         return failure(2, f"Invalid desktop session '{session_id}'")
     status_data = get_status()
-    sessions = {s['id']: s for s in status_data['sessions']}
-    if session_id not in sessions or not sessions[session_id]['available']:
-        return failure(2, f"Desktop session '{session_id}' is not installed or unavailable")
+    resolved, err_msg = resolve_session(session_id, status_data['sessions'])
+    if resolved is None:
+        return failure(2, err_msg)
 
     running = status_data['service']['active_state'] in ('active', 'activating')
     if running:

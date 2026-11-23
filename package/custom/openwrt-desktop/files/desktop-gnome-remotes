@@ -20,17 +20,11 @@ wait_wayland_display() {
 }
 wait_wayland_display
 /usr/libexec/desktop-gnome-settings
-if [ "$(uci -q get desktop.main.audio_enabled || :)" = 1 ] &&
-   [ "$(uci -q get desktop.main.audio_user || :)" = "$USER" ]; then
-	systemctl --user start pipewire.socket pipewire-pulse.socket wireplumber.service
-fi
-if [ -x /usr/libexec/desktop-audio-session ]; then /usr/libexec/desktop-audio-session; fi
-if [ -x /usr/libexec/desktop-flatpak-session ]; then /usr/libexec/desktop-flatpak-session; fi
+# Ensure shared session services (audio, Flatpak, Sunshine) start even for
+# upgraded GNOME users whose graphical-session.target.wants predates the split.
+systemctl --user start openwrt-desktop-services.service 2>/dev/null || :
 uid=$(id -u)
 address_file="/run/openwrt-desktop/$uid.env"
-sunshine_unit=app-dev.lizardbyte.app.Sunshine.service
-sunshine_user_link="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/gnome-session.target.wants/$sunshine_unit"
-sunshine_system_link="/etc/systemd/user/gnome-session.target.wants/$sunshine_unit"
 # Ticks are fork-free apart from sleep; systemd is only contacted when the
 # inputs change, and every resync_ticks so stopped services are restarted.
 resync_ticks=15
@@ -38,7 +32,7 @@ ticks=0
 previous_key=
 previous_address=
 cleanup() {
-	systemctl --user stop gnome-remote-desktop.service sunshine.service 2>/dev/null || :
+	systemctl --user stop gnome-remote-desktop.service 2>/dev/null || :
 }
 read_environment() {
 	address= rdp=
@@ -54,9 +48,7 @@ trap cleanup EXIT
 trap 'exit 0' HUP INT TERM
 while :; do
 	read_environment
-	sunshine=0
-	if [ -e "$sunshine_user_link" ] || [ -e "$sunshine_system_link" ]; then sunshine=1; fi
-	key="$address|$rdp|$sunshine"
+	key="$address|$rdp"
 	if [ "$key" != "$previous_key" ] || [ "$ticks" -ge "$resync_ticks" ]; then
 		previous_key=$key
 		ticks=0
@@ -77,11 +69,6 @@ while :; do
 				else
 					systemctl --user stop gnome-remote-desktop.service || :
 				fi
-			fi
-			if [ "$sunshine" = 1 ]; then
-				systemctl --user start sunshine.service || :
-			else
-				systemctl --user stop sunshine.service || :
 			fi
 		fi
 	fi

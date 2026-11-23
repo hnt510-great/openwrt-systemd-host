@@ -4,10 +4,49 @@ SESSION_DESCRIPTION="GNOME 51 Wayland desktop with Mutter"
 SESSION_EXEC="/usr/bin/gnome-session"
 SESSION_SUPPORTS_RDP="1"
 SESSION_SUPPORTS_KMS_SCHEDULING="1"
+SESSION_CREDENTIAL_BACKEND="gnome-keyring"
+SESSION_RDP_UNIT="gnome-remote-desktop.service"
 SESSION_UNSET_VARS="MUTTER_DEBUG_KMS_SCHEDULING_PRIORITY"
 
 desktop_session_check() {
 	[ -x "$SESSION_EXEC" ]
+}
+
+desktop_session_setup() {
+	set -- "$DESKTOP_USER_NAME"
+	[ "${DESKTOP_REFRESH_KEYRING:-0}" != 1 ] || set -- "$@" --refresh-keyring
+	[ "${DESKTOP_KEYRING_STDIN:-0}" != 1 ] || set -- "$@" --keyring-password-stdin
+	/usr/libexec/desktop-gnome-keyring-setup "$@"
+}
+
+desktop_session_user_setup() {
+	local config_home wants unit
+	config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+	wants="$config_home/systemd/user/gnome-session.target.wants"
+	mkdir -p "$wants"
+	for unit in openwrt-gnome-remotes.service openwrt-fcitx5.service; do
+		[ ! -f "/usr/lib/systemd/user/$unit" ] || ln -sfn "/usr/lib/systemd/user/$unit" "$wants/$unit"
+	done
+}
+
+desktop_session_credential_prop() {
+	local secret cred
+	secret="/etc/desktop/gnome/$DESKTOP_USER_UID.keyring-passphrase"
+	cred="$secret.cred"
+	if [ -f "$cred" ] && [ ! -L "$cred" ] && [ -s "$cred" ] && [ "$(stat -c %u:%a "$cred")" = 0:600 ]; then
+		printf 'LoadCredentialEncrypted=keyring-passphrase:%s\n' "$cred"
+		return 0
+	fi
+	if [ -f "$secret" ] && [ ! -L "$secret" ] && [ -s "$secret" ] && [ "$(stat -c %u:%a "$secret")" = 0:600 ]; then
+		printf 'LoadCredential=keyring-passphrase:%s\n' "$secret"
+		return 0
+	fi
+	desktop_error 'Run desktop-setup to provision unattended keyring access'
+	return 1
+}
+
+desktop_session_unlock() {
+	/usr/libexec/desktop-keyring-unlock
 }
 
 desktop_session_exec() {

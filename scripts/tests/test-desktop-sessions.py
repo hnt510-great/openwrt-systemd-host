@@ -151,6 +151,30 @@ class DesktopSessionPluginsTest(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn('stopped-dummy', stop_log.read_text())
         self.assertFalse((self.run_dir / 'active.env').exists())
+        self.assertTrue((self.run_dir / 'manual-stop').exists())
+
+        # DRM hotplug must respect manual-stop even when desktop.main.enabled=1
+        hotplug_calls = self.path / 'hotplug.log'
+        fake_init = self.tool('fake-desktop-init', f'printf "%s\\n" "$*" >> "{hotplug_calls}"')
+        self.tool('uci', 'case "$*" in *desktop.main.enabled*) echo 1;; *desktop.main.user*) echo alice;; *desktop.main.session*) echo gnome;; *) exit 1;; esac')
+        hotplug = self.path / '95-desktop'
+        hotplug.write_text(
+            (FILES / 'desktop.hotplug').read_text()
+            .replace('/run/openwrt-desktop', str(self.run_dir))
+            .replace('/etc/init.d/desktop', str(fake_init)))
+        res = subprocess.run(['sh', str(hotplug)], env=dict(self.env, ACTION='change'), capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertFalse(hotplug_calls.exists())
+
+        # Starting again clears manual-stop so subsequent DRM hotplug works
+        res = subprocess.run(['sh', str(harness), str(init_file), 'start_service'],
+                             env=dict(self.env, TARGET_SESSION='dummy'),
+                             capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertFalse((self.run_dir / 'manual-stop').exists())
+        res = subprocess.run(['sh', str(hotplug)], env=dict(self.env, ACTION='add'), capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(hotplug_calls.read_text().strip(), 'start')
 
         # Verify desktop-session clears KDE_FULL_SESSION / MUTTER_DEBUG_KMS_SCHEDULING_PRIORITY
         # collected across all plugins in sessions.d/
@@ -285,6 +309,130 @@ class DesktopSessionPluginsTest(unittest.TestCase):
         res = mod.do_action('restart')
         self.assertFalse(res['ok'])
         self.assertEqual(init_calls, [])
+
+    def test_no_credential_backend_and_session_resolution_rules(self):
+        mod = load_desktop_ctl()
+        mod.SESSIONS_DIR = self.sessions_dir
+        mod.SYSTEMD_USER_DIR = self.path / 'systemd-user'
+        mod.SYSTEMD_USER_DIR.mkdir()
+        mod.RUN_DIR = self.run_dir
+        mod.SECRET_DIR = self.path / 'secrets-empty'
+        mod.SECRET_DIR.mkdir()
+        mod.TLS_DIR = self.path / 'tls-empty'
+        mod.TLS_DIR.mkdir()
+        mod.DRM_DIR = self.path / 'drm'
+        mod.DRM_DIR.mkdir()
+        mod.PASSWD_FILE = self.path / 'passwd'
+        mod.REQUIRE_ROOT_PLUGIN = False
+        mod.PASSWD_FILE.write_text('alice:x:1000:1000::/home/alice:/bin/sh\n')
+
+        uci_values = {
+            'desktop.main.enabled': '1',
+            'desktop.main.user': 'alice',
+            'desktop.main.session': '',
+        }
+
+        def fake_run(argv, **kwargs):
+            if argv[0] == 'uci' and argv[1] == '-q' and argv[2] == 'get':
+                val = uci_values.get(argv[3], '')
+                return subprocess.CompletedProcess(argv, 0 if val else 1, val + '\n' if val else '', '')
+            if argv[0] == 'systemctl' and argv[1] == 'show':
+                return subprocess.CompletedProcess(
+                    argv, 0,
+                    'ActiveState=inactive\nSubState=dead\nMainPID=0\nNRestarts=0\nActiveEnterTimestamp=\n', '')
+            return subprocess.CompletedProcess(argv, 1, '', '')
+
+        mod.run_cmd = fake_run
+
+        # 0 available sessions -> selection_error set, preflight rejects
+        st0 = mod.get_status()
+        self.assertTrue(st0['ok'])
+        self.assertIsNone(st0['selected_session'])
+        self.assertIn('No desktop session', st0['selection_error'])
+        self.assertEqual(st0['provisioned']['keyring_credential'], 'not_applicable')
+        self.assertFalse(st0['runtime']['rdp_available'])
+        self.assertIsNotNone(mod.preflight_start(st0))
+
+        # 1 available non-GNOME session (no credential backend, no RDP) -> auto-selected, preflight passes without secret!
+        dummy_bin = self.tool('dummy-session', 'exit 0')
+        self.write_dummy_plugin(dummy_bin, self.path / 'stop.log')
+        st1 = mod.get_status()
+        self.assertEqual(st1['selected_session'], 'dummy')
+        self.assertIsNone(st1['selection_error'])
+        self.assertEqual(st1['provisioned']['keyring_credential'], 'not_applicable')
+        self.assertFalse(st1['provisioned']['keyring_required'])
+        self.assertFalse(st1['runtime']['rdp_available'])
+        self.assertIsNone(mod.preflight_start(st1))
+
+        # Verify desktop.init starts dummy without LoadCredential* when unconfigured
+        common = self.write_common(
+            'desktop_error() { printf "%s\\n" "$*" >&2; return 1; }\n'
+            'desktop_validate_user() { DESKTOP_USER_UID=1000 DESKTOP_USER_HOME=/home/alice DESKTOP_USER_SHELL=/bin/sh; }\n'
+            'desktop_lan_address() { echo 192.0.2.1; }\n'
+            'desktop_select_output() { echo HDMI-A-1; }\n'
+        )
+        self.tool('logger', ':')
+        self.tool('chown', ':')
+        self.tool('uci', 'exit 1')
+        self.tool('systemctl', '[ "$1" = is-active ] && exit 3 || exit 0')
+        self.tool('systemd-run', f'printf "%s\\n" "$@" > "{self.path / "dummy-run.args"}"')
+        init_src = (FILES / 'desktop.init').read_text()
+        init_src = init_src.replace('/usr/libexec/desktop-common.sh', str(common))
+        init_src = init_src.replace('/run/openwrt-desktop', str(self.run_dir))
+        init_src = init_src.replace('/dev/tty0', str(self.path / 'no-tty0'))
+        init_file = self.path / 'desktop-nocred.init'
+        init_file.write_text(init_src)
+        harness = self.path / 'harness-nocred.sh'
+        harness.write_text(
+            'config_load() { :; }\n'
+            'config_get_bool() { eval "$1=1"; }\n'
+            'config_get() {\n'
+            '\tcase "$3" in\n'
+            '\t\tuser) eval "$1=alice" ;;\n'
+            '\t\tsession) eval "$1=" ;;\n'
+            '\t\t*) eval "$1=\\$4" ;;\n'
+            '\tesac\n'
+            '}\n'
+            '. "$1"\n'
+            'start_service\n'
+        )
+        res = subprocess.run(['sh', str(harness), str(init_file)], env=self.env, capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        args = (self.path / 'dummy-run.args').read_text().splitlines()
+        self.assertIn('--setenv=OPENWRT_DESKTOP_SESSION=dummy', args)
+        self.assertFalse(any('LoadCredential' in a for a in args))
+
+        # 2 available sessions with unconfigured session -> ambiguous, both desktop-ctl and desktop_resolve_session reject
+        second_bin = self.tool('second-session', 'exit 0')
+        (self.sessions_dir / 'second').write_text(
+            f'SESSION_ID="second"\nSESSION_TITLE="Second"\nSESSION_EXEC="{second_bin}"\n')
+        st2 = mod.get_status()
+        self.assertIsNone(st2['selected_session'])
+        self.assertIn('Multiple desktop sessions', st2['selection_error'])
+        self.assertIsNotNone(mod.preflight_start(st2))
+        res = subprocess.run(
+            ['sh', '-c', '. "$1"; desktop_resolve_session ""', 't', str(common)],
+            capture_output=True, text=True)
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn('Multiple desktop sessions', res.stderr)
+
+    def test_flatpak_session_uses_current_desktop_not_hardcoded_gnome(self):
+        fp_src = (ROOT / 'package/custom/openwrt-flatpak/files/desktop-flatpak-session').read_text()
+        native = self.path / 'native-systemd'
+        native.mkdir()
+        log = self.path / 'fp-systemctl.log'
+        self.tool('systemctl', f'printf "%s\\n" "$*" >> "{log}"\n'
+                  'if [ "$2" = show-environment ]; then echo "XDG_CURRENT_DESKTOP=DUMMY"; fi\n')
+        fp_script = self.path / 'desktop-flatpak-session'
+        fp_script.write_text(fp_src.replace('/run/systemd/system', str(native)))
+        env = dict(self.env, XDG_RUNTIME_DIR=str(self.path), WAYLAND_DISPLAY='wayland-0')
+        env.pop('XDG_CURRENT_DESKTOP', None)
+        res = subprocess.run(['sh', str(fp_script)], env=env, capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        lines = log.read_text().splitlines()
+        self.assertTrue(any('import-environment' in l and 'XDG_CURRENT_DESKTOP' in l for l in lines))
+        self.assertTrue(any('start openwrt-flatpak-session.target' in l for l in lines))
+        self.assertNotIn('XDG_CURRENT_DESKTOP=GNOME', fp_src)
 
 
 if __name__ == '__main__':

@@ -22,128 +22,20 @@ done
 [ -d /run/systemd/system ] || {
 	desktop_error 'The desktop requires a native-systemd image'; exit 1;
 }
-session="$(uci -q get desktop.main.session || printf gnome)"
-[ -n "$session" ] || session=gnome
-desktop_load_session "$session" && desktop_session_check || {
-	desktop_error "Desktop session '$session' is not installed or unavailable"; exit 1;
-}
+configured_session="$(uci -q get desktop.main.session || :)"
+session="$(desktop_resolve_session "$configured_session")" || exit 1
+desktop_load_session "$session" || exit 1
 desktop_validate_user "$user"
+if [ "$refresh_keyring" = 1 ] && [ -z "${SESSION_CREDENTIAL_BACKEND:-}" ]; then
+	desktop_error "Desktop session '$session' does not use a keyring credential backend"
+	exit 1
+fi
 usermod -a -G video,render "$user"
-desktop_setup_tls
-secret_dir=/etc/desktop/gnome
-[ ! -L "$secret_dir" ] || { desktop_error 'Unsafe desktop credential directory'; exit 1; }
-mkdir -p "$secret_dir"
-chown 0:0 "$secret_dir"
-chmod 0700 "$secret_dir"
-valid_credential() {
-	[ -f "$1" ] && [ ! -L "$1" ] && [ -s "$1" ] && [ "$(stat -c %u:%a "$1")" = 0:600 ]
-}
-shred_or_rm() {
-	if command -v shred >/dev/null 2>&1; then
-		shred -u "$1"
-	else
-		rm -f "$1"
-	fi
-}
-test_unlock_credential() {
-	# A separate PAM session supplies a user manager/bus for first-time setup.
-	# The system manager reads the root-only file into the user's credential mount.
-	systemd-run --quiet --collect --wait --pipe --unit="openwrt-keyring-setup-$DESKTOP_USER_UID" \
-		--uid="$user" --property=PAMName=openwrt-desktop \
-		--property="$1" \
-		--setenv=HOME="$DESKTOP_USER_HOME" --setenv=USER="$user" \
-		--setenv=LOGNAME="$user" /usr/libexec/desktop-keyring-unlock
-}
-install_tpm2_credential() {
-	source_file=$1
-	cred_tmp="$(mktemp "$secret_dir/.keyring-cred.XXXXXX")"
-	# Seal only to the TPM2 SRK (no PCR mask, no host key) so kernel and sysupgrade updates keep unlocking.
-	systemd-creds encrypt --with-key=tpm2 --tpm2-pcrs="" --name=keyring-passphrase "$source_file" "$cred_tmp"
-	systemd-creds decrypt --name=keyring-passphrase --refuse-null "$cred_tmp" - | cmp -s - "$source_file"
-	test_unlock_credential "LoadCredentialEncrypted=keyring-passphrase:$cred_tmp"
-	mv "$cred_tmp" "$cred"
-	cred_tmp=
-}
-secret="$secret_dir/$DESKTOP_USER_UID.keyring-passphrase"
-cred="$secret.cred"
-has_tpm2=0
-if command -v systemd-creds >/dev/null 2>&1 && systemd-analyze has-tpm2 --quiet 2>/dev/null; then
-	has_tpm2=1
-fi
-if [ "$refresh_keyring" = 1 ] || { [ ! -e "$cred" ] && [ ! -e "$secret" ]; }; then
-	umask 077
-	tmp="$(mktemp "$secret_dir/.keyring.XXXXXX")"
-	cred_tmp=
-	tty_state=
-	cleanup() {
-		[ -z "$tty_state" ] || stty "$tty_state" <&3
-		[ -z "$tmp" ] || [ ! -e "$tmp" ] || shred_or_rm "$tmp"
-		[ -z "$cred_tmp" ] || rm -f "$cred_tmp"
-		unset passphrase
-	}
-	trap cleanup EXIT
-	trap 'exit 1' HUP INT TERM
-	if [ -e "$DESKTOP_USER_HOME/.local/share/keyrings/login.keyring" ]; then
-		if [ "$keyring_stdin" = 1 ]; then
-			IFS= read -r passphrase
-		else
-			exec 3</dev/tty 4>/dev/tty
-			tty_state="$(stty -g <&3)"
-			stty -echo <&3
-			printf 'Existing login-keyring passphrase: ' >&4
-			IFS= read -r passphrase <&3
-			printf '\n' >&4
-			stty "$tty_state" <&3
-			tty_state=
-		fi
-		[ -n "$passphrase" ] || { desktop_error 'An empty bootstrap passphrase is not accepted'; exit 1; }
-		printf '%s' "$passphrase" > "$tmp"
-		unset passphrase
-	else
-		openssl rand -hex 48 | tr -d '\n' > "$tmp"
-	fi
-	if [ "$has_tpm2" = 1 ]; then
-		install_tpm2_credential "$tmp"
-		shred_or_rm "$tmp"
-		tmp=
-		if [ -e "$secret" ]; then
-			shred_or_rm "$secret"
-		fi
-	else
-		test_unlock_credential "LoadCredential=keyring-passphrase:$tmp"
-		mv "$tmp" "$secret"
-		tmp=
-		rm -f "$cred"
-	fi
-	trap - EXIT HUP INT TERM
-elif [ ! -e "$cred" ] && [ -e "$secret" ] && [ "$has_tpm2" = 1 ]; then
-	valid_credential "$secret" || {
-		desktop_error 'Invalid unattended-keyring credential'; exit 1;
-	}
-	umask 077
-	tmp=
-	cred_tmp=
-	tty_state=
-	cleanup() {
-		[ -z "$cred_tmp" ] || rm -f "$cred_tmp"
-	}
-	trap cleanup EXIT
-	trap 'exit 1' HUP INT TERM
-	install_tpm2_credential "$secret"
-	shred_or_rm "$secret"
-	trap - EXIT HUP INT TERM
-fi
-if [ -e "$cred" ]; then
-	valid_credential "$cred"
-else
-	valid_credential "$secret"
-fi || {
-	desktop_error 'Invalid unattended-keyring credential'; exit 1;
-}
-su -s /bin/sh -c /usr/libexec/desktop-user-setup "$user"
+DESKTOP_REFRESH_KEYRING="$refresh_keyring" DESKTOP_KEYRING_STDIN="$keyring_stdin" desktop_session_setup
+su -s /bin/sh -c "/usr/libexec/desktop-user-setup '$session'" "$user"
 uci set desktop.main.user="$user"
 uci set desktop.main.enabled="$autostart"
-[ -n "$(uci -q get desktop.main.session || :)" ] || uci set desktop.main.session="$session"
+[ -n "$configured_session" ] || uci set desktop.main.session="$session"
 case "$(uci -q get desktop.main.sunshine_capture || :)" in
 	''|weston) uci set desktop.main.sunshine_capture=portal ;;
 esac
@@ -154,10 +46,11 @@ if [ "$autostart" = 1 ]; then
 else
 	/etc/init.d/desktop disable
 fi
-if [ -x /usr/sbin/desktop-rdp-setup ]; then
-	printf 'GNOME configured for %s. Run desktop-rdp-setup %s to provision RDP credentials.\n' "$user" "$user"
+session_label="${SESSION_TITLE:-$session}"
+if [ "${SESSION_SUPPORTS_RDP:-0}" = 1 ] && [ -x /usr/sbin/desktop-rdp-setup ]; then
+	printf '%s configured for %s. Run desktop-rdp-setup %s to provision RDP credentials.\n' "$session_label" "$user" "$user"
 else
-	printf 'GNOME configured for %s.\n' "$user"
+	printf '%s configured for %s.\n' "$session_label" "$user"
 fi
 if [ -x /usr/sbin/sunshine-setup ]; then
 	printf 'Use sunshine-setup %s --capture=portal for Moonlight.\n' "$user"

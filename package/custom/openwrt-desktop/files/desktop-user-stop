@@ -4,7 +4,8 @@ set -eu
 export XDG_RUNTIME_DIR="/run/user/$(id -u)"
 export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
 . /usr/libexec/desktop-common.sh
-session="${1:-${OPENWRT_DESKTOP_SESSION:-gnome}}"
+session="${1:-${OPENWRT_DESKTOP_SESSION:-}}"
+[ -n "$session" ] || exit 0
 if desktop_load_session "$session" 2>/dev/null; then
 	desktop_session_stop
 fi

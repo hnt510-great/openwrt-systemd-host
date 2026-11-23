@@ -1,0 +1,14 @@
+[Unit]
+Description=Shared session services for the active desktop
+PartOf=graphical-session.target
+After=graphical-session-pre.target
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/desktop-session-services
+Restart=on-failure
+RestartSec=5s
+UMask=0077
+
+[Install]
+WantedBy=graphical-session.target

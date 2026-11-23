@@ -65,8 +65,9 @@ class Capture(unittest.TestCase):
         sessions_dir = self.path / 'sessions.d'
         sessions_dir.mkdir(exist_ok=True)
         (sessions_dir / 'gnome').write_text(
-            (ROOT / 'package/custom/openwrt-desktop/files/sessions.d/gnome').read_text().replace(
-                '/usr/bin/gnome-session', str(recorder)))
+            (ROOT / 'package/custom/openwrt-desktop/files/sessions.d/gnome').read_text()
+            .replace('/usr/bin/gnome-session', str(recorder))
+            .replace('/usr/libexec/desktop-keyring-unlock', str(keyring)))
         common = self.path / 'desktop-common.sh'
         common.write_text(
             (ROOT / 'package/custom/openwrt-desktop/files/desktop-common.sh').read_text()
@@ -76,7 +77,6 @@ class Capture(unittest.TestCase):
         user_setup = self.tool('user-setup', ':')
         source = (ROOT / 'package/custom/openwrt-desktop/files/desktop-session').read_text()
         source = source.replace('/usr/libexec/desktop-common.sh', str(common))
-        source = source.replace('/usr/libexec/desktop-keyring-unlock', str(keyring))
         source = source.replace('/usr/libexec/desktop-user-setup', str(user_setup))
         script = self.path / 'desktop-session'
         script.write_text(source)

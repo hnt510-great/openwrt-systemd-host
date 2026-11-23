@@ -57,7 +57,9 @@ class DesktopRdpConfiguration(unittest.TestCase):
             sessions_dir = tmp / 'sessions.d'
             sessions_dir.mkdir()
             (sessions_dir / 'gnome').write_text(
-                (FILES / 'sessions.d/gnome').read_text().replace('/usr/bin/gnome-session', str(launch)))
+                (FILES / 'sessions.d/gnome').read_text()
+                .replace('/usr/bin/gnome-session', str(launch))
+                .replace('/usr/libexec/desktop-keyring-unlock', str(binary / 'keyring')))
             common = tmp / 'desktop-common.sh'
             common.write_text(
                 (FILES / 'desktop-common.sh').read_text()
@@ -69,7 +71,6 @@ class DesktopRdpConfiguration(unittest.TestCase):
             user_setup.chmod(0o755)
             script = (FILES / 'desktop-session').read_text()
             script = script.replace('/usr/libexec/desktop-common.sh', str(common))
-            script = script.replace('/usr/libexec/desktop-keyring-unlock', str(binary / 'keyring'))
             script = script.replace('/usr/libexec/desktop-user-setup', str(user_setup))
             path = tmp / 'session'
             path.write_text(script)

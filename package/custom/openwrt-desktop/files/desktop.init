@@ -38,13 +38,13 @@ write_active_state() {
 }
 
 start_service() {
-	local enabled user session kms_scheduling output mode secret cred credential_prop
+	local enabled user configured_session session kms_scheduling output mode credential_prop
 	. /usr/libexec/desktop-common.sh
 	config_load desktop
 	config_get_bool enabled main enabled 0
 	[ "$enabled" = 1 ] || return 0
 	config_get user main user
-	config_get session main session gnome
+	config_get configured_session main session ''
 	config_get kms_scheduling main kms_scheduling high-priority
 	config_get output main output auto
 	config_get mode main mode preferred
@@ -53,11 +53,13 @@ start_service() {
 		*) desktop_error "Invalid kms_scheduling '$kms_scheduling' (expected high-priority, realtime or normal)"; return 1 ;;
 	esac
 	desktop_validate_user "$user" || return 1
+	session="$(desktop_resolve_session "$configured_session")" || return 1
 	desktop_load_session "$session" || return 1
 	desktop_session_check || {
 		desktop_error "Desktop session '$session' is not installed or unavailable"
 		return 1
 	}
+	credential_prop="$(desktop_session_credential_prop)" || return 1
 	write_lan_environment || return 1
 	systemctl is-active --quiet openwrt-desktop.service && return 0
 	if [ -e /run/systemd/transient/openwrt-desktop.service ]; then
@@ -65,18 +67,6 @@ start_service() {
 		systemctl daemon-reload 2>/dev/null || :
 	fi
 	systemctl reset-failed openwrt-desktop.service 2>/dev/null || :
-	desktop_valid_credential() {
-		[ -f "$1" ] && [ ! -L "$1" ] && [ -s "$1" ] && [ "$(stat -c %u:%a "$1")" = 0:600 ]
-	}
-	secret="/etc/desktop/gnome/$DESKTOP_USER_UID.keyring-passphrase"
-	cred="$secret.cred"
-	if desktop_valid_credential "$cred"; then
-		credential_prop="LoadCredentialEncrypted=keyring-passphrase:$cred"
-	elif desktop_valid_credential "$secret"; then
-		credential_prop="LoadCredential=keyring-passphrase:$secret"
-	else
-		desktop_error 'Run desktop-setup to provision unattended keyring access'; return 1;
-	fi
 	desktop_select_output "$output" >/dev/null || return 1
 	set -- systemd-run --quiet --collect --unit=openwrt-desktop.service \
 		--uid="$user" --property=PAMName=openwrt-desktop --property=Type=exec \
@@ -84,16 +74,19 @@ start_service() {
 		--property=StandardOutput=journal --property=StandardError=journal \
 		--property=Requires='systemd-logind.service openwrt-desktop-coldplug.service' \
 		--property=After='systemd-logind.service openwrt-desktop-coldplug.service' \
-		--property="$credential_prop" \
 		--setenv=HOME="$DESKTOP_USER_HOME" --setenv=USER="$user" --setenv=LOGNAME="$user" \
 		--setenv=SHELL="$DESKTOP_USER_SHELL" --setenv=XDG_SESSION_TYPE=wayland --setenv=XDG_SESSION_CLASS=user \
 		--setenv=OPENWRT_DESKTOP_SESSION="$session" \
 		--setenv=OPENWRT_DESKTOP_KMS_SCHEDULING="$kms_scheduling"
+	if [ -n "$credential_prop" ]; then
+		set -- "$@" --property="$credential_prop"
+	fi
 	if [ -e /dev/tty0 ]; then
 		/bin/busybox chvt 7 || return 1
 		set -- "$@" --property=StandardInput=tty --property=TTYPath=/dev/tty7 --setenv=XDG_SEAT=seat0 --setenv=XDG_VTNR=7
 	fi
 	"$@" /usr/libexec/desktop-session || return 1
+	rm -f /run/openwrt-desktop/manual-stop
 	write_active_state "$session" "$user" "$kms_scheduling" "$output" "$mode"
 }
 
@@ -108,6 +101,12 @@ reload_service() {
 stop_service() {
 	local session user active_file active_session active_user line
 	. /usr/libexec/desktop-common.sh
+	if [ ! -L /run/openwrt-desktop ]; then
+		mkdir -p /run/openwrt-desktop
+		chown 0:0 /run/openwrt-desktop
+		chmod 0755 /run/openwrt-desktop
+		: > /run/openwrt-desktop/manual-stop
+	fi
 	active_file=/run/openwrt-desktop/active.env
 	active_session=
 	active_user=
@@ -120,8 +119,11 @@ stop_service() {
 		done < "$active_file"
 	fi
 	user="${active_user:-$(uci -q get desktop.main.user || :)}"
-	session="${active_session:-$(uci -q get desktop.main.session || printf gnome)}"
-	if [ -n "$user" ] && desktop_validate_session_id "$session" 2>/dev/null; then
+	session="${active_session:-$(uci -q get desktop.main.session || :)}"
+	if [ -z "$session" ]; then
+		session="$(desktop_resolve_session '' 2>/dev/null || :)"
+	fi
+	if [ -n "$user" ] && [ -n "$session" ] && desktop_validate_session_id "$session" 2>/dev/null; then
 		su -s /bin/sh -c "/usr/libexec/desktop-user-stop '$session'" "$user" 2>/dev/null || :
 	fi
 	systemctl stop openwrt-desktop.service 2>/dev/null || :

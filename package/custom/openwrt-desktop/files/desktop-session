@@ -3,7 +3,7 @@ set -eu
 [ "$(id -u)" -ge 1000 ] || exit 1
 : "${XDG_RUNTIME_DIR:?PAM did not create a user runtime directory}"
 . /usr/libexec/desktop-common.sh
-session="${OPENWRT_DESKTOP_SESSION:-gnome}"
+session="$(desktop_resolve_session "${OPENWRT_DESKTOP_SESSION:-}")"
 desktop_load_session "$session"
 export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
 for attempt in 1 2 3 4 5; do
@@ -18,7 +18,7 @@ unset_vars="$(desktop_collect_unset_vars)"
 unset $unset_vars
 # shellcheck disable=SC2086
 systemctl --user unset-environment $unset_vars
-/usr/libexec/desktop-keyring-unlock
+desktop_session_unlock
 cd "$HOME"
 /usr/libexec/desktop-user-setup --xdg-dirs
 desktop_session_exec

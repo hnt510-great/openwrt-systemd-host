@@ -32,7 +32,7 @@ desktop_session_plugin_path() {
 
 desktop_load_session() {
 	local id path
-	id="${1:-gnome}"
+	id="$1"
 	path="$(desktop_session_plugin_path "$id")" || return 1
 	SESSION_ID=
 	SESSION_TITLE=
@@ -40,13 +40,77 @@ desktop_load_session() {
 	SESSION_EXEC=
 	SESSION_SUPPORTS_RDP=0
 	SESSION_SUPPORTS_KMS_SCHEDULING=0
+	SESSION_CREDENTIAL_BACKEND=
+	SESSION_RDP_UNIT=
 	SESSION_UNSET_VARS=
+	desktop_session_check() { [ -n "$SESSION_EXEC" ] && [ -x "$SESSION_EXEC" ]; }
+	desktop_session_setup() { return 0; }
+	desktop_session_user_setup() { return 0; }
+	desktop_session_credential_prop() { return 0; }
+	desktop_session_unlock() { return 0; }
+	desktop_session_exec() { desktop_error "Desktop session plugin '$id' has no exec hook"; return 1; }
+	desktop_session_stop() { return 0; }
 	# shellcheck disable=SC1090
 	. "$path"
 	[ "$SESSION_ID" = "$id" ] || {
 		desktop_error "Desktop session plugin '$id' has mismatched SESSION_ID"
 		return 1
 	}
+}
+
+desktop_list_available_sessions() {
+	local path name owner
+	[ -d "$DESKTOP_SESSIONS_DIR" ] || return 0
+	for path in "$DESKTOP_SESSIONS_DIR"/*; do
+		[ -f "$path" ] && [ ! -L "$path" ] || continue
+		name="${path##*/}"
+		case "$name" in
+			''|*[!a-z0-9_-]*|-*|_*|?????????????????????????????????*) continue ;;
+		esac
+		if [ "$DESKTOP_SESSION_REQUIRE_ROOT" = 1 ]; then
+			owner="$(stat -c %u "$path" 2>/dev/null || :)"
+			[ "$owner" = 0 ] || continue
+		fi
+		if ( desktop_load_session "$name" >/dev/null 2>&1 && desktop_session_check >/dev/null 2>&1 ); then
+			printf '%s\n' "$name"
+		fi
+	done
+}
+
+desktop_resolve_session() {
+	local configured avail count first list id
+	configured="${1:-}"
+	if [ -n "$configured" ]; then
+		if ( desktop_load_session "$configured" && desktop_session_check ); then
+			printf '%s\n' "$configured"
+			return 0
+		fi
+		desktop_error "Desktop session '$configured' is not installed or unavailable"
+		return 1
+	fi
+	count=0
+	first=
+	list=
+	avail="$(desktop_list_available_sessions)"
+	for id in $avail; do
+		count=$((count + 1))
+		if [ "$count" -eq 1 ]; then
+			first="$id"
+			list="$id"
+		else
+			list="$list, $id"
+		fi
+	done
+	if [ "$count" -eq 1 ]; then
+		printf '%s\n' "$first"
+		return 0
+	fi
+	if [ "$count" -eq 0 ]; then
+		desktop_error 'No desktop session is installed or available'
+		return 1
+	fi
+	desktop_error "Multiple desktop sessions are available ($list); configure desktop.main.session explicitly"
+	return 1
 }
 
 desktop_collect_unset_vars() {
