@@ -1,10 +1,10 @@
 include $(TOPDIR)/rules.mk
 PKG_NAME:=at-spi2-core
-PKG_VERSION:=2.62.1
+PKG_VERSION:=2.62.2
 PKG_RELEASE:=1
-PKG_SOURCE:=at-spi2-core-2.62.1.tar.xz
+PKG_SOURCE:=at-spi2-core-2.62.2.tar.xz
 PKG_SOURCE_URL:=https://download.gnome.org/sources/at-spi2-core/2.62/
-PKG_HASH:=cca6b6a86e4389d89b370288761ce2385ddeceb10c4412da78689bc30c88af2d
+PKG_HASH:=7ce81820ddf873b8d930177e0790f730f60d22d8e0acee9ba8f75d8202598de3
 PKG_BUILD_DIR:=$(BUILD_DIR)/at-spi2-core-$(PKG_VERSION)
 PKG_LICENSE:=LGPL-2.1-or-later
 PKG_INSTALL:=1

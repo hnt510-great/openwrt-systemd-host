@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=gtk4
-PKG_VERSION:=4.24.1
+PKG_VERSION:=4.24.2
 PKG_RELEASE:=1
-PKG_SOURCE:=gtk-4.24.1.tar.xz
+PKG_SOURCE:=gtk-4.24.2.tar.xz
 PKG_SOURCE_URL:=https://download.gnome.org/sources/gtk/4.24/
-PKG_HASH:=e98abe720e16129c8c0f50761dee0a2e9ae2478055e31018f6cf977fcf6513e9
+PKG_HASH:=05561abc25d1b1400136bf79ab68830cb4b053d1922ae97e551b3f19755bf3cb
 PKG_LICENSE:=LGPL-2.1-or-later
 PKG_BUILD_DIR:=$(BUILD_DIR)/gtk-$(PKG_VERSION)
 PKG_BUILD_DEPENDS:=wayland/host wayland-protocols libxml2/host
