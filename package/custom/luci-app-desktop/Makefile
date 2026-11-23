@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_VERSION:=1.0.0
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 PKG_LICENSE:=GPL-2.0-only
 
 LUCI_TITLE:=LuCI control for the OpenWrt desktop session
-LUCI_DEPENDS:=@OPENWRT_SYSTEMD +openwrt-desktop-core +luci-base +rpcd-mod-ucode +ucode-mod-fs +coreutils-timeout
+LUCI_DEPENDS:=@OPENWRT_SYSTEMD +openwrt-desktop-base +luci-base +rpcd-mod-ucode +ucode-mod-fs +coreutils-timeout
 LUCI_PKGARCH:=all
 
 include $(TOPDIR)/feeds/luci/luci.mk

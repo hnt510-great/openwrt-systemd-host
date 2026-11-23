@@ -77,14 +77,8 @@ function statusBannerInfo(data) {
 	var svc = data.service || {};
 	var cfg = data.config || {};
 	var prov = data.provisioned || {};
-	if (!prov.user_valid || prov.keyring_credential == 'missing') {
-		return {
-			cls: 'warning',
-			text: _('Desktop account or keyring is not provisioned yet. Run desktop-setup USER over SSH first.')
-		};
-	}
 	if (svc.active_state == 'active') {
-		var activeSession = (data.active && data.active.session) || cfg.session || 'gnome';
+		var activeSession = (data.active && data.active.session) || data.selected_session || cfg.session || '';
 		return {
 			cls: 'notice',
 			text: _('Desktop is running (%s, user %s, PID %d).').format(
@@ -94,6 +88,18 @@ function statusBannerInfo(data) {
 	if (svc.active_state == 'activating') {
 		return { cls: 'notice', text: _('Desktop is starting…') };
 	}
+	if (data.selection_error) {
+		return { cls: 'warning', text: data.selection_error };
+	}
+	var keyringMissing = prov.keyring_credential == 'missing';
+	if (!prov.user_valid || keyringMissing) {
+		return {
+			cls: 'warning',
+			text: keyringMissing ?
+				_('Desktop account or keyring is not provisioned yet. Run desktop-setup USER over SSH first.') :
+				(prov.error || _('Desktop account is not provisioned yet. Run desktop-setup USER over SSH first.'))
+		};
+	}
 	if (cfg.enabled != '1') {
 		return { cls: '', text: _('Desktop service is disabled.') };
 	}
@@ -102,6 +108,8 @@ function statusBannerInfo(data) {
 
 function formatKeyring(prov, runtime, active) {
 	var cred = (prov && prov.keyring_credential) || 'missing';
+	if (cred == 'not_applicable')
+		return _('Not applicable');
 	var credLabel = cred == 'tpm2' ? _('TPM2 sealed') :
 		(cred == 'plaintext' ? _('Plaintext fallback') : _('Not provisioned'));
 	if (!active)
@@ -135,17 +143,18 @@ return view.extend({
 		var cfg = data.config || {};
 		var svc = data.service || {};
 		var provisioned = !!(prov.user_valid && prov.keyring_credential != 'missing');
+		var hasTargetSession = !data.selection_error;
 		var running = svc.active_state == 'active' || svc.active_state == 'activating';
 		var enabled = cfg.enabled == '1';
 
 		if (this.startBtn)
-			this.startBtn.disabled = (!writable || this.busy || !provisioned || !enabled || running) ? true : null;
+			this.startBtn.disabled = (!writable || this.busy || !provisioned || !hasTargetSession || !enabled || running) ? true : null;
 		if (this.stopBtn)
 			this.stopBtn.disabled = (!writable || this.busy || !running) ? true : null;
 		if (this.restartBtn)
-			this.restartBtn.disabled = (!writable || this.busy || !provisioned || !enabled) ? true : null;
+			this.restartBtn.disabled = (!writable || this.busy || !provisioned || !hasTargetSession || !enabled) ? true : null;
 		if (this.driftRestartBtn)
-			this.driftRestartBtn.disabled = (!writable || this.busy || !provisioned || !enabled) ? true : null;
+			this.driftRestartBtn.disabled = (!writable || this.busy || !provisioned || !hasTargetSession || !enabled) ? true : null;
 		if (this.switchBtn) {
 			var target = this.switchSelect ? this.switchSelect.value : '';
 			var available = (data.sessions || []).some(function(s) { return s.id == target && s.available; });
@@ -178,13 +187,15 @@ return view.extend({
 			var lan = rt.lan_address || _('Unavailable');
 
 			this.cells.activeSession.textContent = active ?
-				sessionLabel(this.latest.sessions, activeSession || cfg.session) : _('Stopped');
+				sessionLabel(this.latest.sessions, activeSession || this.latest.selected_session || cfg.session) : _('Stopped');
 			this.cells.user.textContent = cfg.user || _('Not configured');
 			this.cells.keyring.textContent = formatKeyring(prov, rt, active);
 			this.cells.lan.textContent = lan;
-			this.cells.rdp.textContent = cfg.rdp_enabled == '1' ?
-				(rt.rdp_active ? _('Running (%s:%s)').format(lan, cfg.rdp_port || '3389') : _('Enabled (idle)')) :
-				_('Disabled');
+			this.cells.rdp.textContent = rt.rdp_available === false ?
+				_('Not applicable') :
+				(cfg.rdp_enabled == '1' ?
+					(rt.rdp_active ? _('Running (%s:%s)').format(lan, cfg.rdp_port || '3389') : _('Enabled (idle)')) :
+					_('Disabled'));
 			this.cells.sunshine.textContent = rt.sunshine_active ?
 				_('Running (%s)').format(cfg.sunshine_capture || 'portal') :
 				_('Stopped (%s)').format(cfg.sunshine_capture || 'portal');
@@ -192,7 +203,7 @@ return view.extend({
 				(rt.audio_active ? _('Running') : _('Enabled (idle)')) :
 				_('Disabled');
 
-			this.syncSwitchSelect(this.latest.sessions || [], cfg.session || 'gnome');
+			this.syncSwitchSelect(this.latest.sessions || [], cfg.session || this.latest.selected_session || '');
 		}
 		this.syncButtons();
 	},
@@ -365,7 +376,6 @@ return view.extend({
 
 		o = s.option(form.ListValue, 'session', _('Desktop environment'),
 			_('Registered sessions under /usr/libexec/openwrt-desktop/sessions.d. Saving updates UCI only; restart the desktop (or use Switch & Restart above) to apply.'));
-		o.default = 'gnome';
 		var seenConfigured = false;
 		for (var i = 0; i < sessions.length; i++) {
 			var item = sessions[i];
@@ -373,9 +383,11 @@ return view.extend({
 				seenConfigured = true;
 			o.value(item.id, item.available ? (item.title || item.id) : _('%s (not installed)').format(item.title || item.id));
 		}
-		if (!seenConfigured) {
-			var fallbackId = cfg.session || 'gnome';
-			o.value(fallbackId, fallbackId);
+		if (!seenConfigured && cfg.session) {
+			o.value(cfg.session, cfg.session);
+		}
+		if (sessions.length == 0 && !cfg.session) {
+			o.value('', _('No desktop sessions installed'));
 		}
 
 		o = s.option(form.DummyValue, 'user', _('Desktop user'),

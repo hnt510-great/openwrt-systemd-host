@@ -185,7 +185,40 @@ async function main() {
 	walk(dom);
 	assert(!tags.includes('script'));
 
-	console.log('PASS: status, sessions, drift banner, Save & Apply isolation, confirm modal, ACL, and XSS safety');
+	// Non-GNOME session: keyring & RDP show Not applicable, Start remains enabled when stopped
+	writable = true;
+	state = {
+		...state,
+		service: { active_state: 'inactive', sub_state: 'dead', main_pid: 0, n_restarts: 0, boot_enabled: true },
+		config: { ...state.config, session: 'dummy', enabled: '1', rdp_enabled: '0' },
+		active: null,
+		selected_session: 'dummy',
+		selection_error: null,
+		restart_required: false,
+		drifted_keys: [],
+		provisioned: { user_valid: true, uid: 1000, gid: 1000, keyring_required: false, keyring_credential: 'not_applicable', tls_present: false, error: null },
+		runtime: { lan_address: '192.0.2.1', keyring_unlocked: null, rdp_available: false, rdp_active: false, sunshine_active: false, audio_active: false },
+		sessions: [{ id: 'dummy', title: 'Dummy Wayland', description: 'Test', available: true, supports_rdp: false, supports_kms_scheduling: false }]
+	};
+	await view.render(await view.load());
+	assert.equal(view.cells.keyring.textContent, 'Not applicable');
+	assert.equal(view.cells.rdp.textContent, 'Not applicable');
+	assert.equal(Boolean(view.startBtn.disabled), false);
+
+	// No available sessions -> warning banner + Start/Restart disabled
+	state = {
+		...state,
+		config: { ...state.config, session: '' },
+		selected_session: null,
+		selection_error: 'No desktop session is installed or available',
+		sessions: []
+	};
+	await view.render(await view.load());
+	assert.match(view.statusBanner.textContent, /No desktop session/);
+	assert.equal(view.startBtn.disabled, true);
+	assert.equal(view.restartBtn.disabled, true);
+
+	console.log('PASS: status, sessions, drift banner, Save & Apply isolation, confirm modal, ACL, decoupling N/A states, and XSS safety');
 }
 
 main().catch(err => {
