@@ -1,0 +1,80 @@
+// SPDX-License-Identifier: GPL-2.0-only
+'use strict';
+import { popen } from 'fs';
+
+const LIMIT = 524288;
+const VERBS = [ 'start', 'stop', 'restart', 'reload' ];
+
+function failure(code, message) {
+	return { schema_version: 1, ok: false, error: { code, message } };
+}
+
+function valid(value, regex, max) {
+	if (type(value) != 'string' || length(value) > max)
+		return false;
+	let m = match(value, regex);
+	return m && length(m[0]) == length(value);
+}
+
+function run(args) {
+	// Only fixed flags and strictly validated session/verb/integer arguments enter this command.
+	let p = popen('/usr/bin/timeout -k 2 30 /usr/sbin/desktop-ctl --json ' + join(' ', args) + ' 2>/dev/null', 'r');
+	if (!p)
+		return failure(1, 'Unable to run desktop control');
+	let output = p.read(LIMIT + 1) || '';
+	let code = p.close();
+	if (length(output) > LIMIT)
+		return failure(1, 'Desktop control output exceeds limit');
+	try {
+		let data = json(output);
+		if (data.schema_version != 1 || type(data.ok) != 'bool')
+			return failure(1, 'Invalid desktop control response');
+		if (code != 0 && data.ok)
+			return failure(1, 'Desktop control command failed');
+		return data;
+	} catch (e) {
+		return failure(1, 'Invalid desktop control response');
+	}
+}
+
+return { 'luci.desktop': {
+	status: {
+		call: function() {
+			return run([ 'status' ]);
+		}
+	},
+	logs: {
+		args: { lines: 100 },
+		call: function(req) {
+			let lines = req.args.lines;
+			if (lines == null)
+				lines = 100;
+			if (type(lines) != 'int' || lines < 1 || lines > 200)
+				return failure(2, 'Invalid log line count');
+			return run([ 'logs', '--lines', '' + lines ]);
+		}
+	},
+	action: {
+		args: { verb: '' },
+		call: function(req) {
+			let verb = req.args.verb;
+			if (type(verb) != 'string' || !(verb in VERBS))
+				return failure(2, 'Invalid desktop action');
+			return run([ 'action', verb ]);
+		}
+	},
+	switch: {
+		args: { session: '' },
+		call: function(req) {
+			let session = req.args.session;
+			if (!valid(session, /^[a-z0-9][a-z0-9_-]*$/, 32))
+				return failure(2, 'Invalid desktop session');
+			return run([ 'switch', '--session', session ]);
+		}
+	},
+	sync_boot: {
+		call: function() {
+			return run([ 'sync-boot' ]);
+		}
+	}
+} };

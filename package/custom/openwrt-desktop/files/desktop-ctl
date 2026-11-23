@@ -1,0 +1,500 @@
+#!/usr/bin/python3
+"""Control and inspect the OpenWrt native-systemd desktop service."""
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import stat
+import subprocess
+import sys
+
+SCHEMA_VERSION = 1
+SESSIONS_DIR = Path('/usr/libexec/openwrt-desktop/sessions.d')
+RUN_DIR = Path('/run/openwrt-desktop')
+SECRET_DIR = Path('/etc/desktop/gnome')
+TLS_DIR = Path('/etc/desktop/tls')
+DRM_DIR = Path('/sys/class/drm')
+PASSWD_FILE = Path('/etc/passwd')
+INIT_SCRIPT = '/etc/init.d/desktop'
+REQUIRE_ROOT_PLUGIN = True
+
+SESSION_ID_RE = re.compile(r'^[a-z0-9][a-z0-9_-]{0,31}$')
+VALID_ACTIONS = ('start', 'stop', 'restart', 'reload')
+MAX_LOG_LINES = 200
+MAX_LOG_BYTES = 262144
+DRIFT_KEYS = ('session', 'user', 'kms_scheduling', 'output', 'mode')
+
+CONFIG_DEFAULTS = {
+    'enabled': '0',
+    'user': '',
+    'session': 'gnome',
+    'output': 'auto',
+    'mode': 'preferred',
+    'kms_scheduling': 'high-priority',
+    'sunshine_capture': 'portal',
+    'rdp_enabled': '0',
+    'rdp_port': '3389',
+    'audio_enabled': '0',
+    'audio_user': '',
+}
+
+
+def failure(code, message, **extra):
+    payload = {
+        'schema_version': SCHEMA_VERSION,
+        'ok': False,
+        'error': {'code': code, 'message': message},
+    }
+    payload.update(extra)
+    return payload
+
+
+def success(**extra):
+    payload = {
+        'schema_version': SCHEMA_VERSION,
+        'ok': True,
+        'error': None,
+    }
+    payload.update(extra)
+    return payload
+
+
+def run_cmd(argv, timeout=10, user=None, group=None, env=None):
+    kwargs = {
+        'capture_output': True,
+        'text': True,
+        'timeout': timeout,
+        'check': False,
+    }
+    if env is not None:
+        kwargs['env'] = env
+    if user is not None and os.geteuid() == 0:
+        kwargs['user'] = user
+        if group is not None:
+            kwargs['group'] = group
+    try:
+        return subprocess.run(argv, **kwargs)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return subprocess.CompletedProcess(argv, 127, '', str(exc))
+
+
+def is_safe_regular_file(path, require_root=False, exact_mode=None, nonempty=False):
+    try:
+        info = path.lstat()
+    except OSError:
+        return False
+    if not stat.S_ISREG(info.st_mode):
+        return False
+    if require_root and info.st_uid != 0:
+        return False
+    if exact_mode is not None and stat.S_IMODE(info.st_mode) != exact_mode:
+        return False
+    if nonempty and info.st_size <= 0:
+        return False
+    return True
+
+
+def parse_env_file(path):
+    if not is_safe_regular_file(path):
+        return None
+    data = {}
+    try:
+        text = path.read_text(encoding='utf-8', errors='replace')
+    except OSError:
+        return None
+    for line in text.splitlines():
+        if '=' not in line or line.startswith('#'):
+            continue
+        key, val = line.split('=', 1)
+        data[key.strip()] = val.strip()
+    return data
+
+
+def parse_session_plugin(path):
+    if not SESSION_ID_RE.match(path.name):
+        return None
+    if not is_safe_regular_file(path, require_root=REQUIRE_ROOT_PLUGIN):
+        return None
+    fields = {}
+    try:
+        text = path.read_text(encoding='utf-8', errors='replace')
+    except OSError:
+        return None
+    for line in text.splitlines():
+        m = re.match(r'^(SESSION_[A-Z_]+)=(.*)$', line)
+        if not m:
+            continue
+        val = m.group(2).strip()
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in ('"', "'"):
+            val = val[1:-1]
+        fields[m.group(1)] = val
+    if fields.get('SESSION_ID') != path.name:
+        return None
+    exec_path = fields.get('SESSION_EXEC', '')
+    available = bool(exec_path and os.path.isabs(exec_path) and os.access(exec_path, os.X_OK))
+    return {
+        'id': path.name,
+        'title': fields.get('SESSION_TITLE') or path.name,
+        'description': fields.get('SESSION_DESCRIPTION') or '',
+        'available': available,
+        'supports_rdp': fields.get('SESSION_SUPPORTS_RDP') == '1',
+        'supports_kms_scheduling': fields.get('SESSION_SUPPORTS_KMS_SCHEDULING') == '1',
+    }
+
+
+def discover_sessions():
+    sessions = []
+    if not SESSIONS_DIR.is_dir():
+        return sessions
+    for entry in sorted(SESSIONS_DIR.iterdir(), key=lambda p: p.name):
+        parsed = parse_session_plugin(entry)
+        if parsed is not None:
+            sessions.append(parsed)
+    return sessions
+
+
+def discover_outputs():
+    outputs = []
+    if not DRM_DIR.is_dir():
+        return outputs
+    for status_file in sorted(DRM_DIR.glob('card*-*/status')):
+        try:
+            if status_file.read_text(encoding='utf-8', errors='replace').strip() != 'connected':
+                continue
+        except OSError:
+            continue
+        connector = status_file.parent.name
+        if '-' in connector:
+            connector = connector.split('-', 1)[1]
+        if connector and connector not in outputs:
+            outputs.append(connector)
+    return outputs
+
+
+def read_uci_config():
+    cfg = dict(CONFIG_DEFAULTS)
+    for key in CONFIG_DEFAULTS:
+        res = run_cmd(['uci', '-q', 'get', 'desktop.main.' + key], timeout=5)
+        if res.returncode == 0:
+            val = res.stdout.strip()
+            if val != '':
+                cfg[key] = val
+    return cfg
+
+
+def read_service_state():
+    res = run_cmd([
+        'systemctl', 'show', 'openwrt-desktop.service',
+        '--property=ActiveState,SubState,MainPID,NRestarts,ActiveEnterTimestamp',
+    ], timeout=5)
+    props = {}
+    if res.returncode == 0:
+        for line in res.stdout.splitlines():
+            if '=' in line:
+                k, v = line.split('=', 1)
+                props[k] = v
+    boot_res = run_cmd([INIT_SCRIPT, 'enabled'], timeout=5)
+    try:
+        main_pid = int(props.get('MainPID', '0'))
+    except ValueError:
+        main_pid = 0
+    try:
+        n_restarts = int(props.get('NRestarts', '0'))
+    except ValueError:
+        n_restarts = 0
+    return {
+        'active_state': props.get('ActiveState', 'inactive'),
+        'sub_state': props.get('SubState', 'dead'),
+        'main_pid': main_pid,
+        'n_restarts': n_restarts,
+        'active_since': props.get('ActiveEnterTimestamp', ''),
+        'boot_enabled': boot_res.returncode == 0,
+    }
+
+
+def read_active_state():
+    raw = parse_env_file(RUN_DIR / 'active.env')
+    if not raw:
+        return None
+    return {
+        'session': raw.get('ACTIVE_SESSION', ''),
+        'user': raw.get('ACTIVE_USER', ''),
+        'kms_scheduling': raw.get('ACTIVE_KMS_SCHEDULING', ''),
+        'output': raw.get('ACTIVE_OUTPUT', ''),
+        'mode': raw.get('ACTIVE_MODE', ''),
+    }
+
+
+def inspect_user_and_credentials(username):
+    info = {
+        'user_valid': False,
+        'uid': None,
+        'gid': None,
+        'keyring_credential': 'missing',
+        'tls_present': False,
+        'error': None,
+    }
+    if not username:
+        info['error'] = 'No desktop user configured; run desktop-setup USER over SSH'
+        return info
+    if not re.match(r'^[a-zA-Z0-9_][a-zA-Z0-9_-]*$', username):
+        info['error'] = 'Invalid desktop username'
+        return info
+    record = None
+    try:
+        for line in PASSWD_FILE.read_text(encoding='utf-8', errors='replace').splitlines():
+            parts = line.split(':')
+            if len(parts) >= 7 and parts[0] == username:
+                record = parts
+                break
+    except OSError:
+        info['error'] = 'Unable to read /etc/passwd'
+        return info
+    if not record:
+        info['error'] = f'Account {username} does not exist'
+        return info
+    try:
+        uid = int(record[2])
+        gid = int(record[3])
+    except ValueError:
+        info['error'] = 'Invalid desktop UID/GID'
+        return info
+    home, shell = record[5], record[6]
+    if uid < 1000 or gid <= 0:
+        info['error'] = 'Desktop requires an ordinary user with UID >= 1000'
+        return info
+    if not home.startswith('/') or shell.endswith('/false') or shell.endswith('/nologin'):
+        info['error'] = 'Desktop account requires a valid home directory and login shell'
+        return info
+    info['user_valid'] = True
+    info['uid'] = uid
+    info['gid'] = gid
+
+    secret = SECRET_DIR / f'{uid}.keyring-passphrase'
+    cred = SECRET_DIR / f'{uid}.keyring-passphrase.cred'
+    if is_safe_regular_file(cred, require_root=REQUIRE_ROOT_PLUGIN, exact_mode=0o600, nonempty=True):
+        info['keyring_credential'] = 'tpm2'
+    elif is_safe_regular_file(secret, require_root=REQUIRE_ROOT_PLUGIN, exact_mode=0o600, nonempty=True):
+        info['keyring_credential'] = 'plaintext'
+    else:
+        info['keyring_credential'] = 'missing'
+
+    crt = TLS_DIR / f'{username}.crt'
+    key = TLS_DIR / f'{username}.key'
+    info['tls_present'] = is_safe_regular_file(crt, nonempty=True) and is_safe_regular_file(key, nonempty=True)
+    return info
+
+
+def probe_runtime(service, provisioned):
+    runtime = {
+        'lan_address': None,
+        'keyring_unlocked': None,
+        'rdp_active': False,
+        'sunshine_active': False,
+        'audio_active': False,
+    }
+    uid = provisioned.get('uid')
+    gid = provisioned.get('gid')
+    if uid is not None:
+        lan_env = parse_env_file(RUN_DIR / f'{uid}.env')
+        if lan_env:
+            addr = lan_env.get('OPENWRT_DESKTOP_LAN_ADDRESS', '')
+            if addr:
+                runtime['lan_address'] = addr
+
+    if service['active_state'] != 'active' or not provisioned['user_valid']:
+        return runtime
+
+    runtime_dir = f'/run/user/{uid}'
+    bus_path = Path(runtime_dir) / 'bus'
+    if not bus_path.exists():
+        return runtime
+
+    user_env = {
+        'PATH': os.environ.get('PATH', '/usr/sbin:/usr/bin:/sbin:/bin'),
+        'XDG_RUNTIME_DIR': runtime_dir,
+        'DBUS_SESSION_BUS_ADDRESS': f'unix:path={bus_path}',
+    }
+
+    locked_res = run_cmd([
+        'gdbus', 'call', '--session',
+        '--dest', 'org.freedesktop.secrets',
+        '--object-path', '/org/freedesktop/secrets/aliases/default',
+        '--method', 'org.freedesktop.DBus.Properties.Get',
+        'org.freedesktop.Secret.Collection', 'Locked',
+    ], timeout=3, user=uid, group=gid, env=user_env)
+    if locked_res.returncode == 0:
+        out = locked_res.stdout.strip()
+        if out == '(<false>,)':
+            runtime['keyring_unlocked'] = True
+        elif out == '(<true>,)':
+            runtime['keyring_unlocked'] = False
+
+    def unit_active(unit):
+        res = run_cmd(['systemctl', '--user', 'is-active', unit],
+                      timeout=3, user=uid, group=gid, env=user_env)
+        return res.returncode == 0 and res.stdout.strip() == 'active'
+
+    runtime['rdp_active'] = unit_active('gnome-remote-desktop.service')
+    runtime['sunshine_active'] = unit_active('sunshine.service')
+    runtime['audio_active'] = unit_active('wireplumber.service') or unit_active('pipewire.socket')
+    return runtime
+
+
+def get_status():
+    config = read_uci_config()
+    service = read_service_state()
+    active = read_active_state() if service['active_state'] in ('active', 'activating') else None
+    sessions = discover_sessions()
+    outputs = discover_outputs()
+    provisioned = inspect_user_and_credentials(config['user'])
+    runtime = probe_runtime(service, provisioned)
+
+    drifted_keys = []
+    if active is not None:
+        for key in DRIFT_KEYS:
+            if active.get(key) and active.get(key) != config.get(key):
+                drifted_keys.append(key)
+
+    return success(
+        service=service,
+        config=config,
+        active=active,
+        restart_required=bool(drifted_keys),
+        drifted_keys=drifted_keys,
+        provisioned=provisioned,
+        runtime=runtime,
+        sessions=sessions,
+        outputs=outputs,
+    )
+
+
+def preflight_start(status_data, target_session=None):
+    config = status_data['config']
+    provisioned = status_data['provisioned']
+    sessions = {s['id']: s for s in status_data['sessions']}
+    session_id = target_session or config['session']
+
+    if not provisioned['user_valid']:
+        return failure(2, provisioned['error'] or 'Desktop user is not provisioned')
+    if provisioned['keyring_credential'] == 'missing':
+        return failure(2, 'Keyring bootstrap credential is missing; run desktop-setup USER over SSH')
+    if session_id not in sessions or not sessions[session_id]['available']:
+        return failure(2, f"Desktop session '{session_id}' is not installed or unavailable")
+    return None
+
+
+def do_action(verb):
+    if verb not in VALID_ACTIONS:
+        return failure(2, f"Unsupported action '{verb}'")
+    status_data = get_status()
+    if verb in ('start', 'restart'):
+        if status_data['config']['enabled'] != '1':
+            return failure(2, 'Desktop service is disabled; enable it in configuration first')
+        err = preflight_start(status_data)
+        if err is not None:
+            return err
+    res = run_cmd([INIT_SCRIPT, verb], timeout=25)
+    after = get_status()
+    if res.returncode != 0:
+        msg = (res.stderr or res.stdout or f'Desktop {verb} failed').strip().splitlines()[-1]
+        return failure(1, msg, action=verb, status=after)
+    if verb in ('start', 'restart') and after['service']['active_state'] not in ('active', 'activating'):
+        msg = (res.stderr or res.stdout or f'Desktop {verb} did not activate openwrt-desktop.service').strip().splitlines()[-1]
+        return failure(1, msg, action=verb, status=after)
+    return success(action=verb, status=after)
+
+
+def do_switch(session_id):
+    if not SESSION_ID_RE.match(session_id):
+        return failure(2, f"Invalid desktop session '{session_id}'")
+    status_data = get_status()
+    sessions = {s['id']: s for s in status_data['sessions']}
+    if session_id not in sessions or not sessions[session_id]['available']:
+        return failure(2, f"Desktop session '{session_id}' is not installed or unavailable")
+
+    running = status_data['service']['active_state'] in ('active', 'activating')
+    if running:
+        err = preflight_start(status_data, target_session=session_id)
+        if err is not None:
+            return err
+
+    for argv in (['uci', 'set', f'desktop.main.session={session_id}'], ['uci', 'commit', 'desktop']):
+        res = run_cmd(argv, timeout=10)
+        if res.returncode != 0:
+            return failure(1, (res.stderr or 'Unable to save UCI session').strip())
+
+    restarted = False
+    if running:
+        res = run_cmd([INIT_SCRIPT, 'restart'], timeout=25)
+        after = get_status()
+        if res.returncode != 0 or after['service']['active_state'] not in ('active', 'activating'):
+            msg = (res.stderr or res.stdout or 'Desktop restart failed').strip().splitlines()[-1]
+            return failure(1, msg, switched=True, restarted=False, status=after)
+        restarted = True
+        return success(switched=True, restarted=restarted, status=after)
+
+    return success(switched=True, restarted=restarted, status=get_status())
+
+
+def do_sync_boot():
+    config = read_uci_config()
+    verb = 'enable' if config['enabled'] == '1' else 'disable'
+    res = run_cmd([INIT_SCRIPT, verb], timeout=10)
+    if res.returncode != 0:
+        return failure(1, (res.stderr or f'Unable to {verb} desktop boot service').strip())
+    return success(boot_enabled=(verb == 'enable'))
+
+
+def do_logs(lines):
+    if lines < 1 or lines > MAX_LOG_LINES:
+        return failure(2, f'lines must be between 1 and {MAX_LOG_LINES}')
+    res = run_cmd([
+        'journalctl', '-u', 'openwrt-desktop.service',
+        '--no-pager', '-n', str(lines),
+    ], timeout=10)
+    if res.returncode != 0:
+        return failure(1, (res.stderr or 'Unable to read desktop service journal').strip())
+    text = res.stdout
+    encoded = text.encode('utf-8', errors='replace')
+    truncated = False
+    if len(encoded) > MAX_LOG_BYTES:
+        text = encoded[-MAX_LOG_BYTES:].decode('utf-8', errors='replace')
+        truncated = True
+    return success(lines=lines, truncated=truncated, log=text)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog='desktop-ctl')
+    parser.add_argument('--json', action='store_true', dest='as_json', default=True)
+    sub = parser.add_subparsers(dest='command', required=True)
+    sub.add_parser('status')
+    act = sub.add_parser('action')
+    act.add_argument('verb', choices=VALID_ACTIONS)
+    sw = sub.add_parser('switch')
+    sw.add_argument('--session', required=True)
+    sub.add_parser('sync-boot')
+    lg = sub.add_parser('logs')
+    lg.add_argument('--lines', type=int, default=100)
+
+    args = parser.parse_args(argv)
+    if args.command == 'status':
+        result = get_status()
+    elif args.command == 'action':
+        result = do_action(args.verb)
+    elif args.command == 'switch':
+        result = do_switch(args.session)
+    elif args.command == 'sync-boot':
+        result = do_sync_boot()
+    elif args.command == 'logs':
+        result = do_logs(args.lines)
+    else:
+        result = failure(2, 'Unknown command')
+
+    print(json.dumps(result, ensure_ascii=False))
+    return 0 if result.get('ok') else int((result.get('error') or {}).get('code', 1))
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

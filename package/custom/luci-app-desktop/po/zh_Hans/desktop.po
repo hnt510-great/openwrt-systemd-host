@@ -1,0 +1,217 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: zh_Hans\n"
+
+msgid "Active session"
+msgstr "当前会话"
+
+msgid "Audio"
+msgstr "音频"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Configuration"
+msgstr "配置"
+
+msgid "Configuration changed (%s). Restart the desktop to apply changes to the running session."
+msgstr "配置已变更（%s）。请重启桌面以应用到当前运行会话。"
+
+msgid "Confirm"
+msgstr "确认"
+
+msgid "Desktop"
+msgstr "桌面环境"
+
+msgid "Desktop account or keyring is not provisioned yet. Run desktop-setup USER over SSH first."
+msgstr "桌面账号或密钥环尚未初始化。请先通过 SSH 执行 desktop-setup USER。"
+
+msgid "Desktop action failed"
+msgstr "桌面操作失败"
+
+msgid "Desktop action failed: %s"
+msgstr "桌面操作失败：%s"
+
+msgid "Desktop environment"
+msgstr "桌面环境"
+
+msgid "Desktop is enabled but not currently running. Check the log below."
+msgstr "桌面已启用但当前未运行，请查看下方日志。"
+
+msgid "Desktop is running (%s, user %s, PID %d)."
+msgstr "桌面正在运行（%s，用户 %s，PID %d）。"
+
+msgid "Desktop is starting…"
+msgstr "桌面正在启动…"
+
+msgid "Desktop service is disabled."
+msgstr "桌面服务已禁用。"
+
+msgid "Desktop session switch failed"
+msgstr "切换桌面会话失败"
+
+msgid "Desktop session switch failed: %s"
+msgstr "切换桌面会话失败：%s"
+
+msgid "Desktop user"
+msgstr "桌面用户"
+
+msgid "Disabled"
+msgstr "已禁用"
+
+msgid "Display mode"
+msgstr "显示模式"
+
+msgid "Display mode out of range"
+msgstr "显示模式超出范围"
+
+msgid "Display output"
+msgstr "显示输出"
+
+msgid "Enable LAN RDP"
+msgstr "启用局域网 RDP"
+
+msgid "Enable desktop service"
+msgstr "启用桌面服务"
+
+msgid "Enabled (idle)"
+msgstr "已启用（空闲）"
+
+msgid "Expecting preferred or WIDTHxHEIGHT[@HZ]"
+msgstr "请输入 preferred 或 宽x高[@刷新率]"
+
+msgid "Invalid DRM output name"
+msgstr "无效的 DRM 输出名称"
+
+msgid "Keyring"
+msgstr "密钥环"
+
+msgid "LAN address"
+msgstr "局域网地址"
+
+msgid "Loading…"
+msgstr "正在加载…"
+
+msgid "Manage the OpenWrt native-systemd desktop session and switch between installed desktop environments without replacing TPM2 keyring unlocking."
+msgstr "管理 OpenWrt 原生 systemd 桌面会话，在不替换 TPM2 密钥环解锁机制的前提下切换已安装的桌面环境。"
+
+msgid "Mutter KMS scheduling"
+msgstr "Mutter KMS 调度策略"
+
+msgid "No log entries yet."
+msgstr "暂无日志。"
+
+msgid "None"
+msgstr "无"
+
+msgid "Not configured"
+msgstr "未配置"
+
+msgid "Not provisioned"
+msgstr "未初始化"
+
+msgid "Plaintext fallback"
+msgstr "明文回退"
+
+msgid "Quick switch"
+msgstr "快速切换"
+
+msgid "RDP"
+msgstr "RDP 远程桌面"
+
+msgid "RDP port"
+msgstr "RDP 端口"
+
+msgid "Refresh log"
+msgstr "刷新日志"
+
+msgid "Restart"
+msgstr "重启"
+
+msgid "Restart desktop"
+msgstr "重启桌面"
+
+msgid "Restart desktop session"
+msgstr "重启桌面会话"
+
+msgid "Restarting the desktop will close open graphical applications and disconnect active RDP or Sunshine streams. Continue?"
+msgstr "重启桌面会关闭已打开的图形应用并断开当前 RDP 或 Sunshine 连接，是否继续？"
+
+msgid "Running"
+msgstr "运行中"
+
+msgid "Running (%s)"
+msgstr "运行中（%s）"
+
+msgid "Running (%s:%s)"
+msgstr "运行中（%s:%s）"
+
+msgid "Saved desktop session %s."
+msgstr "已保存桌面会话 %s。"
+
+msgid "Service Log"
+msgstr "服务日志"
+
+msgid "Start"
+msgstr "启动"
+
+msgid "Status"
+msgstr "状态"
+
+msgid "Stop"
+msgstr "停止"
+
+msgid "Stop desktop session"
+msgstr "停止桌面会话"
+
+msgid "Stopped"
+msgstr "已停止"
+
+msgid "Stopped (%s)"
+msgstr "已停止（%s）"
+
+msgid "Stopping the desktop will close open graphical applications and disconnect active RDP or Sunshine streams. Continue?"
+msgstr "停止桌面会关闭已打开的图形应用并断开当前 RDP 或 Sunshine 连接，是否继续？"
+
+msgid "Sunshine"
+msgstr "Sunshine 串流"
+
+msgid "Sunshine capture mode"
+msgstr "Sunshine 捕获模式"
+
+msgid "Switch & Restart"
+msgstr "切换并重启"
+
+msgid "Switch desktop session"
+msgstr "切换桌面会话"
+
+msgid "Switched desktop session to %s and restarted."
+msgstr "已切换桌面会话至 %s 并完成重启。"
+
+msgid "Switching to %s will restart the running desktop session and disconnect active RDP or Sunshine streams. Continue?"
+msgstr "切换至 %s 会重启正在运行的桌面会话并断开当前 RDP 或 Sunshine 连接，是否继续？"
+
+msgid "TPM2 sealed"
+msgstr "TPM2 封存"
+
+msgid "Unable to query desktop status."
+msgstr "无法查询桌面状态。"
+
+msgid "Unable to read log: %s"
+msgstr "无法读取日志：%s"
+
+msgid "Unavailable"
+msgstr "不可用"
+
+msgid "Unknown error"
+msgstr "未知错误"
+
+msgid "%s (locked)"
+msgstr "%s（已锁定）"
+
+msgid "%s (not installed)"
+msgstr "%s（未安装）"
+
+msgid "%s (unlocked)"
+msgstr "%s（已解锁）"

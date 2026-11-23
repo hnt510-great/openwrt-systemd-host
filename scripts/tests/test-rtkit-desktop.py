@@ -13,7 +13,7 @@ RTKIT = ROOT / 'package/custom/rtkit'
 DESKTOP = ROOT / 'package/custom/openwrt-desktop'
 AUDIO = ROOT / 'package/custom/openwrt-desktop-audio'
 SESSION_IMPORTS = ['XDG_CURRENT_DESKTOP', 'XDG_SESSION_DESKTOP', 'DESKTOP_SESSION',
-                   'XDG_SESSION_TYPE', 'XMODIFIERS', 'XDG_DATA_DIRS']
+                   'XDG_SESSION_TYPE', 'XMODIFIERS', 'XDG_DATA_DIRS', 'QT_IM_MODULE']
 KMS_VARIABLE = 'MUTTER_DEBUG_KMS_SCHEDULING_PRIORITY'
 
 
@@ -101,10 +101,23 @@ class DesktopIntegration(unittest.TestCase):
         text = (DESKTOP / 'files/desktop.config').read_text()
         self.assertIn("\toption kms_scheduling 'high-priority'\n", text)
 
+    def prepare_session_common(self, gnome_exec):
+        sessions_dir = self.path / 'sessions.d'
+        sessions_dir.mkdir(exist_ok=True)
+        gnome_plugin = (DESKTOP / 'files/sessions.d/gnome').read_text().replace(
+            '/usr/bin/gnome-session', str(gnome_exec))
+        (sessions_dir / 'gnome').write_text(gnome_plugin)
+        common_src = (DESKTOP / 'files/desktop-common.sh').read_text()
+        common_src = common_src.replace(
+            'DESKTOP_SESSIONS_DIR=/usr/libexec/openwrt-desktop/sessions.d',
+            f'DESKTOP_SESSIONS_DIR={sessions_dir}')
+        common_src = common_src.replace(
+            'DESKTOP_SESSION_REQUIRE_ROOT=1',
+            'DESKTOP_SESSION_REQUIRE_ROOT=0')
+        return common_src
+
     def run_init(self, kms_scheduling, encrypted=False):
         run = self.path / 'run'
-        native = self.path / 'native'
-        native.mkdir(exist_ok=True)
         session = self.path / 'gnome-session'
         session.write_text('')
         session.chmod(0o755)
@@ -118,6 +131,7 @@ class DesktopIntegration(unittest.TestCase):
             secret.write_text('x')
         common = self.path / 'common.sh'
         common.write_text(
+            self.prepare_session_common(session) + '\n'
             'desktop_error() { printf "%s\\n" "$*" >&2; return 1; }\n'
             'desktop_validate_user() { DESKTOP_USER_UID=1000 DESKTOP_USER_HOME=/home/alice '
             'DESKTOP_USER_SHELL=/bin/sh; }\n'
@@ -131,9 +145,7 @@ class DesktopIntegration(unittest.TestCase):
         source = (DESKTOP / 'files/desktop.init').read_text()
         replacements = {
             '/usr/libexec/desktop-common.sh': str(common),
-            '/run/systemd/system': str(native),
             '/run/openwrt-desktop': str(run),
-            '/usr/bin/gnome-session': str(session),
             '"/etc/desktop/gnome/$DESKTOP_USER_UID.keyring-passphrase"': '"' + str(secret) + '"',
             '/dev/tty0': str(self.path / 'no-tty0'),
         }
@@ -209,9 +221,13 @@ class DesktopIntegration(unittest.TestCase):
                             'json.dump(dict(os.environ),open(os.environ["SESSION_OUTPUT"],"w"))\'')
         self.tool('id', 'echo 1000')
         self.tool('systemctl', 'printf "%s\\n" "$*" >> "$RECORD"')
+        user_setup = self.tool('user-setup', ':')
+        common = self.path / 'session-common.sh'
+        common.write_text(self.prepare_session_common(session))
         source = (DESKTOP / 'files/desktop-session').read_text()
+        source = source.replace('/usr/libexec/desktop-common.sh', str(common))
         source = source.replace('/usr/libexec/desktop-keyring-unlock', str(keyring))
-        source = source.replace('/usr/bin/gnome-session', str(session))
+        source = source.replace('/usr/libexec/desktop-user-setup', str(user_setup))
         script = self.path / 'desktop-session'
         script.write_text(source)
         record = self.path / 'record'

@@ -62,9 +62,22 @@ class Capture(unittest.TestCase):
                              "/usr/bin/python3 -c 'import json,os,sys; "
                              'json.dump([sys.argv[1:],dict(os.environ)],'
                              'open(os.environ["SESSION_OUTPUT"],"w"))\' "$@"')
+        sessions_dir = self.path / 'sessions.d'
+        sessions_dir.mkdir(exist_ok=True)
+        (sessions_dir / 'gnome').write_text(
+            (ROOT / 'package/custom/openwrt-desktop/files/sessions.d/gnome').read_text().replace(
+                '/usr/bin/gnome-session', str(recorder)))
+        common = self.path / 'desktop-common.sh'
+        common.write_text(
+            (ROOT / 'package/custom/openwrt-desktop/files/desktop-common.sh').read_text()
+            .replace('DESKTOP_SESSIONS_DIR=/usr/libexec/openwrt-desktop/sessions.d',
+                     f'DESKTOP_SESSIONS_DIR={sessions_dir}')
+            .replace('DESKTOP_SESSION_REQUIRE_ROOT=1', 'DESKTOP_SESSION_REQUIRE_ROOT=0'))
+        user_setup = self.tool('user-setup', ':')
         source = (ROOT / 'package/custom/openwrt-desktop/files/desktop-session').read_text()
+        source = source.replace('/usr/libexec/desktop-common.sh', str(common))
         source = source.replace('/usr/libexec/desktop-keyring-unlock', str(keyring))
-        source = source.replace('/usr/bin/gnome-session', str(recorder))
+        source = source.replace('/usr/libexec/desktop-user-setup', str(user_setup))
         script = self.path / 'desktop-session'
         script.write_text(source)
         inherited = dict(WAYLAND_SOCKET='9999', GTK_IM_MODULE='fcitx',

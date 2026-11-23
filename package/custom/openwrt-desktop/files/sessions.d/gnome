@@ -1,0 +1,36 @@
+SESSION_ID="gnome"
+SESSION_TITLE="GNOME (Wayland)"
+SESSION_DESCRIPTION="GNOME 51 Wayland desktop with Mutter"
+SESSION_EXEC="/usr/bin/gnome-session"
+SESSION_SUPPORTS_RDP="1"
+SESSION_SUPPORTS_KMS_SCHEDULING="1"
+SESSION_UNSET_VARS="MUTTER_DEBUG_KMS_SCHEDULING_PRIORITY"
+
+desktop_session_check() {
+	[ -x "$SESSION_EXEC" ]
+}
+
+desktop_session_exec() {
+	export XDG_CURRENT_DESKTOP=GNOME XDG_SESSION_DESKTOP=gnome DESKTOP_SESSION=gnome
+	export XDG_SESSION_TYPE=wayland XMODIFIERS=@im=fcitx
+	# Qt chooses Wayland or xcb using the session and display variables.
+	export QT_IM_MODULE=fcitx
+	export XDG_DATA_DIRS="$HOME/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+	# Mutter defaults to high-priority (nice -15 through RealtimeKit); only
+	# export its override for the other modes selected in /etc/config/desktop.
+	import_kms=
+	case "${OPENWRT_DESKTOP_KMS_SCHEDULING:-high-priority}" in
+		realtime|normal)
+			export MUTTER_DEBUG_KMS_SCHEDULING_PRIORITY="$OPENWRT_DESKTOP_KMS_SCHEDULING"
+			import_kms=MUTTER_DEBUG_KMS_SCHEDULING_PRIORITY
+			;;
+	esac
+	systemctl --user import-environment \
+		XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP DESKTOP_SESSION \
+		XDG_SESSION_TYPE XMODIFIERS XDG_DATA_DIRS QT_IM_MODULE $import_kms
+	exec "$SESSION_EXEC" --session=gnome
+}
+
+desktop_session_stop() {
+	exec systemctl --user start gnome-session-shutdown.target
+}

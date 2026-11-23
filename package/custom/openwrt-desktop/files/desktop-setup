@@ -19,8 +19,13 @@ for option in "$@"; do
 		*) desktop_error 'Invalid desktop-setup option'; exit 1 ;;
 	esac
 done
-[ -d /run/systemd/system ] && [ -x /usr/bin/gnome-session ] || {
-	desktop_error 'The GNOME desktop requires a native-systemd image'; exit 1;
+[ -d /run/systemd/system ] || {
+	desktop_error 'The desktop requires a native-systemd image'; exit 1;
+}
+session="$(uci -q get desktop.main.session || printf gnome)"
+[ -n "$session" ] || session=gnome
+desktop_load_session "$session" && desktop_session_check || {
+	desktop_error "Desktop session '$session' is not installed or unavailable"; exit 1;
 }
 desktop_validate_user "$user"
 usermod -a -G video,render "$user"
@@ -138,6 +143,7 @@ fi || {
 su -s /bin/sh -c /usr/libexec/desktop-user-setup "$user"
 uci set desktop.main.user="$user"
 uci set desktop.main.enabled="$autostart"
+[ -n "$(uci -q get desktop.main.session || :)" ] || uci set desktop.main.session="$session"
 case "$(uci -q get desktop.main.sunshine_capture || :)" in
 	''|weston) uci set desktop.main.sunshine_capture=portal ;;
 esac

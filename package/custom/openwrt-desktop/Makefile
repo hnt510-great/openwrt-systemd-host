@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openwrt-desktop
-PKG_RELEASE:=38
+PKG_RELEASE:=40
 PKG_CONFIG_DEPENDS:=CONFIG_OPENWRT_SYSTEMD
 PKG_LICENSE:=MIT
 
@@ -61,11 +61,13 @@ endef
 
 define Package/openwrt-desktop-core/install
 	$(INSTALL_DIR) $(1)/etc/config $(1)/etc/init.d $(1)/etc/pam.d
-	$(INSTALL_DIR) $(1)/usr/sbin $(1)/usr/libexec $(1)/lib/upgrade/keep.d
+	$(INSTALL_DIR) $(1)/usr/sbin $(1)/usr/libexec $(1)/usr/libexec/openwrt-desktop/sessions.d $(1)/lib/upgrade/keep.d
 	$(INSTALL_DATA) ./files/desktop.config $(1)/etc/config/desktop
 	$(INSTALL_BIN) ./files/desktop.init $(1)/etc/init.d/desktop
 	$(INSTALL_DATA) ./files/openwrt-desktop.pam $(1)/etc/pam.d/openwrt-desktop
 	$(INSTALL_BIN) ./files/desktop-setup $(1)/usr/sbin/desktop-setup
+	$(INSTALL_BIN) ./files/desktop-ctl $(1)/usr/sbin/desktop-ctl
+	$(INSTALL_DATA) ./files/sessions.d/gnome $(1)/usr/libexec/openwrt-desktop/sessions.d/gnome
 	$(INSTALL_BIN) ./files/desktop-keyring-unlock ./files/desktop-keyring-control-unlock ./files/desktop-user-setup ./files/desktop-user-stop $(1)/usr/libexec/
 	$(INSTALL_BIN) ./files/desktop-gnome-remotes ./files/desktop-gnome-settings $(1)/usr/libexec/
 	$(INSTALL_DIR) $(1)/usr/lib/systemd/system $(1)/usr/lib/systemd/user

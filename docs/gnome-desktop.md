@@ -316,3 +316,7 @@ Device-unit visibility and OpenWrt ownership are described in
 [device management boundary](systemd-udev-boundary.md). The reviewed udev rules
 restore TPM device notifications while retaining the bounded desktop coldplug
 probe; they do not restore the former hard-coded TPM device dependency.
+
+Pluggable desktop session selection (`sessions.d/`), `desktop-ctl`, and the
+`Services -> Desktop` LuCI panel (`luci-app-desktop`) are documented in
+[desktop session switcher](desktop-session-switcher.md).

@@ -3,4 +3,8 @@ set -eu
 [ "$(id -u)" -ge 1000 ] || exit 1
 export XDG_RUNTIME_DIR="/run/user/$(id -u)"
 export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
-exec systemctl --user start gnome-session-shutdown.target
+. /usr/libexec/desktop-common.sh
+session="${1:-${OPENWRT_DESKTOP_SESSION:-gnome}}"
+if desktop_load_session "$session" 2>/dev/null; then
+	desktop_session_stop
+fi
