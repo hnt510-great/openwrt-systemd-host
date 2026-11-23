@@ -13,7 +13,7 @@ include $(INCLUDE_DIR)/feeds.mk
 
 PKG_NAME:=base-files
 PKG_FLAGS:=nonshared
-PKG_RELEASE:=$(COMMITCOUNT).20
+PKG_RELEASE:=$(COMMITCOUNT).21
 
 # The embedded revision and build timestamp change with every checkout commit.
 # Include the checkout-wide commit count and actual HEAD in the APK identity:
