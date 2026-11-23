@@ -1,13 +1,13 @@
 # Pluggable Desktop Session Switcher and LuCI Control
 
-`openwrt-desktop` separates the shared native-systemd desktop launcher from
-desktop-environment-specific startup and shutdown logic, and pairs it with
-`luci-app-desktop` (`Services -> Desktop`) for web inspection and control.
-
-Local display, TPM2-sealed unattended GNOME keyring unlock, PAM/logind session
-creation on VT7, and LAN RDP/Sunshine supervision remain owned by
-`openwrt-desktop-core`. Switching sessions does not require GDM or changing
-the keyring bootstrap model.
+`openwrt-desktop-base` owns the shared native-systemd desktop launcher,
+PAM/logind VT7 session manager, `/etc/config/desktop`, `desktop-setup`,
+`desktop-ctl`, `openwrt-desktop-services.service` (audio, Flatpak, and Sunshine
+supervision), and the `sessions.d` plugin dispatcher, with no GNOME package
+dependencies. `openwrt-desktop-core` depends on `openwrt-desktop-base` and
+provides the GNOME session plugin (`sessions.d/gnome`), TPM2-sealed unattended
+GNOME keyring bootstrap/unlock, Mutter settings, and `openwrt-gnome-remotes.service`.
+`luci-app-desktop` (`Services -> Desktop`) depends only on `openwrt-desktop-base`.
 
 ## Session Plugin Contract
 
@@ -16,26 +16,43 @@ under `/usr/libexec/openwrt-desktop/sessions.d/<id>` where `<id>` matches
 `^[a-z0-9][a-z0-9_-]{0,31}$` (symlinks are rejected).
 
 Each plugin defines static metadata lines (parsed without execution by
-`desktop-ctl`) and three POSIX shell functions:
+`desktop-ctl`) and POSIX shell functions (with optional credential hooks):
 
 - `SESSION_ID`: must match the filename (`<id>`).
 - `SESSION_TITLE` / `SESSION_DESCRIPTION`: display strings shown in LuCI.
 - `SESSION_EXEC`: absolute path to the session binary checked for
   executability.
 - `SESSION_SUPPORTS_RDP` / `SESSION_SUPPORTS_KMS_SCHEDULING`: `"1"` or `"0"`.
+- `SESSION_CREDENTIAL_BACKEND` / `SESSION_RDP_UNIT` (optional): credential
+  backend identifier (for example `"gnome-keyring"`) and user RDP unit name
+  (for example `"gnome-remote-desktop.service"`). Sessions without them report
+  `not_applicable` / `rdp_available: false` and start without `LoadCredential*`.
 - `SESSION_UNSET_VARS`: space-separated list of DE-specific variables cleared
   from the surviving `systemd --user` manager before any session starts.
 - `desktop_session_check()`: verifies runtime prerequisites before starting.
+- `desktop_session_setup()` / `desktop_session_user_setup()` (optional):
+  root-side credential/TLS provisioning and per-user unit enablement run by
+  `desktop-setup`.
+- `desktop_session_credential_prop()` (optional): prints a `systemd-run`
+  `LoadCredential*` property when the session requires a systemd credential.
+- `desktop_session_unlock()` (optional): unlocks session credentials inside the
+  user session before starting the compositor.
 - `desktop_session_exec()`: exports DE variables, imports them into
   `systemctl --user`, and `exec`s the compositor/session manager.
 - `desktop_session_stop()`: gracefully shuts down the user session before
   `openwrt-desktop.service` stops.
 
-`openwrt-desktop-core` installs the default `gnome` plugin
-(`/usr/libexec/openwrt-desktop/sessions.d/gnome`). Adding another Wayland
-desktop (such as KDE Plasma) later requires only installing a matching plugin
-(for example `sessions.d/plasma`) alongside its desktop packages; `desktop-ctl`
-and `luci-app-desktop` discover it automatically.
+Session selection follows one shared rule across `desktop.init`, `desktop-setup`,
+`desktop-ctl`, and LuCI: an explicitly configured `desktop.main.session` must
+be installed and available; when unconfigured (`''`), a single available session
+is selected automatically, while zero or multiple available sessions fail
+preflight with an explicit message before touching any running session.
+
+`openwrt-desktop-core` installs the `gnome` plugin
+(`/usr/libexec/openwrt-desktop/sessions.d/gnome`). `desktop-ctl` and
+`luci-app-desktop` automatically discover additional installed plugins.
+See [desktop package decoupling plan](desktop-package-decoupling-plan.md) and
+[desktop package decoupling validation](desktop-package-decoupling-validation.md).
 
 ## Lifecycle and Active-Session Tracking
 
@@ -87,7 +104,7 @@ through `/usr/share/rpcd/ucode/luci.desktop` with separated read/write ACLs:
   banner with a confirmed **Restart desktop** action alongside a dedicated
   **Switch & Restart** control.
 
-## Future KDE Plasma Notes
+## Earlier KDE Plasma Notes
 
 When a second DE (such as KDE Plasma) is ported:
 

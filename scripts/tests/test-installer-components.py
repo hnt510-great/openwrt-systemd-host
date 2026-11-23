@@ -490,19 +490,45 @@ class InstallerComponentsTests(unittest.TestCase):
 
     def test_rdp_package_split_recipes(self):
         desktop_mk = (ROOT / 'package/custom/openwrt-desktop/Makefile').read_text()
+        base_block = desktop_mk.split('define Package/openwrt-desktop-base', 1)[1].split('endef', 1)[0]
         core_block = desktop_mk.split('define Package/openwrt-desktop-core', 1)[1].split('endef', 1)[0]
         rdp_block = desktop_mk.split('define Package/openwrt-desktop-rdp', 1)[1].split('endef', 1)[0]
         meta_block = desktop_mk.split('define Package/openwrt-desktop\n', 1)[1].split('endef', 1)[0]
+        self.assertNotIn('gnome-shell', base_block)
+        self.assertNotIn('gnome-keyring', base_block)
+        self.assertNotIn('gnome-remote-desktop', base_block)
+        self.assertIn('+python3', base_block)
+        self.assertIn('+openwrt-desktop-base', core_block)
         self.assertNotIn('gnome-remote-desktop', core_block)
         self.assertIn('+openwrt-desktop-core', rdp_block)
         self.assertIn('+gnome-remote-desktop', rdp_block)
         self.assertIn('+openwrt-desktop-core', meta_block)
         self.assertIn('+openwrt-desktop-rdp', meta_block)
 
-        for pkg in ('openwrt-desktop-audio', 'openwrt-desktop-ime', 'openwrt-flatpak', 'openwrt-appimage'):
+        for pkg in ('luci-app-desktop', 'openwrt-desktop-audio', 'openwrt-appimage'):
             mk = (ROOT / 'package/custom' / pkg / 'Makefile').read_text()
-            self.assertIn('+openwrt-desktop-core', mk)
+            self.assertIn('+openwrt-desktop-base', mk)
+            self.assertNotIn('+openwrt-desktop-core', mk)
             self.assertNotRegex(mk, r'\+openwrt-desktop(?:\s|$)')
+
+        ime_mk = (ROOT / 'package/custom/openwrt-desktop-ime/Makefile').read_text()
+        ime_base = ime_mk.split('define Package/openwrt-desktop-ime-base', 1)[1].split('endef', 1)[0]
+        ime_gnome = ime_mk.split('define Package/openwrt-desktop-ime\n', 1)[1].split('endef', 1)[0]
+        self.assertIn('+openwrt-desktop-base', ime_base)
+        self.assertNotIn('gnome', ime_base)
+        self.assertIn('+openwrt-desktop-ime-base', ime_gnome)
+        self.assertIn('+openwrt-desktop-core', ime_gnome)
+        self.assertIn('+gnome-shell-extension-kimpanel', ime_gnome)
+
+        fp_mk = (ROOT / 'package/custom/openwrt-flatpak/Makefile').read_text()
+        fp_base = fp_mk.split('define Package/openwrt-flatpak-base', 1)[1].split('endef', 1)[0]
+        fp_gnome = fp_mk.split('define Package/openwrt-flatpak\n', 1)[1].split('endef', 1)[0]
+        self.assertIn('+openwrt-desktop-base', fp_base)
+        self.assertNotIn('gnome', fp_base)
+        self.assertIn('+openwrt-flatpak-base', fp_gnome)
+        self.assertIn('+openwrt-desktop-core', fp_gnome)
+        self.assertIn('+xdg-desktop-portal-gtk', fp_gnome)
+        self.assertIn('+xdg-desktop-portal-gnome', fp_gnome)
 
 
 if __name__ == '__main__':

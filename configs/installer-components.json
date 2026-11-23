@@ -342,6 +342,7 @@
     ],
     "forbidden_packages": [
       "openwrt-desktop",
+      "openwrt-desktop-base",
       "openwrt-desktop-core",
       "openwrt-desktop-rdp",
       "gnome-shell",
@@ -351,9 +352,11 @@
       "nautilus",
       "openwrt-desktop-audio",
       "openwrt-desktop-ime",
+      "openwrt-desktop-ime-base",
       "sunshine",
       "flatpak",
       "openwrt-flatpak",
+      "openwrt-flatpak-base",
       "openwrt-appimage",
       "firefox-esr-bin",
       "google-chrome-bin",
@@ -391,6 +394,7 @@
       ],
       "conditional_packages": [],
       "forbidden_when_unselected": [
+        "openwrt-desktop-base",
         "openwrt-desktop-core",
         "openwrt-desktop",
         "gnome-shell",
@@ -430,6 +434,7 @@
       "conditional_packages": [],
       "forbidden_when_unselected": [
         "openwrt-desktop-ime",
+        "openwrt-desktop-ime-base",
         "fcitx5"
       ]
     },
@@ -482,6 +487,7 @@
       "conditional_packages": [],
       "forbidden_when_unselected": [
         "openwrt-flatpak",
+        "openwrt-flatpak-base",
         "flatpak"
       ]
     },
