@@ -181,12 +181,20 @@ define BuildKernel
   $(LINUX_DIR)/.image: export STAGING_PREFIX=$$(STAGING_DIR_HOST)
   $(LINUX_DIR)/.image: export PKG_CONFIG_PATH=$$(STAGING_DIR_HOST)/lib/pkgconfig
   $(LINUX_DIR)/.image: export PKG_CONFIG_LIBDIR=$$(STAGING_DIR_HOST)/lib/pkgconfig
+  ifneq ($(KERNEL_REUSE_DIR),)
+  $(LINUX_DIR)/.image: FORCE
+	@test -f "$(KERNEL_REUSE_DIR)/vmlinuz" -a -f "$(KERNEL_REUSE_DIR)/config" || { \
+		echo "ERROR: KERNEL_REUSE_DIR $(KERNEL_REUSE_DIR) is missing vmlinuz or config" >&2; \
+		exit 1; \
+	}
+  else
   $(LINUX_DIR)/.image: $(STAMP_CONFIGURED) $(if $(CONFIG_STRIP_KERNEL_EXPORTS),$(KERNEL_BUILD_DIR)/symtab.h) FORCE
 	$(call BuildTimeLog,begin,compile)
 	$(Kernel/CompileImage)
 	$(Kernel/CollectDebug)
 	touch $$@
 	$(call BuildTimeLog,end,compile)
+  endif
 	
   mostlyclean: FORCE
 	$(Kernel/Clean)

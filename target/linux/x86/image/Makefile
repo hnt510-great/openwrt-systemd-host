@@ -40,6 +40,10 @@ GRUB_TITLE:=$(call qstrip,$(CONFIG_GRUB_TITLE))
 BOOTOPTS:=$(call qstrip,$(CONFIG_GRUB_BOOTOPTS))
 IMAGE_COMPRESS:=$(if $(CONFIG_OPENWRT_SYSTEMD),pigz,libdeflate-gzip)
 IMAGE_PADDING:=$(if $(CONFIG_OPENWRT_SYSTEMD),systemd-pad-to,pad-to)
+IMAGE_KERNEL_BIN = $(if $(KERNEL_REUSE_DIR),$(KERNEL_REUSE_DIR)/vmlinuz,$(KDIR)/$(KERNEL_NAME))
+IMAGE_KERNEL_CONFIG = $(if $(KERNEL_REUSE_DIR),$(KERNEL_REUSE_DIR)/config,$(LINUX_DIR)/.config)
+IMAGE_KERNEL_RELEASE = $(if $(KERNEL_REUSE_DIR),$(strip $(shell cat $(KERNEL_REUSE_DIR)/release)),$(LINUX_UNAME_VERSION))
+IMAGE_KERNEL_VERSION = $(if $(KERNEL_REUSE_DIR),$(strip $(shell sed 's/-rc/_rc/g' $(KERNEL_REUSE_DIR)/kernel.version)),$(strip $(shell sed 's/-rc/_rc/g' $(STAGING_DIR)/kernel.version)))
 
 define Build/systemd-pad-to
 	size="$$(stat -c%s $@)"; \
@@ -47,7 +51,7 @@ define Build/systemd-pad-to
 endef
 
 define Build/efi-boot-files
-	$(CP) $(KDIR)/$(KERNEL_NAME) $@.boot/boot/vmlinuz
+	$(CP) $(IMAGE_KERNEL_BIN) $@.boot/boot/vmlinuz
 	if [ -d "$(STAGING_DIR_ROOT)/boot" ] && [ -n "$$(ls -A "$(STAGING_DIR_ROOT)/boot" 2>/dev/null)" ]; then \
 		$(CP) "$(STAGING_DIR_ROOT)/boot/." $@.boot/boot/; \
 	fi
@@ -104,7 +108,7 @@ define Build/onie-installer
 		$(if $(SOURCE_DATE_EPOCH),--mtime=@$(SOURCE_DATE_EPOCH)) \
 		-C $(TARGET_DIR)/ -cf - . | $(STAGING_DIR_HOST)/bin/libdeflate-gzip \
 		-12 -c > $@.onie/payload/rootfs.tar.gz
-	$(CP) $(KDIR)/$(KERNEL_NAME) $@.onie/payload/vmlinuz
+	$(CP) $(IMAGE_KERNEL_BIN) $@.onie/payload/vmlinuz
 	$(TAR) --numeric-owner --owner=0 --group=0 --sort=name \
 		$(if $(SOURCE_DATE_EPOCH),--mtime=@$(SOURCE_DATE_EPOCH)) \
 		-C $@.onie/payload -cf $@.onie/payload.tar .
@@ -125,7 +129,7 @@ define Build/onie-installer
 endef
 
 define Build/iso
-	$(CP) $(KDIR)/$(KERNEL_NAME) $@.boot/boot/vmlinuz
+	$(CP) $(IMAGE_KERNEL_BIN) $@.boot/boot/vmlinuz
 	cat \
 		$(STAGING_DIR_IMAGE)/grub2/cdboot.img \
 		$(STAGING_DIR_IMAGE)/grub2/eltorito.img \
@@ -170,10 +174,10 @@ define Build/installer-iso
 		--sign-key $(BUILD_KEY_APK_SEC) \
 		--arch $(ARCH_PACKAGES) \
 		--version '$(VERSION_NUMBER)' \
-		--kernel-release '$(LINUX_UNAME_VERSION)' \
+		--kernel-release '$(IMAGE_KERNEL_RELEASE)' \
 		--base-files-version "$$(cat $(STAGING_DIR)/base-files.version)" \
 		--libc-version "$$(cat $(STAGING_DIR)/libc.version)" \
-		--kernel-version "$$(sed 's/-rc/_rc/g' $(STAGING_DIR)/kernel.version)" \
+		--kernel-version '$(IMAGE_KERNEL_VERSION)' \
 		--package-install-list $(TMP_DIR)/apk_install_list \
 		--base-root-out $@.root \
 		--components-out $@.components
@@ -185,16 +189,16 @@ define Build/installer-iso
 	$(STAGING_DIR_HOST)/bin/mksquashfs4 $@.root $@.squashfs -nopad -noappend -root-owned -comp $(SQUASHFSCOMP) $(SQUASHFSOPT)
 	python3 $(SCRIPT_DIR)/build-installer-initramfs.py --root $@.root \
 		--init $(TOPDIR)/package/custom/openwrt-installer/files/live-init \
-		--kernel-config $(LINUX_DIR)/.config --output $@.initramfs.gz
+		--kernel-config $(IMAGE_KERNEL_CONFIG) --output $@.initramfs.gz
 	rm -rf $@.root
 	$(call Build/efi-boot-files,efi)
 	PATH="$(STAGING_DIR_HOST)/bin:$$PATH" python3 $(SCRIPT_DIR)/build-installer-iso.py \
 		--output $@ --squashfs $@.squashfs --esp-tree $@.boot --initramfs $@.initramfs.gz \
 		--components-dir $@.components \
-		--grub-dir $(STAGING_DIR_IMAGE)/grub2 --kernel $(KDIR)/$(KERNEL_NAME) \
+		--grub-dir $(STAGING_DIR_IMAGE)/grub2 --kernel $(IMAGE_KERNEL_BIN) \
 		--template ./grub-installer.cfg --epoch $(SOURCE_DATE_EPOCH) \
 		--signature $$(echo installer$(SOURCE_DATE_EPOCH)$(LINUX_VERMAGIC) | $(MKHASH) md5 | cut -b1-8) \
-		--root-partuuid '$(GPT_ROOTPART)' --release '$(LINUX_UNAME_VERSION)' --version '$(VERSION_NUMBER)' \
+		--root-partuuid '$(GPT_ROOTPART)' --release '$(IMAGE_KERNEL_RELEASE)' --version '$(VERSION_NUMBER)' \
 		--serial '$(strip $(GRUB_SERIAL_CONFIG))' --terminal '$(strip $(GRUB_TERMINAL_CONFIG))' \
 		--cmdline '$(BOOTOPTS) $(GRUB_CONSOLE_CMDLINE)' --title '$(GRUB_TITLE)' --timeout '$(GRUB_TIMEOUT)'
 	rm -rf $@.components

@@ -434,6 +434,39 @@ class PreflightTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 G.MIGRATIONS.rules(path)
 
+    def test_reused_generation_allows_pure_userspace_upgrade_on_same_generation_router(self):
+        baseline = {'release': '7.3.5-85-openwrt'}
+        simulation = {'plan': {'changes': [
+            {'name': 'ttyd', 'before': '1.7.7-r6', 'after': '1.7.7-r7'},
+        ]}}
+        status = G.validate_reused_generation(
+            baseline, simulation, {'sequence': 85, 'release': '7.3.5-85-openwrt'})
+        self.assertEqual(status, 'passed')
+
+    def test_reused_generation_blocks_kernel_payload_or_kmod_reinstall_on_same_generation_router(self):
+        baseline = {'release': '7.3.5-85-openwrt'}
+        reused = {'sequence': 85, 'release': '7.3.5-85-openwrt'}
+        for bad_change in (
+            {'name': 'linux-image-7.3.5-85-openwrt', 'before': '7.3.5-r85', 'after': '7.3.5-r85'},
+            {'name': 'linux-image-openwrt', 'before': '7.3.5-r85', 'after': '7.3.5-r86'},
+            {'name': 'linux-headers-7.3.5-85-openwrt', 'before': '7.3.5-r85', 'after': '7.3.5-r85'},
+            {'name': 'kernel-dev-headers', 'before': '1000.85.1-r1', 'after': '1000.86.1-r1'},
+            {'name': 'kmod-nic', 'before': '1000.85.1-r1', 'after': '1000.85.1-r1'},
+            {'name': 'kmod-nic', 'before': '1000.85.1-r1', 'after': '1000.86.1-r1'},
+        ):
+            with self.assertRaisesRegex(ValueError, 'must not modify kernel payloads'):
+                G.validate_reused_generation(baseline, {'plan': {'changes': [bad_change]}}, reused)
+
+    def test_reused_generation_allows_older_router_to_upgrade_to_published_generation(self):
+        baseline = {'release': '7.3.5-84-openwrt'}
+        simulation = {'plan': {'changes': [
+            {'name': 'linux-image-7.3.5-85-openwrt', 'before': None, 'after': '7.3.5-r85'},
+            {'name': 'linux-image-openwrt', 'before': '7.3.5-r84', 'after': '7.3.5-r85'},
+        ]}}
+        status = G.validate_reused_generation(
+            baseline, simulation, {'sequence': 85, 'release': '7.3.5-85-openwrt'})
+        self.assertEqual(status, 'router-on-different-generation')
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

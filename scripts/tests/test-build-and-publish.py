@@ -953,6 +953,97 @@ class BuildPublicationTests(unittest.TestCase):
         self.assertEqual({p['name'] for p in data.get('packages', [])}, {'kmod-nic'})
         self.assertTrue((self.server / 'public/abi' / ABI).exists())
 
+    def test_explain_kernel_is_strictly_read_only(self):
+        config_before = (self.tree / '.config').read_text()
+        self.assertFalse(B.state_path(self.tree).exists())
+        report = B.explain_kernel(self.tree, self.server)
+        self.assertIn(report['decision'], ('new', 'reuse', 'insufficient_evidence'))
+        self.assertEqual((self.tree / '.config').read_text(), config_before)
+        self.assertFalse(B.state_path(self.tree).exists())
+        (self.tree / 'tmp/.packageinfo').unlink()
+        missing = B.explain_kernel(self.tree, self.server)
+        self.assertEqual(missing['decision'], 'insufficient_evidence')
+        self.assertEqual(missing['metadata_status'], 'missing')
+
+    def test_published_generation_recovers_from_local_image_and_timestamp_drift(self):
+        def make_first(tree, arguments):
+            if arguments == ['prepare-tmpinfo']:
+                return
+            seq = int(B.configuration(tree)['CONFIG_OPENWRT_KERNEL_SEQUENCE'])
+            self.generation(seq)
+
+        with patch.object(B, 'run_make', side_effect=make_first):
+            first = B.build(self.tree, ['-j16'])
+        self.assertEqual(first['generation'], '6.18.55-2-openwrt')
+        manifest = json.loads((self.server / 'public/kernel-upgrades/manifest.json').read_text())
+        self.assertIn('2', manifest.get('generations', {}))
+        published_img = self.server / 'public/kernel-upgrades/linux-image-6.18.55-2-openwrt-6.18.55-r2.apk'
+        published_img_sha = B.LAN.sha256(published_img)
+
+        # Simulate ordinary make drifting local bzImage timestamp AND missing local state/image APK
+        (self.release.parents[2] / 'arch/x86/boot/bzImage').write_bytes(b'corrupted local bzimage')
+        B.state_path(self.tree).unlink()
+        for p in self.target.glob('linux-image-*-2-openwrt-*.apk'):
+            p.unlink()
+
+        explanation = B.explain_kernel(self.tree, self.server)
+        self.assertEqual(explanation['decision'], 'reuse')
+        self.assertEqual(explanation['reuse_source'], 'published')
+        self.assertEqual(explanation['selected_sequence'], 2)
+
+        seen_reuse_dir = []
+        def make_second(tree, arguments):
+            if arguments == ['prepare-tmpinfo']:
+                return
+            reuse_arg = next((a.split('=', 1)[1] for a in arguments if a.startswith('KERNEL_REUSE_DIR=')), None)
+            self.assertIsNotNone(reuse_arg)
+            self.assertTrue((Path(reuse_arg) / 'vmlinuz').is_file())
+            self.assertTrue((Path(reuse_arg) / 'config').is_file())
+            seen_reuse_dir.append(reuse_arg)
+            # Update a userspace package only
+            self.make_package('app', '2-r1')
+
+        with patch.object(B, 'run_make', side_effect=make_second):
+            second = B.build(self.tree, ['-j16'])
+        self.assertEqual(len(seen_reuse_dir), 1)
+        self.assertEqual(second['generation'], '6.18.55-2-openwrt')
+        self.assertEqual(second['kernel']['status'], 'unchanged')
+        self.assertEqual(second['userspace']['status'], 'published')
+        self.assertEqual(B.LAN.sha256(published_img), published_img_sha)
+
+    def test_tampered_published_snapshot_blocks_reuse_without_advancing_sequence(self):
+        def make_first(tree, arguments):
+            if arguments == ['prepare-tmpinfo']:
+                return
+            seq = int(B.configuration(tree)['CONFIG_OPENWRT_KERNEL_SEQUENCE'])
+            self.generation(seq)
+
+        with patch.object(B, 'run_make', side_effect=make_first):
+            B.build(self.tree, ['-j16'])
+        # Tamper with the published image APK on disk
+        published_img = (self.server / 'public/kernel-upgrades').resolve() / 'linux-image-6.18.55-2-openwrt-6.18.55-r2.apk'
+        published_img.write_bytes(published_img.read_bytes() + b'tampered')
+        config_before = (self.tree / '.config').read_text()
+        report = B.explain_kernel(self.tree, self.server)
+        self.assertEqual(report['decision'], 'insufficient_evidence')
+        self.assertTrue(report['issues'])
+        with self.assertRaisesRegex(ValueError, 'verification failed'):
+            B.prepare_sequence(self.tree, self.server)
+        self.assertEqual((self.tree / '.config').read_text(), config_before)
+
+    def test_concurrent_kernel_snapshot_advance_blocks_stale_publish(self):
+        B.publish(self.tree, self.data)
+        pinned = B.REUSE.resolve_aliases(self.server)
+        self.generation(2)
+        B.publish(self.tree, self.data)
+        with self.assertRaisesRegex(ValueError, 'Published kernel snapshot changed during build'):
+            B.publish(self.tree, self.data, pinned_snapshots=pinned)
+
+    def test_recorded_timestamp_helper_for_ordinary_make(self):
+        B.save_state(self.tree, {'schema': 1, 'sequence': 85, 'timestamp': '2026-11-23 10:00:53 +0000'})
+        self.assertEqual(B.REUSE.recorded_timestamp(self.tree, 85), '2026-11-23 10:00:53 +0000')
+        self.assertEqual(B.REUSE.recorded_timestamp(self.tree, 86), '')
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -83,7 +83,7 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def publish(source, destination, apk, key, keys, dry_run=False, stage_only=False):
+def publish(source, destination, apk, key, keys, dry_run=False, stage_only=False, generation_record=None):
     GUARD.require_coordinator(destination, stage_only or dry_run)
     destination.mkdir(parents=True, exist_ok=True)
     with (destination / '.kernel-publish.lock').open('a') as lock:
@@ -196,9 +196,24 @@ def publish(source, destination, apk, key, keys, dry_run=False, stage_only=False
                 raise ValueError('Refusing to publish a stale kernel generation')
             if previous and any(image_sequences[name] <= previous['sequence'] for name in new_images):
                 raise ValueError('New kernel generations require an increasing publication sequence')
+            kept_sequences = {str(image_sequences[name]) for name in images}
+            generations = {
+                seq_key: rec for seq_key, rec in (previous.get('generations') or {}).items()
+                if seq_key in kept_sequences
+            } if previous else {}
+            if generation_record is not None:
+                rec_seq = str(int(generation_record['sequence']))
+                if generation_record.get('signing_key_sha256') != fingerprint:
+                    raise ValueError('Generation record signing key disagrees with channel signing key')
+                for fname, meta in (generation_record.get('kernel_packages') or {}).items():
+                    if fname not in packages or packages[fname]['sha256'] != meta.get('sha256'):
+                        raise ValueError('Generation record package disagrees with staged kernel channel: ' + fname)
+                if rec_seq in kept_sequences:
+                    generations[rec_seq] = generation_record
+            previous_generations = previous.get('generations') or {} if previous else {}
             if previous and packages.keys() == previous['packages'].keys() and all(
                     entry['sha256'] == previous['packages'][name]['sha256']
-                    for name, entry in packages.items()):
+                    for name, entry in packages.items()) and generations == previous_generations:
                 if digest(active / 'packages.adb') != previous['index_sha256']:
                     raise ValueError('Retained kernel channel index changed')
                 subprocess.run([str(apk), 'verify', '--keys-dir', str(keys), str(active / 'packages.adb')],
@@ -214,6 +229,8 @@ def publish(source, destination, apk, key, keys, dry_run=False, stage_only=False
                         'keep_generations': KEEP_GENERATIONS,
                         'signing_key_sha256': fingerprint,
                         'index_sha256': digest(stage / 'packages.adb')}
+            if generations:
+                manifest['generations'] = generations
             (stage / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
             if stage_only:
                 snapshots = destination / 'public/kernel-snapshots'

@@ -27,6 +27,7 @@ def load(name, filename):
 LAN = load('build_lan_publisher', 'publish-lan-apk-feeds.py')
 KERNEL = load('build_kernel_publisher', 'publish-kernel-upgrade-feed.py')
 INPUTS = load('kernel_build_inputs', 'kernel-build-inputs.py')
+REUSE = load('kernel_reuse', 'kernel-reuse.py')
 GUARD = load('build_upgrade_preflight', 'apk-upgrade-preflight.py')
 CHECKOUT_LOCK = load('checkout_lock', 'checkout-lock.py')
 COLD_VERIFY = load('rebuild_cold_verify', 'rebuild-cold-verify.py')
@@ -180,67 +181,242 @@ def image_outputs(output, sequence):
             list(output.glob(f'linux-image-*-{sequence}-openwrt-*.apk')))
 
 
-def generation_matches_compiled_image(tree, sequence, timestamp):
-    """An input record alone cannot prove that existing immutable bytes match."""
+def inspect_compiled_image(tree, sequence, timestamp):
+    """Return concrete local mismatch reasons, or [] when compiled image matches."""
     output = tree / 'bin/systemd/targets/x86/64-glibc/packages'
     images = image_outputs(output, sequence)
     if not images:
-        return True
+        return []
     compiled = compiled_release(tree, sequence)
     if not compiled:
-        return False
+        return [f'compiled kernel.release for sequence {sequence} is missing or ambiguous']
     release, version, kernel_release = compiled
-    releases = [kernel_release]
     image = output / ('linux-image-' + release + '-' + version + '.apk')
     if image not in images:
-        return False
+        return [f'expected local image APK {image.name} not found']
     metadata = LAN.dump_index(TREE / 'staging_dir/host/bin/apk', image)
     files = {item['name']: item.get('hash') for directory in metadata.get('paths', [])
              if directory.get('name') == 'usr/lib/openwrt-kernel/' + release
              for item in directory.get('files', [])}
-    linux = releases[0].parents[2]
+    linux = kernel_release.parents[2]
     binary = linux / 'arch/x86/boot/bzImage'
     if not binary.is_file():
-        return False
+        return [f'compiled bzImage is missing: {binary}']
     image_bytes = binary.read_bytes()
     # x86 boot protocol: kernel_version is relative to the real-mode header
     # at offset 0x200. Check the embedded version, not a possibly newer .h file.
     if len(image_bytes) < 0x210 or image_bytes[0x202:0x206] != b'HdrS':
-        return False
+        return ['compiled bzImage lacks a valid x86 HdrS boot header']
     start = 0x200 + int.from_bytes(image_bytes[0x20e:0x210], 'little')
     end = image_bytes.find(b'\0', start)
+    mismatches = []
     if end < 0 or not timestamp or not image_bytes[start:end].endswith((' ' + timestamp).encode()):
-        return False
-    return all(path.is_file() and files.get(name) == LAN.sha256(path)
-               for name, path in (('vmlinuz', binary),
-                                  ('config', linux / '.config')))
+        embedded = image_bytes[start:end].decode(errors='replace') if end >= 0 else '<unterminated>'
+        mismatches.append(f'bzImage embedded timestamp differs (expected {timestamp!r}, found {embedded!r})')
+    for name, path in (('vmlinuz', binary), ('config', linux / '.config')):
+        if not path.is_file():
+            mismatches.append(f'local {name} file missing: {path}')
+        elif files.get(name) != LAN.sha256(path):
+            mismatches.append(f'local {name} SHA-256 differs from local {image.name}')
+    return mismatches
 
 
-def prepare_sequence(tree, destination, make_args=(), inputs=None):
-    """Reuse a proven generation, reserving a new one only for changed inputs."""
+def generation_matches_compiled_image(tree, sequence, timestamp):
+    """An input record alone cannot prove that existing immutable bytes match."""
+    return not inspect_compiled_image(tree, sequence, timestamp)
+
+
+def _explicit_timestamp(make_args):
+    explicit = [arg.split('=', 1)[1] for arg in make_args
+                if arg.startswith('KBUILD_BUILD_TIMESTAMP=')]
+    return explicit[-1] if explicit else os.environ.get('KBUILD_BUILD_TIMESTAMP')
+
+
+def decide_kernel_generation(tree, destination, make_args=(), *, inputs=None, apk=None, read_only=False):
+    """Shared read-only decision engine for kernel generation reuse vs reservation."""
     config = configuration(tree)
     value = config.get('CONFIG_OPENWRT_KERNEL_SEQUENCE', '1')
     if not value.isdigit() or not 1 <= int(value) <= 999999:
         raise ValueError('Invalid CONFIG_OPENWRT_KERNEL_SEQUENCE')
     current = int(value)
-    manifest = destination / 'public/kernel-upgrades/manifest.json'
-    published = json.loads(manifest.read_text())['sequence'] if manifest.exists() else 0
+    snapshots, manifest = REUSE.load_published_state(destination)
+    published = int(manifest['sequence']) if manifest else 0
+    meta_status = INPUTS.metadata_status(tree)
+    apk_bin = apk or (TREE / 'staging_dir/host/bin/apk')
+    explicit_ts = _explicit_timestamp(make_args)
+
+    if read_only and inputs is None and meta_status == 'missing':
+        return {
+            'decision': 'insufficient_evidence',
+            'reuse_source': None,
+            'configured_sequence': current,
+            'published_sequence': published,
+            'selected_sequence': current,
+            'release': None,
+            'timestamp': None,
+            'metadata_status': meta_status,
+            'baseline_snapshots': snapshots,
+            'comparable_groups': [],
+            'first_changes': [],
+            'local_mismatches': [],
+            'issues': ['tmp/.packageinfo is missing; run make prepare-tmpinfo to refresh metadata'],
+            'reason': 'package metadata missing; run make prepare-tmpinfo before deciding',
+        }
+
     inputs = inputs or INPUTS.fingerprint(tree, config, make_args)
+    generations = (manifest.get('generations') or {}) if manifest else {}
+    published_record = generations.get(str(published)) if published else None
+
+    # 1. Check authoritative published generation record first.
+    if published_record and current <= published:
+        comparable, changes = INPUTS.diff_inputs(published_record.get('inputs'), inputs)
+        ts_override = bool(explicit_ts and published_record.get('timestamp') and
+                           explicit_ts != published_record.get('timestamp'))
+        if ts_override:
+            changes = [f"explicit KBUILD_BUILD_TIMESTAMP override ({published_record.get('timestamp')} -> {explicit_ts})", *changes]
+        if INPUTS.same_inputs(published_record.get('inputs') or {}, inputs) and not ts_override:
+            ok, issues, _ = REUSE.verify_published_generation(
+                tree, destination, published_record, config, apk_bin,
+                pinned_snapshots=snapshots, manifest=manifest, keys_dir=TREE,
+            )
+            local_mismatches = inspect_compiled_image(tree, published, published_record.get('timestamp'))
+            if ok:
+                return {
+                    'decision': 'reuse',
+                    'reuse_source': 'published',
+                    'configured_sequence': current,
+                    'published_sequence': published,
+                    'selected_sequence': published,
+                    'release': published_record.get('release'),
+                    'timestamp': published_record.get('timestamp'),
+                    'metadata_status': meta_status,
+                    'baseline_snapshots': snapshots,
+                    'comparable_groups': comparable,
+                    'first_changes': [],
+                    'local_mismatches': local_mismatches,
+                    'issues': [],
+                    'reason': ('active kernel inputs match verified published generation' +
+                               (' (recovering from local drift)' if local_mismatches else '')),
+                    'record': published_record,
+                    'inputs': inputs,
+                }
+            return {
+                'decision': 'insufficient_evidence',
+                'reuse_source': None,
+                'configured_sequence': current,
+                'published_sequence': published,
+                'selected_sequence': published,
+                'release': published_record.get('release'),
+                'timestamp': published_record.get('timestamp'),
+                'metadata_status': meta_status,
+                'baseline_snapshots': snapshots,
+                'comparable_groups': comparable,
+                'first_changes': [],
+                'local_mismatches': local_mismatches,
+                'issues': issues,
+                'reason': 'published generation verification failed: ' + '; '.join(issues),
+                'record': published_record,
+                'inputs': inputs,
+            }
+
+    # 2. Fall back to local reserved/built state (unpublished reservation or legacy state).
     previous = json.loads(state_path(tree).read_text()) if state_path(tree).exists() else None
-    reuse = (previous and previous.get('schema') == 1 and INPUTS.same_inputs(previous['inputs'], inputs)
-             and current <= previous['sequence'] and previous['sequence'] >= published)
-    if reuse and not generation_matches_compiled_image(tree, previous['sequence'], previous.get('timestamp')):
-        print('Recorded generation differs from existing compiled image/config/timestamp; '
-              'reserving an unused generation.', flush=True)
-        reuse = False
-    selected = previous['sequence'] if reuse else max(current, published + 1)
+    comparable, changes = ([], [])
+    if published_record:
+        comparable, changes = INPUTS.diff_inputs(published_record.get('inputs'), inputs)
+    elif previous and previous.get('inputs'):
+        comparable, changes = INPUTS.diff_inputs(previous.get('inputs'), inputs)
+
+    local_mismatches = []
+    if (previous and previous.get('schema') == 1 and
+            INPUTS.same_inputs(previous['inputs'], inputs) and
+            current <= previous['sequence'] and previous['sequence'] >= published):
+        ts_override = bool(explicit_ts and previous.get('timestamp') and
+                           explicit_ts != previous.get('timestamp'))
+        if ts_override:
+            changes = [f"explicit KBUILD_BUILD_TIMESTAMP override ({previous.get('timestamp')} -> {explicit_ts})"]
+        else:
+            local_mismatches = inspect_compiled_image(tree, previous['sequence'], previous.get('timestamp'))
+            if not local_mismatches:
+                compiled = compiled_release(tree, previous['sequence'])
+                return {
+                    'decision': 'reuse',
+                    'reuse_source': 'local',
+                    'configured_sequence': current,
+                    'published_sequence': published,
+                    'selected_sequence': previous['sequence'],
+                    'release': compiled[0] if compiled else None,
+                    'timestamp': previous.get('timestamp'),
+                    'metadata_status': meta_status,
+                    'baseline_snapshots': snapshots,
+                    'comparable_groups': comparable,
+                    'first_changes': [],
+                    'local_mismatches': [],
+                    'issues': [],
+                    'reason': 'active kernel inputs match local reserved/built generation',
+                    'previous': previous,
+                    'inputs': inputs,
+                }
+
+    # 3. Allocate a new generation.
+    selected = max(current, published + 1)
     output = tree / 'bin/systemd/targets/x86/64-glibc/packages'
-    # Reuse partial immutable outputs only with the same proven inputs/time.
-    # Unknown or changed inputs must never overwrite an existing generation.
-    while not reuse and selected <= 999999 and image_outputs(output, selected):
+    while selected <= 999999 and image_outputs(output, selected):
         selected += 1
     if selected > 999999:
         raise ValueError('Kernel publication sequence exhausted')
+    if current > published and (not previous or current > previous['sequence']):
+        reason = f'maintainer explicitly raised sequence to {current}'
+    elif local_mismatches:
+        reason = 'local compiled image/config/timestamp drifted without a verified published record'
+    elif changes:
+        reason = 'active kernel inputs changed: ' + changes[0]
+    else:
+        reason = 'no matching recorded or published kernel generation'
+    return {
+        'decision': 'new',
+        'reuse_source': None,
+        'configured_sequence': current,
+        'published_sequence': published,
+        'selected_sequence': selected,
+        'release': None,
+        'timestamp': explicit_ts,
+        'metadata_status': meta_status,
+        'baseline_snapshots': snapshots,
+        'comparable_groups': comparable,
+        'first_changes': changes,
+        'local_mismatches': local_mismatches,
+        'issues': [],
+        'reason': reason,
+        'inputs': inputs,
+    }
+
+
+def explain_kernel(tree, destination, make_args=()):
+    """Read-only explanation of kernel generation reuse/allocation."""
+    result = decide_kernel_generation(tree, destination, make_args, read_only=True)
+    return {k: v for k, v in result.items() if k not in ('record', 'previous', 'inputs')}
+
+
+def prepare_sequence(tree, destination, make_args=(), inputs=None):
+    """Reuse a proven generation, reserving a new one only for changed inputs."""
+    result = decide_kernel_generation(tree, destination, make_args, inputs=inputs, read_only=False)
+    if result['decision'] == 'insufficient_evidence':
+        raise ValueError(result['reason'])
+    config = configuration(tree)
+    current = result['configured_sequence']
+    published = result['published_sequence']
+    selected = result['selected_sequence']
+    reuse = result['decision'] == 'reuse'
+    inputs = result['inputs']
+
+    if not reuse and result['local_mismatches']:
+        print('Recorded generation differs from existing compiled image/config/timestamp; '
+              'reserving an unused generation.', flush=True)
+    elif reuse and result['reuse_source'] == 'published' and result['local_mismatches']:
+        print('Local compiled image/config/timestamp drifted (' + '; '.join(result['local_mismatches']) +
+              f'); reusing verified published generation {selected}.', flush=True)
+
     if selected != current or 'CONFIG_OPENWRT_KERNEL_SEQUENCE' not in config:
         path = tree / '.config'
         text = path.read_text()
@@ -259,19 +435,29 @@ def prepare_sequence(tree, destination, make_args=(), inputs=None):
                 os.replace(temporary, path)
             finally:
                 temporary.unlink(missing_ok=True)
-    if reuse and previous['inputs'] != inputs:
+    if reuse and result['reuse_source'] == 'published':
+        save_state(tree, {
+            'schema': 1,
+            'inputs': inputs,
+            'sequence': selected,
+            'timestamp': result['timestamp'],
+            'phase': 'reused',
+            'reuse_source': 'published',
+            'release': result['release'],
+            'snapshots': result['baseline_snapshots'],
+        })
+    elif reuse and result.get('previous') and result['previous']['inputs'] != inputs:
         # Same generation; record the current host programs and digest format.
-        save_state(tree, {**previous, 'inputs': inputs})
-    if not reuse:
-        explicit = [arg.split('=', 1)[1] for arg in make_args
-                    if arg.startswith('KBUILD_BUILD_TIMESTAMP=')]
-        timestamp = explicit[-1] if explicit else os.environ.get('KBUILD_BUILD_TIMESTAMP')
+        save_state(tree, {**result['previous'], 'inputs': inputs})
+    elif not reuse:
+        timestamp = _explicit_timestamp(make_args)
         if not timestamp:
             epoch = int(os.environ.get('SOURCE_DATE_EPOCH', str(int(time.time()))))
             timestamp = datetime.fromtimestamp(epoch, timezone.utc).strftime('%Y-%m-%d %H:%M:%S +0000')
         save_state(tree, {'schema': 1, 'inputs': inputs, 'sequence': selected,
                          'timestamp': timestamp, 'phase': 'reserved'})
-    action = 'reuse unchanged inputs' if reuse else 'new/changed or unrecorded inputs'
+    action = (f"reuse verified published generation" if reuse and result['reuse_source'] == 'published'
+              else ('reuse unchanged inputs' if reuse else 'new/changed or unrecorded inputs'))
     print(f'Kernel publication sequence: {selected} ({action}; published: {published})', flush=True)
     return selected
 
@@ -310,25 +496,41 @@ def legacy_kernel_package(info):
         any('-owrt-' in dep for dep in info.get('depends', [])))
 
 
-def project(tree, work, apk, progress=None, expected=None):
+def project(tree, work, apk, progress=None, expected=None, reused_kernel=None):
     config = configuration(tree)
-    sequence = int(config.get('CONFIG_OPENWRT_KERNEL_SEQUENCE', '0'))
-    abi = (tree / 'staging_dir/target-x86_64_glibc/kernel.version').read_text().strip()
-    if not re.fullmatch(r'(.+)~([0-9a-f]{32})-r([0-9]+)', abi) or not 1 <= sequence <= 999999:
-        raise ValueError('Missing/invalid completed kernel build metadata')
-    compiled = compiled_release(tree, sequence)
-    if not compiled:
-        raise ValueError('Compiled kernel release does not match the configured build number; '
-                         'run a complete build before publishing')
-    release, version, _ = compiled
+    reuse_meta = None
+    reused_kmods = {}
+    if reused_kernel is not None:
+        reuse_dir = Path(reused_kernel)
+        reuse_meta = json.loads((reuse_dir / 'metadata.json').read_text())
+        sequence = int(reuse_meta['sequence'])
+        abi = reuse_meta['abi']
+        release = reuse_meta['release']
+        version = reuse_meta['version']
+        reused_kmods = reuse_meta.get('kmod_packages') or {}
+    else:
+        sequence = int(config.get('CONFIG_OPENWRT_KERNEL_SEQUENCE', '0'))
+        abi = (tree / 'staging_dir/target-x86_64_glibc/kernel.version').read_text().strip()
+        if not re.fullmatch(r'(.+)~([0-9a-f]{32})-r([0-9]+)', abi) or not 1 <= sequence <= 999999:
+            raise ValueError('Missing/invalid completed kernel build metadata')
+        compiled = compiled_release(tree, sequence)
+        if not compiled:
+            raise ValueError('Compiled kernel release does not match the configured build number; '
+                             'run a complete build before publishing')
+        release, version, _ = compiled
     image = 'linux-image-' + release
     headers = 'linux-headers-' + release
     root = tree / 'bin/systemd'
-    repos = [('target', root / 'targets/x86/64-glibc/packages')] + [
-        (p.name, p) for p in sorted((root / 'packages/x86_64').iterdir())
-        if p.is_dir() and any(p.glob('*.apk'))]
+    repos = []
+    target_dir = root / 'targets/x86/64-glibc/packages'
+    if target_dir.is_dir():
+        repos.append(('target', target_dir))
+    pkg_root = root / 'packages/x86_64'
+    if pkg_root.is_dir():
+        repos += [(p.name, p) for p in sorted(pkg_root.iterdir())
+                  if p.is_dir() and any(p.glob('*.apk'))]
     inputs = [(repo, sorted(folder.glob('*.apk'))) for repo, folder in repos]
-    total = sum(len(paths) for _, paths in inputs)
+    total = max(1, sum(len(paths) for _, paths in inputs))
     examined = 0
     userspace = work / 'userspace'
     channel = work / 'kernel'
@@ -354,7 +556,7 @@ def project(tree, work, apk, progress=None, expected=None):
                 if identity != expected[path]:
                     raise ValueError(f'Unexpected built APK identity: {path}: {identity}')
                 seen.add(path)
-                if not LAN.kernel_channel_package(info):
+                if not LAN.kernel_channel_package(info) and name not in reused_kmods:
                     userspace_expected[f'{repo}/{path.name}'] = identity
             if legacy_kernel_package(info):
                 if expected is not None and path in expected:
@@ -365,7 +567,10 @@ def project(tree, work, apk, progress=None, expected=None):
             # and no longer depends on a particular kernel.
             if name in ('kernel', 'kernel-dev-headers', 'linux-image-openwrt') or name.startswith(
                     ('linux-image-', 'linux-headers-')):
-                candidates.setdefault(name, []).append((path, info))
+                if reuse_meta is None:
+                    candidates.setdefault(name, []).append((path, info))
+                continue
+            if name in reused_kmods:
                 continue
             if expected is not None and path not in expected:
                 continue
@@ -376,6 +581,27 @@ def project(tree, work, apk, progress=None, expected=None):
                         'lan-apk-feeds', 'openwrt-kernel-upgrade', 'grub2',
                         'grub2-efi', 'grub2-editenv'}:
                 support.setdefault(name, []).append((path, info))
+    if reuse_meta is not None:
+        reuse_dir = Path(reused_kernel)
+        for filename, meta in sorted((reuse_meta.get('kernel_packages') or {}).items()):
+            staged_path = Path(meta['staged_path'])
+            if LAN.sha256(staged_path) != meta['sha256']:
+                raise ValueError('Staged reused kernel package changed: ' + filename)
+            info = LAN.dump_index(apk, staged_path)['info']
+            candidates.setdefault(info['name'], []).append((staged_path, info))
+        for kmod_name, meta in sorted(reused_kmods.items()):
+            staged_path = Path(meta['staged_path'])
+            if LAN.sha256(staged_path) != meta['sha256']:
+                raise ValueError('Staged reused kmod package changed: ' + meta['filename'])
+            info = LAN.dump_index(apk, staged_path)['info']
+            repo = meta['repo']
+            output = userspace / ('bin/systemd/targets/x86/64-glibc/packages' if repo == 'target'
+                                  else 'bin/systemd/packages/x86_64/' + repo)
+            output.mkdir(parents=True, exist_ok=True)
+            copy_package(staged_path, output / staged_path.name)
+            kmods.setdefault(kmod_name, []).append(info)
+            if expected is not None:
+                userspace_expected[f'{repo}/{staged_path.name}'] = (info['name'], info['version'], info['arch'])
     if expected is not None and seen != expected.keys():
         missing = sorted(str(path) for path in expected.keys() - seen)
         raise ValueError('Missing expected build APKs: ' + ', '.join(missing))
@@ -434,11 +660,12 @@ def verify_artifacts(bundle):
     return manifest
 
 
-def capture_artifacts(tree, bundle, include_iso=False, expected=None):
+def capture_artifacts(tree, bundle, include_iso=False, expected=None, reused_kernel=None):
     """Called while the checkout build lock is held; never copy signing keys."""
     bundle = Path(bundle)
     bundle.mkdir(mode=0o700, parents=True, exist_ok=False)
-    projection = project(tree, bundle, TREE / 'staging_dir/host/bin/apk', expected=expected)
+    projection = project(tree, bundle, TREE / 'staging_dir/host/bin/apk',
+                         expected=expected, reused_kernel=reused_kernel)
     _, _, abi, release = projection[:4]
     image = tree / 'bin/systemd/targets/x86/64-glibc' / VM_IMAGE
     copy_package(image, bundle / 'image.img.gz')
@@ -452,6 +679,13 @@ def capture_artifacts(tree, bundle, include_iso=False, expected=None):
                           for p in sorted(bundle.rglob('*')) if p.is_file()}}
     if expected is not None:
         manifest['expected_userspace'] = projection[4]
+    if reused_kernel is not None:
+        reuse_meta = json.loads((Path(reused_kernel) / 'metadata.json').read_text())
+        manifest['reused_generation'] = {
+            'sequence': reuse_meta['sequence'],
+            'release': reuse_meta['release'],
+            'snapshots': reuse_meta['snapshots'],
+        }
     for name in manifest['files']:
         (bundle / name).chmod(0o444)
     (bundle / 'manifest.json').write_text(json.dumps(manifest, sort_keys=True, indent=2) + '\n')
@@ -459,7 +693,73 @@ def capture_artifacts(tree, bundle, include_iso=False, expected=None):
     return manifest
 
 
-def publish(tree, data, dry_run=False, progress=None, artifacts=None, expected=None):
+def _build_generation_record_from_staging(tree, userspace, channel, abi, release, apk):
+    """Construct a verifiable per-generation record from staged channel/userspace APKs."""
+    pub_key = TREE / 'public-key.pem'
+    sp = state_path(tree)
+    if not pub_key.is_file() or not sp.is_file():
+        return None
+    try:
+        state = json.loads(sp.read_text())
+    except (OSError, ValueError):
+        return None
+    match = re.fullmatch(r'(.+)-([0-9]+)-openwrt', release)
+    if not match or int(state.get('sequence', -1)) != int(match[2]):
+        return None
+    sequence = int(match[2])
+    version = match[1].replace('-rc', '_rc') + '-r' + str(sequence)
+    config = configuration(tree)
+    kernel_packages = {}
+    for path, meta in LAN.dump_indexes(apk, sorted(channel.glob('*.apk'))):
+        info = meta['info']
+        name = info['name']
+        if (name in (f'linux-image-{release}', f'linux-headers-{release}', 'linux-image-openwrt') and info['version'] == version) or \
+           (name == 'kernel-dev-headers' and info['version'].startswith(f'1000.{sequence}.')) or \
+           (name == 'kernel' and info['version'] == abi):
+            kernel_packages[path.name] = {
+                'name': name, 'version': info['version'], 'arch': info['arch'],
+                'sha256': LAN.sha256(path),
+            }
+    wanted_kmods = set(REUSE.selected_kmods(config))
+    kmod_packages = {}
+    if wanted_kmods:
+        repo_dirs = []
+        tdir = userspace / 'bin/systemd/targets/x86/64-glibc/packages'
+        if tdir.is_dir():
+            repo_dirs.append(('target', tdir))
+        pdir = userspace / 'bin/systemd/packages/x86_64'
+        if pdir.is_dir():
+            repo_dirs += [(d.name, d) for d in sorted(pdir.iterdir()) if d.is_dir()]
+        for repo, folder in repo_dirs:
+            apks = sorted(folder.glob(f'kmod-*-1000.{sequence}.*.apk'))
+            if not apks:
+                continue
+            for path, meta in LAN.dump_indexes(apk, apks):
+                info = meta['info']
+                if info['name'] in wanted_kmods:
+                    kmod_packages[info['name']] = {
+                        'filename': path.name, 'repo': repo,
+                        'version': info['version'], 'arch': info['arch'],
+                        'sha256': LAN.sha256(path),
+                    }
+    if not kernel_packages or len(kmod_packages) != len(wanted_kmods):
+        return None
+    return REUSE.build_generation_record(
+        sequence=sequence,
+        release=release,
+        version=version,
+        abi=abi,
+        timestamp=state.get('timestamp'),
+        inputs=state.get('inputs'),
+        config=config,
+        signing_key_sha256=REUSE.public_key_fingerprint(pub_key),
+        kernel_packages=kernel_packages,
+        kmod_packages=kmod_packages,
+    )
+
+
+def publish(tree, data, dry_run=False, progress=None, artifacts=None, expected=None,
+            reused_kernel=None, pinned_snapshots=None):
     apk = TREE / 'staging_dir/host/bin/apk'
     if progress:
         progress(0, 'Wait for publication lock')
@@ -476,24 +776,32 @@ def publish(tree, data, dry_run=False, progress=None, artifacts=None, expected=N
     destination.mkdir(parents=True, exist_ok=True)
     with (destination / '.upgrade-publish.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        result = publish_locked(tree, data, apk, dry_run, progress, artifacts, expected)
+        result = publish_locked(tree, data, apk, dry_run, progress, artifacts, expected,
+                                reused_kernel=reused_kernel, pinned_snapshots=pinned_snapshots)
     if progress:
         progress(100, 'Dry run complete' if dry_run else 'Publication complete')
     return result
 
 
-def publish_locked(tree, data, apk, dry_run, progress=None, artifacts=None, expected=None):
+def publish_locked(tree, data, apk, dry_run, progress=None, artifacts=None, expected=None,
+                   reused_kernel=None, pinned_snapshots=None):
     destination = data['destination']
+    if pinned_snapshots is not None:
+        live = REUSE.resolve_aliases(destination)
+        if live['kernel_snapshot'] != pinned_snapshots.get('kernel_snapshot'):
+            raise ValueError('Published kernel snapshot changed during build; retry to re-evaluate kernel generation')
     prepared = []
     with tempfile.TemporaryDirectory(prefix='.build-publish-', dir=destination) as temporary:
         if progress:
             progress(2, 'Read and stage APKs')
         userspace_expected = None
+        reused_generation = None
         if expected is not None:
             userspace, channel, abi, generation, userspace_expected = project(
-                tree, Path(temporary), apk, progress, expected=expected)
+                tree, Path(temporary), apk, progress, expected=expected, reused_kernel=reused_kernel)
         elif artifacts is None:
-            userspace, channel, abi, generation = project(tree, Path(temporary), apk, progress)
+            userspace, channel, abi, generation = project(
+                tree, Path(temporary), apk, progress, reused_kernel=reused_kernel)
         else:
             artifacts = Path(artifacts).resolve()
             manifest = verify_artifacts(artifacts)
@@ -514,6 +822,14 @@ def publish_locked(tree, data, apk, dry_run, progress=None, artifacts=None, expe
             userspace, channel = Path(temporary) / 'userspace', Path(temporary) / 'kernel'
             abi, generation = manifest['abi'], manifest['release']
             userspace_expected = manifest.get('expected_userspace')
+            reused_generation = manifest.get('reused_generation')
+        if reused_kernel is not None:
+            reuse_meta = json.loads((Path(reused_kernel) / 'metadata.json').read_text())
+            reused_generation = {
+                'sequence': reuse_meta['sequence'],
+                'release': reuse_meta['release'],
+                'snapshots': reuse_meta['snapshots'],
+            }
         if data.get('kernel') and data['kernel'] != abi:
             raise ValueError('Requested ABI differs from compiled generation')
         if progress:
@@ -533,8 +849,12 @@ def publish_locked(tree, data, apk, dry_run, progress=None, artifacts=None, expe
             prepared.append(lan)
             if progress:
                 progress(45, 'Prepare kernel feed', 'signatures and generation checks')
+            generation_record = None
+            if artifacts is None and reused_kernel is None:
+                generation_record = _build_generation_record_from_staging(
+                    tree, userspace, channel, abi, generation, apk)
             kernel = KERNEL.publish(channel, destination, apk, TREE / 'private-key.pem', TREE,
-                                    stage_only=True)
+                                    stage_only=True, generation_record=generation_record)
             prepared.append(kernel)
             def preflight_progress(percent, phase):
                 progress(55 + percent * 0.25, phase)
@@ -543,7 +863,8 @@ def publish_locked(tree, data, apk, dry_run, progress=None, artifacts=None, expe
             # receipt baseline after the snapshots are rehashed.
             receipt = GUARD.preflight(destination, data['base_url'], lan, kernel,
                                       baseline=baseline, recheck=False,
-                                      progress=preflight_progress if progress else None)
+                                      progress=preflight_progress if progress else None,
+                                      reused_generation=reused_generation)
             if userspace_expected:
                 published_files = receipt['stages']['userspace']['files']
                 for path, digest in lan.pop('expected_digests').items():
@@ -811,11 +1132,11 @@ def _build_locked(tree, make_args, data, lockdir, publish_after, artifact_direct
         enabled = configuration(tree).get('CONFIG_OPENWRT_KERNEL_UPGRADE') == 'y'
         full = not targets or targets == ['world']
         if rolling and (targets or not enabled or any(
-                arg.startswith(('CONFIG_', 'ROLLING_APK_DIR=', 'VM_MEDIA_DIR=')) for arg in make_args)):
+                arg.startswith(('CONFIG_', 'ROLLING_APK_DIR=', 'VM_MEDIA_DIR=', 'KERNEL_REUSE_DIR=')) for arg in make_args)):
             raise ValueError('--rolling requires the configured kernel-upgrade target and no make targets or config overrides')
         if vm_artifacts is not None:
             if not full or not enabled or any(
-                    arg.startswith(('CONFIG_', 'ROLLING_APK_DIR=', 'VM_MEDIA_DIR=')) for arg in make_args):
+                    arg.startswith(('CONFIG_', 'ROLLING_APK_DIR=', 'VM_MEDIA_DIR=', 'KERNEL_REUSE_DIR=')) for arg in make_args):
                 raise ValueError('--vm-artifacts requires the configured full build')
             config = configuration(tree)
             if any(config.get(key) != 'y' for key in (
@@ -841,65 +1162,110 @@ def _build_locked(tree, make_args, data, lockdir, publish_after, artifact_direct
                 arguments.extend(migrations)
         if plan and not any(arg.startswith('KBUILD_BUILD_TIMESTAMP=') for arg in arguments):
             arguments.append('KBUILD_BUILD_TIMESTAMP=' + plan['timestamp'])
-        expected = None
-        if rolling:
-            expected = rolling_inventory(tree, arguments)
-        elif vm_artifacts is not None:
-            with tempfile.TemporaryDirectory(prefix='vm-media-', dir=lockdir) as directory:
-                media = Path(directory) / 'media'
-                inventory = Path(directory) / 'inventory'
-                media.mkdir()
-                inventory.mkdir()
-                run_make(tree, [*arguments, f'VM_MEDIA_DIR={media}', f'ROLLING_APK_DIR={inventory}'])
-                if any(not (media / name).is_file() for name in (VM_IMAGE, VM_ISO)):
-                    raise ValueError('The build did not produce both required VM media files')
-                expected = read_apk_inventory(tree, inventory)
-        else:
-            run_make(tree, arguments)
-        if plan:
-            after = INPUTS.fingerprint(tree, configuration(tree), make_args)
-            if after['source'] != plan['inputs']['source']:
-                raise ValueError('Kernel source/configuration changed during build; retry before publishing')
-            # A newly built toolchain may first appear during a fresh build.
-            # Replacing tools under an existing published generation is refused.
-            manifest = data['destination'] / 'public/kernel-upgrades/manifest.json'
-            published = json.loads(manifest.read_text())['sequence'] if manifest.exists() else 0
-            if not INPUTS.same_tools(plan['inputs'], after) and plan['sequence'] <= published:
-                raise ValueError('Kernel build tools changed; retry with a new generation')
-            plan.update(inputs=after, phase='built')
-            save_state(tree, plan)
-        if artifact_directory is not None:
-            capture_artifacts(tree, artifact_directory)
-        if vm_artifacts is not None:
-            capture_artifacts(tree, vm_artifacts, include_iso=True, expected=expected)
-        if rolling and publish_after:
-            def rebuild_rolling():
-                nonlocal expected
+        reuse_tmp = None
+        reused_kernel = None
+        pinned_snapshots = None
+        try:
+            if plan and plan.get('reuse_source') == 'published':
+                pinned_snapshots = plan.get('snapshots')
+                k_snap = Path(pinned_snapshots['kernel_snapshot'])
+                manifest = json.loads((k_snap / 'manifest.json').read_text())
+                record = (manifest.get('generations') or {}).get(str(plan['sequence']))
+                if not record:
+                    raise ValueError(f"Published generation record missing for sequence {plan['sequence']}")
+                reuse_tmp = tempfile.TemporaryDirectory(prefix='kernel-reuse-', dir=lockdir)
+                reused_kernel = Path(reuse_tmp.name)
+                REUSE.stage_reused_kernel(
+                    tree, data['destination'], record, configuration(tree),
+                    TREE / 'staging_dir/host/bin/apk', reused_kernel,
+                    pinned_snapshots=pinned_snapshots, manifest=manifest, keys_dir=TREE,
+                )
+                arguments.append(f'KERNEL_REUSE_DIR={reused_kernel}')
+            expected = None
+            if rolling:
                 expected = rolling_inventory(tree, arguments)
+            elif vm_artifacts is not None:
+                with tempfile.TemporaryDirectory(prefix='vm-media-', dir=lockdir) as directory:
+                    media = Path(directory) / 'media'
+                    inventory = Path(directory) / 'inventory'
+                    media.mkdir()
+                    inventory.mkdir()
+                    run_make(tree, [*arguments, f'VM_MEDIA_DIR={media}', f'ROLLING_APK_DIR={inventory}'])
+                    if any(not (media / name).is_file() for name in (VM_IMAGE, VM_ISO)):
+                        raise ValueError('The build did not produce both required VM media files')
+                    expected = read_apk_inventory(tree, inventory)
+            else:
+                run_make(tree, arguments)
+            if plan:
                 after = INPUTS.fingerprint(tree, configuration(tree), make_args)
-                if not INPUTS.same_inputs(plan['inputs'], after):
-                    raise ValueError('Kernel inputs changed during allocation retry')
+                if after['source'] != plan['inputs']['source']:
+                    raise ValueError('Kernel source/configuration changed during build; retry before publishing')
+                # A newly built toolchain may first appear during a fresh build.
+                # Replacing tools under an existing published generation is refused.
+                manifest_path = data['destination'] / 'public/kernel-upgrades/manifest.json'
+                published = json.loads(manifest_path.read_text())['sequence'] if manifest_path.exists() else 0
+                if not INPUTS.same_tools(plan['inputs'], after) and plan['sequence'] <= published:
+                    raise ValueError('Kernel build tools changed; retry with a new generation')
+                plan.update(inputs=after, phase='reused' if reused_kernel is not None else 'built')
+                save_state(tree, plan)
+            if artifact_directory is not None:
+                capture_artifacts(tree, artifact_directory, reused_kernel=reused_kernel)
+            if vm_artifacts is not None:
+                capture_artifacts(tree, vm_artifacts, include_iso=True, expected=expected,
+                                  reused_kernel=reused_kernel)
+            if rolling and publish_after:
+                def rebuild_rolling():
+                    nonlocal expected
+                    expected = rolling_inventory(tree, arguments)
+                    after = INPUTS.fingerprint(tree, configuration(tree), make_args)
+                    if not INPUTS.same_inputs(plan['inputs'], after):
+                        raise ValueError('Kernel inputs changed during allocation retry')
 
-            with Progress() as progress:
+                with Progress() as progress:
+                    return publish_allocating(tree, data,
+                        lambda: publish(tree, data, dry_run, progress, expected=expected,
+                                        reused_kernel=reused_kernel, pinned_snapshots=pinned_snapshots),
+                        make_args, allocate_rebuilds, rebuild=rebuild_rolling)
+            if rolling:
+                for path, metadata in LAN.dump_indexes(TREE / 'staging_dir/host/bin/apk', sorted(expected)):
+                    info = metadata['info']
+                    if (info['name'], info['version'], info['arch']) != expected[path]:
+                        raise ValueError(f'Unexpected built APK identity: {path}')
+            if publish_after:
                 return publish_allocating(tree, data,
-                    lambda: publish(tree, data, dry_run, progress, expected=expected),
-                    make_args, allocate_rebuilds, rebuild=rebuild_rolling)
-        if rolling:
-            for path, metadata in LAN.dump_indexes(TREE / 'staging_dir/host/bin/apk', sorted(expected)):
-                info = metadata['info']
-                if (info['name'], info['version'], info['arch']) != expected[path]:
-                    raise ValueError(f'Unexpected built APK identity: {path}')
-        if publish_after:
-            return publish_allocating(tree, data, lambda: publish(tree, data), make_args,
-                                      allocate_rebuilds)
-        result = {'status': 'built', 'tree': str(tree),
-                  'sequence': plan['sequence'] if plan else None}
-        if rolling:
-            result['expected_apks'] = len(expected)
-        return result
+                    lambda: publish(tree, data, reused_kernel=reused_kernel,
+                                    pinned_snapshots=pinned_snapshots),
+                    make_args, allocate_rebuilds)
+            result = {'status': 'built', 'tree': str(tree),
+                      'sequence': plan['sequence'] if plan else None}
+            if reused_kernel is not None:
+                result['reused_generation'] = plan['sequence']
+            if rolling:
+                result['expected_apks'] = len(expected)
+            return result
+        finally:
+            if reuse_tmp is not None:
+                reuse_tmp.cleanup()
 
 
 def main():
+    if '--explain-kernel' in sys.argv[1:]:
+        # Read-only branch: must run before any prepare-tmpinfo, .config write,
+        # save_state, lock acquisition, make, or publication staging.
+        raw_args = [a for a in sys.argv[1:] if a not in ('build', 'build-only', '--explain-kernel')]
+        parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+        parser.add_argument('--config', type=Path, default=TREE / 'configs/lan-apk-feeds.json')
+        parser.add_argument('--source-root', type=Path, default=TREE)
+        parser.add_argument('--destination', type=Path)
+        parser.add_argument('--rolling', action='store_true')
+        parser.add_argument('--dry-run', action='store_true')
+        parser.add_argument('--allocate-rebuilds', action='store_true')
+        options, make_args = parser.parse_known_args(raw_args)
+        data = json.loads(options.config.read_text())
+        destination = (options.destination or Path(data['destination'])).resolve()
+        result = explain_kernel(options.source_root.resolve(), destination, make_args)
+        print(json.dumps(result, indent=2))
+        return
     if len(sys.argv) > 1 and sys.argv[1] in ('build', 'build-only'):
         parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
         parser.add_argument('--allocate-rebuilds', action='store_true')

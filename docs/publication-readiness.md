@@ -4,6 +4,10 @@ A successful firmware build covers selected packages. Incremental feeds also
 retain APKs for packages no longer selected in `.config`. Those retained APKs
 still need current ELF metadata and compatible runtime dependencies.
 
+The proposed kernel reuse workflow, the verified generation-85 migration
+baseline, and the implementation acceptance tests are in the
+[kernel generation reuse handover](kernel-generation-reuse-plan.md).
+
 The October 30 failures had three causes:
 
 - Unselected `openwrt-needrestart` and `systemd-openwrt-services` APKs predated
