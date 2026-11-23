@@ -10,7 +10,7 @@
     "adwaita-icons": {
       "provider": "directory",
       "policy": "series",
-      "index": "https://download.gnome.org/sources/adwaita-icon-theme/3.38/",
+      "index": "https://download.gnome.org/sources/adwaita-icon-theme/51/",
       "filename_pattern": "adwaita\\-icon\\-theme\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/adwaita-icon-theme/"
     },
