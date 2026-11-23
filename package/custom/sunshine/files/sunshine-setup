@@ -30,5 +30,6 @@ uci commit desktop
 /usr/libexec/sunshine-permissions
 runtime=/run/user/$DESKTOP_USER_UID
 su -s /bin/sh -c "XDG_RUNTIME_DIR=$runtime DBUS_SESSION_BUS_ADDRESS=unix:path=$runtime/bus systemctl --user --no-reload enable app-dev.lizardbyte.app.Sunshine.service" "$user"
+rm -f "$DESKTOP_USER_HOME/.config/systemd/user/gnome-session.target.wants/app-dev.lizardbyte.app.Sunshine.service"
 printf 'Sunshine enrolled for %s with %s capture and virtual input.\n' "$user" "$capture"
 printf 'Start a new desktop session to apply group membership. Set Web UI credentials and pair Moonlight at https://LAN-IP:47990.\n'

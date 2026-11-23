@@ -19,9 +19,13 @@ class DesktopIme(unittest.TestCase):
                               'assert "WAYLAND_SOCKET" not in os.environ\n'
                               'assert sys.argv[1:]==["--replace","--enable=ibusfrontend"]\nprint("ready")\n')
             client.chmod(0o755)
+            init_script = tmp / 'desktop-ime-init'
+            init_script.write_text((FILES / 'desktop-ime-init').read_text()
+                                   .replace('/usr/share/openwrt-desktop-ime', str(FILES)))
+            init_script.chmod(0o755)
             script = tmp / 'session'
             script.write_text((FILES / 'desktop-ime-session').read_text()
-                              .replace('/usr/share/openwrt-desktop-ime', str(FILES))
+                              .replace('/usr/libexec/desktop-ime-init', str(init_script))
                               .replace('/usr/bin/fcitx5', str(client)))
             env = dict(os.environ, HOME=str(tmp), XDG_CONFIG_HOME=str(tmp / 'custom config'),
                        WAYLAND_SOCKET='9999')

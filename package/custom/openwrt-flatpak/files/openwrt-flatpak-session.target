@@ -1,4 +1,4 @@
 [Unit]
-Description=OpenWrt GNOME Flatpak session
-PartOf=gnome-session.target
+Description=OpenWrt Flatpak desktop session
+PartOf=graphical-session.target
 After=graphical-session-pre.target

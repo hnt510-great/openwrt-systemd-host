@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openwrt-appimage
 PKG_VERSION:=1
-PKG_RELEASE:=5
+PKG_RELEASE:=7
 PKG_LICENSE:=MIT
 
 include $(INCLUDE_DIR)/package.mk
@@ -10,16 +10,16 @@ include $(INCLUDE_DIR)/package.mk
 define Package/openwrt-appimage
   SECTION:=utils
   CATEGORY:=Utilities
-  TITLE:=Ordinary-user AppImage support for GNOME
+  TITLE:=Ordinary-user AppImage support for the desktop
   DEPENDS:=@TARGET_x86_64 @USE_GLIBC @OPENWRT_SYSTEMD \
-	+openwrt-desktop-core +xwayland +glibc-distro-compat \
+	+openwrt-desktop-base +xwayland +glibc-distro-compat \
 	+libfuse +fuse-utils +libfuse3 +fuse3-utils +@FUSE3_UTILS_SETUID \
 	+libnss +libcups-runtime +unshare +libgtk3 +alsa-lib +at-spi2-core +fontconfig
 endef
 
 define Package/openwrt-appimage/description
   Host libraries and ordinary-user FUSE access for downloaded x86_64
-  AppImages, with Mutter-managed Xwayland for X11 applications.
+  AppImages, with Xwayland for X11 applications.
   Applications and their embedded runtimes are not downloaded automatically.
 endef
 
