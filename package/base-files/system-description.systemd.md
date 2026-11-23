@@ -11,8 +11,7 @@ while systemd supervises daemons.
   `VARIANT_ID=native-systemd`, `OPENWRT_SYSTEM_DESCRIPTION_FILE` points here.
 - `/etc/openwrt_release` and `/etc/openwrt_version`: OpenWrt compatibility
   identity and base-files build revision.
-- Recorded capabilities: **@OPENWRT_FEATURES@** (`OPENWRT_FEATURES_SCOPE` is
-  `image-build` or `deployment-snapshot`).
+- Recorded image capabilities (`OPENWRT_FEATURES`): **@OPENWRT_FEATURES@**.
 
 Metadata reflects build or deployment state, not live services, later APK
 changes or the currently booted kernel. Query the live system before acting:

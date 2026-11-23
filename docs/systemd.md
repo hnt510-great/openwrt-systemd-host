@@ -145,8 +145,9 @@ metadata. OPENWRT_FEATURES lists the capabilities built into the image:
 router, plus desktop, virtualization, flatpak and containers when
 their corresponding packages are selected.
 
-Agents should read the OPENWRT_* identity fields for package and service
-commands. Read `/proc/1/comm` to verify that systemd started.
+Read `OPENWRT_SYSTEM_DESCRIPTION_FILE` (`/usr/share/doc/openwrt/system-description.md`)
+for package and service conventions, and `/proc/1/comm` to verify that systemd
+started.
 
 Package payloads and root overlays are normalized to merged `/usr`: `/bin`,
 `/sbin` and `/lib` become relative aliases for `/usr/bin`, `/usr/sbin` and
