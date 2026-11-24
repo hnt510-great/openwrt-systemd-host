@@ -434,6 +434,25 @@ class DesktopSessionPluginsTest(unittest.TestCase):
         self.assertTrue(any('start openwrt-flatpak-session.target' in l for l in lines))
         self.assertNotIn('XDG_CURRENT_DESKTOP=GNOME', fp_src)
 
+    def test_plasma_session_plugin_metadata_and_check(self):
+        plasma_plugin = ROOT / 'package/custom/openwrt-desktop-plasma/files/sessions.d/plasma'
+        self.assertTrue(plasma_plugin.is_file())
+        mod = load_desktop_ctl()
+        mod.SESSIONS_DIR = self.sessions_dir
+        mod.REQUIRE_ROOT_PLUGIN = False
+        startplasma = self.tool('startplasma-wayland', 'exit 0')
+        (self.sessions_dir / 'plasma').write_text(
+            plasma_plugin.read_text().replace('/usr/bin/startplasma-wayland', str(startplasma)))
+        parsed = mod.parse_session_plugin(self.sessions_dir / 'plasma')
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed['id'], 'plasma')
+        self.assertEqual(parsed['title'], 'KDE Plasma (Wayland)')
+        self.assertTrue(parsed['available'])
+        self.assertTrue(parsed['supports_rdp'])
+        self.assertFalse(parsed['supports_kms_scheduling'])
+        self.assertEqual(parsed['credential_backend'], 'gnome-keyring')
+        self.assertEqual(parsed['rdp_unit'], 'app-org.kde.krdpserver.service')
+
 
 if __name__ == '__main__':
     unittest.main()

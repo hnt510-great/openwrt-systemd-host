@@ -1360,6 +1360,268 @@
     "kf6-breeze-icons": {
       "provider": "follow",
       "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "qt65compat": {
+      "provider": "follow",
+      "recipe": "feeds/video/frameworks/qt6/common.mk"
+    },
+    "qt6positioning": {
+      "provider": "follow",
+      "recipe": "feeds/video/frameworks/qt6/common.mk"
+    },
+    "qt6location": {
+      "provider": "follow",
+      "recipe": "feeds/video/frameworks/qt6/common.mk"
+    },
+    "kf6-frameworkintegration": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-kauth": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-kdeclarative": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-kded": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-kfilemetadata": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-kholidays": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-kidletime": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-kimageformats": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-kitemmodels": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-kquickcharts": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-krunner": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-kstatusnotifieritem": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-ksvg": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-ktexteditor": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-kunitconversion": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-kuserfeedback": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-kwallet": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-prison": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-qqc2-desktop-style": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-syntax-highlighting": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kwin": {
+      "provider": "directory",
+      "policy": "series",
+      "series": "6.8",
+      "index": "https://download.kde.org/stable/plasma/",
+      "version_dir_pattern": "6\\.8\\.[0-9]+",
+      "filename_pattern": "kwin\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+    },
+    "kdecoration": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "kwayland": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "layer-shell-qt": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "libkscreen": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "plasma-activities": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "plasma-activities-stats": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "kglobalacceld": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "kpipewire": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "knighttime": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "libplasma": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "union": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "aurorae": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "breeze": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "qqc2-breeze-style": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "kscreenlocker": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "libksysguard": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "kactivitymanagerd": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "milou": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "plasma5support": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "plasma-workspace": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "plasma-desktop": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "polkit-kde-agent-1": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "xdg-desktop-portal-kde": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "plasma-integration": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "kde-cli-tools": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "kscreen": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "systemsettings": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "plasma-pa": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "krdp": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "ocean-sound-theme": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "plasma-workspace-wallpapers": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "dolphin": {
+      "provider": "follow",
+      "recipe": "package/custom/konsole/Makefile"
+    },
+    "polkit-qt6": {
+      "provider": "directory",
+      "policy": "stable",
+      "index": "https://download.kde.org/stable/polkit-qt-1/",
+      "filename_pattern": "polkit\\-qt\\-1\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+    },
+    "kirigami-addons": {
+      "provider": "directory",
+      "policy": "stable",
+      "index": "https://download.kde.org/stable/kirigami-addons/",
+      "filename_pattern": "kirigami\\-addons\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+    },
+    "pulseaudio-qt": {
+      "provider": "directory",
+      "policy": "stable",
+      "index": "https://download.kde.org/stable/pulseaudio-qt/",
+      "filename_pattern": "pulseaudio\\-qt\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+    },
+    "qcoro6": {
+      "provider": "github_release",
+      "policy": "stable",
+      "repo": "qcoro/qcoro",
+      "tag_pattern": "v(?P<version>[0-9]+(?:\\.[0-9]+)*)"
+    },
+    "qtkeychain-qt6": {
+      "provider": "github_release",
+      "policy": "stable",
+      "repo": "frankosterfeld/qtkeychain",
+      "tag_pattern": "(?P<version>[0-9]+(?:\\.[0-9]+)*)"
+    },
+    "openwrt-desktop-plasma": {
+      "provider": "local",
+      "reason": "Locally maintained KDE Plasma desktop integration package"
     }
   }
 }
