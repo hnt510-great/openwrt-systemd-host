@@ -94,9 +94,10 @@ class UpdateTests(unittest.TestCase):
         self.git('add', '.')
         self.git('commit', '-qm', 'fixture source')
 
-    def updater(self, update=True):
+    def updater(self, update=True, feed_groups=None):
         return U.Updater(self.root, self.entries, self.fetcher, update=update,
-                         record=self.root / 'record' if update else None)
+                         record=self.root / 'record' if update else None,
+                         feed_groups=feed_groups)
 
     def execute(self, updater, selected=()):
         with redirect_stdout(io.StringIO()):
@@ -299,8 +300,9 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(updater.report['packages']['fixture']['status'], 'ahead')
         self.releases('fixture', version='1.2.3')
         before = path.read_bytes()
-        with self.assertRaisesRegex(U.UpdateError, 'Same-version source digest'):
-            self.execute(self.updater(False))
+        updater = self.updater(False)
+        self.assertEqual(self.execute(updater), 2)
+        self.assertIn('Same-version source digest', updater.report['packages']['fixture']['error'])
         self.assertEqual(path.read_bytes(), before)
 
     def test_unregistered_package_fails_without_network(self):
@@ -472,8 +474,8 @@ class UpdateTests(unittest.TestCase):
         self.github_tags('v1.2.3', 'v1.2.4')
         self.fetcher.data['https://api.github.com/repos/owner/repo/releases/tags/v1.2.4'] = U.FetchError('quota exhausted', 403)
         updater = self.updater(False)
-        with self.assertRaisesRegex(U.FetchError, 'quota exhausted'):
-            self.execute(updater)
+        self.assertEqual(self.execute(updater), 2)
+        self.assertIn('quota exhausted', updater.report['packages']['fixture']['error'])
         self.assertEqual(updater.report['status'], 'failed')
 
     def companion_fixture(self, web_digest=None, include_web=True):
@@ -535,8 +537,9 @@ class UpdateTests(unittest.TestCase):
 
     def test_missing_companion_asset_fails_closed(self):
         path, _, _ = self.companion_fixture(include_web=False)
-        with self.assertRaisesRegex(U.UpdateError, 'Companion asset without SHA256 digest'):
-            self.execute(self.updater(False))
+        updater = self.updater(False)
+        self.assertEqual(self.execute(updater), 2)
+        self.assertIn('Companion asset without SHA256 digest', updater.report['packages']['dash']['error'])
 
     def test_git_tag_listing_is_non_mutating_and_cached(self):
         output = '1' * 40 + '\trefs/tags/v1.2.4\n'
@@ -843,6 +846,242 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(data['schema'], 1)
         self.assertEqual(set(data['packages']),
                          {p.parent.name for p in (TREE / 'package/custom').glob('*/Makefile')})
+        U.Updater(TREE, data['packages'], feed_groups=data.get('feed_groups', {})).validate_registry()
+
+    def test_offline_registry_validation_reports_all_errors_before_network(self):
+        self.recipe('bad-provider')
+        self.recipe('cycle-a')
+        self.recipe('cycle-b')
+        self.entries['bad-provider'] = {'provider': 'github_release', 'repo': 'owner/repo'}
+        self.entries['cycle-a'] = {'provider': 'follow', 'recipe': 'package/custom/cycle-b/Makefile'}
+        self.entries['cycle-b'] = {'provider': 'follow', 'recipe': 'package/custom/cycle-a/Makefile'}
+        with self.assertRaises(U.UpdateError) as caught:
+            self.execute(self.updater(False))
+        msg = str(caught.exception)
+        self.assertIn("bad-provider: unsupported provider 'github_release'", msg)
+        self.assertIn('Cyclic custom follow relationship', msg)
+        self.assertFalse(self.fetcher.requests)
+
+    def test_check_continues_after_group_failure_and_returns_error_code(self):
+        self.recipe('alpha')
+        self.recipe('beta')
+        self.entries['alpha']['index'] = 'https://upstream.test/broken/'
+        self.fetcher.data['https://upstream.test/broken/'] = U.FetchError('upstream 503', 503)
+        self.releases('beta', version='1.2.4')
+        updater = self.updater(False)
+        self.assertEqual(self.execute(updater), 2)
+        self.assertEqual(updater.report['status'], 'failed')
+        self.assertEqual(updater.report['packages']['alpha']['status'], 'failed')
+        self.assertEqual(updater.report['packages']['beta']['status'], 'available')
+        self.assertEqual(updater.report['packages']['beta']['new_version'], '1.2.4')
+
+    def test_gnome_integer_series_allows_maintenance_and_reviews_next_major(self):
+        xz_payload = b'\xfd7zXZ\x00fixture xz archive'
+        xz_digest = hashlib.sha256(xz_payload).hexdigest()
+        gcc = self.root / 'package/custom/gnome-control-center/Makefile'
+        gcc.parent.mkdir(parents=True)
+        gcc.write_text(
+            'PKG_NAME:=gnome-control-center\nPKG_VERSION:=51.1\nPKG_RELEASE:=1\n'
+            'PKG_SOURCE:=gnome-control-center-51.1.tar.xz\n'
+            'PKG_SOURCE_URL:=https://download.gnome.org/sources/gnome-control-center/51/\n'
+            'PKG_HASH:=' + 'a' * 64 + '\n')
+        self.entries['gnome-control-center'] = {
+            'provider': 'directory',
+            'policy': 'major',
+            'index': 'https://download.gnome.org/sources/gnome-control-center/51/',
+            'filename_pattern': r'gnome-control-center-(?P<version>[0-9]+(?:\.[0-9]+)*)\.tar\.xz',
+            'series_index': 'https://download.gnome.org/sources/gnome-control-center/',
+        }
+        self.fetcher.data['https://download.gnome.org/sources/gnome-control-center/51/'] = (
+            b'<a href="gnome-control-center-51.1.tar.xz">51.1</a>'
+            b'<a href="gnome-control-center-51.2.tar.xz">51.2</a>'
+            b'<a href="gnome-control-center-51.2.1.tar.xz">51.2.1</a>'
+            b'<a href="gnome-control-center-51.2.1.sha256sum">sha</a>'
+            b'<a href="gnome-control-center-51.rc.tar.xz">rc</a>')
+        self.fetcher.data['https://download.gnome.org/sources/gnome-control-center/51/gnome-control-center-51.2.1.sha256sum'] = (
+            xz_digest + '  gnome-control-center-51.2.1.tar.xz\n').encode()
+        self.fetcher.data['https://download.gnome.org/sources/gnome-control-center/'] = (
+            b'<a href="50/">50/</a><a href="51/">51/</a><a href="52/">52/</a>')
+        updater = self.updater(False)
+        self.assertEqual(self.execute(updater), 1)
+        row = updater.report['packages']['gnome-control-center']
+        self.assertEqual(row['status'], 'available')
+        self.assertEqual(row['new_version'], '51.2.1')
+        self.assertEqual(row['review_version'], '52')
+
+    def test_mozjs140_parent_dir_esr_discovery_and_checksums(self):
+        xz_payload = b'\xfd7zXZ\x00fixture mozjs archive'
+        xz_digest = hashlib.sha256(xz_payload).hexdigest()
+        moz = self.root / 'package/custom/mozjs140/Makefile'
+        moz.parent.mkdir(parents=True)
+        moz.write_text(
+            'PKG_NAME:=mozjs140\nPKG_VERSION:=140.15.0\nPKG_RELEASE:=1\n'
+            'PKG_SOURCE:=firefox-$(PKG_VERSION)esr.source.tar.xz\n'
+            'PKG_SOURCE_URL:=https://archive.mozilla.org/pub/firefox/releases/$(PKG_VERSION)esr/source/\n'
+            'PKG_HASH:=' + 'a' * 64 + '\n')
+        self.entries['mozjs140'] = {
+            'provider': 'directory',
+            'policy': 'major',
+            'index': 'https://archive.mozilla.org/pub/firefox/releases/',
+            'version_dir_pattern': r'140\.[0-9]+(?:\.[0-9]+)*esr',
+            'subdir': 'source/',
+            'filename_pattern': r'firefox\-(?P<version>140(?:\.[0-9]+)+)esr\.source\.tar\.xz',
+            'checksums': 'https://archive.mozilla.org/pub/firefox/releases/{version}esr/SHA256SUMS',
+            'checksum_filename': 'source/firefox-{version}esr.source.tar.xz',
+            'rebuild_dependents': ['gjs'],
+        }
+        self.fetcher.data['https://archive.mozilla.org/pub/firefox/releases/'] = (
+            b'<a href="140.15.0esr/">140.15.0esr/</a>'
+            b'<a href="140.17.0esr/">140.17.0esr/</a>'
+            b'<a href="140.9.0esr/">140.9.0esr/</a>'
+            b'<a href="153.0.0esr/">153.0.0esr/</a>')
+        self.fetcher.data['https://archive.mozilla.org/pub/firefox/releases/140.17.0esr/source/'] = (
+            b'<a href="firefox-140.17.0esr.source.tar.xz">src</a>')
+        self.fetcher.data['https://archive.mozilla.org/pub/firefox/releases/140.17.0esr/SHA256SUMS'] = (
+            xz_digest + '  source/firefox-140.17.0esr.source.tar.xz\n').encode()
+        updater = self.updater(False)
+        self.assertEqual(self.execute(updater), 1)
+        row = updater.report['packages']['mozjs140']
+        self.assertEqual(row['status'], 'available')
+        self.assertEqual(row['new_version'], '140.17.0')
+        self.assertEqual(row['rebuild_dependents'], ['gjs'])
+
+    def test_linked_sources_updates_xdg_desktop_portal_with_flatpak(self):
+        fp = self.recipe('flatpak', '1.18.4')
+        portal = self.recipe('xdg-desktop-portal', '1.22.1')
+        portal.write_text(portal.read_text() +
+                          'FLATPAK_INTERFACES_VERSION:=1.18.4\n'
+                          'FLATPAK_INTERFACES_HASH:=' + 'a' * 64 + '\n')
+        self.entries['xdg-desktop-portal']['linked_sources'] = [{
+            'recipe': 'package/custom/flatpak/Makefile',
+            'version_var': 'FLATPAK_INTERFACES_VERSION',
+            'hash_var': 'FLATPAK_INTERFACES_HASH',
+        }]
+        self.releases('flatpak', version='1.18.5')
+        self.releases('xdg-desktop-portal', version='1.22.1', digest='a' * 64)
+        self.commit()
+        updater = self.updater()
+        self.assertEqual(self.execute(updater, ['xdg-desktop-portal']), 0)
+        self.assertIn('PKG_VERSION:=1.18.5\n', fp.read_text())
+        self.assertIn('FLATPAK_INTERFACES_VERSION:=1.18.5\n', portal.read_text())
+        self.assertIn('FLATPAK_INTERFACES_HASH:=' + DIGEST + '\n', portal.read_text())
+        self.assertIn('PKG_RELEASE:=8\n', portal.read_text())
+
+    def qt6_group_fixture(self, include_last_module=True):
+        xz_payload = b'\xfd7zXZ\x00fixture qt6 module'
+        xz_digest = hashlib.sha256(xz_payload).hexdigest()
+        video = self.root / 'feeds/video'
+        (video / 'frameworks/qt6').mkdir(parents=True)
+        subprocess.run(['git', '-C', str(video), 'init', '-q'], check=True)
+        subprocess.run(['git', '-C', str(video), 'config', 'user.name', 'Test'], check=True)
+        subprocess.run(['git', '-C', str(video), 'config', 'user.email', 'test@localhost'], check=True)
+        common = video / 'frameworks/qt6/common.mk'
+        common.write_text('PKG_VERSION?=6.11.0\n')
+        feed_mods = {
+            'qt6base': 'qtbase', 'qt6quick': 'qtdeclarative', 'qt6shadertools': 'qtshadertools',
+            'qt6svg': 'qtsvg', 'qt6tools': 'qttools', 'qt6translations': 'qttranslations',
+        }
+        for name, mod in feed_mods.items():
+            p = video / 'frameworks/qt6' / name / 'Makefile'
+            p.parent.mkdir(parents=True)
+            p.write_text(f'PKG_NAME:={name}\nPKG_RELEASE:=2\nPKG_HASH:={"a"*64}\nQT_MODULE:={mod}\n')
+        subprocess.run(['git', '-C', str(video), 'add', '.'], check=True)
+        subprocess.run(['git', '-C', str(video), 'commit', '-qm', 'base'], check=True)
+        base_rev = subprocess.check_output(['git', '-C', str(video), 'rev-parse', 'HEAD'], text=True).strip()
+        common.write_text('PKG_VERSION?=6.11.3\n')
+        subprocess.run(['git', '-C', str(video), 'commit', '-qam', 'qt6 6.11.3'], check=True)
+
+        custom_mods = {
+            'qt65compat': 'qt5compat', 'qt6location': 'qtlocation', 'qt6multimedia': 'qtmultimedia',
+            'qt6positioning': 'qtpositioning', 'qt6speech': 'qtspeech', 'qt6wayland': 'qtwayland',
+        }
+        for name, mod in custom_mods.items():
+            p = self.root / 'package/custom' / name / 'Makefile'
+            p.parent.mkdir(parents=True)
+            p.write_text(
+                f'PKG_NAME:={name}\nPKG_VERSION:=6.11.3\nPKG_RELEASE:=1\n'
+                f'PKG_SOURCE:={mod}-everywhere-src-$(PKG_VERSION).tar.xz\n'
+                f'PKG_SOURCE_URL:=https://download.qt.io/archive/qt/6.11/$(PKG_VERSION)/submodules/\n'
+                f'PKG_HASH:={"a"*64}\n')
+            self.entries[name] = {
+                'provider': 'follow',
+                'recipe': 'feeds/video/frameworks/qt6/common.mk',
+                'feed_group': 'qt6',
+            }
+
+        patch_file = self.root / 'patches/feeds/0052-video-qt6-11-plasma.patch'
+        patch_file.parent.mkdir(parents=True)
+        patch_file.write_text('From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\n'
+                              'Subject: [PATCH] qt6: update\n\n---\nold diff\n')
+        manifest_file = self.root / 'configs/kde-plasma-feeds.json'
+        manifest_file.parent.mkdir(parents=True)
+        manifest_file.write_text(json.dumps({
+            'video': {
+                'base': base_rev,
+                'patch': 'patches/feeds/0052-video-qt6-11-plasma.patch',
+                'paths': ['frameworks/qt6/common.mk'] + [f'frameworks/qt6/{n}/Makefile' for n in sorted(feed_mods)],
+            }
+        }))
+        (self.root / '.gitignore').write_text('/feeds/\n')
+        self.commit()
+
+        feed_groups = {
+            'qt6': {
+                'provider': 'directory',
+                'policy': 'series',
+                'index': 'https://download.qt.io/archive/qt/',
+                'series_dir_pattern': r'[0-9]+\.[0-9]+',
+                'version_dir_pattern': r'[0-9]+\.[0-9]+\.[0-9]+',
+                'subdir': 'submodules/',
+                'version_file': 'feeds/video/frameworks/qt6/common.mk',
+                'feed_repo': 'feeds/video',
+                'feed_manifest': 'configs/kde-plasma-feeds.json',
+                'feed_name': 'video',
+                'rebuild_dependents': ['kwin'],
+                'feed_modules': {
+                    n: {'recipe': f'feeds/video/frameworks/qt6/{n}/Makefile', 'module': m}
+                    for n, m in feed_mods.items()
+                },
+            }
+        }
+        self.fetcher.data['https://download.qt.io/archive/qt/'] = b'<a href="6.11/">6.11/</a><a href="6.12/">6.12/</a>'
+        self.fetcher.data['https://download.qt.io/archive/qt/6.11/'] = b'<a href="6.11.3/">6.11.3/</a><a href="6.11.4/">6.11.4/</a>'
+        all_mods = list(feed_mods.values()) + list(custom_mods.values())
+        if not include_last_module:
+            all_mods = all_mods[:-1]
+        sub_url = 'https://download.qt.io/archive/qt/6.11/6.11.4/submodules/'
+        links = []
+        for mod in all_mods:
+            fname = f'{mod}-everywhere-src-6.11.4.tar.xz'
+            links.append(f'<a href="{fname}">{fname}</a>')
+            self.fetcher.data[sub_url + fname] = xz_payload
+        self.fetcher.data[sub_url] = '\n'.join(links).encode()
+        return feed_groups, common, patch_file, xz_digest
+
+    def test_qt6_group_updates_all_12_modules_and_patch_mirror_atomically(self):
+        feed_groups, common, patch_file, xz_digest = self.qt6_group_fixture(include_last_module=True)
+        updater = self.updater(update=True, feed_groups=feed_groups)
+        self.assertEqual(self.execute(updater, ['qt6wayland']), 0)
+        self.assertIn('PKG_VERSION?=6.11.4\n', common.read_text())
+        self.assertIn('PKG_HASH:=' + xz_digest + '\n', (self.root / 'feeds/video/frameworks/qt6/qt6base/Makefile').read_text())
+        self.assertIn('PKG_VERSION:=6.11.4\n', (self.root / 'package/custom/qt6wayland/Makefile').read_text())
+        self.assertIn('+PKG_VERSION?=6.11.4', patch_file.read_text())
+        self.assertEqual(updater.report['packages']['qt6base']['review_version'], '6.12')
+        self.assertEqual(updater.report['packages']['qt6wayland']['status'], 'updated')
+
+    def test_qt6_missing_last_module_preserves_all_recipes_and_mirror(self):
+        feed_groups, common, patch_file, _ = self.qt6_group_fixture(include_last_module=False)
+        common_before = common.read_bytes()
+        patch_before = patch_file.read_bytes()
+        base_before = (self.root / 'feeds/video/frameworks/qt6/qt6base/Makefile').read_bytes()
+        wayland_before = (self.root / 'package/custom/qt6wayland/Makefile').read_bytes()
+        updater = self.updater(update=True, feed_groups=feed_groups)
+        with self.assertRaisesRegex(U.UpdateError, 'Missing qt6 module archive.*qt6wayland'):
+            self.execute(updater, ['qt6base'])
+        self.assertEqual(common.read_bytes(), common_before)
+        self.assertEqual(patch_file.read_bytes(), patch_before)
+        self.assertEqual((self.root / 'feeds/video/frameworks/qt6/qt6base/Makefile').read_bytes(), base_before)
+        self.assertEqual((self.root / 'package/custom/qt6wayland/Makefile').read_bytes(), wayland_before)
 
 
 class FeedsIntegrationTests(unittest.TestCase):
