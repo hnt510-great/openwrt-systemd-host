@@ -339,10 +339,10 @@ def test_daed(image, work):
             ubus(client, session, 'uci', 'set', {'config': 'daed', 'section': 'config',
                                                  'values': {'default_lan_interface': ['br-lan']}})
             ubus(client, session, 'uci', 'apply', {'rollback': False})
-            wait(router, f'[ "$({TCX_LAN})" -gt 0 ]', 90)
+            wait(router, f'[ "$(busybox pgrep -x daed | wc -l)" -eq 1 ] && [ "$({TCX_LAN})" -gt 0 ]', 90)
             checks['luci-default-lan-interface'] = ('br-lan' in devices and router.run(
                 'uci -q get daed.config.default_lan_interface; '
-                'tr "\\0" "\\n" < /proc/$(busybox pgrep -x daed)/environ | '
+                'tr "\\0" "\\n" < /proc/$(busybox pgrep -x daed | tail -n 1)/environ | '
                 'grep "^DAED_DEFAULT_LAN_INTERFACE="').split() == [
                 'br-lan', 'DAED_DEFAULT_LAN_INTERFACE=br-lan'])
             # Disable then enable through rpcd uci set/commit (LuCI save & apply).

@@ -370,3 +370,63 @@ Git submodule (`139e0d2`); the five remaining local patches were renumbered
 
 Scope: host build and unit tests only. No firmware image build, disposable VM
 boot, feed publication, or physical-router installation was performed.
+
+## Native client features port (daed 2.1.3-r2)
+
+Validated on 2026-11-24 following `docs/daed-client-features-plan.md`. Implemented native
+configuration foundation (WAL-safe `VACUUM INTO` pre-migration backup, deterministic candidate
+assembly, side-effect-free `previewPolicy`, immutable `ConfigSnapshot` commit/rollback/restart
+recovery, opt-in `autoApply` with unapplied-draft guard), visual Device ACL & IPv4/IPv6 CIDR
+range decomposition, static/remote Rule Lists (plain/GFWList/dnsmasq parsers, exception line
+reporting, HTML/empty bad-response guard), DNS domain-list bindings, Enhanced Subscriptions
+(Clash YAML/SIP008/Base64, custom UA, `Subscription-Userinfo`, forced group download via
+`RouteDialTcpContext`, keyword include/exclude priority, stable node IDs on rename/unique
+credential rotation, `NeedsRebind` flagging), Proxy Chains, Ordered Group Failover (`select`
+runtime switching via `SetSelection`/`SetSelectionBoth` with independent TCP/UDP state and
+stale-probe rejection), `naive+https` form support (`naive+quic` explicit rejection), path
+diagnostics (`testNodePath`), active route tracing (`traceActiveRoute`), and debug-log node
+credential redaction.
+
+- Main tree base: `ac1d54acbc`, `daed` submodule base: `139e0d2` (working tree updated with backend, frontend `web-src/`, and rebuilt `webrender/web/`).
+- Core & outbound: `dae 2.1.3`, `olicesx/outbound@v0.0.0-sticky-ip.0.20260918090140-cc86ced2e683`, `daed` package `2.1.3-r2`.
+- Final test image: `bin/systemd/targets/x86/64-glibc/openwrt-x86-64-generic-squashfs-combined-efi.img.gz`
+  - SHA-256: `68e6659a6274c21ec84cc503e41fb0746db14c09f9c59fe579742ede37036722`
+- Sanitized KVM receipts: `/srv/openwrt-validation/daed-validation-20261124/` (`v11-regression/validation.json`, `v01-v10-client-features/validation.json`).
+
+| Artifact (`bin/systemd/packages/x86_64/base/`) | SHA-256 |
+| --- | --- |
+| `daed-2.1.3-r2.apk` | `90b09905d6913c07182954d99336a3aab8e5b003c9d62aa5bc972a6293b503ef` |
+| `daed-geoip-2.1.3-r2.apk` | `115ea96ab5bbd25c8a1910aff5e9ae36bb12b506300883e36b4daf62ebbb4ee7` |
+| `daed-geosite-2.1.3-r2.apk` | `f8ba9300b945a965ee081120b99c88f5dd48bb8d06e9f4bdd6dc054602cc52ee` |
+
+### Host & Build Checks
+
+| Check | Result |
+| --- | --- |
+| `go test -race -count=1 ./graphql/service/{rulelist,routing,subscription,failover,config}/...` (assembled `daed-2.1.3` tree) | 通过 (5 packages passed with `-race`) |
+| `SCHEMA_PATH=... pnpm run codegen`, `pnpm --filter daed check-types`, `pnpm --filter daed test`, `pnpm --filter daed build` + `webrender/web/` sync | 通过 (5 test files / 17 tests passed; `tsc --noEmit` & `vite build` clean) |
+| `make package/custom/daed/clean package/custom/daed/compile -j12 V=s` | 通过 (`daed-2.1.3-r2.apk` built) |
+| `node scripts/tests/test-luci-daed-view.js` | 通过 |
+| `python3 scripts/build-and-publish.py build-only -j12 V=s` + image rebuild (kernel gen 87 reused) | 通过 |
+| `git diff --check` (main tree + `daed` submodule) & secret leak audit on validation dir | 通过 |
+
+### KVM Acceptance Matrix (V01–V11, Same Final Image)
+
+| ID | Scope & Observations | Status |
+| --- | --- | --- |
+| V01 | Snapshot creation, unapplied draft isolation across `/etc/init.d/daed restart` (`V01_snapshot_restore`) | 通过 |
+| V02 | Two independent LAN MAC/IP identities (`eth0` + `lan2` netns) routed to distinct groups via visual ACL (`V02_multi_identity_acl`) | 通过 |
+| V03 | TCP/UDP/port & `blockProxyPorts` (`udp:443`) + IPv4/IPv6 CIDR decomposition & DNS list binding verified in Go unit tests (`policy_test.go`) and V02/V10 KVM traffic | 通过 (单元 + KVM 流量组合覆盖) |
+| V04 | Remote rule list download, entry counting, HTML error-page rejection preserving last good version (`V04_rulelist_and_bad_guard`) + parser/capacity unit tests | 通过 |
+| V05 | Base64 init -> Clash YAML refresh, custom `User-Agent`, `Subscription-Userinfo` traffic/expiry, keyword filter, stable node ID on rename, HTML error guard (`V05_subscription_stable_id`) | 通过 |
+| V06 | Stale candidate digest rejection, snapshot rollback (`V06_rollback_and_stale_digest`), unapplied draft isolation | 通过 |
+| V07 | Proxy chain creation, leaf-node validation, parseability & node URL path probe (`V07_chain_and_probe`) | 通过 |
+| V08 | Group failover config (`select` policy assembly) & independent TCP/UDP threshold/failback/stale-probe `-race` unit tests (`V08_failover_and_V09_trace`, `supervisor_test.go`) | 通过 |
+| V09 | Embedded dashboard served over LAN (`V09_dashboard_served`), live `traceActiveRoute` on active control plane (`V08_failover_and_V09_trace`); interactive headless browser click-through not separately scripted | 通过 (HTTP 资产 + 实时追踪已验; 交互式浏览器点击待验) |
+| V10 (TCP) | Real VLESS REALITY Vision over LAN transparent proxy (secret passed via mode-0600 read-only virtio disk): HTTPS `1.1.1.1` passed, WAN block negative control passed, direct `223.5.5.5` control passed, unblock recovery passed (`V10_real_vless_tcp`) | 通过 |
+| V10 (UDP) | Real VLESS UDP DNS query (`1.1.1.1:53`) through LAN transparent proxy (`V10_real_vless_udp`) | 通过 |
+| V11 | Original `scripts/tests/test-daed-vm.py` full 28-check regression (PassWall interlock, LuCI ACL/toggle/restart, default LAN interface, hook cleanup, reboot autostart) | 通过 (28/28 passed) |
+
+Scope: host unit/race tests, frontend build, APK & firmware image build, and disposable KVM
+acceptance only. No APK feed publication and no physical-router installation or configuration
+changes were performed.

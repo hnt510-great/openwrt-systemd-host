@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=daed
 PKG_VERSION:=2.1.3
-PKG_RELEASE:=1
+PKG_RELEASE:=6
 
 # The archived upstream dae-wing (b089b56 + local router fixes) and daed v2.1.1
 # dashboard (prebuilt webrender/web/ plus web-src/ workspace) are maintained in

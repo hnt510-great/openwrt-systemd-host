@@ -12,6 +12,10 @@ through a proxy process. Only proxied flows are redirected into dae's private
 ships `daed` **disabled** as an opt-in alternative to Passwall. Passwall stays
 installed and remains the default.
 
+The [native client feature implementation plan](daed-client-features-plan.md)
+covers device ACLs, rule lists, subscriptions, proxy chains, failover, and KVM
+acceptance with a real VLESS node.
+
 ## What is in the image
 
 | Package | Contents |
