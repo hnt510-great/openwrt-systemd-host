@@ -380,7 +380,7 @@ ELF_REBUILD_fstools_2026.10.18~907cf449-r2:=2026.10.18~907cf449-r4
 ELF_REBUILD_fstools_2026.10.18~907cf449-r3:=2026.10.18~907cf449-r4
 ELF_REBUILD_fuse-overlayfs_1.16-r1:=1.16-r4
 ELF_REBUILD_fuse-overlayfs_1.16-r2:=1.16-r3
-ELF_REBUILD_fuse-utils_2.9.9-r2:=2.9.9-r5
+ELF_REBUILD_fuse-utils_2.9.9-r2:=2.9.9-r6
 ELF_REBUILD_fuse-utils_2.9.9-r3:=2.9.9-r4
 ELF_REBUILD_fuse3-utils_3.18.2-r2:=3.18.2-r4
 ELF_REBUILD_fuse3-utils_3.18.2-r3:=3.18.2-r4
@@ -432,9 +432,9 @@ ELF_REBUILD_gnupg2_2.5.21-r4:=2.5.21-r7
 ELF_REBUILD_gnupg2_2.5.21-r5:=2.5.21-r6
 ELF_REBUILD_grep_3.12-r2:=3.12-r5
 ELF_REBUILD_grep_3.12-r3:=3.12-r4
-ELF_REBUILD_grub2-bios-setup_2.12-r6:=2.12-r9
+ELF_REBUILD_grub2-bios-setup_2.12-r6:=2.12-r10
 ELF_REBUILD_grub2-bios-setup_2.12-r7:=2.12-r8
-ELF_REBUILD_grub2-editenv_2.12-r6:=2.12-r9
+ELF_REBUILD_grub2-editenv_2.12-r6:=2.12-r10
 ELF_REBUILD_grub2-editenv_2.12-r7:=2.12-r8
 ELF_REBUILD_gst1-mod-adder_1.28.7-r1:=1.28.7-r3
 ELF_REBUILD_gst1-mod-adder_1.28.7-r2:=1.28.7-r3
@@ -1100,7 +1100,7 @@ ELF_REBUILD_mount-utils_2.42.2-r1:=2.42.2-r4
 ELF_REBUILD_mount-utils_2.42.2-r2:=2.42.2-r3
 ELF_REBUILD_mpg123_1.32.6-r1:=1.32.6-r4
 ELF_REBUILD_mpg123_1.32.6-r2:=1.32.6-r3
-ELF_REBUILD_mtd_29:=29-r3
+ELF_REBUILD_mtd_29:=29-r4
 ELF_REBUILD_mtd_29-r1:=29-r2
 ELF_REBUILD_mtdev_1.1.7-r1:=1.1.7-r4
 ELF_REBUILD_mtdev_1.1.7-r2:=1.1.7-r3
@@ -1442,7 +1442,7 @@ ELF_REBUILD_squashfs-tools-unsquashfs_4.7.5-r1:=4.7.5-r5
 ELF_REBUILD_squashfs-tools-unsquashfs_4.7.5-r2:=4.7.5-r3
 ELF_REBUILD_ss_6.18.0-r2:=6.18.0-r4
 ELF_REBUILD_ss_6.18.0-r3:=6.18.0-r4
-ELF_REBUILD_strace_6.18-r2:=6.18-r5
+ELF_REBUILD_strace_6.18-r2:=6.18-r6
 ELF_REBUILD_strace_6.18-r3:=6.18-r4
 ELF_REBUILD_sudo_1.9.17_p2-r3:=1.9.17_p2-r6
 ELF_REBUILD_sudo_1.9.17_p2-r4:=1.9.17_p2-r5
@@ -1979,7 +1979,7 @@ ELF_DEP_fstools_2026.10.18~907cf449-r2:=fstools=2026.10.18~907cf449-r4
 ELF_DEP_fstools_2026.10.18~907cf449-r3:=fstools=2026.10.18~907cf449-r4
 ELF_DEP_fuse-overlayfs_1.16-r1:=fuse-overlayfs=1.16-r4
 ELF_DEP_fuse-overlayfs_1.16-r2:=fuse-overlayfs=1.16-r3
-ELF_DEP_fuse-utils_2.9.9-r2:=fuse-utils=2.9.9-r5
+ELF_DEP_fuse-utils_2.9.9-r2:=fuse-utils=2.9.9-r6
 ELF_DEP_fuse-utils_2.9.9-r3:=fuse-utils=2.9.9-r4
 ELF_DEP_fuse3-utils_3.18.2-r2:=fuse3-utils=3.18.2-r4
 ELF_DEP_fuse3-utils_3.18.2-r3:=fuse3-utils=3.18.2-r4
@@ -2031,9 +2031,9 @@ ELF_DEP_gnupg2_2.5.21-r4:=gnupg2=2.5.21-r7
 ELF_DEP_gnupg2_2.5.21-r5:=gnupg2=2.5.21-r6
 ELF_DEP_grep_3.12-r2:=grep=3.12-r5
 ELF_DEP_grep_3.12-r3:=grep=3.12-r4
-ELF_DEP_grub2-bios-setup_2.12-r6:=grub2-bios-setup=2.12-r9
+ELF_DEP_grub2-bios-setup_2.12-r6:=grub2-bios-setup=2.12-r10
 ELF_DEP_grub2-bios-setup_2.12-r7:=grub2-bios-setup=2.12-r8
-ELF_DEP_grub2-editenv_2.12-r6:=grub2-editenv=2.12-r9
+ELF_DEP_grub2-editenv_2.12-r6:=grub2-editenv=2.12-r10
 ELF_DEP_grub2-editenv_2.12-r7:=grub2-editenv=2.12-r8
 ELF_DEP_gst1-mod-adder_1.28.7-r1:=gst1-mod-adder=1.28.7-r3
 ELF_DEP_gst1-mod-adder_1.28.7-r2:=gst1-mod-adder=1.28.7-r3
@@ -2699,7 +2699,7 @@ ELF_DEP_mount-utils_2.42.2-r1:=mount-utils=2.42.2-r4
 ELF_DEP_mount-utils_2.42.2-r2:=mount-utils=2.42.2-r3
 ELF_DEP_mpg123_1.32.6-r1:=mpg123=1.32.6-r4
 ELF_DEP_mpg123_1.32.6-r2:=mpg123=1.32.6-r3
-ELF_DEP_mtd_29:=mtd=29-r3
+ELF_DEP_mtd_29:=mtd=29-r4
 ELF_DEP_mtd_29-r1:=mtd=29-r2
 ELF_DEP_mtdev_1.1.7-r1:=mtdev=1.1.7-r4
 ELF_DEP_mtdev_1.1.7-r2:=mtdev=1.1.7-r3
@@ -3041,7 +3041,7 @@ ELF_DEP_squashfs-tools-unsquashfs_4.7.5-r1:=squashfs-tools-unsquashfs=4.7.5-r5
 ELF_DEP_squashfs-tools-unsquashfs_4.7.5-r2:=squashfs-tools-unsquashfs=4.7.5-r3
 ELF_DEP_ss_6.18.0-r2:=ss=6.18.0-r4
 ELF_DEP_ss_6.18.0-r3:=ss=6.18.0-r4
-ELF_DEP_strace_6.18-r2:=strace=6.18-r5
+ELF_DEP_strace_6.18-r2:=strace=6.18-r6
 ELF_DEP_strace_6.18-r3:=strace=6.18-r4
 ELF_DEP_sudo_1.9.17_p2-r3:=sudo=1.9.17_p2-r6
 ELF_DEP_sudo_1.9.17_p2-r4:=sudo=1.9.17_p2-r5
@@ -3561,8 +3561,8 @@ ELF_REBUILD_icu_79.1-r1:=79.1-r2
 ELF_DEP_icu_79.1-r1:=icu=79.1-r2
 ELF_REBUILD_intel-gpu-tools_2.6-r4:=2.6-r5
 ELF_DEP_intel-gpu-tools_2.6-r4:=intel-gpu-tools=2.6-r5
-ELF_REBUILD_ip-full_7.3.0-r1:=7.3.0-r2
-ELF_DEP_ip-full_7.3.0-r1:=ip-full=7.3.0-r2
+ELF_REBUILD_ip-full_7.3.0-r1:=7.3.0-r3
+ELF_DEP_ip-full_7.3.0-r1:=ip-full=7.3.0-r3
 ELF_REBUILD_irqbalance_1.9.5-r4:=1.9.5-r5
 ELF_DEP_irqbalance_1.9.5-r4:=irqbalance=1.9.5-r5
 ELF_DEP_jansson_2.15.1-r1:=jansson=2.15.1-r4
@@ -3836,8 +3836,8 @@ ELF_REBUILD_nginx-ssl_1.30.5-r4:=1.30.5-r5
 ELF_DEP_nginx-ssl_1.30.5-r4:=nginx-ssl=1.30.5-r5
 ELF_REBUILD_nlbwmon_2025.06.02~29236be6-r8:=2025.06.02~29236be6-r9
 ELF_DEP_nlbwmon_2025.06.02~29236be6-r8:=nlbwmon=2025.06.02~29236be6-r9
-ELF_REBUILD_nstat_7.3.0-r1:=7.3.0-r2
-ELF_DEP_nstat_7.3.0-r1:=nstat=7.3.0-r2
+ELF_REBUILD_nstat_7.3.0-r1:=7.3.0-r3
+ELF_DEP_nstat_7.3.0-r1:=nstat=7.3.0-r3
 ELF_REBUILD_odhcpd-ipv6only_2026.11.17~4580970d-r1:=2026.11.17~4580970d-r2
 ELF_DEP_odhcpd-ipv6only_2026.11.17~4580970d-r1:=odhcpd-ipv6only=2026.11.17~4580970d-r2
 ELF_DEP_oniguruma_6.9.10-r4:=oniguruma=6.9.10-r7
@@ -3983,8 +3983,8 @@ ELF_REBUILD_socat_1.8.1.3-r1:=1.8.1.3-r2
 ELF_DEP_socat_1.8.1.3-r1:=socat=1.8.1.3-r2
 ELF_REBUILD_spice-gtk_0.43-r3:=0.43-r4
 ELF_DEP_spice-gtk_0.43-r3:=spice-gtk=0.43-r4
-ELF_REBUILD_ss_7.3.0-r1:=7.3.0-r2
-ELF_DEP_ss_7.3.0-r1:=ss=7.3.0-r2
+ELF_REBUILD_ss_7.3.0-r1:=7.3.0-r3
+ELF_DEP_ss_7.3.0-r1:=ss=7.3.0-r3
 ELF_REBUILD_sunshine_2026.914.233613-r13:=2026.914.233613-r15
 ELF_DEP_sunshine_2026.914.233613-r13:=sunshine=2026.914.233613-r15
 ELF_REBUILD_swtpm_0.10.2-r1:=0.10.2-r2
@@ -4003,8 +4003,8 @@ ELF_REBUILD_systemd-openwrt-services_11:=11-r1
 ELF_DEP_systemd-openwrt-services_11:=systemd-openwrt-services=11-r1
 ELF_REBUILD_systemd-udev_262-r15:=262-r16
 ELF_DEP_systemd-udev_262-r15:=systemd-udev=262-r16
-ELF_REBUILD_tc-tiny_7.3.0-r1:=7.3.0-r2
-ELF_DEP_tc-tiny_7.3.0-r1:=tc-tiny=7.3.0-r2
+ELF_REBUILD_tc-tiny_7.3.0-r1:=7.3.0-r3
+ELF_DEP_tc-tiny_7.3.0-r1:=tc-tiny=7.3.0-r3
 ELF_REBUILD_tecla_49.0-r1:=49.0-r2
 ELF_DEP_tecla_49.0-r1:=tecla=49.0-r2
 ELF_REBUILD_tpm2-tss_4.2.2-r1:=4.2.2-r2
@@ -4178,3 +4178,13 @@ ELF_DEP_gcc_15.3.0-r13:=gcc=15.3.0-r14
 # reserved: ELF_REBUILD_openwrt-flatpak_1-r11 -> 1-r12
 # reserved: ELF_REBUILD_sunshine_2026.914.233613-r13 -> 2026.914.233613-r14
 # reserved: ELF_REBUILD_ttyd_1.7.7-r4 -> 1.7.7-r5
+# 2026-11-24 kernel-7.3.6 rebuild allocations
+# reserved: ELF_REBUILD_fuse-utils_2.9.9-r2 -> 2.9.9-r5
+# reserved: ELF_REBUILD_grub2-bios-setup_2.12-r6 -> 2.12-r9
+# reserved: ELF_REBUILD_grub2-editenv_2.12-r6 -> 2.12-r9
+# reserved: ELF_REBUILD_mtd_29 -> 29-r3
+# reserved: ELF_REBUILD_strace_6.18-r2 -> 6.18-r5
+# reserved: ELF_REBUILD_ip-full_7.3.0-r1 -> 7.3.0-r2
+# reserved: ELF_REBUILD_nstat_7.3.0-r1 -> 7.3.0-r2
+# reserved: ELF_REBUILD_ss_7.3.0-r1 -> 7.3.0-r2
+# reserved: ELF_REBUILD_tc-tiny_7.3.0-r1 -> 7.3.0-r2
