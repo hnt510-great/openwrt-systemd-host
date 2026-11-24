@@ -48,6 +48,7 @@ desktop_load_session() {
 	desktop_session_user_setup() { return 0; }
 	desktop_session_credential_prop() { return 0; }
 	desktop_session_unlock() { return 0; }
+	desktop_session_pre_start() { return 0; }
 	desktop_session_exec() { desktop_error "Desktop session plugin '$id' has no exec hook"; return 1; }
 	desktop_session_stop() { return 0; }
 	# shellcheck disable=SC1090
@@ -115,7 +116,7 @@ desktop_resolve_session() {
 
 desktop_collect_unset_vars() {
 	local vars path name owner line extra var
-	vars="DISPLAY WAYLAND_DISPLAY WAYLAND_SOCKET GTK_IM_MODULE GTK_IM_MODULE_FILE LIBSEAT_BACKEND XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP DESKTOP_SESSION XDG_SESSION_TYPE QT_IM_MODULE QT_QPA_PLATFORMTHEME QT_STYLE_OVERRIDE XMODIFIERS MUTTER_DEBUG_KMS_SCHEDULING_PRIORITY"
+	vars="DISPLAY XAUTHORITY WAYLAND_DISPLAY WAYLAND_SOCKET GTK_IM_MODULE GTK_IM_MODULE_FILE LIBSEAT_BACKEND XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP DESKTOP_SESSION XDG_SESSION_TYPE QT_IM_MODULE QT_QPA_PLATFORMTHEME QT_STYLE_OVERRIDE XMODIFIERS MUTTER_DEBUG_KMS_SCHEDULING_PRIORITY"
 	if [ -d "$DESKTOP_SESSIONS_DIR" ]; then
 		for path in "$DESKTOP_SESSIONS_DIR"/*; do
 			[ -f "$path" ] && [ ! -L "$path" ] || continue

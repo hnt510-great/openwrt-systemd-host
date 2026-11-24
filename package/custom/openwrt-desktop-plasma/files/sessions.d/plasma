@@ -51,6 +51,25 @@ desktop_session_unlock() {
 	/usr/libexec/desktop-keyring-unlock
 }
 
+desktop_session_pre_start() {
+	systemctl --user stop \
+		app-org.kde.krdpserver.service \
+		plasma-workspace-wayland.target \
+		plasma-workspace.target \
+		graphical-session.target \
+		plasma-kwin_wayland.service 2>/dev/null || :
+	systemctl --user reset-failed \
+		plasma-kwin_wayland.service \
+		plasma-plasmashell.service \
+		plasma-kded6.service \
+		plasma-polkit-agent.service \
+		plasma-xdg-desktop-portal-kde.service \
+		xdg-desktop-portal.service \
+		xdg-desktop-portal-kde.service \
+		openwrt-plasma-remotes.service \
+		app-org.kde.krdpserver.service 2>/dev/null || :
+}
+
 desktop_session_exec() {
 	export XDG_CURRENT_DESKTOP=KDE XDG_SESSION_DESKTOP=KDE DESKTOP_SESSION=plasma
 	export XDG_SESSION_TYPE=wayland
@@ -92,5 +111,6 @@ desktop_session_stop() {
 	systemctl --user stop \
 		plasma-workspace-wayland.target \
 		plasma-workspace.target \
-		graphical-session.target 2>/dev/null || :
+		graphical-session.target \
+		plasma-kwin_wayland.service 2>/dev/null || :
 }

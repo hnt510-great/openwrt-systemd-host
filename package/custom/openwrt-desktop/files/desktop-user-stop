@@ -16,3 +16,8 @@ systemctl --user stop \
 	xdg-desktop-portal-gnome.service \
 	xdg-desktop-portal-kde.service \
 	xdg-desktop-portal-gtk.service 2>/dev/null || :
+# Clear stale display and logind session variables from the surviving user
+# manager so nothing activated before the next session inherits old values.
+systemctl --user unset-environment \
+	WAYLAND_DISPLAY DISPLAY XAUTHORITY \
+	XDG_SESSION_ID XDG_SEAT XDG_VTNR 2>/dev/null || :

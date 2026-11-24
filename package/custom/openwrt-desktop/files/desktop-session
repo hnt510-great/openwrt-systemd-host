@@ -11,13 +11,28 @@ for attempt in 1 2 3 4 5; do
 	sleep 1
 done
 [ -S "$XDG_RUNTIME_DIR/bus" ] || exit 1
+# Stop any lingering session compositor/units before clearing stale variables so
+# a surviving user manager cannot keep an old compositor or race with startup.
+desktop_session_pre_start || :
 # Clear inherited desktop/compositor variables from any previous session in the
 # surviving user manager before the selected session imports its own values.
 unset_vars="$(desktop_collect_unset_vars)"
 # shellcheck disable=SC2086
 unset $unset_vars
 # shellcheck disable=SC2086
-systemctl --user unset-environment $unset_vars
+systemctl --user unset-environment $unset_vars XDG_SESSION_ID XDG_SEAT XDG_VTNR
+# Publish the fresh PAM logind session/seat variables to the user manager so
+# user-managed compositors (e.g. plasma-kwin_wayland.service) bind to the active
+# seat/VT and acquire DRM master instead of inheriting a stale session ID.
+seat_vars=
+for var in XDG_SESSION_ID XDG_SEAT XDG_VTNR; do
+	eval "val=\${$var:-}"
+	[ -z "$val" ] || seat_vars="$seat_vars $var"
+done
+if [ -n "$seat_vars" ]; then
+	# shellcheck disable=SC2086
+	systemctl --user import-environment $seat_vars
+fi
 systemctl --user daemon-reload || :
 desktop_session_unlock
 cd "$HOME"

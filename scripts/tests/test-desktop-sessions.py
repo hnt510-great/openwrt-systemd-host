@@ -144,6 +144,8 @@ class DesktopSessionPluginsTest(unittest.TestCase):
         self.assertIn('ACTIVE_SESSION=dummy\n', active)
         self.assertIn('--setenv=OPENWRT_DESKTOP_SESSION=dummy',
                       (self.path / 'systemd-run.args').read_text().splitlines())
+        self.assertIn('--property=ExecStopPost=-' + str(user_stop) + ' dummy',
+                      (self.path / 'systemd-run.args').read_text().splitlines())
 
         # Now UCI says 'gnome', but stop_service must stop the OLD active session ('dummy')!
         res = subprocess.run(['sh', str(harness), str(init_file), 'stop_service'],
@@ -196,7 +198,9 @@ class DesktopSessionPluginsTest(unittest.TestCase):
             env=dict(self.env, XDG_RUNTIME_DIR=str(self.path),
                      OPENWRT_DESKTOP_SESSION='dummy', OUT=str(out),
                      MUTTER_DEBUG_KMS_SCHEDULING_PRIORITY='realtime',
-                     KDE_SESSION_VERSION='6'),
+                     KDE_SESSION_VERSION='6',
+                     XAUTHORITY='/tmp/stale-xauth',
+                     XDG_SESSION_ID='c101', XDG_SEAT='seat0', XDG_VTNR='7'),
             capture_output=True, text=True)
         self.assertEqual(res.returncode, 0, res.stderr)
         args, env_after = json.loads(out.read_text())
@@ -204,12 +208,28 @@ class DesktopSessionPluginsTest(unittest.TestCase):
         self.assertEqual(env_after['XDG_CURRENT_DESKTOP'], 'DUMMY')
         self.assertNotIn('MUTTER_DEBUG_KMS_SCHEDULING_PRIORITY', env_after)
         self.assertNotIn('KDE_SESSION_VERSION', env_after)
-        unset_lines = [line for line in systemctl_log.read_text().splitlines()
+        self.assertNotIn('XAUTHORITY', env_after)
+        self.assertEqual(env_after['XDG_SESSION_ID'], 'c101')
+        self.assertEqual(env_after['XDG_SEAT'], 'seat0')
+        self.assertEqual(env_after['XDG_VTNR'], '7')
+        systemctl_lines = systemctl_log.read_text().splitlines()
+        unset_lines = [line for line in systemctl_lines
                        if line.startswith('--user unset-environment ')]
         self.assertEqual(len(unset_lines), 1)
         self.assertIn('MUTTER_DEBUG_KMS_SCHEDULING_PRIORITY', unset_lines[0])
         self.assertIn('KDE_FULL_SESSION', unset_lines[0])
         self.assertIn('KDE_SESSION_VERSION', unset_lines[0])
+        self.assertIn('XAUTHORITY', unset_lines[0])
+        self.assertIn('XDG_SESSION_ID', unset_lines[0])
+        self.assertIn('XDG_SEAT', unset_lines[0])
+        self.assertIn('XDG_VTNR', unset_lines[0])
+        seat_import_idx = next(
+            (i for i, l in enumerate(systemctl_lines)
+             if l == '--user import-environment XDG_SESSION_ID XDG_SEAT XDG_VTNR'),
+            None)
+        unset_idx = systemctl_lines.index(unset_lines[0])
+        self.assertIsNotNone(seat_import_idx)
+        self.assertGreater(seat_import_idx, unset_idx)
 
     def test_rejects_symlinks_and_invalid_ids(self):
         real = self.path / 'evil'
@@ -452,6 +472,83 @@ class DesktopSessionPluginsTest(unittest.TestCase):
         self.assertFalse(parsed['supports_kms_scheduling'])
         self.assertEqual(parsed['credential_backend'], 'gnome-keyring')
         self.assertEqual(parsed['rdp_unit'], 'app-org.kde.krdpserver.service')
+
+    def test_plasma_pre_start_and_stop_clean_compositor_and_seat_env(self):
+        plasma_plugin = ROOT / 'package/custom/openwrt-desktop-plasma/files/sessions.d/plasma'
+        startplasma = self.tool('startplasma-wayland', 'exit 0')
+        kwin = self.tool('kwin_wayland', 'exit 0')
+        plasmashell = self.tool('plasmashell', 'exit 0')
+        target = self.path / 'plasma-workspace-wayland.target'
+        target.write_text('[Unit]\n')
+        keyring = self.tool('keyring', ':')
+        user_setup = self.tool('user-setup', ':')
+        self.tool('id', 'echo 1000')
+
+        plasma_src = plasma_plugin.read_text()
+        plasma_src = plasma_src.replace('/usr/bin/startplasma-wayland', str(startplasma))
+        plasma_src = plasma_src.replace('/usr/bin/kwin_wayland', str(kwin))
+        plasma_src = plasma_src.replace('/usr/bin/plasmashell', str(plasmashell))
+        plasma_src = plasma_src.replace('/usr/lib/systemd/user/plasma-workspace-wayland.target', str(target))
+        plasma_src = plasma_src.replace('/usr/libexec/desktop-keyring-unlock', str(keyring))
+        (self.sessions_dir / 'plasma').write_text(plasma_src)
+
+        common = self.write_common('desktop_error() { printf "%s\\n" "$*" >&2; return 1; }\n')
+        systemctl_log = self.path / 'plasma-systemctl.log'
+        self.tool('systemctl', f'printf "%s\\n" "$*" >> "{systemctl_log}"; [ "$2" = is-active ] && exit 3 || exit 0')
+
+        bus = socket.socket(socket.AF_UNIX)
+        self.addCleanup(bus.close)
+        bus.bind(str(self.path / 'bus'))
+
+        sess_src = (FILES / 'desktop-session').read_text()
+        sess_src = sess_src.replace('/usr/libexec/desktop-common.sh', str(common))
+        sess_src = sess_src.replace('/usr/libexec/desktop-user-setup', str(user_setup))
+        sess_file = self.path / 'desktop-session-plasma'
+        sess_file.write_text(sess_src)
+
+        res = subprocess.run(
+            ['sh', str(sess_file)],
+            env=dict(self.env, XDG_RUNTIME_DIR=str(self.path),
+                     OPENWRT_DESKTOP_SESSION='plasma',
+                     WAYLAND_DISPLAY='wayland-0',
+                     XDG_SESSION_ID='c102', XDG_SEAT='seat0', XDG_VTNR='7'),
+            capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        lines = systemctl_log.read_text().splitlines()
+        stop_idx = next(
+            (i for i, l in enumerate(lines)
+             if l.startswith('--user stop ') and 'plasma-kwin_wayland.service' in l),
+            None)
+        reset_idx = next(
+            (i for i, l in enumerate(lines)
+             if l.startswith('--user reset-failed ') and 'app-org.kde.krdpserver.service' in l),
+            None)
+        unset_idx = next(
+            (i for i, l in enumerate(lines)
+             if l.startswith('--user unset-environment ') and 'WAYLAND_DISPLAY' in l and 'XDG_SESSION_ID' in l),
+            None)
+        seat_idx = next(
+            (i for i, l in enumerate(lines)
+             if l == '--user import-environment XDG_SESSION_ID XDG_SEAT XDG_VTNR'),
+            None)
+        self.assertIsNotNone(stop_idx, lines)
+        self.assertIsNotNone(reset_idx, lines)
+        self.assertIsNotNone(unset_idx, lines)
+        self.assertIsNotNone(seat_idx, lines)
+        self.assertLess(stop_idx, unset_idx)
+        self.assertLess(reset_idx, unset_idx)
+        self.assertLess(unset_idx, seat_idx)
+
+        # Verify desktop-user-stop also stops plasma-kwin_wayland.service and unsets stale env
+        systemctl_log.unlink()
+        user_stop = self.path / 'desktop-user-stop-plasma'
+        user_stop.write_text(
+            (FILES / 'desktop-user-stop').read_text().replace('/usr/libexec/desktop-common.sh', str(common)))
+        res = subprocess.run(['sh', str(user_stop), 'plasma'], env=self.env, capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        stop_lines = systemctl_log.read_text().splitlines()
+        self.assertTrue(any(l.startswith('--user stop ') and 'plasma-kwin_wayland.service' in l for l in stop_lines))
+        self.assertTrue(any(l.startswith('--user unset-environment ') and 'WAYLAND_DISPLAY' in l and 'XDG_SESSION_ID' in l for l in stop_lines))
 
 
 if __name__ == '__main__':

@@ -71,6 +71,7 @@ start_service() {
 	set -- systemd-run --quiet --collect --unit=openwrt-desktop.service \
 		--uid="$user" --property=PAMName=openwrt-desktop --property=Type=exec \
 		--property=Restart=on-failure --property=RestartSec=5s \
+		--property="ExecStopPost=-/usr/libexec/desktop-user-stop $session" \
 		--property=StandardOutput=journal --property=StandardError=journal \
 		--property=Requires='systemd-logind.service openwrt-desktop-coldplug.service' \
 		--property=After='systemd-logind.service openwrt-desktop-coldplug.service' \
