@@ -1,0 +1,54 @@
+#!/bin/sh
+set -eu
+[ "$(id -u)" -ge 1000 ] || exit 1
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+mkdir -p "$config_home" "$data_home"
+
+init_only=0
+[ "${1:-}" != --init-only ] || init_only=1
+
+# 0. Force Plasma systemd user-unit boot (OpenWrt does not ship
+#    xdg-desktop-autostart.target, which startplasma checks when systemdBoot=true).
+if command -v kwriteconfig6 >/dev/null 2>&1; then
+	kwriteconfig6 --file startkderc --group General --key systemdBoot force || :
+fi
+
+# 1. Disable idle suspend so the router is never suspended when the desktop is idle.
+if [ ! -f "$config_home/powerdevilrc" ] && command -v kwriteconfig6 >/dev/null 2>&1; then
+	kwriteconfig6 --file powerdevilrc --group AC --group SuspendAndShutdown --key AutoSuspendAction 0 || :
+fi
+
+# 2. Initialize Fcitx5 config/profile if IME is installed, and configure KWin
+#    Wayland InputMethod when the desktop file is available.
+if [ -x /usr/libexec/desktop-ime-init ]; then
+	/usr/libexec/desktop-ime-init || :
+	if [ -f /usr/share/applications/org.fcitx.Fcitx5.desktop ] && \
+	   command -v kreadconfig6 >/dev/null 2>&1 && command -v kwriteconfig6 >/dev/null 2>&1; then
+		cur_im="$(kreadconfig6 --file kwinrc --group Wayland --key InputMethod 2>/dev/null || :)"
+		if [ -z "$cur_im" ]; then
+			kwriteconfig6 --file kwinrc --group Wayland --key InputMethod /usr/share/applications/org.fcitx.Fcitx5.desktop || :
+		fi
+	fi
+fi
+
+[ "$init_only" = 0 ] || exit 0
+
+# 3. Apply initial preferred output/mode via kscreen-doctor if no saved KScreen
+#    layout exists and UCI specifies a concrete output or mode.
+kscreen_dir="$data_home/kscreen"
+if [ ! -d "$kscreen_dir" ] || [ -z "$(ls -A "$kscreen_dir" 2>/dev/null || :)" ]; then
+	output="$(/sbin/uci -q get desktop.main.output || printf auto)"
+	mode="$(/sbin/uci -q get desktop.main.mode || printf preferred)"
+	if [ "$output" != auto ] || [ "$mode" != preferred ]; then
+		if command -v kscreen-doctor >/dev/null 2>&1; then
+			target_out="$output"
+			if [ "$target_out" = auto ]; then
+				target_out="$(kscreen-doctor -o 2>/dev/null | sed -n 's/^Output: [0-9][0-9]* \([^ ][^ ]*\).*/\1/p' | head -n 1 || :)"
+			fi
+			if [ -n "$target_out" ] && [ "$mode" != preferred ]; then
+				kscreen-doctor "output.$target_out.mode.$mode" >/dev/null 2>&1 || :
+			fi
+		fi
+	fi
+fi

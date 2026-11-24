@@ -1,0 +1,14 @@
+[Unit]
+Description=Fcitx5 for the KDE Plasma desktop
+PartOf=plasma-workspace.target
+After=plasma-kwin_wayland.service plasma-plasmashell.service
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/desktop-ime-session
+Restart=always
+RestartSec=3s
+UMask=0077
+
+[Install]
+WantedBy=plasma-workspace.target

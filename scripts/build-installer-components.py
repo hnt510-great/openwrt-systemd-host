@@ -379,13 +379,16 @@ def main():
         # Sanity-check key combinations against forbidden_when_unselected.
         comp_by_id = {c['id']: c for c in components}
         checks = [
-            (['gnome'], ['audio', 'ime', 'rdp', 'sunshine', 'flatpak', 'appimage', 'virtualization', 'containers']),
-            (['virtualization', 'containers'], ['gnome', 'audio', 'ime', 'rdp', 'sunshine', 'flatpak', 'appimage']),
+            (['gnome'], ['plasma', 'audio', 'ime', 'rdp', 'sunshine', 'flatpak', 'appimage', 'virtualization', 'containers']),
+            (['plasma'], ['gnome', 'audio', 'ime', 'rdp', 'sunshine', 'flatpak', 'appimage', 'virtualization', 'containers']),
+            (['virtualization', 'containers'], ['gnome', 'plasma', 'audio', 'ime', 'rdp', 'sunshine', 'flatpak', 'appimage']),
         ]
         for selected_ids, unselected_ids in checks:
             sel_pkgs = resolve_packages_for_selection(selected_ids, components)
             solved = {name for name, _ in simulate_add(a.apk, sim_root, base_keys_dir, offline_index, sel_pkgs)}
             for uid in unselected_ids:
+                if uid not in comp_by_id:
+                    continue
                 for forb in comp_by_id[uid].get('forbidden_when_unselected', []):
                     if forb in solved:
                         raise RuntimeError(
@@ -412,6 +415,7 @@ def main():
                 'label': c['label'],
                 'description': c['description'],
                 'depends': c.get('depends', []),
+                'depends_any': c.get('depends_any', []),
                 'default': bool(c.get('default', True)),
                 'packages': c.get('packages', []),
                 'conditional_packages': c.get('conditional_packages', []),

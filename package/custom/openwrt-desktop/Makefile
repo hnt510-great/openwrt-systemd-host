@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openwrt-desktop
-PKG_RELEASE:=41
+PKG_RELEASE:=42
 PKG_CONFIG_DEPENDS:=CONFIG_OPENWRT_SYSTEMD
 PKG_LICENSE:=MIT
 
@@ -28,16 +28,42 @@ define Package/openwrt-desktop-base/conffiles
 /etc/pam.d/openwrt-desktop
 endef
 
+define Package/openwrt-desktop-keyring
+  SECTION:=utils
+  CATEGORY:=Utilities
+  TITLE:=Shared Secret Service keyring bootstrap helpers for desktops
+  DEPENDS:=@TARGET_x86_64 @USE_GLIBC @OPENWRT_SYSTEMD +openwrt-desktop-base \
+	+gnome-keyring +python3-gobject +glib2-utils
+endef
+
+define Package/openwrt-desktop-keyring/description
+  Shared TPM2-sealed and plaintext-fallback Secret Service keyring bootstrap
+  and unattended unlock helpers used by GNOME and KDE Plasma sessions.
+endef
+
+define Package/openwrt-desktop-rdp-base
+  SECTION:=utils
+  CATEGORY:=Utilities
+  TITLE:=Shared LAN RDP provisioning CLI for OpenWrt desktops
+  DEPENDS:=@TARGET_x86_64 @USE_GLIBC @OPENWRT_SYSTEMD +openwrt-desktop-base +openwrt-desktop-keyring
+endef
+
+define Package/openwrt-desktop-rdp-base/description
+  Shared desktop-rdp-setup CLI that provisions LAN IPv4 RDP credentials for
+  the selected GNOME or KDE Plasma session backend.
+endef
+
 define Package/openwrt-desktop-core
   SECTION:=utils
   CATEGORY:=Utilities
   TITLE:=Shared GNOME desktop session (without RDP)
   DEPENDS:=@TARGET_x86_64 @USE_GLIBC @OPENWRT_SYSTEMD +openwrt-desktop-base \
+	+openwrt-desktop-keyring \
 	+gnome-shell +gnome-session +gnome-settings-daemon +gnome-control-center \
-	+nautilus +gnome-terminal +gnome-tweaks +gnome-keyring \
+	+nautilus +gnome-terminal +gnome-tweaks \
 	+wl-clipboard +resources +gnome-text-editor +loupe +gnome-calculator \
 	+baobab +file-roller +evince \
-	+xdg-desktop-portal-gnome +python3-gobject +glib2-utils +xwayland \
+	+xdg-desktop-portal-gnome +xwayland \
 	+dejavu-fonts-ttf-DejaVuSans +noto-sans-symbols2 \
 	+dejavu-fonts-ttf-DejaVuSansMono
 endef
@@ -51,7 +77,8 @@ define Package/openwrt-desktop-rdp
   SECTION:=utils
   CATEGORY:=Utilities
   TITLE:=LAN RDP remote access for the shared GNOME desktop
-  DEPENDS:=@TARGET_x86_64 @USE_GLIBC @OPENWRT_SYSTEMD +openwrt-desktop-core +gnome-remote-desktop
+  DEPENDS:=@TARGET_x86_64 @USE_GLIBC @OPENWRT_SYSTEMD +openwrt-desktop-core \
+	+openwrt-desktop-rdp-base +gnome-remote-desktop
 endef
 
 define Package/openwrt-desktop-rdp/description
@@ -96,10 +123,19 @@ define Package/openwrt-desktop-base/install
 	$(INSTALL_BIN) ./files/icon-theme-refresh.hook $(1)/usr/lib/apk/commit_hooks.d/70-icon-theme-refresh
 endef
 
+define Package/openwrt-desktop-keyring/install
+	$(INSTALL_DIR) $(1)/usr/libexec
+	$(INSTALL_BIN) ./files/desktop-keyring-unlock ./files/desktop-keyring-control-unlock ./files/desktop-gnome-keyring-setup $(1)/usr/libexec/
+endef
+
+define Package/openwrt-desktop-rdp-base/install
+	$(INSTALL_DIR) $(1)/usr/sbin
+	$(INSTALL_BIN) ./files/desktop-rdp-setup $(1)/usr/sbin/desktop-rdp-setup
+endef
+
 define Package/openwrt-desktop-core/install
 	$(INSTALL_DIR) $(1)/usr/libexec $(1)/usr/libexec/openwrt-desktop/sessions.d
 	$(INSTALL_DATA) ./files/sessions.d/gnome $(1)/usr/libexec/openwrt-desktop/sessions.d/gnome
-	$(INSTALL_BIN) ./files/desktop-keyring-unlock ./files/desktop-keyring-control-unlock ./files/desktop-gnome-keyring-setup $(1)/usr/libexec/
 	$(INSTALL_BIN) ./files/desktop-gnome-remotes ./files/desktop-gnome-settings $(1)/usr/libexec/
 	$(INSTALL_DIR) $(1)/usr/lib/systemd/user
 	$(INSTALL_DATA) ./files/openwrt-gnome-remotes.service $(1)/usr/lib/systemd/user/
@@ -108,8 +144,7 @@ define Package/openwrt-desktop-core/install
 endef
 
 define Package/openwrt-desktop-rdp/install
-	$(INSTALL_DIR) $(1)/usr/sbin $(1)/usr/libexec $(1)/usr/lib/systemd/user/gnome-remote-desktop.service.d
-	$(INSTALL_BIN) ./files/desktop-rdp-setup $(1)/usr/sbin/desktop-rdp-setup
+	$(INSTALL_DIR) $(1)/usr/libexec $(1)/usr/lib/systemd/user/gnome-remote-desktop.service.d
 	$(INSTALL_BIN) ./files/desktop-rdp-configure $(1)/usr/libexec/desktop-rdp-configure
 	$(INSTALL_DATA) ./files/gnome-rdp-openwrt.conf $(1)/usr/lib/systemd/user/gnome-remote-desktop.service.d/openwrt.conf
 endef
@@ -119,6 +154,8 @@ define Package/openwrt-desktop/install
 endef
 
 $(eval $(call BuildPackage,openwrt-desktop-base))
+$(eval $(call BuildPackage,openwrt-desktop-keyring))
+$(eval $(call BuildPackage,openwrt-desktop-rdp-base))
 $(eval $(call BuildPackage,openwrt-desktop-core))
 $(eval $(call BuildPackage,openwrt-desktop-rdp))
 $(eval $(call BuildPackage,openwrt-desktop))

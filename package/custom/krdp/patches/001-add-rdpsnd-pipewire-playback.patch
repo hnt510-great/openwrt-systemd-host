@@ -1,0 +1,516 @@
+From: OpenWrt KDE Plasma Port <openwrt@local>
+Subject: [PATCH] Add RDPSND audio playback via PipeWire default sink monitor
+
+Implement per-peer FreeRDP RdpsndServerContext support in KRdp so RDP
+clients requesting audio playback receive 48 kHz stereo 16-bit PCM audio
+captured from the PipeWire default output monitor. Capture and network
+sending are decoupled via a bounded frame queue that drops stale frames
+on backlog; teardown stops PipeWire and joins the sender before freeing
+the FreeRDP RDPSND context.
+
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -71,6 +71,7 @@ set_package_properties(PAM PROPERTIES DE
+                       )
+ 
+ pkg_check_modules(Libei REQUIRED IMPORTED_TARGET libei-1.0>=1.6)
++pkg_check_modules(PipeWire REQUIRED IMPORTED_TARGET libpipewire-0.3)
+ 
+ ecm_find_qmlmodule(org.kde.kirigamiaddons.formcard REQUIRED)
+ 
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -16,6 +16,8 @@ endif()
+ 
+ target_sources(KRdp PRIVATE
+     AbstractSession.cpp
++    AudioPlayback.cpp
++    AudioPlayback.h
+     Clipboard.cpp
+     Clipboard.h
+     DisplayControl.cpp
+@@ -82,6 +84,7 @@ target_link_libraries(KRdp PUBLIC
+     K::KPipeWireRecord
+     K::KPipeWireDmaBuf
+     PkgConfig::Libei
++    PkgConfig::PipeWire
+     XKB::XKB
+ )
+ 
+--- /dev/null
++++ b/src/AudioPlayback.h
+@@ -0,0 +1,42 @@
++// SPDX-FileCopyrightText: 2026 OpenWrt Contributors
++// SPDX-License-Identifier: LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL
++
++#pragma once
++
++#include <memory>
++
++#include <QObject>
++
++#include "krdp_export.h"
++
++struct s_rdpsnd_server_context;
++typedef struct s_rdpsnd_server_context RdpsndServerContext;
++
++namespace KRdp
++{
++
++class RdpConnection;
++
++class KRDP_NO_EXPORT AudioPlayback : public QObject
++{
++    Q_OBJECT
++
++public:
++    explicit AudioPlayback(RdpConnection *connection);
++    ~AudioPlayback() override;
++
++    bool initialize();
++    void close();
++
++private:
++    static void onActivated(RdpsndServerContext *context);
++    void handleActivated();
++    void startCaptureAndSender();
++    void stopCaptureAndSender();
++    void senderLoop();
++
++    class Private;
++    const std::unique_ptr<Private> d;
++};
++
++}
+--- /dev/null
++++ b/src/AudioPlayback.cpp
+@@ -0,0 +1,343 @@
++// SPDX-FileCopyrightText: 2026 OpenWrt Contributors
++// SPDX-License-Identifier: LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL
++
++#include "AudioPlayback.h"
++
++#include <atomic>
++#include <chrono>
++#include <condition_variable>
++#include <cstring>
++#include <deque>
++#include <mutex>
++#include <thread>
++#include <vector>
++
++#include <freerdp/channels/rdpsnd.h>
++#include <freerdp/server/rdpsnd.h>
++#include <pipewire/pipewire.h>
++#include <spa/param/audio/format-utils.h>
++
++#include "PeerContext_p.h"
++#include "RdpConnection.h"
++#include "krdp_logging.h"
++
++namespace KRdp
++{
++
++namespace
++{
++constexpr uint32_t kSampleRate = 48000;
++constexpr uint16_t kChannels = 2;
++constexpr uint16_t kBitsPerSample = 16;
++constexpr uint16_t kBytesPerFrame = (kChannels * kBitsPerSample) / 8;
++constexpr size_t kMaxQueuedChunks = 8;
++
++AUDIO_FORMAT makePcmFormat()
++{
++    AUDIO_FORMAT fmt{};
++    fmt.wFormatTag = WAVE_FORMAT_PCM;
++    fmt.nChannels = kChannels;
++    fmt.nSamplesPerSec = kSampleRate;
++    fmt.wBitsPerSample = kBitsPerSample;
++    fmt.nBlockAlign = kBytesPerFrame;
++    fmt.nAvgBytesPerSec = kSampleRate * kBytesPerFrame;
++    fmt.cbSize = 0;
++    fmt.data = nullptr;
++    return fmt;
++}
++}
++
++class AudioPlayback::Private
++{
++public:
++    RdpConnection *connection = nullptr;
++    RdpsndServerContext *context = nullptr;
++    AUDIO_FORMAT serverFormat = makePcmFormat();
++    AUDIO_FORMAT srcFormat = makePcmFormat();
++
++    bool initialized = false;
++    std::atomic<bool> stopping{false};
++    std::atomic<bool> active{false};
++
++    struct pw_thread_loop *pwLoop = nullptr;
++    struct pw_stream *pwStream = nullptr;
++    struct pw_stream_events pwEvents{};
++
++    std::mutex queueMutex;
++    std::condition_variable queueCv;
++    std::deque<std::vector<uint8_t>> queue;
++
++    std::thread senderThread;
++    std::chrono::steady_clock::time_point startTime;
++
++    static void onProcess(void *userdata)
++    {
++        auto *self = static_cast<Private *>(userdata);
++        if (self->stopping.load(std::memory_order_acquire) || !self->pwStream) {
++            return;
++        }
++
++        struct pw_buffer *pwBuf = pw_stream_dequeue_buffer(self->pwStream);
++        if (!pwBuf) {
++            return;
++        }
++
++        struct spa_buffer *spaBuf = pwBuf->buffer;
++        if (spaBuf && spaBuf->n_datas > 0 && spaBuf->datas[0].data && spaBuf->datas[0].chunk) {
++            const uint32_t offset = spaBuf->datas[0].chunk->offset;
++            const uint32_t size = spaBuf->datas[0].chunk->size;
++            const uint32_t alignedSize = size - (size % kBytesPerFrame);
++            if (alignedSize >= kBytesPerFrame &&
++                offset + alignedSize <= spaBuf->datas[0].maxsize) {
++                const auto *src = static_cast<const uint8_t *>(spaBuf->datas[0].data) + offset;
++                std::vector<uint8_t> chunk(src, src + alignedSize);
++                {
++                    std::lock_guard<std::mutex> lock(self->queueMutex);
++                    while (self->queue.size() >= kMaxQueuedChunks) {
++                        self->queue.pop_front();
++                    }
++                    self->queue.push_back(std::move(chunk));
++                }
++                self->queueCv.notify_one();
++            }
++        }
++
++        pw_stream_queue_buffer(self->pwStream, pwBuf);
++    }
++};
++
++AudioPlayback::AudioPlayback(RdpConnection *connection)
++    : QObject(nullptr)
++    , d(std::make_unique<Private>())
++{
++    d->connection = connection;
++}
++
++AudioPlayback::~AudioPlayback()
++{
++    close();
++}
++
++bool AudioPlayback::initialize()
++{
++    if (d->initialized) {
++        return true;
++    }
++
++    auto *peerCtx = reinterpret_cast<PeerContext *>(d->connection->rdpPeerContext());
++    if (!peerCtx || !peerCtx->virtualChannelManager) {
++        return false;
++    }
++
++    d->stopping.store(false, std::memory_order_release);
++    d->context = rdpsnd_server_context_new(peerCtx->virtualChannelManager);
++    if (!d->context) {
++        qCWarning(KRDP) << "Failed to allocate RDPSND server context";
++        return false;
++    }
++
++    d->context->rdpcontext = d->connection->rdpPeerContext();
++    d->context->data = this;
++    d->context->use_dynamic_virtual_channel = FALSE;
++    d->context->server_formats = &d->serverFormat;
++    d->context->num_server_formats = 1;
++    d->context->src_format = &d->srcFormat;
++    d->context->latency = 40;
++    d->context->Activated = &AudioPlayback::onActivated;
++
++    if (d->context->Initialize(d->context, TRUE) != CHANNEL_RC_OK) {
++        qCWarning(KRDP) << "Failed to initialize RDPSND channel; continuing without audio";
++        d->context->server_formats = nullptr;
++        d->context->num_server_formats = 0;
++        d->context->src_format = nullptr;
++        rdpsnd_server_context_free(d->context);
++        d->context = nullptr;
++        return false;
++    }
++
++    d->initialized = true;
++    return true;
++}
++
++void AudioPlayback::onActivated(RdpsndServerContext *context)
++{
++    if (!context || !context->data) {
++        return;
++    }
++    static_cast<AudioPlayback *>(context->data)->handleActivated();
++}
++
++void AudioPlayback::handleActivated()
++{
++    if (!d->context || d->stopping.load(std::memory_order_acquire)) {
++        return;
++    }
++
++    int selectedIdx = -1;
++    for (UINT16 i = 0; i < d->context->num_client_formats; ++i) {
++        const AUDIO_FORMAT &cf = d->context->client_formats[i];
++        if (cf.wFormatTag == WAVE_FORMAT_PCM &&
++            cf.nChannels == kChannels &&
++            cf.nSamplesPerSec == kSampleRate &&
++            cf.wBitsPerSample == kBitsPerSample) {
++            selectedIdx = i;
++            break;
++        }
++    }
++
++    if (selectedIdx < 0) {
++        qCWarning(KRDP) << "No compatible 48kHz stereo S16 PCM format offered by RDP client";
++        return;
++    }
++
++    if (d->context->SelectFormat(d->context, static_cast<UINT16>(selectedIdx)) != CHANNEL_RC_OK) {
++        qCWarning(KRDP) << "Failed to select RDPSND format" << selectedIdx;
++        return;
++    }
++
++    qCInfo(KRDP) << "RDPSND audio playback activated (48kHz stereo S16 PCM)";
++    d->active.store(true, std::memory_order_release);
++    startCaptureAndSender();
++}
++
++void AudioPlayback::startCaptureAndSender()
++{
++    if (d->pwLoop) {
++        return;
++    }
++
++    pw_init(nullptr, nullptr);
++
++    d->startTime = std::chrono::steady_clock::now();
++    d->senderThread = std::thread(&AudioPlayback::senderLoop, this);
++
++    d->pwLoop = pw_thread_loop_new("krdp_audio", nullptr);
++    if (!d->pwLoop) {
++        qCWarning(KRDP) << "Failed to create PipeWire thread loop for RDPSND";
++        stopCaptureAndSender();
++        return;
++    }
++
++    pw_thread_loop_lock(d->pwLoop);
++
++    d->pwEvents.version = PW_VERSION_STREAM_EVENTS;
++    d->pwEvents.process = &Private::onProcess;
++
++    struct pw_properties *props = pw_properties_new(
++        PW_KEY_MEDIA_TYPE, "Audio",
++        PW_KEY_MEDIA_CATEGORY, "Capture",
++        PW_KEY_MEDIA_ROLE, "Music",
++        PW_KEY_STREAM_CAPTURE_SINK, "true",
++        PW_KEY_APP_NAME, "KRdp",
++        PW_KEY_NODE_NAME, "krdp-audio-capture",
++        nullptr);
++
++    d->pwStream = pw_stream_new_simple(
++        pw_thread_loop_get_loop(d->pwLoop),
++        "krdp-audio-capture",
++        props,
++        &d->pwEvents,
++        d.get());
++
++    if (!d->pwStream) {
++        pw_thread_loop_unlock(d->pwLoop);
++        qCWarning(KRDP) << "Failed to create PipeWire capture stream for RDPSND";
++        stopCaptureAndSender();
++        return;
++    }
++
++    uint8_t paramBuf[1024];
++    struct spa_pod_builder b = SPA_POD_BUILDER_INIT(paramBuf, sizeof(paramBuf));
++    struct spa_audio_info_raw info{};
++    info.format = SPA_AUDIO_FORMAT_S16_LE;
++    info.channels = kChannels;
++    info.rate = kSampleRate;
++    const struct spa_pod *params[1] = {
++        spa_format_audio_raw_build(&b, SPA_PARAM_EnumFormat, &info),
++    };
++
++    const int res = pw_stream_connect(
++        d->pwStream,
++        PW_DIRECTION_INPUT,
++        PW_ID_ANY,
++        static_cast<enum pw_stream_flags>(PW_STREAM_FLAG_AUTOCONNECT | PW_STREAM_FLAG_MAP_BUFFERS | PW_STREAM_FLAG_RT_PROCESS),
++        params,
++        1);
++
++    pw_thread_loop_unlock(d->pwLoop);
++
++    if (res < 0 || pw_thread_loop_start(d->pwLoop) < 0) {
++        qCWarning(KRDP) << "Failed to start PipeWire capture stream for RDPSND";
++        stopCaptureAndSender();
++    }
++}
++
++void AudioPlayback::senderLoop()
++{
++    while (!d->stopping.load(std::memory_order_acquire)) {
++        std::vector<uint8_t> chunk;
++        {
++            std::unique_lock<std::mutex> lock(d->queueMutex);
++            d->queueCv.wait(lock, [this]() {
++                return d->stopping.load(std::memory_order_acquire) || !d->queue.empty();
++            });
++            if (d->stopping.load(std::memory_order_acquire)) {
++                break;
++            }
++            chunk = std::move(d->queue.front());
++            d->queue.pop_front();
++        }
++
++        if (!d->context || !d->active.load(std::memory_order_acquire) || chunk.size() < kBytesPerFrame) {
++            continue;
++        }
++
++        const size_t nframes = chunk.size() / kBytesPerFrame;
++        const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
++            std::chrono::steady_clock::now() - d->startTime).count();
++        const UINT16 wTimestamp = static_cast<UINT16>(elapsedMs & 0xFFFF);
++        d->context->SendSamples(d->context, chunk.data(), nframes, wTimestamp);
++    }
++}
++
++void AudioPlayback::stopCaptureAndSender()
++{
++    d->stopping.store(true, std::memory_order_release);
++    d->active.store(false, std::memory_order_release);
++
++    if (d->pwLoop) {
++        pw_thread_loop_stop(d->pwLoop);
++        if (d->pwStream) {
++            pw_stream_destroy(d->pwStream);
++            d->pwStream = nullptr;
++        }
++        pw_thread_loop_destroy(d->pwLoop);
++        d->pwLoop = nullptr;
++    }
++
++    d->queueCv.notify_all();
++    if (d->senderThread.joinable()) {
++        d->senderThread.join();
++    }
++
++    std::lock_guard<std::mutex> lock(d->queueMutex);
++    d->queue.clear();
++}
++
++void AudioPlayback::close()
++{
++    stopCaptureAndSender();
++    if (d->context) {
++        if (d->initialized) {
++            d->context->Close(d->context);
++        }
++        d->context->server_formats = nullptr;
++        d->context->num_server_formats = 0;
++        d->context->src_format = nullptr;
++        rdpsnd_server_context_free(d->context);
++        d->context = nullptr;
++    }
++    d->initialized = false;
++}
++
++}
+--- a/src/RdpConnection.h
++++ b/src/RdpConnection.h
+@@ -16,6 +16,7 @@
+ namespace KRdp
+ {
+ 
++class AudioPlayback;
+ class InputHandler;
+ class Server;
+ class VideoStream;
+@@ -110,6 +111,7 @@ private:
+     friend BOOL peerPostConnect(freerdp_peer *);
+     friend BOOL suppressOutput(rdpContext *, uint8_t, const RECTANGLE_16 *);
+ 
++    friend class AudioPlayback;
+     friend class Cursor;
+     friend class VideoStream;
+     friend class VideoStreamSurface;
+--- a/src/RdpConnection.cpp
++++ b/src/RdpConnection.cpp
+@@ -23,10 +23,12 @@
+ #include <freerdp/channels/wtsvc.h>
+ #include <freerdp/freerdp.h>
+ #include <freerdp/server/cliprdr.h>
++#include <freerdp/channels/rdpsnd.h>
+ 
+ #include <freerdp/channels/drdynvc.h>
+ 
+ #include "AbstractSession.h"
++#include "AudioPlayback.h"
+ #include "Clipboard.h"
+ #include "Cursor.h"
+ #include "DisplayControl.h"
+@@ -253,6 +255,7 @@ public:
+     std::unique_ptr<NetworkDetection> networkDetection;
+     std::unique_ptr<Clipboard> clipboard;
+     std::unique_ptr<DisplayControl> displayControl;
++    std::unique_ptr<AudioPlayback> audioPlayback;
+ 
+     freerdp_peer *peer = nullptr;
+ 
+@@ -295,6 +298,7 @@ RdpConnection::RdpConnection(Server *ser
+     d->networkDetection = std::make_unique<NetworkDetection>(this);
+     d->clipboard = std::make_unique<Clipboard>(this);
+     d->displayControl = std::make_unique<DisplayControl>(this);
++    d->audioPlayback = std::make_unique<AudioPlayback>(this);
+ 
+     QMetaObject::invokeMethod(this, &RdpConnection::initialize, Qt::QueuedConnection);
+ }
+@@ -458,8 +462,7 @@ void RdpConnection::initialize()
+     // PSEUDO_XSERVER is apparently required for things to work properly.
+     freerdp_settings_set_uint32(settings, FreeRDP_OsMinorType, OSMINORTYPE_PSEUDO_XSERVER);
+ 
+-    // TODO: Implement audio support
+-    freerdp_settings_set_bool(settings, FreeRDP_AudioPlayback, false);
++    freerdp_settings_set_bool(settings, FreeRDP_AudioPlayback, true);
+ 
+     freerdp_settings_set_uint32(settings, FreeRDP_ColorDepth, 32);
+ 
+@@ -555,6 +558,7 @@ void RdpConnection::run(std::stop_token
+         const bool cliprdrJoined = WTSVirtualChannelManagerIsChannelJoined(context->virtualChannelManager, CLIPRDR_SVC_CHANNEL_NAME);
+         const bool drdynvcJoined = WTSVirtualChannelManagerIsChannelJoined(context->virtualChannelManager, DRDYNVC_SVC_CHANNEL_NAME);
+         const BYTE drdynvcState = WTSVirtualChannelManagerGetDrdynvcState(context->virtualChannelManager);
++        const bool rdpsndJoined = WTSVirtualChannelManagerIsChannelJoined(context->virtualChannelManager, RDPSND_CHANNEL_NAME);
+ 
+         if (d->peer->connected && d->state == State::Activated && drdynvcJoined && drdynvcState == DRDYNVC_STATE_NONE) {
+             if (WTSVirtualChannelManagerOpen(context->virtualChannelManager) != TRUE) {
+@@ -574,6 +578,10 @@ void RdpConnection::run(std::stop_token
+             }
+         }
+ 
++        if (d->peer->connected && d->state == State::Activated && rdpsndJoined) {
++            d->audioPlayback->initialize();
++        }
++
+         if (d->peer->connected && d->state == State::Activated && drdynvcJoined && drdynvcState == DRDYNVC_STATE_READY) {
+             if (!d->displayControl->initialize()) {
+                 break;
+@@ -715,6 +723,7 @@ bool RdpConnection::onPostConnect()
+ 
+ bool RdpConnection::onClose()
+ {
++    d->audioPlayback->close();
+     d->displayControl->close();
+     d->clipboard->close();
+     d->videoStream->close();

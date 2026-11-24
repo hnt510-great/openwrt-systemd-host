@@ -30,19 +30,7 @@ desktop_session_user_setup() {
 }
 
 desktop_session_credential_prop() {
-	local secret cred
-	secret="/etc/desktop/gnome/$DESKTOP_USER_UID.keyring-passphrase"
-	cred="$secret.cred"
-	if [ -f "$cred" ] && [ ! -L "$cred" ] && [ -s "$cred" ] && [ "$(stat -c %u:%a "$cred")" = 0:600 ]; then
-		printf 'LoadCredentialEncrypted=keyring-passphrase:%s\n' "$cred"
-		return 0
-	fi
-	if [ -f "$secret" ] && [ ! -L "$secret" ] && [ -s "$secret" ] && [ "$(stat -c %u:%a "$secret")" = 0:600 ]; then
-		printf 'LoadCredential=keyring-passphrase:%s\n' "$secret"
-		return 0
-	fi
-	desktop_error 'Run desktop-setup to provision unattended keyring access'
-	return 1
+	desktop_keyring_credential_prop
 }
 
 desktop_session_unlock() {

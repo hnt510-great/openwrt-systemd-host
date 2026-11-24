@@ -18,6 +18,7 @@ TLS_DIR = Path('/etc/desktop/tls')
 DRM_DIR = Path('/sys/class/drm')
 PASSWD_FILE = Path('/etc/passwd')
 INIT_SCRIPT = '/etc/init.d/desktop'
+COMMON_SH = Path('/usr/libexec/desktop-common.sh')
 REQUIRE_ROOT_PLUGIN = True
 
 SESSION_ID_RE = re.compile(r'^[a-z0-9][a-z0-9_-]{0,31}$')
@@ -310,6 +311,27 @@ def inspect_user_and_credentials(username, session_info=None):
     return info
 
 
+def run_plugin_check(session_id):
+    """Run the session plugin's desktop_session_check hook via desktop-common.sh."""
+    if not SESSION_ID_RE.match(session_id):
+        return False, f"Invalid desktop session '{session_id}'"
+    if not COMMON_SH.is_file():
+        return True, None
+    script = (
+        f'. "{COMMON_SH}" && '
+        f'DESKTOP_SESSIONS_DIR="{SESSIONS_DIR}" && '
+        f'DESKTOP_SESSION_REQUIRE_ROOT={"1" if REQUIRE_ROOT_PLUGIN else "0"} && '
+        'desktop_load_session "$1" && desktop_session_check'
+    )
+    res = run_cmd(['/bin/sh', '-c', script, '_', session_id], timeout=5)
+    if res.returncode == 0:
+        return True, None
+    msg = (res.stderr or res.stdout or f"Desktop session '{session_id}' failed availability check").strip()
+    if msg:
+        msg = msg.splitlines()[-1]
+    return False, msg
+
+
 def probe_runtime(service, provisioned, session_info=None):
     rdp_unit = (session_info or {}).get('rdp_unit') or ''
     rdp_available = bool(
@@ -321,6 +343,7 @@ def probe_runtime(service, provisioned, session_info=None):
     runtime = {
         'lan_address': None,
         'keyring_unlocked': None,
+        'session_ready': None,
         'rdp_available': rdp_available,
         'rdp_active': False,
         'sunshine_active': False,
@@ -341,6 +364,7 @@ def probe_runtime(service, provisioned, session_info=None):
     runtime_dir = f'/run/user/{uid}'
     bus_path = Path(runtime_dir) / 'bus'
     if not bus_path.exists():
+        runtime['session_ready'] = False
         return runtime
 
     user_env = {
@@ -368,6 +392,25 @@ def probe_runtime(service, provisioned, session_info=None):
         res = run_cmd(['systemctl', '--user', 'is-active', unit],
                       timeout=3, user=uid, group=gid, env=user_env)
         return res.returncode == 0 and res.stdout.strip() == 'active'
+
+    wayland_display = ''
+    env_res = run_cmd(['systemctl', '--user', 'show-environment'],
+                      timeout=3, user=uid, group=gid, env=user_env)
+    if env_res.returncode == 0:
+        for line in env_res.stdout.splitlines():
+            if line.startswith('WAYLAND_DISPLAY='):
+                wayland_display = line.split('=', 1)[1].strip()
+                break
+    wayland_ready = bool(wayland_display and (Path(runtime_dir) / wayland_display).exists())
+    sess_id = (session_info or {}).get('id', '')
+    if sess_id == 'plasma':
+        runtime['session_ready'] = bool(
+            wayland_ready
+            and unit_active('plasma-kwin_wayland.service')
+            and unit_active('plasma-plasmashell.service')
+        )
+    elif sess_id:
+        runtime['session_ready'] = wayland_ready
 
     if rdp_available:
         runtime['rdp_active'] = unit_active(rdp_unit)
@@ -429,6 +472,10 @@ def preflight_start(status_data, target_session=None):
     if resolved is None:
         return failure(2, err_msg)
 
+    ok_check, check_err = run_plugin_check(resolved['id'])
+    if not ok_check:
+        return failure(2, check_err or f"Desktop session '{resolved['id']}' is unavailable")
+
     provisioned = inspect_user_and_credentials(config['user'], session_info=resolved)
     if not provisioned['user_valid']:
         return failure(2, provisioned['error'] or 'Desktop user is not provisioned')
@@ -465,6 +512,10 @@ def do_switch(session_id):
     resolved, err_msg = resolve_session(session_id, status_data['sessions'])
     if resolved is None:
         return failure(2, err_msg)
+
+    ok_check, check_err = run_plugin_check(session_id)
+    if not ok_check:
+        return failure(2, check_err or f"Desktop session '{session_id}' is unavailable")
 
     running = status_data['service']['active_state'] in ('active', 'activating')
     if running:

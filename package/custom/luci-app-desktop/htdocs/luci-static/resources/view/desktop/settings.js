@@ -77,8 +77,16 @@ function statusBannerInfo(data) {
 	var svc = data.service || {};
 	var cfg = data.config || {};
 	var prov = data.provisioned || {};
+	var rt = data.runtime || {};
 	if (svc.active_state == 'active') {
 		var activeSession = (data.active && data.active.session) || data.selected_session || cfg.session || '';
+		if (rt.session_ready === false) {
+			return {
+				cls: 'notice',
+				text: _('Desktop is starting (%s, user %s, PID %d)…').format(
+					sessionLabel(data.sessions, activeSession), cfg.user, svc.main_pid || 0)
+			};
+		}
 		return {
 			cls: 'notice',
 			text: _('Desktop is running (%s, user %s, PID %d).').format(
@@ -87,6 +95,9 @@ function statusBannerInfo(data) {
 	}
 	if (svc.active_state == 'activating') {
 		return { cls: 'notice', text: _('Desktop is starting…') };
+	}
+	if (svc.active_state == 'failed') {
+		return { cls: 'warning', text: _('Desktop failed to start. Check the log below or switch back to another installed session.') };
 	}
 	if (data.selection_error) {
 		return { cls: 'warning', text: data.selection_error };
@@ -412,15 +423,18 @@ return view.extend({
 		o.rmempty = false;
 		o.validate = function(section_id, value) { return validateMode(value); };
 
-		o = s.option(form.ListValue, 'kms_scheduling', _('Mutter KMS scheduling'),
-			_('Applies to GNOME/Mutter via RealtimeKit. Requires restarting the desktop to take effect.'));
-		o.value('high-priority', _('high-priority (default, nice -15)'));
-		o.value('realtime', _('realtime (SCHED_RR 20)'));
-		o.value('normal', _('normal (no elevation)'));
-		o.default = 'high-priority';
+		var anySupportsKms = sessions.some(function(item) { return item.available && item.supports_kms_scheduling; });
+		if (anySupportsKms || sessions.length == 0) {
+			o = s.option(form.ListValue, 'kms_scheduling', _('Mutter KMS scheduling'),
+				_('Applies to GNOME/Mutter via RealtimeKit. Requires restarting the desktop to take effect.'));
+			o.value('high-priority', _('high-priority (default, nice -15)'));
+			o.value('realtime', _('realtime (SCHED_RR 20)'));
+			o.value('normal', _('normal (no elevation)'));
+			o.default = 'high-priority';
+		}
 
 		o = s.option(form.Flag, 'rdp_enabled', _('Enable LAN RDP'),
-			_('Expose GNOME Remote Desktop on LAN IPv4 after provisioning credentials with <code>desktop-rdp-setup USER</code>. Applies live without restarting the desktop.'));
+			_('Expose LAN IPv4 RDP for the active desktop session after provisioning credentials with <code>desktop-rdp-setup USER</code>. Applies live without restarting the desktop.'));
 		o.rmempty = false;
 
 		o = s.option(form.DummyValue, 'rdp_port', _('RDP port'),

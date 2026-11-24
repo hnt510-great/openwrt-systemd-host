@@ -1,0 +1,48 @@
+--- a/src/print.cpp
++++ b/src/print.cpp
+@@ -24,6 +24,7 @@
+ // #include <QtPrintSupport/private/qprint_p.h>
+ #include <QTemporaryFile>
+ #include <QUrl>
++#if QT_CONFIG(cups)
+ #include <QtPrintSupport/private/qcups_p.h>
+ 
+ // INFO: code below is copied from Qt as there is no public API for converting key to PageSizeId.
+@@ -902,4 +903,37 @@ bool PrintPortal::cupsAvailable()
+     return testPrinter.supportsMultipleCopies();
+ }
+ 
++#else
++
++PrintPortal::PrintPortal(QObject *parent)
++    : QDBusAbstractAdaptor(parent)
++{
++}
++
++uint PrintPortal::Print(const QDBusObjectPath &,
++                        const QString &,
++                        const QString &,
++                        const QString &,
++                        const QDBusUnixFileDescriptor &,
++                        const QVariantMap &,
++                        QVariantMap &)
++{
++    return 2;
++}
++
++void PrintPortal::PreparePrint(const QDBusObjectPath &,
++                               const QString &,
++                               const QString &,
++                               const QString &,
++                               const QVariantMap &,
++                               const QVariantMap &,
++                               const QVariantMap &,
++                               const QDBusMessage &,
++                               uint &replyResponse,
++                               QVariantMap &)
++{
++    replyResponse = 2;
++}
++#endif
++
+ #include "moc_print.cpp"

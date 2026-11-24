@@ -7,5 +7,12 @@ export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
 session="${1:-${OPENWRT_DESKTOP_SESSION:-}}"
 [ -n "$session" ] || exit 0
 if desktop_load_session "$session" 2>/dev/null; then
-	desktop_session_stop
+	( desktop_session_stop ) || :
 fi
+# Stop lingering desktop portal backends so switching between GNOME and Plasma
+# does not route portal requests to the previous desktop's backend.
+systemctl --user stop \
+	xdg-desktop-portal.service \
+	xdg-desktop-portal-gnome.service \
+	xdg-desktop-portal-kde.service \
+	xdg-desktop-portal-gtk.service 2>/dev/null || :

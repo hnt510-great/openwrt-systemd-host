@@ -115,7 +115,7 @@ desktop_resolve_session() {
 
 desktop_collect_unset_vars() {
 	local vars path name owner line extra var
-	vars="WAYLAND_SOCKET GTK_IM_MODULE GTK_IM_MODULE_FILE LIBSEAT_BACKEND XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP DESKTOP_SESSION XDG_SESSION_TYPE QT_IM_MODULE XMODIFIERS MUTTER_DEBUG_KMS_SCHEDULING_PRIORITY"
+	vars="DISPLAY WAYLAND_DISPLAY WAYLAND_SOCKET GTK_IM_MODULE GTK_IM_MODULE_FILE LIBSEAT_BACKEND XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP DESKTOP_SESSION XDG_SESSION_TYPE QT_IM_MODULE QT_QPA_PLATFORMTHEME QT_STYLE_OVERRIDE XMODIFIERS MUTTER_DEBUG_KMS_SCHEDULING_PRIORITY"
 	if [ -d "$DESKTOP_SESSIONS_DIR" ]; then
 		for path in "$DESKTOP_SESSIONS_DIR"/*; do
 			[ -f "$path" ] && [ ! -L "$path" ] || continue
@@ -268,4 +268,20 @@ desktop_setup_tls() {
 	chown "$DESKTOP_USER_UID:$DESKTOP_USER_GID" "$key" "$cert"
 	chmod 0600 "$key"
 	chmod 0644 "$cert"
+}
+
+desktop_keyring_credential_prop() {
+	local secret cred
+	secret="/etc/desktop/gnome/$DESKTOP_USER_UID.keyring-passphrase"
+	cred="$secret.cred"
+	if [ -f "$cred" ] && [ ! -L "$cred" ] && [ -s "$cred" ] && [ "$(stat -c %u:%a "$cred")" = 0:600 ]; then
+		printf 'LoadCredentialEncrypted=keyring-passphrase:%s\n' "$cred"
+		return 0
+	fi
+	if [ -f "$secret" ] && [ ! -L "$secret" ] && [ -s "$secret" ] && [ "$(stat -c %u:%a "$secret")" = 0:600 ]; then
+		printf 'LoadCredential=keyring-passphrase:%s\n' "$secret"
+		return 0
+	fi
+	desktop_error 'Run desktop-setup to provision unattended keyring access'
+	return 1
 }

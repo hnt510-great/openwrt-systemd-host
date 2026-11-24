@@ -18,6 +18,7 @@ unset_vars="$(desktop_collect_unset_vars)"
 unset $unset_vars
 # shellcheck disable=SC2086
 systemctl --user unset-environment $unset_vars
+systemctl --user daemon-reload || :
 desktop_session_unlock
 cd "$HOME"
 /usr/libexec/desktop-user-setup --xdg-dirs

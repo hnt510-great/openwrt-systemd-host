@@ -1,0 +1,13 @@
+[Unit]
+Description=OpenWrt KDE Plasma settings and LAN remote access helper
+PartOf=plasma-workspace.target
+After=plasma-workspace.target
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/desktop-plasma-remotes
+Restart=on-failure
+RestartSec=3s
+
+[Install]
+WantedBy=plasma-workspace.target

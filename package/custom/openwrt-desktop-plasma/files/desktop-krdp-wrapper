@@ -1,0 +1,55 @@
+#!/bin/sh
+set -eu
+[ "$(id -u)" -ge 1000 ] || exit 1
+uid="$(id -u)"
+user="$(id -un)"
+env_file="/run/openwrt-desktop/$uid.env"
+active_file="/run/openwrt-desktop/active.env"
+
+# Refuse to run unless the active desktop session is Plasma.
+active_session=
+if [ -f "$active_file" ] && [ ! -L "$active_file" ]; then
+	active_session="$(sed -n 's/^ACTIVE_SESSION=//p' "$active_file" | head -n 1 || :)"
+fi
+[ "$active_session" = plasma ] || exit 0
+
+# Read root-owned LAN environment file.
+[ -f "$env_file" ] && [ ! -L "$env_file" ] && [ "$(stat -c %u "$env_file" 2>/dev/null || :)" = 0 ] || exit 0
+address= rdp=
+while IFS= read -r line || [ -n "$line" ]; do
+	case "$line" in
+		OPENWRT_DESKTOP_LAN_ADDRESS=*) address=${line#*=} ;;
+		OPENWRT_DESKTOP_RDP_ENABLED=*) rdp=${line#*=} ;;
+	esac
+done < "$env_file"
+[ "$rdp" = 1 ] || exit 0
+case "$address" in
+	''|0.0.0.0|*[!0-9.]*) exit 0 ;;
+esac
+
+port="$(/sbin/uci -q get desktop.main.rdp_port || printf 3389)"
+cert="/etc/desktop/tls/$user.crt"
+key="/etc/desktop/tls/$user.key"
+[ -f "$cert" ] && [ -f "$key" ] || exit 0
+
+# Require configured KRdp user entry before listening.
+krdp_users="$(kreadconfig6 --file krdpserverrc --group General --key Users 2>/dev/null || :)"
+[ -n "$krdp_users" ] || exit 0
+
+# Ensure xdg-desktop-portal-kde MegaAuth permission is present so headless/LAN
+# RDP connections stream immediately without a local confirmation prompt.
+if command -v gdbus >/dev/null 2>&1; then
+	gdbus call --session \
+		--dest org.freedesktop.impl.portal.PermissionStore \
+		--object-path /org/freedesktop/impl/portal/PermissionStore \
+		--method org.freedesktop.impl.portal.PermissionStore.SetPermission \
+		"kde-authorized" true "remote-desktop" "org.kde.krdpserver" "['yes']" >/dev/null 2>&1 || :
+fi
+
+export QT_KEYCHAIN_BACKEND=secretservice
+exec /usr/bin/krdpserver \
+	--address "$address" \
+	--port "$port" \
+	--certificate "$cert" \
+	--certificate-key "$key" \
+	--mode SharedAccess

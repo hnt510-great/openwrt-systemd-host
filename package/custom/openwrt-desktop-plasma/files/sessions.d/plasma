@@ -1,0 +1,91 @@
+SESSION_ID="plasma"
+SESSION_TITLE="KDE Plasma (Wayland)"
+SESSION_DESCRIPTION="KDE Plasma 6.8 Wayland desktop with KWin"
+SESSION_EXEC="/usr/bin/startplasma-wayland"
+SESSION_SUPPORTS_RDP="1"
+SESSION_SUPPORTS_KMS_SCHEDULING="0"
+SESSION_CREDENTIAL_BACKEND="gnome-keyring"
+SESSION_RDP_UNIT="app-org.kde.krdpserver.service"
+SESSION_UNSET_VARS="KDE_FULL_SESSION KDE_SESSION_VERSION KDE_SESSION_UID"
+
+desktop_session_check() {
+	[ -x "$SESSION_EXEC" ] || { desktop_error 'Missing /usr/bin/startplasma-wayland'; return 1; }
+	[ -x /usr/bin/kwin_wayland ] || { desktop_error 'Missing /usr/bin/kwin_wayland'; return 1; }
+	[ -x /usr/bin/plasmashell ] || { desktop_error 'Missing /usr/bin/plasmashell'; return 1; }
+	[ -f /usr/lib/systemd/user/plasma-workspace-wayland.target ] || {
+		desktop_error 'Missing plasma-workspace-wayland.target'; return 1;
+	}
+}
+
+desktop_session_setup() {
+	if [ "${DESKTOP_REFRESH_KEYRING:-0}" = 1 ]; then
+		/usr/libexec/desktop-gnome-keyring-setup "$DESKTOP_USER_NAME" --refresh-keyring
+	else
+		/usr/libexec/desktop-gnome-keyring-setup "$DESKTOP_USER_NAME"
+	fi
+}
+
+desktop_plasma_ensure_wants() {
+	local config_home wants unit
+	config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+	wants="$config_home/systemd/user/plasma-workspace.target.wants"
+	mkdir -p "$wants"
+	for unit in openwrt-plasma-remotes.service openwrt-fcitx5-plasma.service; do
+		[ ! -f "/usr/lib/systemd/user/$unit" ] || ln -sfn "/usr/lib/systemd/user/$unit" "$wants/$unit"
+	done
+}
+
+desktop_session_user_setup() {
+	desktop_plasma_ensure_wants
+	if [ -x /usr/libexec/desktop-plasma-settings ]; then
+		/usr/libexec/desktop-plasma-settings --init-only || :
+	fi
+}
+
+desktop_session_credential_prop() {
+	desktop_keyring_credential_prop
+}
+
+desktop_session_unlock() {
+	/usr/libexec/desktop-keyring-unlock
+}
+
+desktop_session_exec() {
+	export XDG_CURRENT_DESKTOP=KDE XDG_SESSION_DESKTOP=KDE DESKTOP_SESSION=plasma
+	export XDG_SESSION_TYPE=wayland
+	export XDG_DATA_DIRS="$HOME/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+	# Ensure QtKeychain uses Secret Service (gnome-keyring) consistently.
+	export QT_KEYCHAIN_BACKEND=secretservice
+	desktop_plasma_ensure_wants || :
+	if [ -x /usr/libexec/desktop-plasma-settings ]; then
+		/usr/libexec/desktop-plasma-settings --init-only || :
+	fi
+	systemctl --user import-environment \
+		XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP DESKTOP_SESSION \
+		XDG_SESSION_TYPE XDG_DATA_DIRS QT_KEYCHAIN_BACKEND
+	exec "$SESSION_EXEC"
+}
+
+desktop_session_stop() {
+	systemctl --user stop app-org.kde.krdpserver.service 2>/dev/null || :
+	if command -v gdbus >/dev/null 2>&1; then
+		gdbus call --session \
+			--dest org.kde.Shutdown \
+			--object-path /Shutdown \
+			--method org.kde.Shutdown.logout >/dev/null 2>&1 || :
+	fi
+	tries=0
+	while [ "$tries" -lt 15 ]; do
+		if ! systemctl --user is-active --quiet plasma-workspace.target 2>/dev/null && \
+		   ! systemctl --user is-active --quiet plasma-kwin_wayland.service 2>/dev/null; then
+			break
+		fi
+		tries=$((tries + 1))
+		sleep 1
+	done
+	systemctl --user stop \
+		openwrt-fcitx5-plasma.service \
+		plasma-workspace-wayland.target \
+		plasma-workspace.target \
+		graphical-session.target 2>/dev/null || :
+}

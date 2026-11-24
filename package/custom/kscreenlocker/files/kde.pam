@@ -1,0 +1,6 @@
+# Ordinary-user password authentication for KDE screen unlocking (KScreenLocker).
+# Never use pam_rootok here.
+auth required pam_unix.so
+account required pam_unix.so
+password required pam_unix.so
+session required pam_unix.so

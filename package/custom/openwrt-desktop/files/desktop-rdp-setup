@@ -4,17 +4,67 @@ set +x
 umask 077
 . /usr/libexec/desktop-common.sh
 [ "$(id -u)" = 0 ] || { desktop_error 'Run desktop-rdp-setup as root'; exit 1; }
-[ "$#" = 1 ] || { [ "$#" = 2 ] && [ "$2" = --password-stdin ]; } || {
-	printf 'Usage: desktop-rdp-setup USER [--password-stdin]\n' >&2; exit 1;
+usage() {
+	printf 'Usage: desktop-rdp-setup USER [--session gnome|plasma] [--password-stdin]\n' >&2
+	exit 1
 }
+[ "$#" -ge 1 ] || usage
 user=$1
+shift
+session=
+password_stdin=0
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		--password-stdin) password_stdin=1 ;;
+		--session)
+			shift
+			[ "$#" -gt 0 ] || usage
+			session=$1
+			;;
+		--session=*)
+			session=${1#--session=}
+			;;
+		*) usage ;;
+	esac
+	shift
+done
 desktop_validate_user "$user"
-[ "$(uci -q get desktop.main.user || :)" = "$user" ] && 	[ "$(uci -q get desktop.main.enabled || :)" = 1 ] || {
+[ "$(uci -q get desktop.main.user || :)" = "$user" ] && [ "$(uci -q get desktop.main.enabled || :)" = 1 ] || {
 	desktop_error 'Run desktop-setup for this user first'; exit 1;
 }
-[ -x /usr/bin/grdctl ] || { desktop_error 'GNOME Remote Desktop is not installed'; exit 1; }
+if [ -z "$session" ]; then
+	if [ -f /run/openwrt-desktop/active.env ] && [ ! -L /run/openwrt-desktop/active.env ]; then
+		session="$(sed -n 's/^ACTIVE_SESSION=//p' /run/openwrt-desktop/active.env | head -n 1 || :)"
+	fi
+fi
+if [ -z "$session" ]; then
+	configured_session="$(uci -q get desktop.main.session || :)"
+	session="$(desktop_resolve_session "$configured_session")" || exit 1
+fi
+desktop_validate_session_id "$session" || exit 1
+case "$session" in
+	gnome)
+		[ -x /usr/bin/grdctl ] && [ -x /usr/libexec/desktop-rdp-configure ] || {
+			desktop_error 'GNOME Remote Desktop is not installed'; exit 1;
+		}
+		helper=/usr/libexec/desktop-rdp-configure
+		label='GNOME'
+		;;
+	plasma)
+		[ -x /usr/bin/krdpserver ] && [ -x /usr/libexec/desktop-plasma-rdp-configure ] || {
+			desktop_error 'KDE KRdp Remote Desktop is not installed'; exit 1;
+		}
+		helper=/usr/libexec/desktop-plasma-rdp-configure
+		label='KDE Plasma'
+		;;
+	*)
+		desktop_error "Unsupported RDP session backend '$session' (expected gnome or plasma)"
+		exit 1
+		;;
+esac
 port="$(uci -q get desktop.main.rdp_port || printf 3389)"
 desktop_validate_rdp "$port"
+desktop_setup_tls
 tty_state=
 cleanup() {
 	[ -z "$tty_state" ] || stty "$tty_state" <&3
@@ -22,7 +72,7 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
-if [ "${2:-}" = --password-stdin ]; then
+if [ "$password_stdin" = 1 ]; then
 	IFS= read -r password
 else
 	exec 3</dev/tty 4>/dev/tty
@@ -38,10 +88,10 @@ else
 	[ "$password" = "$confirm" ] || { desktop_error 'Passwords do not match'; exit 1; }
 fi
 [ -n "$password" ] || { desktop_error 'The RDP password must be nonempty'; exit 1; }
-printf '%s\n' "$password" | su -s /bin/sh -c /usr/libexec/desktop-rdp-configure "$user"
+printf '%s\n' "$password" | su -s /bin/sh -c "$helper" "$user"
 unset password confirm
 uci set desktop.main.rdp_enabled=1
 uci commit desktop
 /etc/init.d/desktop reload
-printf 'RDP configured for %s on LAN port %s. The local GNOME session remains running.\n' "$user" "$port"
+printf 'RDP configured for %s (%s) on LAN port %s.\n' "$user" "$label" "$port"
 openssl x509 -in "/etc/desktop/tls/$user.crt" -noout -fingerprint -sha256

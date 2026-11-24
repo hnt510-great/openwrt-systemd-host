@@ -150,8 +150,12 @@ def components(a, catalog):
         options = []
         for comp in catalog['components']:
             label = comp['label']
-            if comp.get('depends'):
-                label += ' (requires: ' + ', '.join(comp['depends']) + ')'
+            reqs = list(comp.get('depends') or [])
+            any_reqs = list(comp.get('depends_any') or [])
+            if any_reqs:
+                reqs.append(' or '.join(any_reqs))
+            if reqs:
+                label += ' (requires: ' + ', '.join(reqs) + ')'
             options.extend([comp['id'], label, 'ON' if comp['id'] in current else 'OFF'])
         selected = shlex.split(dialog(
             'checklist',
@@ -273,13 +277,32 @@ def firewall(a):
     a['firewall'] = {key: key in selected for key in ('masq', 'fullcone', 'lan_to_wan')}
 
 
-def accounts(a, has_gnome=True):
+def accounts(a, has_gnome=True, desktops=None):
     root = password('Root password (required)')
     name = dialog('inputbox', 'Regular username (optional)')
     user = None
+    if desktops is None:
+        desktops = ['gnome'] if has_gnome else []
     if name:
-        autostart = yes('Start GNOME automatically at boot?') if has_gnome else False
-        user = {'name': name, 'password_hash': password('User password'), 'gnome_autostart': autostart}
+        session = None
+        autostart = False
+        if len(desktops) == 1:
+            session = desktops[0]
+            label = 'KDE Plasma' if session == 'plasma' else 'GNOME'
+            autostart = yes(f'Start {label} automatically at boot?')
+        elif len(desktops) > 1:
+            session = menu('Default desktop environment', [
+                (d, 'KDE Plasma' if d == 'plasma' else 'GNOME') for d in desktops
+            ], default=desktops[0])
+            label = 'KDE Plasma' if session == 'plasma' else 'GNOME'
+            autostart = yes(f'Start {label} automatically at boot?')
+        user = {
+            'name': name,
+            'password_hash': password('User password'),
+            'desktop_session': session,
+            'desktop_autostart': autostart,
+            'gnome_autostart': bool(autostart and session == 'gnome'),
+        }
     a['accounts'] = {'root_password_hash': root, 'user': user}
 
 
@@ -342,8 +365,8 @@ def main(manifest, payload):
             elif current == 'firewall':
                 firewall(a)
             elif current == 'accounts':
-                has_gnome = True if catalog is None else ('gnome' in (a.get('components') or []))
-                accounts(a, has_gnome=has_gnome)
+                desktops = ['gnome'] if catalog is None else core.selected_desktops(a.get('components'))
+                accounts(a, desktops=desktops)
             elif current == 'summary':
                 validated = apply.install(a, manifest, payload, dry_run=True)
                 show_summary(a, validated['layout'], validated['disk'], validated.get('components'))

@@ -14,12 +14,22 @@ if subprocess.run(['usermod', '-p', a['password_hash'], a['name']]).returncode:
 
 components = a.get('components')
 if components is None:
-    if a.get('gnome_autostart'):
+    if a.get('desktop_autostart', a.get('gnome_autostart')):
+        session = a.get('desktop_session') or 'gnome'
+        subprocess.run(['uci', 'set', f'desktop.main.session={session}'], check=True)
+        subprocess.run(['uci', 'commit', 'desktop'], check=True)
         subprocess.run(['desktop-setup', a['name']], check=True)
 else:
-    if 'gnome' in components:
+    desktops = [d for d in ('gnome', 'plasma') if d in components]
+    if desktops:
+        session = a.get('desktop_session')
+        if session not in desktops:
+            session = desktops[0]
+        subprocess.run(['uci', 'set', f'desktop.main.session={session}'], check=True)
+        subprocess.run(['uci', 'commit', 'desktop'], check=True)
+        autostart = a.get('desktop_autostart', a.get('gnome_autostart', False))
         cmd = ['desktop-setup', a['name']]
-        if not a.get('gnome_autostart'):
+        if not autostart:
             cmd.append('--no-autostart')
         subprocess.run(cmd, check=True)
     if 'audio' in components:
