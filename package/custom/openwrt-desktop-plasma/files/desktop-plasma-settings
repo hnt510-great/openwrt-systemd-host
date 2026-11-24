@@ -29,6 +29,10 @@ if [ -x /usr/libexec/desktop-ime-init ]; then
 		if [ -z "$cur_im" ]; then
 			kwriteconfig6 --file kwinrc --group Wayland --key InputMethod /usr/share/applications/org.fcitx.Fcitx5.desktop || :
 		fi
+		cur_vk="$(kreadconfig6 --file kwinrc --group Wayland --key VirtualKeyboardEnabled 2>/dev/null || :)"
+		if [ -z "$cur_vk" ]; then
+			kwriteconfig6 --file kwinrc --group Wayland --key VirtualKeyboardEnabled true || :
+		fi
 	fi
 fi
 

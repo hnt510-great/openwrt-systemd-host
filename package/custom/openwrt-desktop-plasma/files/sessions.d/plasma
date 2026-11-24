@@ -30,7 +30,8 @@ desktop_plasma_ensure_wants() {
 	config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
 	wants="$config_home/systemd/user/plasma-workspace.target.wants"
 	mkdir -p "$wants"
-	for unit in openwrt-plasma-remotes.service openwrt-fcitx5-plasma.service; do
+	rm -f "$wants/openwrt-fcitx5-plasma.service"
+	for unit in openwrt-plasma-remotes.service; do
 		[ ! -f "/usr/lib/systemd/user/$unit" ] || ln -sfn "/usr/lib/systemd/user/$unit" "$wants/$unit"
 	done
 }
@@ -56,13 +57,18 @@ desktop_session_exec() {
 	export XDG_DATA_DIRS="$HOME/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 	# Ensure QtKeychain uses Secret Service (gnome-keyring) consistently.
 	export QT_KEYCHAIN_BACKEND=secretservice
+	import_im=""
+	if [ -x /usr/bin/fcitx5 ]; then
+		export XMODIFIERS=@im=fcitx
+		import_im="XMODIFIERS"
+	fi
 	desktop_plasma_ensure_wants || :
 	if [ -x /usr/libexec/desktop-plasma-settings ]; then
 		/usr/libexec/desktop-plasma-settings --init-only || :
 	fi
 	systemctl --user import-environment \
 		XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP DESKTOP_SESSION \
-		XDG_SESSION_TYPE XDG_DATA_DIRS QT_KEYCHAIN_BACKEND
+		XDG_SESSION_TYPE XDG_DATA_DIRS QT_KEYCHAIN_BACKEND $import_im
 	exec "$SESSION_EXEC"
 }
 
@@ -84,7 +90,6 @@ desktop_session_stop() {
 		sleep 1
 	done
 	systemctl --user stop \
-		openwrt-fcitx5-plasma.service \
 		plasma-workspace-wayland.target \
 		plasma-workspace.target \
 		graphical-session.target 2>/dev/null || :

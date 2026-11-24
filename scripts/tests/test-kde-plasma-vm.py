@@ -407,10 +407,13 @@ def main():
                     'rm -f /tmp/konsole-ok; timeout 20 konsole --nofork -e /bin/sh -c "echo KONSOLE_WAYLAND_OK > /tmp/konsole-ok; sleep 1" >/tmp/konsole.log 2>&1 || true; cat /tmp/konsole-ok 2>/dev/null || echo MISSING',
                     timeout=40,
                 )
-                # Test Fcitx5 Pinyin IME
+                # Test Fcitx5 Pinyin IME via KWin native Wayland InputMethod
                 ime_out = run_as_alice(
                     g,
-                    'fcitx5-remote --check; fcitx5-remote -n 2>&1 || true; grep -E "InputMethod|pinyin" ~/.config/kwinrc ~/.config/fcitx5/profile 2>&1 || true',
+                    'fcitx5-remote --check; fcitx5-remote -n 2>&1 || true; '
+                    'gdbus call --session --dest org.kde.KWin --object-path /VirtualKeyboard '
+                    '--method org.freedesktop.DBus.Properties.Get org.kde.kwin.VirtualKeyboard available 2>&1 || true; '
+                    'grep -E "InputMethod|VirtualKeyboardEnabled|pinyin" ~/.config/kwinrc ~/.config/fcitx5/profile 2>&1 || true',
                     timeout=30,
                 )
                 # Test PipeWire audio playback

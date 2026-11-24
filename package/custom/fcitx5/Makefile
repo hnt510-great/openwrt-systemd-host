@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=fcitx5
 PKG_VERSION:=5.1.23
-PKG_RELEASE:=1
+PKG_RELEASE:=3
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.zst
 PKG_SOURCE_URL:=https://download.fcitx-im.org/fcitx5/fcitx5/
 PKG_HASH:=d287119db9dc3113bb3a2b0e78ce8670e064b744c14d3aaec69799374aadb00b
@@ -38,11 +38,12 @@ define Build/InstallDev
 endef
 
 define Package/fcitx5/install
-	$(INSTALL_DIR) $(1)/usr/bin $(1)/usr/lib $(1)/usr/share
+	$(INSTALL_DIR) $(1)/usr/bin $(1)/usr/lib $(1)/usr/share $(1)/usr/share/applications
 	$(CP) $(PKG_INSTALL_DIR)/usr/bin/* $(1)/usr/bin/
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/*.so* $(1)/usr/lib/
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/fcitx5 $(1)/usr/lib/
 	$(CP) $(PKG_INSTALL_DIR)/usr/share/fcitx5 $(1)/usr/share/
 	$(CP) $(PKG_INSTALL_DIR)/usr/share/icons $(1)/usr/share/
+	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/applications/org.fcitx.Fcitx5.desktop $(1)/usr/share/applications/
 endef
 $(eval $(call BuildPackage,fcitx5))

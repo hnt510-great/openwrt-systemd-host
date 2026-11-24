@@ -1,7 +1,7 @@
 # Chinese Pinyin (Fcitx5) on the GNOME and KDE Plasma Desktops
 
 Fcitx5 Chinese Pinyin support is split into three packages in
-`package/custom/openwrt-desktop-ime` (`1-r8`):
+`package/custom/openwrt-desktop-ime` (`1-r9`):
 
 - `openwrt-desktop-ime-base`: DE-agnostic Fcitx5 base (`openwrt-desktop-base`,
   `fcitx5-chinese-addons`, `fcitx5-gtk`, `noto-sans-cjk-sc`), default config
@@ -11,8 +11,9 @@ Fcitx5 Chinese Pinyin support is split into three packages in
   `openwrt-desktop-core`, `gnome-shell-extension-kimpanel`, and user unit
   `openwrt-fcitx5.service` with `--enable=ibusfrontend` for GNOME/GTK/Xwayland).
 - `openwrt-desktop-ime-plasma`: KDE Plasma integration
-  (`openwrt-desktop-ime-base`, `fcitx5-qt`, and user unit
-  `openwrt-fcitx5-plasma.service`).
+  (`openwrt-desktop-ime-base`, `fcitx5-qt`), paired with `fcitx5`'s
+  `/usr/share/applications/org.fcitx.Fcitx5.desktop` so KWin launches Fcitx5
+  directly over the Wayland input-method protocol (`WAYLAND_SOCKET`).
 
 No cloud Pinyin service is enabled. The desktop runs the same input method
 locally, over LAN RDP (`gnome-remote-desktop` or `krdp`), and over
@@ -46,8 +47,12 @@ not supported by this build.
 - **GNOME 51**: `sessions.d/gnome` exports `QT_IM_MODULE=fcitx` and
   `openwrt-fcitx5.service` runs Fcitx5 with Kimpanel providing the GNOME Shell
   indicator and candidate popup.
-- **KDE Plasma 6.8.3**: `openwrt-fcitx5-plasma.service` runs Fcitx5 alongside
-  `fcitx5-qt` and Plasma's native Wayland input-method/Kimpanel support.
+- **KDE Plasma 6.8.3**: `desktop-plasma-settings` configures KWin's
+  `[Wayland] InputMethod=/usr/share/applications/org.fcitx.Fcitx5.desktop` and
+  `VirtualKeyboardEnabled=true`, and `sessions.d/plasma` exports
+  `XMODIFIERS=@im=fcitx` for XWayland apps. KWin spawns Fcitx5 directly with
+  `WAYLAND_SOCKET` attached so Wayland apps (including RDP keystrokes via
+  `krdpserver`) use KWin's native input-method protocol.
 
 Do not start a duplicate Fcitx5 daemon manually or via a second autostart entry.
 For a fresh profile, the session starts in English. Focus a text field, press

@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openwrt-desktop-ime
 PKG_VERSION:=1
-PKG_RELEASE:=8
+PKG_RELEASE:=9
 PKG_LICENSE:=MIT
 
 include $(INCLUDE_DIR)/package.mk
@@ -43,8 +43,7 @@ define Package/openwrt-desktop-ime/install
 endef
 
 define Package/openwrt-desktop-ime-plasma/install
-	$(INSTALL_DIR) $(1)/usr/lib/systemd/user
-	$(INSTALL_DATA) ./files/openwrt-fcitx5-plasma.service $(1)/usr/lib/systemd/user/
+	:
 endef
 
 $(eval $(call BuildPackage,openwrt-desktop-ime-base))

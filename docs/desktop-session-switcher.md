@@ -116,7 +116,8 @@ through `/usr/share/rpcd/ucode/luci.desktop` with separated read/write ACLs:
   [GNOME desktop](gnome-desktop.md).
 - **KDE Plasma 6.8.3 (`plasma`)**: `/usr/libexec/openwrt-desktop/sessions.d/plasma`
   (from `openwrt-desktop-plasma-core`), with `openwrt-plasma-remotes.service`,
-  `openwrt-fcitx5-plasma.service` (`openwrt-desktop-ime-plasma`), and shared
+  KWin-managed Wayland Fcitx5 (`openwrt-desktop-ime-plasma` +
+  `org.fcitx.Fcitx5.desktop`), and shared
   Secret Service keyring unlock (`kf6-kwallet` client-only so `gnome-keyring-daemon`
   owns `org.freedesktop.secrets`). See [KDE Plasma 6.8.3](kde-plasma.md).
 - **Shared services**: `openwrt-audio-session.target`,
