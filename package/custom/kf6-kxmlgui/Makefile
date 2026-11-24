@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=kf6-kxmlgui
-PKG_VERSION:=6.20.0
+PKG_VERSION:=6.32.0
 PKG_RELEASE:=1
 PKG_SOURCE:=kxmlgui-$(PKG_VERSION).tar.xz
-PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.20/
-PKG_HASH:=a16fd3734112914ef50ed2666a16905d87e67954bc368725ccb1d5b2edc8f8f1
+PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.32/
+PKG_HASH:=3b9be65d4f30e372bc9b77321da5a31dec9fe997a946a6a8a03b64377856ab38
 PKG_LICENSE:=LGPL-2.1-or-later
 
 KF6_TITLE:=XML GUI

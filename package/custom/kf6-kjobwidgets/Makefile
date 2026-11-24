@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=kf6-kjobwidgets
-PKG_VERSION:=6.20.0
+PKG_VERSION:=6.32.0
 PKG_RELEASE:=1
 PKG_SOURCE:=kjobwidgets-$(PKG_VERSION).tar.xz
-PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.20/
-PKG_HASH:=393b6eb6b35d680d48a5c7b09359668bddc1ed89d4fa70b8a8a81fb2d841ce7a
+PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.32/
+PKG_HASH:=98eaee2846181b82b357067db00ac65e3bcf02c11322bb636aa6021a6eb65dd2
 PKG_LICENSE:=LGPL-2.1-or-later
 
 KF6_TITLE:=Job Widgets

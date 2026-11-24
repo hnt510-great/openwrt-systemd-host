@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=kf6-solid
-PKG_VERSION:=6.20.0
+PKG_VERSION:=6.32.0
 PKG_RELEASE:=1
 PKG_SOURCE:=solid-$(PKG_VERSION).tar.xz
-PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.20/
-PKG_HASH:=0328381845a11cfcfa8c18c8d60c9df7b85a07bcd7b1bd36b71c7eb3cc3492d6
+PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.32/
+PKG_HASH:=9620a6065403c5097fce0518abb7d4f038f4f11327e7ce94094ae9561bce0008
 PKG_LICENSE:=LGPL-2.1-or-later
 
 KF6_TITLE:=Solid device integration

@@ -1,12 +1,12 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=qt6multimedia
-PKG_VERSION:=6.9.3
-PKG_RELEASE:=2
+PKG_VERSION:=6.11.3
+PKG_RELEASE:=1
 PKG_SOURCE:=qtmultimedia-everywhere-src-$(PKG_VERSION).tar.xz
-PKG_SOURCE_URL:=https://download.qt.io/archive/qt/6.9/$(PKG_VERSION)/submodules/
+PKG_SOURCE_URL:=https://download.qt.io/archive/qt/6.11/$(PKG_VERSION)/submodules/
 PKG_BUILD_DIR:=$(BUILD_DIR)/qtmultimedia-everywhere-src-$(PKG_VERSION)
-PKG_HASH:=a275bee7ea60c91851236acdf99d76b891da90f428b68f51fe332354f19b86f5
+PKG_HASH:=3d172de9bdd137686c3871762a4adff988a1ec0faec15df0c4560cfc417288e6
 PKG_LICENSE:=LGPL-3.0-only GPL-2.0-only GPL-3.0-only
 PKG_LICENSE_FILES:= \
 	LICENSES/LicenseRef-Qt-Commercial.txt \
@@ -49,7 +49,7 @@ endef
 
 define Package/qt6multimedia
   $(call Package/qt6multimedia/Default)
-  DEPENDS:=@TARGET_x86_64 @USE_GLIBC +qt6base-gui +qt6base-network \
+  DEPENDS:=@TARGET_x86_64 @USE_GLIBC +qt6base-gui +qt6base-network +qt6base-concurrent \
 	+BUILD_qt6base-gui_OPENGL_OPENGLES2:qt6base-opengl \
 	+libffmpeg +libpulse +libstdcpp
 endef

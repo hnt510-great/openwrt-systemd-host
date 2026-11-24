@@ -2,14 +2,14 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=fcitx5-qt
 PKG_VERSION:=5.1.16
-PKG_RELEASE:=1
+PKG_RELEASE:=3
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.zst
 PKG_SOURCE_URL:=https://download.fcitx-im.org/fcitx5/fcitx5-qt/
 PKG_HASH:=2d49cb4dfade430e822377beabae5f23da5caf2b2ff49e1eb54213b64dd0840e
 PKG_LICENSE:=LGPL-2.1-or-later
 PKG_INSTALL:=1
 PKG_BUILD_PARALLEL:=1
-PKG_BUILD_DEPENDS:=extra-cmake-modules fcitx5 qt6base qt6wayland \
+PKG_BUILD_DEPENDS:=extra-cmake-modules fcitx5 qt6base \
 	wayland wayland-protocols gettext-full/host
 
 include $(INCLUDE_DIR)/package.mk

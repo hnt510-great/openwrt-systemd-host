@@ -1,16 +1,16 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=kf6-kconfig
-PKG_VERSION:=6.20.0
+PKG_VERSION:=6.32.0
 PKG_RELEASE:=1
 PKG_SOURCE:=kconfig-$(PKG_VERSION).tar.xz
-PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.20/
-PKG_HASH:=daecf4989af9958144139e4918c22cd05b5a96527c51d737eae7c57718167d15
+PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.32/
+PKG_HASH:=5ec91eeb6b02db8a8c2e31e3ffdd85165bfa815729a45ca11922369098fd3fcf
 PKG_LICENSE:=LGPL-2.1-or-later
 
 KF6_TITLE:=Config
-KF6_DEPENDS:=+qt6base-core +qt6base-gui +qt6base-xml +qt6base-dbus
-KF6_CMAKE_OPTIONS:=-DKCONFIG_USE_QML=OFF -DUSE_DBUS=ON
+KF6_DEPENDS:=+qt6base-core +qt6base-gui +qt6base-xml +qt6base-dbus +qt6base-opengl +qt6quick
+KF6_CMAKE_OPTIONS:=-DKCONFIG_USE_QML=ON -DUSE_DBUS=ON
 
 # Konsole uses kconfig_add_kcfg_files() at build time.  Build a host copy of
 # kconfig_compiler and point consumers at it through KF6_HOST_TOOLING.

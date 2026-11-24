@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=kf6-kdbusaddons
-PKG_VERSION:=6.20.0
+PKG_VERSION:=6.32.0
 PKG_RELEASE:=1
 PKG_SOURCE:=kdbusaddons-$(PKG_VERSION).tar.xz
-PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.20/
-PKG_HASH:=5db2f6b7235238070224ee8a5225f41ffdb3249d558a81a7c06a8e54d67729f7
+PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.32/
+PKG_HASH:=84dd9e0775ccff18eb751f6a86ea909bf9eb4a95596baef097684b6646e33764
 PKG_LICENSE:=LGPL-2.1-or-later
 
 KF6_TITLE:=DBus Addons

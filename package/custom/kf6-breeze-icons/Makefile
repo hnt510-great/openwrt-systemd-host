@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=kf6-breeze-icons
-PKG_VERSION:=6.20.0
-PKG_RELEASE:=2
+PKG_VERSION:=6.32.0
+PKG_RELEASE:=1
 PKG_SOURCE:=breeze-icons-$(PKG_VERSION).tar.xz
-PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.20/
-PKG_HASH:=0a47b28a04a086ccb5b4afb51d6677180006819d0d9302524721689bfa4ad13c
+PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.32/
+PKG_HASH:=3e14087f180ece104dbf9cb23f2c7140759b9dd7c35d8d9defdfcfdee538628f
 PKG_LICENSE:=LGPL-3.0-only
 PKG_LICENSE_FILES:=COPYING.LGPL-3
 
