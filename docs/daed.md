@@ -34,50 +34,29 @@ core instead, the same way upstream dae-wing did after the daed release:
 
 | Component | Source |
 | --- | --- |
-| Backend | dae-wing `b089b56` ("bump dae-core to v2.1.1 and follow its control plane API"), the dae-wing main branch after daed v2.1.1 |
-| dae core | dae **v2.1.1** release `dae-full-src.tar.xz` (identical to the `v2.1.1` tag plus the BPF headers submodule) |
-| Dashboard | daed v2.1.1 `web.zip`, unchanged |
+| Backend & Dashboard | Git submodule `package/custom/daed/src` (`daed-src` → `../daed.git`, branch `main`), combining the archived upstream `dae-wing` (`b089b56` + local default LAN interface fix), prebuilt `webrender/web/` assets, and the full `daed v2.1.1` frontend workspace under `web-src/` |
+| dae core | dae **v2.1.3** release `dae-full-src.tar.xz` (includes all eight upstream fixes previously backported in r1–r8 plus v2.1.2/v2.1.3 fixes for UDP conn-state across stale endpoint rebuilds, advisory TCP-DNS probing, non-success DNS rcode surfacing, and clang 23 BPF bounds) |
 | Outbound library | The `github.com/olicesx/outbound` module version that dae-wing and the core already pin (`replace github.com/daeuniverse/outbound => …`), as the Go proxy zip that `go.sum` verifies, unpacked to `third_party/outbound` so it can be patched |
 
-On top of the v2.1.1 core, `package/custom/daed/patches/` carries three
-later upstream dae fixes (code only; docs and changelog hunks dropped) and
-four local changes:
+Release **2.1.1-r11** moves `DAED_CORE_VERSION` from `2.1.1` to `2.1.3`, drops
+the eight upstream backport patches that are now in `dae v2.1.3`, moves the
+archived `dae-wing` + `daed v2.1.1` dashboard (including the default LAN
+interface fix) into the `package/custom/daed/src` submodule, and keeps five
+local patches in `package/custom/daed/patches/`:
 
-| Patch | Upstream | Fix |
+| Patch | Origin | Purpose |
 | --- | --- | --- |
-| `001-dae-core-restore-Marshaller-Bytes.patch` | `6f2f2aa` | Restores `config.Marshaller.Bytes`, which dae-wing `b089b56` calls; without it the backend does not compile against v2.1.1 |
-| `002-dae-core-exact-match-for-LAN-UDP-local-services.patch` | `fb5eae6` | LAN UDP is bypassed to a local service (such as dnsmasq on port 53) only on an exact address match |
-| `003-dae-core-stop-LAN-ICMP-redirects.patch` | `e3fee8f` | Also writes `conf/all/send_redirects=0`; the kernel ORs it with the per-interface value, so the router otherwise kept sending ICMP redirects that steer LAN hosts past dae |
-| `004-dae-wing-default-lan-interface-for-new-configs.patch` | local | A config created with an empty `lan_interface` gets the UCI `default_lan_interface` (`br-lan`); see [No LAN interface](#no-lan-interface-lan-traffic-goes-direct) |
-| `005-outbound-vision-udp-read-with-64k-buffer.patch` | local | Vision UDP replies are read into dae's 64 KiB DNS buffer instead of failing with `short buffer`; points both `go.mod` replace directives at `third_party/outbound`; see [DNS warnings](#dns-warnings-through-a-vision-node) |
-| `006-outbound-vision-offer-raw-sockets-after-direct-switch.patch` | local | Vision offers its raw socket per direction once that direction has switched to direct mode (`netproxy.DirectTCPConnProvider`); direct-mode writes over plain TLS are flushed instead of waiting in the record coalescer; see [Vision flows after the direct switch](#vision-flows-after-the-direct-switch) |
-| `007-dae-core-splice-vision-direct-flows.patch` | local | dae's copy loop moves a switched Vision direction to its `splice(2)` loop |
+| `001-outbound-vision-udp-read-with-64k-buffer.patch` | local (was 005) | Vision UDP replies are read into dae's 64 KiB DNS buffer instead of failing with `short buffer`; points both `go.mod` replace directives at `third_party/outbound`; see [DNS warnings](#dns-warnings-through-a-vision-node) |
+| `002-outbound-vision-offer-raw-sockets-after-direct-switch.patch` | local (was 006) | Vision offers its raw socket per direction once that direction has switched to direct mode (`netproxy.DirectTCPConnProvider`); direct-mode writes over plain TLS are flushed instead of waiting in the record coalescer; see [Vision flows after the direct switch](#vision-flows-after-the-direct-switch) |
+| `003-dae-core-splice-vision-direct-flows.patch` | local (was 007) | dae's copy loop moves a switched Vision direction to its `splice(2)` loop |
+| `004-dns-audit-events.patch` | local (was 008) | Opt-in `router-audit` DNS query/reply datagrams (`ROUTER_AUDIT_DNS=1`) |
+| `005-connection-audit-events.patch` | local (was 009) | Opt-in `router-audit` connection dial datagrams (`ROUTER_AUDIT_CONN=1`) |
 
-Release **2.1.1-r8** (current **2.1.1-r10**, which also makes `router-audit`
-DNS/connection hooks opt-in via `/etc/config/router-audit`) keeps the local
-DNS/connection audit patches (008–009) and adds five later upstream dae fixes,
-refreshed with the package quilt workflow:
-
-| Patch | Upstream | Fix |
-| --- | --- | --- |
-| `010-dae-core-flush-short-splice-writes.patch` | [`17cc1de`](https://github.com/daeuniverse/dae/commit/17cc1de85dd0ae82f69cf0c182d99a1c35b193eb) | Removes `SPLICE_F_MORE` so short TCP replies do not wait for the cork timer, including after Vision hands over to splice |
-| `011-dae-core-recover-locked-netns.patch` | [`2649d5b`](https://github.com/daeuniverse/dae/commit/2649d5b3e853249ccb45527066a0d7cbffff465d) | Reports stale named-netns cleanup errors and recovers the specific kernel-locked mount signature |
-| `012-dae-core-validate-fixed-domain-ttl.patch` | [`5a5473d`](https://github.com/daeuniverse/dae/commit/5a5473d5123983588f6d0befbb41ae3f7a744234) | Corrects digit-prefixed config hints and checks fixed-domain TTLs in dae's CLI validator; daed does not expose that CLI subcommand |
-| `013-dae-core-bootstrap-resolver-address-family.patch` | [`e6e52bb`](https://github.com/daeuniverse/dae/commit/e6e52bbc3c75211f318c59f5890f6ba13e7effde) | Dials bootstrap DNS using the resolver address family rather than the requesting flow's family |
-| `014-dae-core-strict-alignment-L3-loads.patch` | [`8722db0`](https://github.com/daeuniverse/dae/commit/8722db01fca702818ea85cefde46a84dd755f44a) | Uses safe packet loads for L3 hooks on strict-alignment kernels; includes the upstream production BPF verifier test file in full because it was added after v2.1.1 |
-
-The namespace recovery in patch 011 only covers `/run/netns` with a fresh
-mode-0755 tmpfs if both synchronous and lazy unmount fail with `EINVAL` and
-removing the stale entry fails with `EBUSY`. Other cleanup failures stop startup
-with their cause. A recovery cover hides other tools' named-netns entries in
-that directory, logs their names, and persists until reboot; the underlying
-namespaces are not destroyed. It does not mount a cover during normal startup.
-
-As checked on 2026-11-09, daed and dae-wing were archived upstream on
-2026-09-24. The recipe already pins the final dae-wing main commit `b089b56`
-and the latest daed dashboard release v2.1.1. Maintaining the composed recipe
-and selectively backporting dae fixes remains necessary while those projects
-stay archived.
+As checked on 2026-11-24, daed and dae-wing remain archived upstream (since
+2026-09-24). The self-maintained `package/custom/daed/src` submodule tracks
+the backend and dashboard (`MAINTENANCE.md` inside it documents rebuilding
+`web-src/` into `webrender/web/`), while `Makefile` tracks `daeuniverse/dae`
+core releases (currently **v2.1.3**).
 
 The dashboard of daed v2.1.1 is compatible with the re-pinned backend: the
 GraphQL schemas differ only in the global config, where `soMarkFromDaeSet` was

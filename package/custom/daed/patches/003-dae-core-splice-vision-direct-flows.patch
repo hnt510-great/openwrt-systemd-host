@@ -17,11 +17,9 @@ The sockmap offload and its opt-in are unchanged.
 
 See docs/dae-kernel-proxy-study.md, option A.
 ---
-Index: daed-2.1.1/dae-core/control/tcp_copy_engine.go
-===================================================================
---- daed-2.1.1.orig/dae-core/control/tcp_copy_engine.go
-+++ daed-2.1.1/dae-core/control/tcp_copy_engine.go
-@@ -68,12 +68,22 @@ func (defaultRelayCopyEngine) Copy(ctx context.Context, dst netproxy.Conn, src n
+--- a/dae-core/control/tcp_copy_engine.go
++++ b/dae-core/control/tcp_copy_engine.go
+@@ -68,12 +68,22 @@ func (defaultRelayCopyEngine) Copy(ctx c
  func relayCopyLoop(ctx context.Context, dst netproxy.Conn, src netproxy.Conn, buf []byte, record func(int64), onActive func(int64)) (written int64, err error) {
  	record = normalizeTrafficRecord(record)
  	onActive = normalizeTrafficRecord(onActive)
@@ -44,11 +42,9 @@ Index: daed-2.1.1/dae-core/control/tcp_copy_engine.go
  		nr, er := src.Read(buf)
  		if nr > 0 {
  			onActive(int64(nr))
-Index: daed-2.1.1/dae-core/control/tcp_copy_linux.go
-===================================================================
---- daed-2.1.1.orig/dae-core/control/tcp_copy_linux.go
-+++ daed-2.1.1/dae-core/control/tcp_copy_linux.go
-@@ -62,38 +62,7 @@ func relayFastCopy(ctx context.Context, dst netproxy.Conn, src netproxy.Conn, re
+--- a/dae-core/control/tcp_copy_linux.go
++++ b/dae-core/control/tcp_copy_linux.go
+@@ -65,38 +65,7 @@ func relayFastCopy(ctx context.Context,
  
  	// Fast path: both sides are plain TCP connections
  	if dstOk && srcOk {
@@ -88,7 +84,7 @@ Index: daed-2.1.1/dae-core/control/tcp_copy_linux.go
  	}
  
  	// Fallback: use WriterTo if available, or buffered copy
-@@ -116,6 +85,87 @@ func relayFastCopy(ctx context.Context, dst netproxy.Conn, src netproxy.Conn, re
+@@ -119,6 +88,87 @@ func relayFastCopy(ctx context.Context,
  	return relayCopyLoop(ctx, dst, src, buf, record, onActive)
  }
  
@@ -176,11 +172,9 @@ Index: daed-2.1.1/dae-core/control/tcp_copy_linux.go
  func relaySpliceCopyExact(ctx context.Context, dst, src *net.TCPConn, record func(int64), onActive func(int64)) (int64, error) {
  	record = normalizeTrafficRecord(record)
  	onActive = normalizeTrafficRecord(onActive)
-Index: daed-2.1.1/dae-core/control/tcp_copy_other.go
-===================================================================
---- daed-2.1.1.orig/dae-core/control/tcp_copy_other.go
-+++ daed-2.1.1/dae-core/control/tcp_copy_other.go
-@@ -33,3 +33,7 @@ func relayFastCopy(ctx context.Context, dst netproxy.Conn, src netproxy.Conn, re
+--- a/dae-core/control/tcp_copy_other.go
++++ b/dae-core/control/tcp_copy_other.go
+@@ -33,3 +33,7 @@ func relayFastCopy(ctx context.Context,
  func shouldUseRelayFastPath(_ netproxy.Conn, _ netproxy.Conn) bool {
  	return false
  }
@@ -188,11 +182,9 @@ Index: daed-2.1.1/dae-core/control/tcp_copy_other.go
 +func tryRelayDirectHandover(_ context.Context, _ netproxy.Conn, _ netproxy.Conn, _ func(int64), _ func(int64)) (int64, error, bool) {
 +	return 0, nil, false
 +}
-Index: daed-2.1.1/dae-core/control/tcp_relay_capabilities.go
-===================================================================
---- daed-2.1.1.orig/dae-core/control/tcp_relay_capabilities.go
-+++ daed-2.1.1/dae-core/control/tcp_relay_capabilities.go
-@@ -86,3 +86,31 @@ func unwrapRelayTCPConn(conn any) (*net.TCPConn, bool) {
+--- a/dae-core/control/tcp_relay_capabilities.go
++++ b/dae-core/control/tcp_relay_capabilities.go
+@@ -86,3 +86,31 @@ func unwrapRelayTCPConn(conn any) (*net.
  	}
  	return nil, false
  }
@@ -224,10 +216,8 @@ Index: daed-2.1.1/dae-core/control/tcp_relay_capabilities.go
 +	}
 +	return unwrapRelayTCPConn(dst)
 +}
-Index: daed-2.1.1/dae-core/control/tcp_relay_direct_handover_test.go
-===================================================================
 --- /dev/null
-+++ daed-2.1.1/dae-core/control/tcp_relay_direct_handover_test.go
++++ b/dae-core/control/tcp_relay_direct_handover_test.go
 @@ -0,0 +1,262 @@
 +//go:build linux
 +

@@ -8,7 +8,7 @@
  	realSrc        netip.AddrPort
  	realDst        netip.AddrPort
  	src            netip.AddrPort
-@@ -271,6 +272,12 @@ func (c *DnsController) Handle_(ctx cont
+@@ -334,6 +335,12 @@ func (c *DnsController) Handle_(ctx cont
  }
  
  func (c *DnsController) HandleWithResponseWriter_(ctx context.Context, dnsMessage *dnsmessage.Msg, req *udpRequest, responseWriter dnsmessage.ResponseWriter) (err error) {
@@ -19,9 +19,9 @@
 + }
 +
  	c.requireStore()
- 	if responseWriter != nil && !dnsResponseWriterUsesTCP(responseWriter) {
- 		responseWriter = &dnsUDPResponseWriter{ResponseWriter: responseWriter, limit: dnsUDPResponseSizeLimit(dnsMessage)}
-@@ -328,6 +335,7 @@ func (c *DnsController) HandleWithRespon
+ 	var started time.Time
+ 	if dnsLogActive() {
+@@ -401,6 +408,7 @@ func (c *DnsController) HandleWithRespon
  		// immediately without singleflight; stale entries background-refresh.
  		if handled, herr := c.serveFromRespCacheWithRefresh_(dnsMessage, req, responseWriter,
  			responseCacheKey, upstreamIndex, upstream); handled {
@@ -29,7 +29,7 @@
  			return herr
  		}
  
-@@ -397,6 +405,7 @@ func (c *DnsController) HandleWithRespon
+@@ -486,6 +494,7 @@ func (c *DnsController) HandleWithRespon
  		if req == nil || req.lConn == nil {
  			return fmt.Errorf("dns request connection is nil for singleflight response")
  		}

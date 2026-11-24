@@ -24,10 +24,8 @@ the FlushConn that flushes outer-TLS writes; until now they were only
 pushed out by the next read on the conn or at 128 KiB, so an upload
 stalled while the download goroutine was parked in a read.
 ---
-Index: daed-2.1.1/third_party/outbound/netproxy/unwrap.go
-===================================================================
---- daed-2.1.1.orig/third_party/outbound/netproxy/unwrap.go
-+++ daed-2.1.1/third_party/outbound/netproxy/unwrap.go
+--- a/third_party/outbound/netproxy/unwrap.go
++++ b/third_party/outbound/netproxy/unwrap.go
 @@ -25,6 +25,22 @@ type IntrinsicConnProvider interface {
  	IntrinsicConn() Conn
  }
@@ -51,10 +49,8 @@ Index: daed-2.1.1/third_party/outbound/netproxy/unwrap.go
  // ForwardCloseWrite half-closes c. Protocol wrappers that implement
  // WriteCloser are preferred; otherwise a *net.TCPConn is unwrapped via
  // UnderlyingConnProvider. crypto/tls.Conn is not a WriteCloser and is not
-Index: daed-2.1.1/third_party/outbound/protocol/vless/vision/conn.go
-===================================================================
---- daed-2.1.1.orig/third_party/outbound/protocol/vless/vision/conn.go
-+++ daed-2.1.1/third_party/outbound/protocol/vless/vision/conn.go
+--- a/third_party/outbound/protocol/vless/vision/conn.go
++++ b/third_party/outbound/protocol/vless/vision/conn.go
 @@ -47,7 +47,19 @@ type writeWrapper struct {
  func (w *writeWrapper) Write(p []byte) (int, error) {
  	// logrus.Println("write wrapper", "w.writeDirect", w.writeDirect)
@@ -76,10 +72,8 @@ Index: daed-2.1.1/third_party/outbound/protocol/vless/vision/conn.go
  	}
  	return w.vision.overlayConn.Write(p)
  }
-Index: daed-2.1.1/third_party/outbound/protocol/vless/vision/direct.go
-===================================================================
 --- /dev/null
-+++ daed-2.1.1/third_party/outbound/protocol/vless/vision/direct.go
++++ b/third_party/outbound/protocol/vless/vision/direct.go
 @@ -0,0 +1,96 @@
 +package vision
 +
@@ -177,10 +171,8 @@ Index: daed-2.1.1/third_party/outbound/protocol/vless/vision/direct.go
 +	}
 +	return c.Conn.DirectWriteTCPConn()
 +}
-Index: daed-2.1.1/third_party/outbound/protocol/vless/vision/direct_test.go
-===================================================================
 --- /dev/null
-+++ daed-2.1.1/third_party/outbound/protocol/vless/vision/direct_test.go
++++ b/third_party/outbound/protocol/vless/vision/direct_test.go
 @@ -0,0 +1,198 @@
 +package vision
 +
