@@ -65,6 +65,9 @@ else:
         self.assertTrue(self.call('sync_boot')['ok'])
         self.assertEqual(json.loads(self.calls.read_text()), ['--json', 'sync-boot'])
 
+        self.assertTrue(self.call('sync_sunshine')['ok'])
+        self.assertEqual(json.loads(self.calls.read_text()), ['--json', 'sync-sunshine'])
+
     def test_rejects_injection_and_invalid_arguments(self):
         for verb in ('enable', 'disable', 'restart;id', '', None, 'start\n'):
             self.assertFalse(self.call('action', verb=verb)['ok'])
@@ -85,7 +88,7 @@ else:
     def test_acl_separates_read_and_write(self):
         acl = json.loads((SOURCE.parent.parent / 'acl.d/luci-app-desktop.json').read_text())['luci-app-desktop']
         self.assertEqual(acl['read']['ubus']['luci.desktop'], ['status', 'logs'])
-        self.assertEqual(acl['write']['ubus']['luci.desktop'], ['action', 'switch', 'sync_boot'])
+        self.assertEqual(acl['write']['ubus']['luci.desktop'], ['action', 'switch', 'sync_boot', 'sync_sunshine'])
         self.assertNotIn('file', acl['read'])
         self.assertNotIn('file', acl['write'])
 

@@ -8,6 +8,7 @@ Type=simple
 ExecStart=/usr/libexec/desktop-plasma-remotes
 Restart=on-failure
 RestartSec=3s
+TimeoutStopSec=5s
 
 [Install]
 WantedBy=plasma-workspace.target

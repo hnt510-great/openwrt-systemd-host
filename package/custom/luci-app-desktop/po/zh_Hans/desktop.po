@@ -180,6 +180,15 @@ msgstr "Sunshine 串流"
 msgid "Sunshine capture mode"
 msgstr "Sunshine 捕获模式"
 
+msgid "Select Wayland portal capture (recommended for KDE Plasma) or direct KMS capture. Saving updates permissions and restarts Sunshine if it is already enrolled and running. Initial enrollment still uses <code>sunshine-setup USER --capture=portal|--enable-kms</code> over SSH."
+msgstr "选择 Wayland portal 捕获（KDE Plasma 推荐）或直通 KMS 捕获。保存后会自动更新权限，若 Sunshine 已注册并运行则会重启 Sunshine 生效；首次注册仍需通过 SSH 执行 <code>sunshine-setup USER --capture=portal|--enable-kms</code>。"
+
+msgid "portal (Wayland screen cast, recommended)"
+msgstr "portal（Wayland 屏幕投射，推荐）"
+
+msgid "kms (direct DRM/KMS framebuffer)"
+msgstr "kms（直接 DRM/KMS 帧缓冲）"
+
 msgid "Switch & Restart"
 msgstr "切换并重启"
 

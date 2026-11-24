@@ -40,6 +40,12 @@ var callSyncBoot = rpc.declare({
 	expect: {}
 });
 
+var callSyncSunshine = rpc.declare({
+	object: 'luci.desktop',
+	method: 'sync_sunshine',
+	expect: {}
+});
+
 function validateMode(value) {
 	var text = String(value == null ? '' : value).trim();
 	if (text == '' || text == 'preferred')
@@ -361,6 +367,8 @@ return view.extend({
 			return uci.apply();
 		}).then(function() {
 			return callSyncBoot().catch(function() { return null; });
+		}).then(function() {
+			return callSyncSunshine().catch(function() { return null; });
 		}).then(L.bind(function() {
 			return callStatus().then(L.bind(this.updateStatus, this));
 		}, this));
@@ -443,11 +451,12 @@ return view.extend({
 			return uci.get('desktop', section_id, 'rdp_port') || '3389';
 		};
 
-		o = s.option(form.DummyValue, 'sunshine_capture', _('Sunshine capture mode'),
-			_('Configured via <code>sunshine-setup USER --capture=portal|--enable-kms</code> over SSH.'));
-		o.cfgvalue = function(section_id) {
-			return uci.get('desktop', section_id, 'sunshine_capture') || 'portal';
-		};
+		o = s.option(form.ListValue, 'sunshine_capture', _('Sunshine capture mode'),
+			_('Select Wayland portal capture (recommended for KDE Plasma) or direct KMS capture. Saving updates permissions and restarts Sunshine if it is already enrolled and running. Initial enrollment still uses <code>sunshine-setup USER --capture=portal|--enable-kms</code> over SSH.'));
+		o.value('portal', _('portal (Wayland screen cast, recommended)'));
+		o.value('kms', _('kms (direct DRM/KMS framebuffer)'));
+		o.default = 'portal';
+		o.rmempty = false;
 
 		this.statusBanner = E('div', { 'class': 'alert-message' }, [ _('Loading…') ]);
 		this.driftText = E('span', {}, []);

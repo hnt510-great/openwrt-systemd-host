@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openwrt-desktop
-PKG_RELEASE:=43
+PKG_RELEASE:=45
 PKG_CONFIG_DEPENDS:=CONFIG_OPENWRT_SYSTEMD
 PKG_LICENSE:=MIT
 
@@ -65,7 +65,7 @@ define Package/openwrt-desktop-core
 	+baobab +file-roller +evince \
 	+xdg-desktop-portal-gnome +xwayland \
 	+dejavu-fonts-ttf-DejaVuSans +noto-sans-symbols2 \
-	+dejavu-fonts-ttf-DejaVuSansMono
+	+dejavu-fonts-ttf-DejaVuSansMono +noto-fonts-color-emoji
 endef
 
 define Package/openwrt-desktop-core/description

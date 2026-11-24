@@ -8,6 +8,7 @@ Type=simple
 ExecStart=/usr/libexec/desktop-gnome-remotes
 Restart=on-failure
 RestartSec=5s
+TimeoutStopSec=5s
 UMask=0077
 
 [Install]

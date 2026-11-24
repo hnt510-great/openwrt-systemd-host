@@ -550,6 +550,53 @@ def do_sync_boot():
     return success(boot_enabled=(verb == 'enable'))
 
 
+def do_sync_sunshine():
+    config = read_uci_config()
+    capture = config.get('sunshine_capture') or 'portal'
+    if capture not in ('portal', 'kms'):
+        return failure(2, f"Invalid Sunshine capture mode '{capture}'")
+
+    perm_bin = Path('/usr/libexec/sunshine-permissions')
+    enrolled_file = Path('/etc/desktop/sunshine-users')
+    if not perm_bin.is_file() or not enrolled_file.is_file() or enrolled_file.stat().st_size == 0:
+        return success(capture=capture, applied=False, restarted=False)
+
+    res = run_cmd([str(perm_bin)], timeout=10)
+    if res.returncode != 0:
+        msg = (res.stderr or res.stdout or 'Unable to update Sunshine permissions').strip()
+        return failure(1, msg)
+
+    restarted = False
+    service = read_service_state()
+    provisioned = inspect_user_and_credentials(config['user'])
+    if service['active_state'] == 'active' and provisioned['user_valid']:
+        uid = provisioned['uid']
+        gid = provisioned['gid']
+        runtime_dir = f'/run/user/{uid}'
+        bus_path = Path(runtime_dir) / 'bus'
+        if bus_path.exists():
+            user_env = {
+                'PATH': os.environ.get('PATH', '/usr/sbin:/usr/bin:/sbin:/bin'),
+                'XDG_RUNTIME_DIR': runtime_dir,
+                'DBUS_SESSION_BUS_ADDRESS': f'unix:path={bus_path}',
+            }
+            active_res = run_cmd(
+                ['systemctl', '--user', 'is-active', 'app-dev.lizardbyte.app.Sunshine.service'],
+                timeout=3, user=uid, group=gid, env=user_env,
+            )
+            if active_res.returncode == 0 and active_res.stdout.strip() == 'active':
+                rst = run_cmd(
+                    ['systemctl', '--user', 'restart', 'app-dev.lizardbyte.app.Sunshine.service'],
+                    timeout=15, user=uid, group=gid, env=user_env,
+                )
+                if rst.returncode != 0:
+                    msg = (rst.stderr or rst.stdout or 'Unable to restart Sunshine service').strip()
+                    return failure(1, msg, capture=capture, applied=True, restarted=False)
+                restarted = True
+
+    return success(capture=capture, applied=True, restarted=restarted)
+
+
 def do_logs(lines):
     if lines < 1 or lines > MAX_LOG_LINES:
         return failure(2, f'lines must be between 1 and {MAX_LOG_LINES}')
@@ -578,6 +625,7 @@ def main(argv=None):
     sw = sub.add_parser('switch')
     sw.add_argument('--session', required=True)
     sub.add_parser('sync-boot')
+    sub.add_parser('sync-sunshine')
     lg = sub.add_parser('logs')
     lg.add_argument('--lines', type=int, default=100)
 
@@ -590,6 +638,8 @@ def main(argv=None):
         result = do_switch(args.session)
     elif args.command == 'sync-boot':
         result = do_sync_boot()
+    elif args.command == 'sync-sunshine':
+        result = do_sync_sunshine()
     elif args.command == 'logs':
         result = do_logs(args.lines)
     else:
