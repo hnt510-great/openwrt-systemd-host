@@ -1002,10 +1002,13 @@ def publish_allocating(tree, data, publish_once, make_args=(), allocate=False, r
                        authorized_cold_recipes=()):
     """Publish; on same-version rebuilds optionally allocate releases, rebuild, retry."""
     attempted_recipes = set()
+    rebuild_errors = (LAN.SameVersionRebuildError,
+                      *([KERNEL.SameVersionRebuildError]
+                        if hasattr(KERNEL, 'SameVersionRebuildError') else []))
     for round_number in range(ALLOCATION_ROUNDS + 1):
         try:
             return publish_once()
-        except LAN.SameVersionRebuildError as error:
+        except rebuild_errors as error:
             if not allocate or round_number == ALLOCATION_ROUNDS:
                 raise
             entries = error.entries

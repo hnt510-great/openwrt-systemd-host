@@ -433,6 +433,14 @@ class Mcp(FixtureBase):
         self.assertEqual(replies[None]['error']['code'], -32700)
         self.assertEqual(len(replies), 12, 'notifications get no reply')
 
+    def test_package_decoupled_from_repo_docs(self):
+        makefile = (root / 'package/custom/router-audit/Makefile').read_text()
+        self.assertNotIn('docs/router-audit.md', makefile)
+        self.assertIn('./files/README.md', makefile)
+        readme = files / 'README.md'
+        self.assertTrue(readme.is_file())
+        self.assertIn('router-audit-export', readme.read_text())
+
 
 if __name__ == '__main__':
     try:

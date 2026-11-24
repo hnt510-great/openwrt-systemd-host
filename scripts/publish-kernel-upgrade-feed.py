@@ -25,6 +25,58 @@ GUARD = importlib.util.module_from_spec(_guard_spec)
 _guard_spec.loader.exec_module(GUARD)
 
 
+class SameVersionRebuildError(ValueError):
+    """Published support packages whose rebuilt bytes changed; entries feed the allocator."""
+
+    def __init__(self, message, entries, snapshot=None):
+        super().__init__(message)
+        self.entries = entries
+        self.snapshot = snapshot
+
+
+def _raise_changed_support_error(apk, active, keys, destination, changed_support):
+    filenames = [filename for filename, *_ in changed_support]
+    header = ('Published kernel channel package changed: ' + ', '.join(filenames) +
+              '; bump this support package PKG_RELEASE and rebuild. '
+              'The published file will not be overwritten')
+    lines = [header]
+    entries = []
+    snapshot = str(active.resolve()) if active.exists() else None
+    try:
+        alloc_spec = importlib.util.spec_from_file_location(
+            'kernel_allocate_rebuilds', Path(__file__).with_name('allocate-rebuild-releases.py'))
+        allocate = importlib.util.module_from_spec(alloc_spec)
+        alloc_spec.loader.exec_module(allocate)
+        diag_spec = importlib.util.spec_from_file_location(
+            'kernel_diagnose_rebuild', Path(__file__).with_name('diagnose-apk-rebuild.py'))
+        diagnose = importlib.util.module_from_spec(diag_spec)
+        diag_spec.loader.exec_module(diagnose)
+        context = {'baseline_snapshot': snapshot, 'destination': str(destination)}
+        raw_entries = []
+        for idx, (filename, old_path, new_path) in enumerate(changed_support):
+            label = f'kernel-upgrades/{filename}'
+            try:
+                entry, report = allocate.classify(
+                    old_path, new_path, label, apk,
+                    keys_dir=keys, context=context)
+                if idx < 8:
+                    lines.append(diagnose.format_report(report, label=label))
+            except Exception as error:
+                entry = {'path': label, 'name': None, 'version': None, 'verdict': 'unknown',
+                         'so_changed': False, 'so_removed': [], 'so_added': []}
+                lines.append(f'{label}: diagnosis failed: {error}')
+            raw_entries.append(entry)
+        try:
+            entries = allocate.deduplicate_entries(raw_entries)
+        except ValueError:
+            entries = raw_entries
+    except Exception:
+        entries = [{'path': f'kernel-upgrades/{filename}', 'name': None, 'version': None,
+                    'verdict': 'unknown', 'so_changed': False, 'so_removed': [], 'so_added': []}
+                   for filename in filenames]
+    raise SameVersionRebuildError('\n'.join(lines), entries, snapshot=snapshot)
+
+
 def image_sequence(name, version):
     """The build number of a versioned kernel image, in either naming scheme."""
     current = CURRENT_IMAGE.fullmatch(name)
@@ -107,6 +159,7 @@ def publish(source, destination, apk, key, keys, dry_run=False, stage_only=False
                        'linux-image-openwrt', 'apk-mbedtls', 'apk-openssl', 'ubox',
                        'systemd-openwrt', 'lan-apk-feeds', 'grub2', 'grub2-efi', 'grub2-editenv'}
             incoming = {}
+            changed_support = []
             retained_payloads = {entry['info']['name']: entry['info']['version']
                 for entry in packages.values() if '-owrt-' in entry['info']['name']}
             for path in sorted(source.rglob('*.apk')):
@@ -147,12 +200,13 @@ def publish(source, destination, apk, key, keys, dry_run=False, stage_only=False
                 incoming[filename] = checksum
                 if filename in packages and packages[filename]['sha256'] != checksum:
                     if name in allowed and name not in ('kernel', 'kernel-dev-headers', 'linux-image-openwrt'):
-                        raise ValueError('Published kernel channel package changed: ' + filename +
-                                         '; bump this support package PKG_RELEASE and rebuild. '
-                                         'The published file will not be overwritten')
+                        changed_support.append((filename, active / filename, path))
+                        continue
                     raise ValueError('Published kernel channel package changed: ' + filename)
                 packages[filename] = {'sha256': checksum, 'info': info}
                 shutil.copy2(path, stage / filename)
+            if changed_support:
+                _raise_changed_support_error(apk, active, keys, destination, changed_support)
             images = {entry['info']['name']: entry['info']['version'] for entry in packages.values()
                       if entry['info']['name'].startswith('linux-image-') and
                       entry['info']['name'] != 'linux-image-openwrt'}
