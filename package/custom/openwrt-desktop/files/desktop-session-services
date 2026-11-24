@@ -1,0 +1,107 @@
+#!/bin/sh
+set -eu
+[ "$(id -u)" -ge 1000 ] || exit 1
+: "${XDG_RUNTIME_DIR:?}"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+
+# Wait for the user session bus and Wayland display environment before starting
+# shared session helpers (audio, Flatpak, Sunshine).
+wait_session_ready() {
+	tries=0
+	while [ ! -S "$XDG_RUNTIME_DIR/bus" ]; do
+		tries=$((tries + 1))
+		[ "$tries" -le 30 ] || return 1
+		sleep 1
+	done
+	tries=0
+	while [ -z "${WAYLAND_DISPLAY:-}" ]; do
+		WAYLAND_DISPLAY=$(systemctl --user show-environment 2>/dev/null |
+			sed -n 's/^WAYLAND_DISPLAY=//p' | head -n 1 || :)
+		[ -z "$WAYLAND_DISPLAY" ] || break
+		tries=$((tries + 1))
+		[ "$tries" -le 60 ] || return 1
+		sleep 1
+	done
+	export WAYLAND_DISPLAY
+	if [ -z "${XDG_CURRENT_DESKTOP:-}" ]; then
+		XDG_CURRENT_DESKTOP=$(systemctl --user show-environment 2>/dev/null |
+			sed -n 's/^XDG_CURRENT_DESKTOP=//p' | head -n 1 || :)
+		[ -z "$XDG_CURRENT_DESKTOP" ] || export XDG_CURRENT_DESKTOP
+	fi
+	if [ -z "${DISPLAY:-}" ]; then
+		DISPLAY=$(systemctl --user show-environment 2>/dev/null |
+			sed -n 's/^DISPLAY=//p' | head -n 1 || :)
+		[ -z "$DISPLAY" ] || export DISPLAY
+	fi
+}
+
+wait_session_ready
+if [ -x /usr/libexec/desktop-audio-session ]; then
+	/usr/libexec/desktop-audio-session || :
+fi
+if [ -x /usr/libexec/desktop-flatpak-session ]; then
+	/usr/libexec/desktop-flatpak-session || :
+fi
+
+uid=$(id -u)
+address_file="/run/openwrt-desktop/$uid.env"
+sunshine_unit=app-dev.lizardbyte.app.Sunshine.service
+user_systemd="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+sunshine_user_link="$user_systemd/graphical-session.target.wants/$sunshine_unit"
+sunshine_system_link="/etc/systemd/user/graphical-session.target.wants/$sunshine_unit"
+sunshine_legacy_user_link="$user_systemd/gnome-session.target.wants/$sunshine_unit"
+sunshine_legacy_system_link="/etc/systemd/user/gnome-session.target.wants/$sunshine_unit"
+
+resync_ticks=15
+ticks=0
+previous_key=
+previous_address=
+
+cleanup() {
+	systemctl --user stop sunshine.service 2>/dev/null || :
+}
+
+read_environment() {
+	address=
+	[ -f "$address_file" ] && [ ! -L "$address_file" ] || return 0
+	while IFS= read -r line || [ -n "$line" ]; do
+		case "$line" in
+			OPENWRT_DESKTOP_LAN_ADDRESS=*) address=${line#*=} ;;
+		esac
+	done 2>/dev/null <"$address_file" || address=
+}
+
+sunshine_enabled() {
+	[ -e "$sunshine_user_link" ] || [ -e "$sunshine_system_link" ] ||
+	[ -e "$sunshine_legacy_user_link" ] || [ -e "$sunshine_legacy_system_link" ]
+}
+
+trap cleanup EXIT
+trap 'exit 0' HUP INT TERM
+
+while :; do
+	read_environment
+	sunshine=0
+	if sunshine_enabled; then sunshine=1; fi
+	key="$address|$sunshine"
+	if [ "$key" != "$previous_key" ] || [ "$ticks" -ge "$resync_ticks" ]; then
+		previous_key=$key
+		ticks=0
+		if [ -n "$address" ] && [ "$(stat -c %u "$address_file" 2>/dev/null || :)" != 0 ]; then
+			address=
+		fi
+		case "$address" in ''|0.0.0.0|*[!0-9.]*) address= ;; esac
+		if [ "$address" != "$previous_address" ]; then
+			cleanup
+			previous_address=$address
+		fi
+		if [ -n "$address" ] && [ "$sunshine" = 1 ]; then
+			systemctl --user start sunshine.service || :
+		else
+			systemctl --user stop sunshine.service 2>/dev/null || :
+		fi
+	fi
+	ticks=$((ticks + 1))
+	sleep 2 &
+	wait $! || :
+done

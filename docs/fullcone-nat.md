@@ -38,11 +38,8 @@ userspace.
 1. Publish a build with `build-and-publish.py`, which reserves the kernel
    generation.
 2. `apk upgrade` on the router. `CONFIG_NF_NAT_MASQUERADE_FULLCONE=y` in
-   `target/linux/generic/config-7.3` changes the kernel ABI hash
-   (`2a97e7c5…` → `2f47df10…` for the current x86/64 configuration), so this
-   is a real ABI change: APK installs the new kernel and the complete kmod set
-   as a new generation and arms a trial boot, instead of printing
-   `Keeping installed kernel generation: ABI unchanged.`
+   `target/linux/generic/config-7.3` changes the kernel configuration and ABI,
+   so APK installs the new kernel generation and arms a trial boot.
 3. Reboot into the trial and confirm it with `kernelctl check`
    (see [kernel upgrades](kernel-upgrade.md)).
 4. Enable full cone NAT as below.
@@ -123,7 +120,7 @@ and an old kernel ignores the `fullcone` attribute and masquerades normally.
 | Kernel config | `CONFIG_NF_NAT_MASQUERADE_FULLCONE=y` in `target/linux/generic/config-7.3`; without it the code is not built and `masquerade fullcone` behaves like `masquerade` |
 | libnftnl | `001`, `002` (`1.3.2-r4`); 001 adapted to the 1.3.2 `set` callback |
 | nftables | `100`, `103`, `104` (`1.1.7-r4`); 100 and 103 rebased onto 1.1.7 |
-| firewall4 | `001`, `002`, `007` from LEDE (001/002 rebased, shipped disabled); `008` probes `fullcone6` so enabling it cannot break the ruleset load (`r2`) |
+| firewall4 | `001`, `002`, `007` from LEDE (001/002 rebased, shipped disabled); `008` probes `fullcone6` so enabling it cannot break the ruleset load (introduced in `r2`; current `r3`) |
 | LuCI | `feeds/luci` commit `51551b1c9c` (`luci-app-firewall` `view/firewall/zones.js`: *Enable full cone NAT* checkbox, with zh_Hans/zh_Hant strings), mirrored as `patches/feeds/0029-luci-firewall-fullcone.patch` with baseline `configs/firewall-fullcone-feeds.json`; test `scripts/tests/test-luci-firewall-fullcone.js` |
 
 See the [validation record](fullcone-nat-validation.md).

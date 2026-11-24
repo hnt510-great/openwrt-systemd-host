@@ -7,7 +7,7 @@ ttyd over TLS with the same certificate as LuCI.
 
 ## Behaviour
 
-- `ttyd` (`feeds/packages/utils/ttyd`, `1.7.7-r4`): with `ssl=1` and no
+- `ttyd` (`feeds/packages/utils/ttyd`, since `1.7.7-r4`, current `1.7.7-r7`): with `ssl=1` and no
   `ssl_cert`/`ssl_key`, the init script uses `uhttpd.main.cert` and
   `uhttpd.main.key`. If neither file exists it logs a warning and serves plain
   HTTP. The certificate files are tracked by procd, so `reload` restarts ttyd

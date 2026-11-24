@@ -2,8 +2,7 @@
 
 ## 2026-11-16
 
-The independent installer fixes in
-[section 5 of the plan](installer-components-plan.md#5-2026-11-16-审查发现及已修复项)
+The independent installer fixes
 preserve firewall/port/WAN inputs on return, keep LAN number errors on
 the LAN page, reject static WAN network/broadcast addresses and overlapping LAN/WAN
 subnets, preserve the original installation error when unmount cleanup also fails,
@@ -24,9 +23,8 @@ The package compile triggered broad dependency rebuilds and was interrupted
 
 - **Ordinary installer build.** The full desktop build manifest at
   `bin/systemd/targets/x86/64-glibc/openwrt-x86-64-generic.manifest` lists
-  `openwrt-installer 1-r4` and `linux-image-7.3.5-70-openwrt`. The
-  [generation-66 build record](build-publication-20261117.md#published-artifacts)
-  also records a successful full build and installer ISO on 2026-11-17.
+  `openwrt-installer 1-r4` and `linux-image-7.3.5-70-openwrt` (generation-66
+  also produced a full build and installer ISO on 2026-11-17).
 - **Ordinary installer VM.** The
   [systemd-only validation](systemd-only-validation.md#最终编辑后的主机与-vm-验证结果)
   records a separate generation-70 installer ISO with SHA-256

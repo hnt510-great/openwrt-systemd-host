@@ -1,6 +1,6 @@
 # Device management boundary on native-systemd OpenWrt
 
-`systemd-udev` 262-r14 installs a reviewed distribution subset of systemd v262's
+Since `systemd-udev` 262-r14 (current `262-r15`), the package installs a reviewed distribution subset of systemd v262's
 `rules.d/99-systemd.rules.in`. It restores device units, including
 `dev-tpmrm0.device`, without transferring router policy to systemd.
 The installed file is `package/system/systemd/files/99-systemd.rules`.
@@ -15,11 +15,11 @@ upstream rules wholesale or silently filter them with installation-time sed.
   mount and autofs decisions. A block tag does not request a data-volume mount.
 - systemd owns service lifecycle, dependency graphs and generic device state.
 - devtmpfs creates base nodes; udev applies properties, permissions and seats.
-- procd retains ubus/UCI, init scripts, hotplug handlers and recovery. In units
+- procd retains ubus/UCI, init scripts, and hotplug handlers. In units
   mode it ignores ordinary raw device events and receives selected processed
   events through `90-openwrt-hotplug.rules` -> `openwrt-udev-forward` ->
   `procd.udev` -> `hotplug-systemd.json` -> `/etc/hotplug.d/`. Synthetic button
-  events remain direct. Ordinary `hotplug.json` remains for other modes.
+  events remain direct. Non-systemd targets retain ordinary `hotplug.json`.
 
 The forwarder normalizes DEVNAME; hotplug-call derives DEVICENAME from DEVPATH.
 netifd independently listens to rtnetlink and network uevents. These listeners
@@ -73,11 +73,12 @@ Do not introduce another global replay, settle gate or deduplication daemon.
 Handlers must tolerate repeats. Tags do not themselves emit extra kernel events,
 but RUN commands execute again; v262 device.c also has WANT reconciliation for
 already-known devices. Do not assume repeated add can never submit a start job.
-Keep desktop r34's bounded TPM probe: this change deliberately does not restore
-its former hard-coded Requires=dev-tpmrm0.device dependency. Router startup must
-not acquire desktop/TPM dependencies. Logind seats, GNOME discovery and libvirt
-nodedev enumeration continue through their existing paths; libvirt does not
-acquire network/interface driver ownership.
+Keep `openwrt-desktop-base`'s bounded TPM probe (introduced in desktop r34,
+current r42): this change deliberately does not restore its former hard-coded
+`Requires=dev-tpmrm0.device` dependency. Router startup must not acquire
+desktop/TPM dependencies. Logind seats, GNOME/Plasma desktop discovery and
+libvirt nodedev enumeration continue through their existing paths; libvirt does
+not acquire network/interface driver ownership.
 
 ## Validation and rollout
 

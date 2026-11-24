@@ -10,9 +10,8 @@ release action is safe**, without requiring manual edits to
 `configs/apk-elf-rebuilds.mk` for routine cases.
 
 Related docs: [local LAN APK feeds](lan-apk-feeds.md),
-[shared-library ABI upgrades](elf-abi-upgrades.md),
-[validation record](apk-rebuild-release-validation.md), and the
-[implementation handoff](apk-rebuild-release-handoff.md).
+[shared-library ABI upgrades](elf-abi-upgrades.md), and
+[validation record](apk-rebuild-release-validation.md).
 
 ## 1. Decision Model & Action Priority
 
@@ -65,20 +64,32 @@ python3 scripts/diagnose-apk-rebuild.py --json --abi-store tmp/rebuild-evidence/
 - **Deduplication**: Merges identical `(name, version, old_sha256, new_sha256)`
   copies projected into both a source repo and `custom/`; raises an error if
   the same identity has conflicting digests.
-- **Digest-bound manual approval**: Items in `review_before_allocate` can be
-  approved without broad `--accept-unknown` by passing `--approval FILE`:
+- **Digest-bound manual approval**: For an item in `review_before_allocate`,
+  prepare an approval file containing the report and APK digests and the review
+  rationale.
 
-```json
-{
-  "schema": 1,
-  "policy_version": "phase2-evidence-v1",
-  "report_sha256": "<report.report_sha256()>",
-  "old_sha256": "<published apk sha256>",
-  "new_sha256": "<candidate apk sha256>",
-  "name": "resources",
-  "reason": "Reviewed executable diff; load contract and imports unchanged"
-}
-```
+  ```json
+  {
+    "schema": 1,
+    "policy_version": "phase2-evidence-v1",
+    "report_sha256": "<report.report_sha256()>",
+    "old_sha256": "<published apk sha256>",
+    "new_sha256": "<candidate apk sha256>",
+    "name": "resources",
+    "reason": "Reviewed the executable diff and confirmed the load contract and imports are unchanged"
+  }
+  ```
+
+  Preview an approved allocation on the build host with the standalone
+  publisher. If the preview is accepted and publication is authorized, rerun
+  the same command with `--dry-run` removed.
+
+  ```sh
+  ./scripts/publish-changed-feeds.sh --dry-run --allocate-rebuilds --approval /path/to/approval.json
+  ```
+
+  The approval is bound to the report and both APK digests. If the candidate
+  changes, review it again before preparing a new approval.
 
 - **Atomic writes & permanent reservations**: Re-checks `ledger_sha256` and the
   active published snapshot alias before writing, replaces
@@ -167,5 +178,6 @@ python3 scripts/build-and-publish.py --allocate-rebuilds --cold-rebuild \
   ledger writes and zero `make` invocations.
 - **Receipt binding (`scripts/apk-upgrade-preflight.py`)**: Upgrade preflight
   receipts bind `diagnoser_sha256`, `allocator_sha256`, `elf_type_abi_sha256`,
-  `cold_verify_sha256`, and `reused_published_apks`; `authorize()` rejects
-  promotion if any policy or tool file changed after validation.
+  and `cold_verify_sha256`. They include `reused_published_apks` when the
+  publisher retains existing APK bytes. `authorize()` rejects promotion if a
+  recorded policy or tool file changed after validation.

@@ -350,6 +350,16 @@ class PublisherTests(unittest.TestCase):
         manifest = json.loads((snap / 'manifest.json').read_text())
         self.assertEqual(manifest['reused_published_apks']['base/feed-probe-1.0-r1.apk'], rec)
 
+    def test_kernel_upgrade_view_new_abi_enforces_immutability_against_current(self):
+        new_kernel = '6.18.55~22222222222222222222222222222222-r1'
+        self.make_package('feed-kernel-probe', '1.0-r1', 'new ABI', depends='kernel=' + new_kernel)
+        self.make_package('feed-probe', '1.0-r1', 'mutated across new ABI')
+        self.command[3] = new_kernel
+        self.command += ['--kernel-upgrade-view']
+        result = self.assert_failed_publication('bump PKG_RELEASE')
+        self.assertIn('base/feed-probe-1.0-r1.apk', result.stdout + result.stderr)
+        self.assertFalse((self.destination / 'public/abi' / new_kernel).exists())
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -1,14 +1,13 @@
 # Ordinary-user authorization, sessions and services
 
-> Systemd is the sole normal init on current x86/64 images. References below
-> to procd recovery or firmware flashing from the running system describe
-> older images. See [current boot and migration guidance](systemd-only-plan.md).
-
 The native x86_64/glibc/APK image includes systemd with polkit and PAM,
 logind, PAM-enabled OpenSSH, BusyBox PAM console login, and a user D-Bus
 service. The base packages create no ordinary account, password, key or
-service grant. Create accounts through [multiuser setup](multiuser.md).
-The current GNOME profile uses native udev and logind for device/seat handling.
+service grant. This checkout's personal firmware overlay provisions the
+[multiuser setup](multiuser.md) on first boot.
+`systemd-udev` and `logind` manage seats and desktop display/input device ACLs
+(`seat`/`uaccess` tags; see [device management boundary](systemd-udev-boundary.md));
+`seatd` is no longer used.
 
 ## Explicit service delegation
 
@@ -65,12 +64,15 @@ policy. Console login uses BusyBox PAM, with login sessions running as child
 processes so PAM closes them on logout. The existing OpenWrt console root
 autologin/`ttylogin` setting is retained.
 
-`desktop-setup alice` requires an existing ordinary account and provisions its
-GNOME session, including the keyring bootstrap described in
-[GNOME setup](gnome-desktop.md). RDP credentials are configured separately by
-`desktop-rdp-setup alice`. The desktop uses PAM/logind on VT7 and the account's
-runtime directory and user D-Bus. Stopping the desktop ends its applications
-while separate SSH sessions and their shared user manager can remain active.
+`desktop-setup alice` requires an existing, unlocked ordinary account and
+provisions the shared desktop TLS/keyring credentials (`openwrt-desktop-base`,
+`openwrt-desktop-keyring`, supporting GNOME 51 and KDE Plasma 6.8.3; configure
+LAN RDP separately with `desktop-rdp-setup`). The desktop starts as
+that user in a transient system service with a dedicated PAM stack. It shares
+the logind-managed runtime directory and user D-Bus with that user's SSH
+sessions. On systems with virtual terminals, the desktop activates VT 7.
+Stopping `/etc/init.d/desktop` terminates the desktop's session and apps while
+leaving separate SSH sessions and their shared user manager available.
 
 Inspect the resulting sessions with:
 
@@ -124,16 +126,13 @@ Podman with `podman-rootless-setup USER` performs that opt-in for the account
 (see [Rootless Podman](podman-rootless.md)); `loginctl disable-linger USER`
 still opts it back out.
 
-## Recovery and build
+## Build and recovery
 
-The GRUB `procd recovery` and failsafe paths remain available. PAM session
-registration is optional for SSH/console so login does not require logind
-under procd. The GNOME desktop requires native systemd; recovery is for router
-recovery and flashing. Logind/polkit/user managers are native-mode facilities.
-
-Enable `CONFIG_OPENWRT_SYSTEMD=y`, select the PAM OpenSSH variant, run
-`make defconfig`, build the integration package and rebuild the full image.
-BusyBox PAM, child login sessions and `chvt` are selected by native mode.
+Systemd is the sole normal init on x86/64 (`CONFIG_OPENWRT_SYSTEMD` is fixed
+`y` on `TARGET_x86_64 && USE_GLIBC && USE_APK`), with OpenWrt preinit providing
+the native `failsafe=true` console in GRUB. BusyBox PAM, child login sessions
+and `chvt` are selected automatically, and `openwrt-desktop` requires native
+systemd.
 The OpenSSH PAM session change is maintained in
 `feeds/packages/net/openssh/Makefile`, and native D-Bus socket activation is
 enabled in `feeds/packages/utils/dbus/Makefile`. Preserve these feed-local
@@ -145,12 +144,12 @@ existing PAM/desktop runtime directory instead of replacing it on shell login.
 
 ```sh
 make package/system/systemd-openwrt/compile -j3 V=s
-python3 scripts/build-and-publish.py build-only -j3 V=s
+python3 scripts/build-and-publish.py build-only -j12 V=s
 ```
 
 Outputs are under `bin/systemd`. Before hardware deployment, verify fresh
 native boot, allow/deny/revoke authorization, SSH and console sessions, user
-service lifecycle and lingering, GNOME/remote access, router services and a separate
-procd recovery boot. A VM cannot establish physical HDMI/USB/NIC behavior.
+service lifecycle and lingering, desktop/RDP, router services, and native
+failsafe. A VM cannot establish physical HDMI/USB/NIC behavior.
 The [2026-10-11 validation record](systemd-permissions-validation.md) covers
-the rebuilt image, isolated VM acceptance and recovery/failsafe checks.
+the historical initial VM acceptance.

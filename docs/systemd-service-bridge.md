@@ -1,9 +1,5 @@
 # OpenWrt service controls through systemctl
 
-> Systemd is the sole normal init on current x86/64 images. References below
-> to procd recovery or firmware flashing from the running system describe
-> older images. See [current boot and migration guidance](systemd-only-plan.md).
-
 This default-on compatibility bridge adds individual systemctl controls while
 retaining procd supervision, UCI, LuCI, init scripts, and OpenWrt boot ordering.
 It sends lifecycle actions through init scripts and procd, which creates native
@@ -11,26 +7,24 @@ transient systemd instances in units mode.
 
 ## Building and enabling
 
-In make menuconfig, under Global build settings, select Experimental
-systemctl controls for OpenWrt services. This sets
-CONFIG_OPENWRT_SYSTEMD_SERVICE_BRIDGE=y and selects systemd-openwrt-services.
-It requires the native-systemd variant and defaults to on. Installing the
-matching signed package also enables the bridge on a native-systemd
-installation; start openwrt-service-bridge.service after online installation.
-Recovery boots never start the bridge.
+In `make menuconfig`, under Global build settings, `systemctl controls for OpenWrt services`
+sets `CONFIG_OPENWRT_SYSTEMD_SERVICE_BRIDGE=y` and selects
+`systemd-openwrt-services` (on by default on native-systemd images). Installing
+the matching signed package also enables the bridge; start
+`openwrt-service-bridge.service` after online installation.
 After upgrading the bridge package, restart that native unit to load the new
 daemon. Before removing the optional package, disable it using the command
 below. This version generates no units that need removal.
 
-The existing openwrt-services.service still executes enabled rc scripts in
+The existing `openwrt-services.service` still executes enabled rc scripts in
 their original order. The bridge discovers executable init scripts on demand,
-without sourcing or running them for discovery. It excludes `dbus`, `sshd`, `samba4`,
-`wsdd2`, `avahi-daemon`, `cron`, `nlbwmon` and `ddns-go` (use native
-`dbus.service`, `sshd.service`, `samba4.service`, `wsdd2.service`,
-`avahi-daemon.service`, `cron.service`, `nlbwmon.service` and `ddns-go.service`),
-`apk-resume` (use native `apk-resume.service`), and recovery-only `umount`. The `apk-resume` init script
-is a compatibility path for procd/recovery boots; its start action does
-nothing under native systemd. It generates no proxy
+without sourcing or running them for discovery. It excludes `dbus`, `sshd`,
+`samba4`, `wsdd2`, `avahi-daemon`, `cron`, `nlbwmon`, `ddns-go`, `podman`, and
+`apk-resume` (directing callers to native `dbus.service`, `sshd.service`,
+`samba4.service`, `wsdd2.service`, `avahi-daemon.service`, `cron.service`,
+`nlbwmon.service`, `ddns-go.service`, `podman.socket`, and `apk-resume.service`),
+as well as the legacy `umount` script (omitted on systemd-only x86/64, with
+defensive exclusions retained in `service-bridge.c`). It generates no proxy
 service units and starts no per-service observer processes.
 
 ## Commands
@@ -152,9 +146,9 @@ shutdown scripts retain responsibility for them. The bridge accepts only
 validated installed service names and fixed actions, checks the Unix peer UID
 for mutations, and never treats client data as shell code.
 
-GRUB procd recovery, failsafe, sysupgrade guards, and signed/exact-ABI package
-requirements are unchanged. Validate a complete image in a disposable VM
-before considering physical deployment.
+Native OpenWrt failsafe (`failsafe=true`), config-only `sysupgrade`, and
+signed/exact-ABI package requirements are unchanged. Validate a complete image
+in a disposable VM before considering physical deployment.
 
 ## Tests
 

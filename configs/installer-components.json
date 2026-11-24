@@ -342,18 +342,31 @@
     ],
     "forbidden_packages": [
       "openwrt-desktop",
+      "openwrt-desktop-base",
+      "openwrt-desktop-keyring",
+      "openwrt-desktop-rdp-base",
       "openwrt-desktop-core",
       "openwrt-desktop-rdp",
+      "openwrt-desktop-plasma",
+      "openwrt-desktop-plasma-core",
+      "openwrt-desktop-plasma-rdp",
       "gnome-shell",
       "gnome-session",
       "gnome-remote-desktop",
       "mutter",
       "nautilus",
+      "kwin",
+      "plasma-workspace",
+      "plasma-desktop",
+      "krdp",
       "openwrt-desktop-audio",
       "openwrt-desktop-ime",
+      "openwrt-desktop-ime-base",
+      "openwrt-desktop-ime-plasma",
       "sunshine",
       "flatpak",
       "openwrt-flatpak",
+      "openwrt-flatpak-base",
       "openwrt-appimage",
       "firefox-esr-bin",
       "google-chrome-bin",
@@ -376,11 +389,12 @@
     {
       "id": "gnome",
       "label": "GNOME Desktop",
-      "description": "GNOME Wayland desktop, core apps, and browsers (Firefox ESR, Chrome)",
+      "description": "GNOME Wayland desktop, core apps, LuCI control, and browsers (Firefox ESR, Chrome)",
       "depends": [],
       "default": true,
       "packages": [
         "openwrt-desktop-core",
+        "luci-app-desktop",
         "firefox-esr-bin",
         "google-chrome-bin",
         "gstreamer1-plugins-base",
@@ -399,17 +413,54 @@
       ]
     },
     {
+      "id": "plasma",
+      "label": "KDE Plasma Desktop",
+      "description": "KDE Plasma 6.8 Wayland desktop, System Settings, Dolphin, Konsole, and LuCI control",
+      "depends": [],
+      "default": false,
+      "packages": [
+        "openwrt-desktop-plasma-core",
+        "systemsettings",
+        "kscreen",
+        "dolphin",
+        "konsole",
+        "luci-app-desktop",
+        "libva-utils",
+        "intel-gpu-tools",
+        "libseat"
+      ],
+      "conditional_packages": [],
+      "forbidden_when_unselected": [
+        "openwrt-desktop-plasma-core",
+        "openwrt-desktop-plasma",
+        "kwin",
+        "plasma-workspace",
+        "plasma-desktop"
+      ]
+    },
+    {
       "id": "audio",
       "label": "Desktop Audio",
       "description": "PipeWire, WirePlumber, PulseAudio/ALSA audio integration",
-      "depends": [
-        "gnome"
+      "depends": [],
+      "depends_any": [
+        "gnome",
+        "plasma"
       ],
       "default": true,
       "packages": [
         "openwrt-desktop-audio"
       ],
-      "conditional_packages": [],
+      "conditional_packages": [
+        {
+          "when_all": [
+            "plasma"
+          ],
+          "packages": [
+            "plasma-pa"
+          ]
+        }
+      ],
       "forbidden_when_unselected": [
         "openwrt-desktop-audio",
         "wireplumber",
@@ -419,36 +470,79 @@
     {
       "id": "ime",
       "label": "Chinese IME",
-      "description": "Fcitx5, Pinyin, CJK fonts, and GNOME Kimpanel integration",
-      "depends": [
-        "gnome"
+      "description": "Fcitx5, Pinyin, CJK fonts, and desktop IME integration",
+      "depends": [],
+      "depends_any": [
+        "gnome",
+        "plasma"
       ],
       "default": true,
       "packages": [
-        "openwrt-desktop-ime"
+        "openwrt-desktop-ime-base"
       ],
-      "conditional_packages": [],
+      "conditional_packages": [
+        {
+          "when_all": [
+            "gnome"
+          ],
+          "packages": [
+            "openwrt-desktop-ime"
+          ]
+        },
+        {
+          "when_all": [
+            "plasma"
+          ],
+          "packages": [
+            "openwrt-desktop-ime-plasma"
+          ]
+        }
+      ],
       "forbidden_when_unselected": [
         "openwrt-desktop-ime",
+        "openwrt-desktop-ime-base",
+        "openwrt-desktop-ime-plasma",
         "fcitx5"
       ]
     },
     {
       "id": "rdp",
       "label": "Remote Desktop (RDP)",
-      "description": "GNOME Remote Desktop over LAN IPv4 RDP",
-      "depends": [
-        "gnome"
+      "description": "LAN IPv4 RDP remote desktop server for selected desktop environment(s)",
+      "depends": [],
+      "depends_any": [
+        "gnome",
+        "plasma"
       ],
       "default": true,
       "packages": [
-        "openwrt-desktop-rdp",
+        "openwrt-desktop-rdp-base",
         "winpr-hash"
       ],
-      "conditional_packages": [],
+      "conditional_packages": [
+        {
+          "when_all": [
+            "gnome"
+          ],
+          "packages": [
+            "openwrt-desktop-rdp"
+          ]
+        },
+        {
+          "when_all": [
+            "plasma"
+          ],
+          "packages": [
+            "openwrt-desktop-plasma-rdp"
+          ]
+        }
+      ],
       "forbidden_when_unselected": [
         "openwrt-desktop-rdp",
-        "gnome-remote-desktop"
+        "openwrt-desktop-rdp-base",
+        "openwrt-desktop-plasma-rdp",
+        "gnome-remote-desktop",
+        "krdp"
       ]
     },
     {
@@ -456,8 +550,11 @@
       "label": "Sunshine Streaming",
       "description": "Moonlight game/desktop streaming host",
       "depends": [
-        "gnome",
         "audio"
+      ],
+      "depends_any": [
+        "gnome",
+        "plasma"
       ],
       "default": true,
       "packages": [
@@ -472,16 +569,36 @@
       "id": "flatpak",
       "label": "Flatpak",
       "description": "Ordinary-user Flatpak runtime and desktop portal integration",
-      "depends": [
-        "gnome"
+      "depends": [],
+      "depends_any": [
+        "gnome",
+        "plasma"
       ],
       "default": true,
       "packages": [
-        "openwrt-flatpak"
+        "openwrt-flatpak-base"
       ],
-      "conditional_packages": [],
+      "conditional_packages": [
+        {
+          "when_all": [
+            "gnome"
+          ],
+          "packages": [
+            "openwrt-flatpak"
+          ]
+        },
+        {
+          "when_all": [
+            "plasma"
+          ],
+          "packages": [
+            "xdg-desktop-portal-kde"
+          ]
+        }
+      ],
       "forbidden_when_unselected": [
         "openwrt-flatpak",
+        "openwrt-flatpak-base",
         "flatpak"
       ]
     },
@@ -489,8 +606,10 @@
       "id": "appimage",
       "label": "AppImage",
       "description": "FUSE and host library support for x86_64 AppImages",
-      "depends": [
-        "gnome"
+      "depends": [],
+      "depends_any": [
+        "gnome",
+        "plasma"
       ],
       "default": true,
       "packages": [
@@ -521,6 +640,14 @@
         {
           "when_all": [
             "gnome"
+          ],
+          "packages": [
+            "virt-manager"
+          ]
+        },
+        {
+          "when_all": [
+            "plasma"
           ],
           "packages": [
             "virt-manager"

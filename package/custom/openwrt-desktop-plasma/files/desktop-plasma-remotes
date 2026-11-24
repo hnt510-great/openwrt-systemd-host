@@ -1,0 +1,81 @@
+#!/bin/sh
+set -eu
+[ "$(id -u)" -ge 1000 ] || exit 1
+: "${XDG_RUNTIME_DIR:?}"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+
+wait_wayland_display() {
+	tries=0
+	while [ -z "${WAYLAND_DISPLAY:-}" ]; do
+		WAYLAND_DISPLAY=$(systemctl --user show-environment 2>/dev/null |
+			sed -n 's/^WAYLAND_DISPLAY=//p' | head -n 1 || :)
+		[ -z "$WAYLAND_DISPLAY" ] || break
+		tries=$((tries + 1))
+		[ "$tries" -le 60 ] || return 0
+		sleep 1
+	done
+	export WAYLAND_DISPLAY
+}
+wait_wayland_display
+
+if [ -x /usr/libexec/desktop-plasma-settings ]; then
+	/usr/libexec/desktop-plasma-settings || :
+fi
+
+# Ensure shared session services (audio, Flatpak, Sunshine) are started.
+systemctl --user start openwrt-desktop-services.service 2>/dev/null || :
+
+uid=$(id -u)
+address_file="/run/openwrt-desktop/$uid.env"
+resync_ticks=15
+ticks=0
+previous_key=
+previous_address=
+
+cleanup() {
+	systemctl --user stop app-org.kde.krdpserver.service 2>/dev/null || :
+}
+
+read_environment() {
+	address= rdp=
+	[ -f "$address_file" ] && [ ! -L "$address_file" ] || return 0
+	while IFS= read -r line || [ -n "$line" ]; do
+		case "$line" in
+			OPENWRT_DESKTOP_LAN_ADDRESS=*) address=${line#*=} ;;
+			OPENWRT_DESKTOP_RDP_ENABLED=*) rdp=${line#*=} ;;
+		esac
+	done 2>/dev/null <"$address_file" || address= rdp=
+}
+
+trap cleanup EXIT
+trap 'exit 0' HUP INT TERM
+
+while :; do
+	read_environment
+	key="$address|$rdp"
+	if [ "$key" != "$previous_key" ] || [ "$ticks" -ge "$resync_ticks" ]; then
+		previous_key=$key
+		ticks=0
+		if [ -n "$address" ] && [ "$(stat -c %u "$address_file" 2>/dev/null || :)" != 0 ]; then
+			address=
+		fi
+		case "$address" in ''|0.0.0.0|*[!0-9.]*) address= ;; esac
+		if [ "$address" != "$previous_address" ]; then
+			cleanup
+			previous_address=$address
+		fi
+		if [ -n "$address" ]; then
+			[ -n "$rdp" ] || rdp=$(/sbin/uci -q get desktop.main.rdp_enabled || :)
+			if [ -f /usr/lib/systemd/user/app-org.kde.krdpserver.service ]; then
+				if [ "$rdp" = 1 ]; then
+					systemctl --user start app-org.kde.krdpserver.service || :
+				else
+					systemctl --user stop app-org.kde.krdpserver.service || :
+				fi
+			fi
+		fi
+	fi
+	ticks=$((ticks + 1))
+	sleep 2 &
+	wait $! || :
+done

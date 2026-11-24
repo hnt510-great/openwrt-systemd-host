@@ -3,4 +3,21 @@ set -eu
 [ "$(id -u)" -ge 1000 ] || exit 1
 export XDG_RUNTIME_DIR="/run/user/$(id -u)"
 export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
-exec systemctl --user start gnome-session-shutdown.target
+. /usr/libexec/desktop-common.sh
+session="${1:-${OPENWRT_DESKTOP_SESSION:-}}"
+[ -n "$session" ] || exit 0
+if desktop_load_session "$session" 2>/dev/null; then
+	( desktop_session_stop ) || :
+fi
+# Stop lingering desktop portal backends so switching between GNOME and Plasma
+# does not route portal requests to the previous desktop's backend.
+systemctl --user stop \
+	xdg-desktop-portal.service \
+	xdg-desktop-portal-gnome.service \
+	xdg-desktop-portal-kde.service \
+	xdg-desktop-portal-gtk.service 2>/dev/null || :
+# Clear stale display and logind session variables from the surviving user
+# manager so nothing activated before the next session inherits old values.
+systemctl --user unset-environment \
+	WAYLAND_DISPLAY DISPLAY XAUTHORITY \
+	XDG_SESSION_ID XDG_SEAT XDG_VTNR 2>/dev/null || :

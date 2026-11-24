@@ -16,6 +16,12 @@ PKG_BUILD_DIR:=$(BUILD_DIR)/$(patsubst kf6-%,%,$(PKG_NAME))-$(PKG_VERSION)
 include $(INCLUDE_DIR)/package.mk
 include $(INCLUDE_DIR)/cmake.mk
 
+TARGET_LDFLAGS += -Wl,-rpath-link,$(STAGING_DIR)/usr/lib/pulseaudio
+
+CONFIGURE_VARS += \
+	QML_IMPORT_PATH="$(STAGING_DIR)/usr/lib/qt6/qml:/usr/lib/qt6/qml" \
+	QML2_IMPORT_PATH="$(STAGING_DIR)/usr/lib/qt6/qml:/usr/lib/qt6/qml"
+
 # KF6 modules are shared libraries consumed by other KF6 modules and plugins.
 CMAKE_OPTIONS += \
 	-DBUILD_SHARED_LIBS=ON \

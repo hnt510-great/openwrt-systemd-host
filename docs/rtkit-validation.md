@@ -1,7 +1,6 @@
 # RealtimeKit and desktop preemption validation
 
-Implements [the RealtimeKit and preemption plan](rtkit-preemption-plan.md);
-the user-facing description is in the [GNOME desktop guide](gnome-desktop.md).
+The user-facing description is in the [GNOME desktop guide](gnome-desktop.md).
 Work is split into two phases: userspace (`rtkit`, desktop KMS scheduling)
 and the desktop kernel configuration, which needs a new reserved kernel
 generation.

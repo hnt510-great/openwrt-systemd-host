@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=kf6-kglobalaccel
-PKG_VERSION:=6.20.0
+PKG_VERSION:=6.32.0
 PKG_RELEASE:=1
 PKG_SOURCE:=kglobalaccel-$(PKG_VERSION).tar.xz
-PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.20/
-PKG_HASH:=ee2abd91df47a6ae478f86e67f463487e30032f3c0d8cfd77f2d6b9567c86db4
+PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.32/
+PKG_HASH:=d5ad10eb041ef8f46074bb1df4cf3475888421d849bc667a7afc6c5bf8cc1640
 PKG_LICENSE:=LGPL-2.1-or-later
 
 KF6_TITLE:=Global Accel

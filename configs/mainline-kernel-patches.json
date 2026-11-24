@@ -461,11 +461,9 @@
       "files": [
         "net/netfilter/nf_flow_table_ip.c"
       ],
-      "status": "rebased",
-      "reason": "Ported after upstream merge 1702bf52fc; verified against Linux 7.3 source, not inferred from patch filename",
-      "source_sha256": "42332f09256e4136b25bbd9d7b02f6763fa9b2b33565cd23a69177b5de8632d1",
-      "ported": "target/linux/generic/backport-7.3/706-04-v7.3-netfilter-flowtable-use-the-vlan-id-not-the-full-tci.patch",
-      "ported_sha256": "7289b412649138dea87417d89e5e917305be631b32bcdd391f16557323f83f8c"
+      "status": "upstream",
+      "reason": "Absorbed verbatim by Linux 7.3.6 stable (net/netfilter/nf_flow_table_ip.c; reverse-applies cleanly with zero fuzz), so the 7.3 copy was dropped",
+      "source_sha256": "42332f09256e4136b25bbd9d7b02f6763fa9b2b33565cd23a69177b5de8632d1"
     },
     {
       "source": "target/linux/generic/backport-6.18/710-01-v7.1-net-sfp-add-quirk-for-ZOERAX-SFP-2.5G-T.patch",
@@ -3103,7 +3101,7 @@
       "status": "merged",
       "source_sha256": "3085f828f595d11bb59c1661fc9accd495b90a421a612d75d02529e5b220a465",
       "ported": "target/linux/generic/hack-7.3/904-debloat_dma_buf.patch",
-      "ported_sha256": "9d36f08081f2d1199666efc467f0d787ea1ca685dea04293d5b5a901b1098e2a",
+      "ported_sha256": "d230e7cb4be98290174e4585baff4815d549124f54a57ec9944c3d98421ebfa0",
       "review_findings": [
         "dmabuf-heaps-kbuild"
       ]
@@ -3180,7 +3178,7 @@
       "status": "rebased",
       "source_sha256": "ef52e4b18f7ca0958041e539ba9394bee8564accb797674f90dff9377e979b70",
       "ported": "target/linux/generic/hack-7.3/940-kbuild-extract-modules-builtin-modinfo-from-vmlinux_o.patch",
-      "ported_sha256": "5dda0da3547979f31460824f1429e652c88c23367ae03d52000e92db39bfc182"
+      "ported_sha256": "32ca1c13d24d43535c4b743d8a6f2c3348490ecf0d2c7ee317f19b11219beb0d"
     },
     {
       "source": "target/linux/generic/hack-6.18/950-silence-unused-variable-warnings.patch",
@@ -5905,10 +5903,9 @@
       "files": [
         "drivers/leds/leds-st1202.c"
       ],
-      "status": "rebased",
+      "status": "upstream",
       "source_sha256": "1a2dad2f619056391cd39a8abb892baf46a1b096dbaf3da3db6cbfc485b1408b",
-      "ported": "target/linux/generic/pending-7.3/880-leds-st1202-add-hardware-accelerated-blink-support.patch",
-      "ported_sha256": "b9052e3aa35d00a9a83cf020930666df05c326c7bd310db22f0371427f401cdb"
+      "reason": "Absorbed upstream by Linux 7.3.6 stable (drivers/leds/leds-st1202.c adds st1202_blink_set() and led_cdev.blink_set with phase-shift/max_brightness updates), so the 7.3 copy was dropped"
     },
     {
       "source": "target/linux/generic/pending-6.18/890-usb-serial-add-support-for-CH348.patch",

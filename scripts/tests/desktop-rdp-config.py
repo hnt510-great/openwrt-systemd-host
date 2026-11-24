@@ -54,9 +54,24 @@ class DesktopRdpConfiguration(unittest.TestCase):
             bus = socket.socket(socket.AF_UNIX)
             self.addCleanup(bus.close)
             bus.bind(str(tmp / 'bus'))
+            sessions_dir = tmp / 'sessions.d'
+            sessions_dir.mkdir()
+            (sessions_dir / 'gnome').write_text(
+                (FILES / 'sessions.d/gnome').read_text()
+                .replace('/usr/bin/gnome-session', str(launch))
+                .replace('/usr/libexec/desktop-keyring-unlock', str(binary / 'keyring')))
+            common = tmp / 'desktop-common.sh'
+            common.write_text(
+                (FILES / 'desktop-common.sh').read_text()
+                .replace('DESKTOP_SESSIONS_DIR=/usr/libexec/openwrt-desktop/sessions.d',
+                         f'DESKTOP_SESSIONS_DIR={sessions_dir}')
+                .replace('DESKTOP_SESSION_REQUIRE_ROOT=1', 'DESKTOP_SESSION_REQUIRE_ROOT=0'))
+            user_setup = binary / 'user-setup'
+            user_setup.write_text('#!/bin/sh\nexit 0\n')
+            user_setup.chmod(0o755)
             script = (FILES / 'desktop-session').read_text()
-            script = script.replace('/usr/bin/gnome-session', str(launch))
-            script = script.replace('/usr/libexec/desktop-keyring-unlock', str(binary / 'keyring'))
+            script = script.replace('/usr/libexec/desktop-common.sh', str(common))
+            script = script.replace('/usr/libexec/desktop-user-setup', str(user_setup))
             path = tmp / 'session'
             path.write_text(script)
             env = dict(os.environ, PATH=str(binary) + ':' + os.environ['PATH'],

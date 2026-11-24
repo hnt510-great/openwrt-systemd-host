@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=kf6-kirigami
-PKG_VERSION:=6.20.0
+PKG_VERSION:=6.32.0
 PKG_RELEASE:=1
 PKG_SOURCE:=kirigami-$(PKG_VERSION).tar.xz
-PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.20/
-PKG_HASH:=b67fea7225ccef4cefd0a9d3a547483150129167c47595736eac457986f709d9
+PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.32/
+PKG_HASH:=1cb13ef3ad1885726c383bcd1a35c494db3e9c2cf87b49398ea34d63129cf6d7
 PKG_LICENSE:=GPL-2.0-or-later LGPL-2.0-or-later LGPL-2.1-or-later (LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL)
 PKG_LICENSE_FILES:=LICENSES/GPL-2.0-or-later.txt LICENSES/LGPL-2.0-or-later.txt \
 	LICENSES/LGPL-2.1-or-later.txt LICENSES/LGPL-2.1-only.txt \

@@ -1,478 +1,170 @@
 # OpenWrt Systemd Host
 
 This custom x86_64 OpenWrt build combines a router with a general-purpose Linux
-host. It uses glibc, APK packages and native systemd as PID 1.
-Image-selected capabilities can include an ordinary-user Wayland desktop,
-virtual machines, desktop applications, containers and native development tools.
-OpenWrt's UCI, ubus and netifd manage the router stack; procd remains its
-service API while systemd supervises the daemons.
-Router additions include optional full cone NAT, a faster dnsmasq nftset path
-and the opt-in daed transparent proxy beside the default Passwall.
+host using glibc, signed APK packages and native systemd as PID 1. OpenWrt's
+UCI, ubus and netifd manage the router stack; procd remains its service API
+while systemd supervises daemons.
 
-## Discover this image
+## Identity and discovery
 
-Start with `/etc/os-release` (a symlink to `/usr/lib/os-release`). Its `ID` is
-`openwrt-systemd`, `ID_LIKE` includes `openwrt`, and `VARIANT_ID` is
-`native-systemd`. `OPENWRT_SYSTEM_DESCRIPTION_FILE` points to this document.
-`/etc/openwrt_release` provides the same display identity for OpenWrt tools;
-its `DISTRIB_ID` retains the base distribution for compatibility.
-`/etc/openwrt_version` retains the upstream-style build revision.
+- `/etc/os-release` (`/usr/lib/os-release`): `ID=openwrt-systemd`,
+  `VARIANT_ID=native-systemd`, `OPENWRT_SYSTEM_DESCRIPTION_FILE` points here.
+- `/etc/openwrt_release` and `/etc/openwrt_version`: OpenWrt compatibility
+  identity and base-files build revision.
+- Recorded image capabilities (`OPENWRT_FEATURES`): **@OPENWRT_FEATURES@**.
 
-Recorded capabilities: **@OPENWRT_FEATURES@**.
-
-`OPENWRT_FEATURES_SCOPE=image-build` means `OPENWRT_FEATURES` records image build
-selections. `OPENWRT_FEATURES_SCOPE=deployment-snapshot` means the list records
-installed capabilities checked when the metadata was deployed to an existing
-system. Neither scope tracks running services or later package changes. Check
-commands, packages, hardware, permissions and service status before assuming a
-feature is currently usable.
-The init metadata describes the image; systemd is the sole normal PID 1,
-while the GRUB failsafe entry boots the native OpenWrt preinit console.
-The build revision identifies base-files metadata, not necessarily the running
-kernel or every installed package. Use `uname -r`, `apk info -v` and, when
-installed, `kernelctl status` to inspect those independently.
-
-Read-only discovery commands:
+Metadata reflects build or deployment state, not live services, later APK
+changes or the currently booted kernel. Query the live system before acting:
 
 ```sh
 cat /etc/os-release /etc/openwrt_release
-cat /proc/1/comm
-uname -m; uname -r
+uname -r; cat /proc/1/comm
 ubus call system board
-apk info
-```
-
-## Service and network ownership
-
-With systemd as PID 1, use `systemctl` for native systemd units and `journalctl`
-for their logs. `openwrt-ubusd.service`, `openwrt-procd.service` and
-`openwrt-services.service` integrate the OpenWrt stack. Router services retain
-their `/etc/init.d/<service>` interfaces and `/etc/config/<name>` UCI files.
-Use `uci` and `ubus` to inspect router configuration and state; netifd owns
-network interfaces. This build disables systemd-networkd and systemd-resolved.
-
-systemd supervises router daemons. `openwrt-procd.service` runs
-`procd --systemd=units`: each instance an init script registers becomes the
-transient unit `openwrt-SERVICE@INSTANCE.service` in `openwrt-SERVICE.slice`,
-which owns exec, restart, limits, user/group, logging and stop. procd remains
-the OpenWrt service API (ubus `service`, `system`, `hotplug.*`, triggers and
-validation) and runs `/etc/hotplug.d` and `/etc/rc.button` handlers fed by
-systemd-udevd. Instances using vrf, trace, bundles or descriptor passing stay
-procd children in `openwrt-*.scope`, with a journal warning naming the reason.
-Control services through `/etc/init.d/NAME`, LuCI or `ubus`; stopping a
-transient unit directly bypasses procd's view. Put resource policy on the slice.
-Service output goes to the journal; `logread` and LuCI's System Log read it
-through a compatibility view limited to the UCI log buffer.
-
-The systemd manager owns the hardware watchdog (`RuntimeWatchdogSec=30s`);
-`ubus call system watchdog` reports owner `systemd`. The x86/64 configuration
-selects no watchdog driver, so there is no `/dev/watchdog` unless one is
-installed.
-
-`openwrt-network-wait-online.service` holds `network-online.target` until
-netifd reports its autostart, statically configured local interfaces (such as
-`lan`) up; WAN, PPPoE or VPN outages do not hold it. After 120 seconds it logs
-the interfaces still down and releases the target. Rootless Quadlets depend on
-it; select other interfaces with a drop-in rather than editing the unit.
-
-The default-on `systemd-openwrt-services` bridge accepts controls such as
-`systemctl status openwrt@dnsmasq.service`. This is a CLI compatibility
-interface that runs the init script, and UCI/init scripts remain
-authoritative. The reserved `openwrt@NAME.service` spelling is not a native unit
-for D-Bus calls or dependencies. Native SSH and D-Bus use `sshd.service` and
-`dbus.service`; NAS services (`samba4.service`, `samba4@.service`,
-`wsdd2.service`, `avahi-daemon.service`) run natively in `nas.slice`, and
-auxiliary services (`cron.service`, `nlbwmon.service`, `ddns-go.service`) run
-natively in `auxiliary.slice`. PID 1 refuses direct start/stop/restart/reload
-jobs on procd
-instance units from other clients, with instructions to use this bridge or the
-init script. Stopping `openwrt-SERVICE.slice` remains a deliberate whole-service
-override that skips init-script hooks. The restriction takes effect after reboot
-or `systemctl daemon-reexec` into the updated systemd.
-
-```sh
-systemctl --no-pager status openwrt-procd.service openwrt-services.service
+kernelctl list
 systemctl --no-pager list-units 'openwrt-*@*.service'
-journalctl -u 'openwrt-dnsmasq@*' -n 50 --no-pager
-journalctl -b -n 50 --no-pager
-uci show network
-ubus call network.interface dump
+findmnt /overlay /boot
 ```
 
-## Configuration history and safe changes
+## Services and networking
 
-When `uci-history` is installed (`command -v uci-history`), `/etc/config` and
-the extra paths listed in `/etc/config/uci-history` are journaled as numbered
-revisions with masked secrets. LuCI shows them under *System → Configuration
-History*. Its agent instructions are in
-`/usr/share/doc/uci-history/AGENT-GUIDE.md`; `uci-history --json commands`
-prints the command schema and exit codes, and `uci-history guide` prints the
-instructions. All commands need root: use existing access such as `sudo -n`
-and never change sudoers or prompt for passwords.
+- **PID 1 & logs**: systemd is the sole normal PID 1 (`systemctl`,
+  `journalctl`). Service output goes to the journal; `logread` and LuCI System
+  Log expose a compatibility view. systemd owns the hardware watchdog
+  (`RuntimeWatchdogSec=30s`).
+- **Router services**: `openwrt-procd.service` (`procd --systemd=units`) turns
+  init-script instances into transient `openwrt-SERVICE@INSTANCE.service` units
+  under `openwrt-SERVICE.slice` (falling back to `openwrt-*.scope` for vrf,
+  trace, bundle or fd-passing). Control them via `/etc/init.d/NAME`,
+  `systemctl <action> openwrt@NAME.service` (CLI bridge), LuCI or `ubus`. PID 1
+  refuses direct start/stop/restart/reload on transient procd units.
+- **Native units**: `sshd.service` and `dbus.service` run natively; NAS services
+  (`samba4`, `wsdd2`, `avahi-daemon`) run in `nas.slice`; auxiliary services
+  (`cron`, `nlbwmon`, `ddns-go`) run in `auxiliary.slice`.
+- **Networking**: `netifd` owns interfaces (`uci show network`,
+  `ubus call network.interface dump`); `systemd-networkd` and `systemd-resolved`
+  are disabled. `openwrt-network-wait-online.service` holds
+  `network-online.target` until autostart static local interfaces (e.g. `lan`)
+  are up, timing out after 120s (WAN/PPPoE/VPN outages do not block it).
 
-Wrap configuration changes, especially remote ones touching `network`,
-`firewall`, `dhcp`, `wireless`, `dropbear` or `sshd`, in a timed transaction:
-**begin → change → verify → confirm**. An unconfirmed transaction is reverted
-when its timer expires or at the next boot, so a lost SSH session recovers on
-its own. Confirm only after verifying connectivity and service behavior
-yourself, not because a command succeeded; on failure run `abort` or let the
-timer expire. Start with `status`, and do not run a LuCI apply while a CLI
-transaction is armed. Never include `--show-secrets` output in transcripts.
+## Configuration history and audit
 
-```sh
-sudo -n uci-history --json status
-sudo -n uci-history --json begin --timeout 300 --actor agent --note 'purpose'
-# make, commit and reload the authorized UCI changes, then verify them
-sudo -n uci-history --json diff
-sudo -n uci-history --json confirm      # or: abort
-sudo -n uci-history --json log --limit 20 --config network
-sudo -n uci-history --json restore REV --config network --timeout 300 --dry-run
-```
+- **`uci-history`**: versions `/etc/config` and configured extra paths with
+  masked secrets (LuCI *System → Configuration History*; agent guide:
+  `/usr/share/doc/uci-history/AGENT-GUIDE.md`). Wrap remote/UCI edits in a timed
+  transaction (**begin → change → verify → confirm**): unconfirmed changes
+  auto-revert on timer expiry or next boot. Use `sudo -n`, avoid LuCI apply
+  while a CLI transaction is armed, and never log `--show-secrets`.
 
-## Router audit data
+  ```sh
+  sudo -n uci-history --json status
+  sudo -n uci-history --json begin --timeout 300 --actor agent --note 'purpose'
+  # apply, commit, reload and verify changes
+  sudo -n uci-history --json diff
+  sudo -n uci-history --json confirm   # or: abort
+  ```
 
-When `router-audit` is installed, background collection is opt-in and disabled
-by default (`router-audit.main.enabled='0'` in `/etc/config/router-audit`).
-When enabled (`enabled='1'`), `router-audit-collect.service` collects
-read-only JSON snapshots and minute samples: system, services, network,
-firewall and conntrack counters, client identity, journal signatures and UCI
-changes. It also records DNS query metadata from dnsmasq and daed, and
-per-device connection destinations from daed and conntrack. It changes no UCI,
-firewall, route or credential state. Only when enabled do its fixed probes
-(TCP 443 and one UDP DNS query per minute) generate a small amount of traffic;
-manual `router-audit-export` queries and historical samples remain available
-when collection is disabled. The spool is root-only
-under `/srv/router-audit` and holds at most 256 MiB or 24 hours. Missing
-observations and `status=partial` are coverage gaps, not zeros. Proxied, offloaded
-and notrack traffic limit how complete per-client accounting can be.
-Rules, baselines and any language-model analysis run off the router. The
-companion scripts are in `/usr/share/router-audit/`, and the full guide is
-`/usr/share/doc/router-audit/README.md`.
-
-```sh
-sudo -n router-audit-export capabilities
-sudo -n router-audit-export snapshot
-sudo -n router-audit-export incidents --since 1h
-sudo -n router-audit-export dns --since 15m
-systemctl --no-pager status router-audit-collect.service
-```
-
-The data names LAN clients and the domains they resolve and connect to. Keep it
-inside the local environment. Remote readers use a restricted SSH key that can
-run only `router-audit-read`; enrolling a key grants access to the audit data.
+- **`router-audit`**: opt-in (`router-audit.main.enabled='0'` by default). When
+  enabled, `router-audit-collect.service` writes read-only snapshots, minute
+  samples, DNS query metadata and connection flows to root-only
+  `/srv/router-audit` (≤ 256 MiB / 24h). Query with `router-audit-export
+  capabilities|snapshot|incidents|dns`; off-router analysis scripts live in
+  `/usr/share/router-audit/` (guide: `/usr/share/doc/router-audit/README.md`).
+  Keep audit data inside the local environment.
 
 ## Router additions
 
-These are off by default or transparent; inspect UCI and the running kernel
-before assuming one is active.
+Inspect UCI and the running kernel before assuming optional features are active:
 
-- **Full cone NAT**: `firewall.@defaults[0].fullcone='2'` (LuCI *Network →
-  Firewall*, "Enable full cone NAT") followed by `fw4 reload` makes IPv4 UDP
-  masquerading endpoint-independent. It needs a kernel generation built with
-  `CONFIG_NF_NAT_MASQUERADE_FULLCONE`; an older kernel masquerades normally.
-  When active, `srcnat_wan` contains `masquerade fullcone`. Mode `1` and
-  `fullcone6` rely on an out-of-tree expression that is absent here; fw4 logs
-  the failed probe and falls back.
-- **dnsmasq nftset**: `dnsmasq-full` adds plain address-set elements over
-  netlink and falls back to libnftables for everything else. It needs no
-  configuration; libnftables errors are still logged as `nftset ...`.
-- **daed**: an eBPF (tc) transparent proxy with a web dashboard, shipped
-  disabled. Passwall stays the default, and the two must not run together:
-  the daed init script refuses to start while `passwall.@global[0].enabled`
-  is `1`, and stops daed if Passwall is enabled later. LuCI *Services → daed*
-  controls `daed.config.enabled`; the dashboard listens on port 2023 and is
-  reachable from LAN and WireGuard zones only. The first visitor creates the
-  admin account. Dashboard state lives in `/etc/daed/wing.db`. daed needs a
-  kernel with BTF; check `/sys/kernel/btf/vmlinux`.
-- **ttyd**: with `ssl=1` and no explicit certificate, ttyd on port 7681 reuses
-  uhttpd's `main.cert`/`main.key`, so LuCI's HTTPS terminal page is not blocked
-  as mixed content. An explicit `option ssl '0'` is preserved.
-- **PPP**: pppd runs in ujail as user `ppp` (uid 454) with only
-  `CAP_NET_ADMIN`/`CAP_NET_RAW`. Hooks in `/etc/ppp/ip-up.d` and `ip-down.d`
-  run with the same rights; a hook that needs root no longer gets it.
-- **LAN discovery notrack**: firewall4 adds `upnp_ssdp_notrack`,
-  `wsd_ipv4_notrack` and `wsd_ipv6_notrack` once, so LAN SSDP (UDP 1900) and
-  WS-Discovery (UDP 3702) multicast is not conntracked. An existing section of
-  the same name, including a disabled one, is kept; the LAN input policy still
-  applies. Rules live in the `notrack_lan` chain.
-- **Wireless AP**: the onboard Intel Wi-Fi 6 AX101 (`phy0`, iwlwifi) runs one
-  access point, `phy0-ap0`, bridged into `br-lan` and managed by `wpad`
-  (`openwrt-wpad@hostapd.service`). Configure it in `/etc/config/wireless`
-  or LuCI *Network → Wireless*; it is not a separate interface on *Network →
-  Interfaces*. Only 2.4 GHz works for AP mode: the card's firmware keeps its
-  own regulatory domain (`iw reg get` shows `phy#0 (self-managed)`) and marks
-  every 5 GHz channel no-IR whatever `country` is set, and no firmware update
-  changes that. 5 GHz needs an additional non-Intel radio. `iwinfo`,
-  `hostapd_cli` and LuCI *Services → Wifi Schedule* (installed disabled) are
-  available.
-- **irqbalance netdev CPU pools**: `irqbalance` accepts repeatable
-  `list netdev_cpus 'IFACE:CPULIST'` rules in `/etc/config/irqbalance`
-  (`--netdev-cpus`) to restrict matching PCI network-device IRQs to a CPU pool
-  while keeping load-based placement within that pool; no rules are enabled by
-  default.
-
-```sh
-uci -q get firewall.@defaults[0].fullcone
-nft list chain inet fw4 notrack_lan
-nft list chain inet fw4 srcnat_wan
-uci show daed; uci -q get passwall.@global[0].enabled
-/etc/init.d/daed status
-ubus call network.wireless status; iwinfo phy0-ap0 info
-```
+- **Full cone NAT**: `firewall.@defaults[0].fullcone='2'` + `fw4 reload` enables
+  IPv4 UDP full-cone masquerading (needs `CONFIG_NF_NAT_MASQUERADE_FULLCONE`;
+  `srcnat_wan` shows `masquerade fullcone`).
+- **dnsmasq nftset**: automatic netlink fast path for plain IP sets, falling
+  back to libnftables.
+- **daed**: eBPF transparent proxy, disabled by default and mutually exclusive
+  with Passwall. Dashboard listens on port 2023 (LAN/WireGuard only; state in
+  `/etc/daed/wing.db`); requires `/sys/kernel/btf/vmlinux`.
+- **ttyd**: port 7681; reuses uhttpd's certificate/key when `ssl=1`.
+- **PPP**: `pppd` and `/etc/ppp/ip-{up,down}.d` hooks run in ujail as user `ppp`
+  (uid 454) with `CAP_NET_ADMIN`/`CAP_NET_RAW`.
+- **LAN discovery notrack**: `notrack_lan` skips conntrack for SSDP (UDP 1900)
+  and WS-Discovery (UDP 3702).
+- **Wireless AP**: onboard Intel AX101 (`phy0-ap0`, bridged into `br-lan`,
+  `/etc/config/wireless`) supports 2.4 GHz AP mode only (self-managed firmware
+  marks 5 GHz no-IR).
+- **irqbalance**: optional `list netdev_cpus 'IFACE:CPULIST'` in
+  `/etc/config/irqbalance` restricts matching PCI NIC IRQs to a CPU pool.
 
 ## Optional capabilities
 
-Feature names in `OPENWRT_FEATURES` have these meanings:
+`OPENWRT_FEATURES` values: `desktop` (GNOME / KDE Plasma Wayland),
+`virtualization` (libvirt/QEMU), `flatpak`, `containers` (Podman), `appimage`,
+`distrobox`, `native-development` (GCC/headers).
 
-- `desktop`: ordinary-user GNOME Wayland desktop; inspect `desktop-setup`
-  and `/etc/config/desktop` for provisioning and session configuration.
-- `virtualization`: libvirt VM management; inspect `virsh -c qemu:///system list
-  --all`, `virsh nodedev-list`, installed QEMU tools and `/dev/kvm`. KVM requires usable hardware
-  support; virt-manager is available when separately selected.
-- `flatpak`: ordinary-user and system-wide Flatpak with desktop portal
-  integration; inspect `flatpak --user list` in the intended user's session,
-  `flatpak --system list`, and the D-Bus-activated
-  `flatpak-system-helper.service`. System changes are authorized by polkit;
-  Flatpak administrator prompts use the desktop account in the `sudo` group.
-- `containers`: Podman container tools; inspect `podman info` as the intended
-  user to determine the current rootful or rootless environment.
-- `appimage`: manually launched AppImage support; application compatibility
-  depends on its runtime and available libraries.
-- `distrobox`: container-based distribution environments using the installed
-  container engine; inspect `distrobox list` as the intended user.
-- `native-development`: GCC and native library development files; inspect
-  compiler, headers and libraries for the project being built.
+### Desktop, audio and IME
 
-### Desktop, remote access and audio
+- **Sessions & control (`openwrt-desktop-base`)**: runs an ordinary-user
+  Wayland session on VT7 (`openwrt-desktop.service`, `/etc/config/desktop`) for
+  GNOME (`gnome`) and/or KDE Plasma (`plasma`) via plugins in
+  `/usr/libexec/openwrt-desktop/sessions.d/`. Provision with `desktop-setup
+  USER`; inspect or switch via `desktop-ctl` (`--json status`, `switch
+  --session gnome|plasma`) or LuCI *Services → Desktop*. Both share
+  `gnome-keyring-daemon` (TPM2-sealed bootstrap creds in root-only
+  `/etc/desktop/gnome/`, TLS identity in `/etc/desktop/tls/`—preserve across
+  upgrades).
+- **RDP**: `desktop-rdp-setup USER [--session gnome|plasma]` shares the active
+  session over LAN IPv4 TCP 3389 (no VNC/xrdp): `gnome-remote-desktop` on
+  GNOME, `krdp` (with PipeWire RDPSND audio) on Plasma.
+- **Apps**: GNOME ships Nautilus (GVfs SMB/DNS-SD LAN discovery), Terminal,
+  Settings, Tweaks and core utilities; Plasma ships Dolphin, Konsole and System
+  Settings. Router networking remains in LuCI/UCI. Browsers: Firefox ESR and
+  `google-chrome-bin` (Wayland, updated via APK).
+- **Audio & streaming**: `desktop-audio-setup USER` enrolls PipeWire/WirePlumber
+  (`wpctl status`, `pactl info`). `sunshine-setup USER
+  --capture=portal|--enable-kms` configures Sunshine/Moonlight.
+- **Scheduling**: RealtimeKit (`rtkit-daemon.service`) grants priority to Mutter
+  (`kms_scheduling` in `/etc/config/desktop`, GNOME only) and PipeWire; kernel
+  built with `PREEMPT_DYNAMIC`, `HZ=1000`, `RT_GROUP_SCHED_DEFAULT_DISABLED`.
+- **IME (`openwrt-desktop-ime*`)**: Fcitx5 (GTK/Qt modules, Kimpanel on GNOME,
+  `fcitx5-qt` on Plasma) with offline Chinese Pinyin; **Ctrl+Space** toggles on
+  fresh profiles.
+- Run `systemctl --user`, `wpctl`, `flatpak` and desktop commands in the
+  ordinary user's session, not root's.
 
-The GNOME desktop runs as an ordinary user, configured with
-`desktop-setup USER` and `/etc/config/desktop`. GNOME Shell/Mutter manages the
-local Wayland session. GNOME Remote Desktop provides RDP sharing of that same
-session; `desktop-rdp-setup USER` configures its separate credentials. The
-listener follows the LAN address and defaults to LAN IPv4 TCP 3389. Reconnecting
-does not create another login session. This profile uses neither a VNC server
-nor xrdp. Restarting the desktop closes its applications and remote connections.
+### Virtualization, containers and development
 
-`desktop-setup` provisions unattended GNOME keyring access for session startup,
-sealing the passphrase under `/etc/desktop/gnome/` with TPM2 (`systemd-creds`)
-when TPM2 is available and falling back to plaintext credentials otherwise.
-Preserve the existing user keyring, root-only bootstrap credentials and RDP TLS
-identity across upgrades; do not replace them to recover a remote connection.
-Inspect the ordinary user's `gnome-keyring-daemon.service`,
-`gnome-remote-desktop.service` and `openwrt-gnome-remotes.service` alongside
-the root `openwrt-desktop.service`. Provisioning and an active listener alone
-do not prove successful client authentication or screen sharing.
+- **Libvirt/QEMU** (`qemu:///system`): KVM, OVMF/Secure Boot, emulated TPM 2.0
+  (`swtpm`, state under `/srv/libvirt/state`), PCI/USB passthrough (check
+  `virt-host-validate qemu`; never pass through a router NIC) and `virtio-fs`
+  (`/srv/libvirt/shares`). Guests attach to OpenWrt bridges (`br-lan`; `virbr*`
+  is not built). Restarting `virtqemud` does not stop guests.
+- **Containers & apps**: Podman (rootful and rootless with systemd/Quadlets),
+  Distrobox, Flatpak (per-user and `flatpak-system-helper.service` authorized by
+  polkit/`sudo` group) and AppImage.
+- **Native development**: GCC, native headers/pkg-config, `kernel-dev-headers`
+  (`/usr/lib/modules/<release>/build`) and optional on-device Qt 6 development
+  packages (`qt6base-dev`, `qt6quick-dev`, `qt6tools`, etc. via APK).
 
-The desktop profile includes GNOME Files (`nautilus`), Terminal
-(`gnome-terminal`), Settings (`gnome-control-center`) and Tweaks
-(`gnome-tweaks`). Nautilus supports basic file browsing and filename search
-without the optional LocalSearch indexer. A minimal `gvfs` provides Trash,
-Recent, Network, Computer, FTP and SFTP; removable-media mounting (no
-`udisksd`), SMB/DNS-SD, MTP, WebDAV and FUSE backends are absent.
-Settings omits network, WWAN, Bluetooth, Wacom, online-account, printer and
-color panels; router networking remains under LuCI/UCI/netifd. Firefox ESR
-runs as the desktop user; profiles, extensions and open tabs belong to that
-user.
+## Packages, kernels and recovery
 
-Google Chrome stable (`google-chrome-bin`) is also available, repackaged
-unchanged from Google's signed Debian archive under `/opt/google/chrome`.
-`google-chrome` runs natively on Wayland as the desktop user and uses Chrome's
-user-namespace sandbox; the setuid sandbox helper, Qt UI shims and Google's apt
-repository cron job are not installed. Chrome does not update itself on Linux:
-new stable builds arrive as APK upgrades from the LAN feed.
-
-Shell extension downloads use libsoup and GIO TLS. `libgio-gnutls`, built by
-the `glib-networking` recipe, provides the TLS backend; `ca-bundle` provides
-trusted certificates. Extension Manager delegates installation to Shell.
-After adding a backend to a running installation, refresh caches with
-`/usr/libexec/glib2-cache-update` and restart the desktop after the package
-transaction if Shell has cached the unavailable backend.
-
-With `openwrt-desktop-audio`, `desktop-audio-setup USER` enrolls the user for
-PipeWire/WirePlumber playback and capture. Inspect `systemctl --user`,
-`wpctl status` and `pactl info` in that user's session. GNOME RDP redirects
-playback and a client microphone. Sunshine/Moonlight shares the same desktop
-and audio after enrollment and client pairing. `sunshine-setup USER
---capture=portal` selects GNOME portal/PipeWire capture; `sunshine-setup USER
---enable-kms` explicitly enrolls KMS capture. Existing pairings and capture
-preferences are preserved. Portal capture may require the user's screen
-selection permission. GPU and codec support, playback, microphone and client
-input require end-to-end checks; a render node or active service is insufficient.
-On Gen9–Gen11 Intel GPUs the kernel loads HuC by default (GuC only
-authenticates it; submission stays on execlists), which low-power VA-API
-encoding needs for bitrate control. Check `dmesg | grep -i huc` and
-`vainfo | grep EncSliceLP`; `i915.enable_guc=0` restores the upstream default.
-
-RealtimeKit (`rtkit-daemon.service`, D-Bus activated) grants scheduling to the
-desktop: Mutter's KMS thread runs at nice -15 by default, which also enables
-Mutter's KMS deadline timer, and PipeWire's data loops run `SCHED_RR` priority
-20. Polkit rule `20-openwrt-rtkit.rules` also authorizes members of the `audio`
-and `video` groups, so RDP-only sessions qualify. `option kms_scheduling` in
-`/etc/config/desktop` selects `high-priority` (default), `realtime` or
-`normal`; restart the desktop after changing it. Desktop kernels are built with
-`PREEMPT_DYNAMIC` (default `preempt=full`), `HZ=1000` and
-`RT_GROUP_SCHED_DEFAULT_DISABLED`, so cgroup v2 slices can hold realtime
-threads; `rt_group_sched=1` restores RT group scheduling and `preempt=lazy`
-the earlier preemption model. An older kernel needs `rt_group_sched=0` on its
-command line before rtkit can grant realtime scheduling. Check with
-`ps -eLo pid,tid,cls,rtprio,ni,comm` and `/sys/kernel/debug/sched/preempt`.
-
-When `openwrt-desktop-ime` is installed, the GNOME session supervises Fcitx5.
-Its IBus compatibility frontend serves GNOME's native input path; the Kimpanel
-Shell extension displays candidates, GTK3/GTK4 modules support GTK
-applications, and `fcitx5-qt` provides the Qt platform input context when the
-optional Konsole stack is built. Offline Chinese Pinyin, libime dictionaries
-and Chinese fonts
-are included. Fresh profiles start in English; **Ctrl+Space** toggles Pinyin.
-Type `nihao` and press Space to commit `你好`. Existing personal shortcuts,
-profiles and dictionaries are preserved; inspect the user's Fcitx configuration
-before assuming its trigger. Remote clients must forward the chosen shortcut
-to the session. Do not start another Fcitx daemon; RDP reconnection alone does not
-activate a newly installed session integration.
-
-### Virtual machines, containers and development
-
-Libvirt/QEMU supports KVM guests and virt-manager/SPICE consoles when selected.
-Inspect the system connection (`qemu:///system`) separately from user sessions.
-SPICE is the default guest audio path; QEMU PipeWire audio is optional and
-requires access to the intended user's audio session. Guests can use UEFI
-firmware (OVMF, including Secure Boot with Microsoft keys) and an emulated
-TPM 2.0 (swtpm), so Windows 11 is supported; UEFI variable stores and TPM
-state persist under `/srv/libvirt/state`. Host PCI/USB devices are listed by
-`virtnodedevd` and can be passed through (PCI needs an active IOMMU; check
-`virt-host-validate qemu`, and never pass through a NIC the router uses).
-Per-guest network filters (`virsh nwfilter-list`) use separate nftables bridge
-tables and do not modify firewall4. Guests attach to OpenWrt bridges such as
-`br-lan`; libvirt virtual networks (`virbr*`) and interface management are
-not built and report `VIR_ERR_NO_SUPPORT` instead of failing on absent daemon
-sockets.
-Host directories can be shared with guests over virtio-fs: libvirt starts
-`/usr/libexec/virtiofsd` (found through
-`/usr/share/qemu/vhost-user/50-virtiofsd.json`) as root for each
-`<filesystem>` with `<driver type='virtiofs'/>`; the guest needs shared
-memfd memory backing and its own virtio-fs driver. Its log is
-`/var/log/libvirt/qemu/DOMAIN-fsN-virtiofsd.log`, and
-`/srv/libvirt/shares` is a suggested location for shared directories. When
-this firmware itself runs as a KVM guest, `kmod-fs-virtiofs` lets it mount a
-host share (`mount -t virtiofs TAG /mnt/...`, or a systemd `.mount` unit for
-boot-time mounts).
-Restarting `virtqemud` does not shut guests down. Installed virtualization
-tools or an active daemon do not establish that any guest is running.
-
-Podman supports rootful and explicitly enrolled rootless users, with native
-systemd/Quadlet integration. User namespaces, subordinate IDs and persistent
-container storage still need configuration. Distrobox uses the selected engine;
-inspect each environment as its owning user. Flatpak applications use per-user
-portals and permissions; X11-only Flatpak apps such as Steam receive a filtered
-copy of the session's Xwayland cookie. 32-bit x86 programs need a kernel with
-IA32 emulation; check with `zgrep IA32_EMULATION /proc/config.gz`. An
-`Exec format error` from one means the running kernel predates it. AppImages
-depend on compatible runtimes/libraries.
-Native development packages provide compilers, headers and pkg-config metadata;
-out-of-tree kernel modules build against `kernel-dev-headers`, which follows the
-newest installed kernel (`/usr/lib/modules/<release>/build`).
-
-## Packages, storage and firmware
-
-APK is the host package manager. Inspect `/etc/apk/repositories.d/` and
-`/etc/apk/keys/` for this installation's repositories and signing keys. Use
-signed packages from repositories matching this native-systemd/glibc build.
-Kernel modules ship inside each `linux-image-<release>` package; `kmod-*`
-packages only enable autoloading and are independent of the kernel. Distribution
-environments managed by Distrobox have their own userspace and package manager.
-
-`lan-apk-feeds` generates the local repository list at boot and after APK
-transactions. The LAN origin is `http://apk.example.invalid:8088`, with the
-kernel package channel `kernel-upgrades` plus nine userspace repositories under
-`current/`. It is served by nginx on the build host. Inspect the
-generated list and router DNS before diagnosing unavailable packages. Upstream
-snapshot feeds are not interchangeable with this native-systemd/glibc feed.
-`apk update` refreshes indexes; it does not install or upgrade packages.
-
-Inspect an upgrade with `apk upgrade --simulate` before committing it. An
-explicit `apk upgrade --userspace-only --simulate` checks a userspace-only
-alternative that keeps the installed kernel packages. Keep world constraints, signature
-checks and kernel protection hooks intact. An APK upgrade or reinstall starts
-an init script only where it is enabled (and native systemd services follow their
-unit enable/mask state via package lifecycle hooks); it does not start disabled
-services.
-
-An APK commit that has started runs to its database write: Ctrl-C, SIGTERM
-and SSH hangups are deferred until then, and with `apk-transaction-guard` the
-commit leaves its caller's service (a LuCI-driven upgrade survives an rpcd
-restart) and blocks an ordinary shutdown. Power loss, a crash or SIGKILL
-leaves a journal in `/lib/apk/db/transaction/`; `apk-resume.service` finishes
-that transaction at the next boot before router services start, offline from
-the journal's package copies, and further APK commits are refused until it is
-done. Check with `apk-resume --status`; run `apk-resume` by hand if the boot
-attempt failed (from failsafe, after `mount_root`). Do not delete the journal
-to get APK working again.
-
-OpenWrt rootfs/overlay and configuration backup conventions still apply. Inspect `mount`
-and `/etc/config/fstab` to determine the actual persistent storage and extroot
-layout; `/var` may point into `/tmp`.
-
-Systemd is the sole normal init. The GRUB failsafe entry starts the native
-OpenWrt preinit console, where `mount_root` allows manual overlay access.
-Use `sysupgrade -b`, `-l` and `-r` for configuration backups, lists and
-restores. Use installation media or offline disk imaging to replace the
-firmware, then restore the selected configuration.
-
-With `openwrt-kernel-upgrade`, kernels are installed like a distribution's:
-every kernel build is a separate `linux-image-<release>` package carrying its
-modules, and `apk upgrade` installs the newest one next to the running kernel.
-Its initramfs and GRUB entry are generated on installation, and it becomes the
-GRUB default; it runs after a deliberate reboot. GRUB gives a new default three
-boot attempts. A boot counts as good once the static local interfaces, LAN
-addresses, persistent overlay, OpenWrt services and SSH are up; otherwise the
-system reboots and, after three attempts, falls back to the previous kernel.
-`kernelctl list` shows the running, default, fallback, known-good and rescue
-kernels; `kernelctl set-default`, `rollback` and `remove` manage them. Only the
-default (active or pending) kernel, its fallback and the image's original rescue
-kernel are kept; older kernels are pruned automatically. A package
-installation does not prove the new kernel has booted. Kernel upgrades and
-firmware replacement are separate operations.
-
-`needrestart --cached --json` and LuCI's Restart Needed page report cached
-restart advice when installed. A fresh `needrestart` scan inspects replaced or
-removed files and kernel/container state. Neither scan restarts workloads;
-check report freshness and coverage before acting.
-
-## Inspect the live system
-
-This document describes the build's integration and available packages. Fixed
-build revisions, kernel generations, guest inventories and running-service
-snapshots become stale; query the machine before changing it. In particular,
-an installed kernel package is not necessarily the booted kernel.
-
-```sh
-uname -r
-kernelctl check
-kernelctl list
-# kernelctl status includes the full installed-kernel inventory.
-kernelctl status
-apk info -e gnome-shell nautilus gnome-tweaks openwrt-desktop-ime
-systemctl --no-pager status openwrt-desktop.service
-loginctl list-sessions
-findmnt /overlay
-findmnt /boot
-systemctl --no-pager status openwrt-network-wait-online.service
-virsh -c qemu:///system list --all
-ubus call network.interface dump
-```
-
-Run `systemctl --user`, `wpctl`, Flatpak and desktop application commands in
-the intended ordinary user's session. Root's user manager is a different
-context. Check RDP/Sunshine listener addresses with `ss -lntup` and preserve
-LAN-only bindings when repairing remote access.
-
-## Whole-disk USB installation
-
-An optional clean hybrid installer boots with native systemd into a dedicated
-console target, using a tmpfs overlay and skipping the normal x86 boot-partition
-restore hook. The English installer creates a fresh GPT with a FAT ESP, read-only
-system partition and separate ext4, btrfs or xfs overlay, configures LAN/WAN and
-firewall policy, and sets account password hashes. Optional regular-user and
-GNOME setup runs after OpenWrt first-boot defaults under systemd. The installed
-boot tree supports kernelctl and retains BIOS and UEFI boot with native OpenWrt failsafe.
-Personal untracked image overlays are excluded from the installer payload.
+- **APK & LAN feed**: `lan-apk-feeds` configures signed repositories at
+  `http://apk.example.invalid:8088` (not interchangeable with upstream snapshots).
+  Preview upgrades with `apk upgrade --simulate` (or `--userspace-only
+  --simulate`). Upgrades only start enabled services.
+- **Transaction recovery**: started APK commits defer Ctrl-C/SIGTERM/HUP;
+  `apk-transaction-guard` isolates commits from caller restarts and shutdowns.
+  Interrupted commits journal in `/lib/apk/db/transaction/` and resume on next
+  boot via `apk-resume.service` (`apk-resume --status`; never delete the
+  journal).
+- **Parallel kernels (`openwrt-kernel-upgrade`)**: each `linux-image-<release>`
+  carries its own modules (`kmod-*` is autoload-only). `apk upgrade` installs
+  new kernels alongside the running one with a 3-attempt GRUB boot counter and
+  automatic fallback. Manage with `kernelctl list|status|set-default|rollback|remove`
+  (keeps default, fallback and rescue).
+- **Restart advice**: `needrestart --cached --json` or LuCI *Restart Needed*
+  (advisory only; does not restart workloads).
+- **Firmware, failsafe & installer**: `sysupgrade` (`-b`, `-l`, `-r`) is for
+  configuration backup/restore only; replace firmware via offline disk imaging
+  or the hybrid BIOS/UEFI whole-disk installer ISO (GPT: ESP, base read-only
+  rootfs, ext4/btrfs/xfs overlay, optional offline signed APK components;
+  excludes untracked personal overlays). The GRUB failsafe entry boots native
+  OpenWrt preinit (`mount_root`).

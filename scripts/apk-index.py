@@ -15,12 +15,34 @@ def merge_links(args):
     dest = Path(args.dest)
     ext = '.' + args.ext.lstrip('.')
     seen = {}
+    overrides = set()
+    for raw_dir in getattr(args, 'override_dirs', ()) or ():
+        pdir = Path(raw_dir)
+        if not pdir.is_dir():
+            continue
+        for entry in sorted(pdir.iterdir()):
+            if not entry.name.endswith(ext) or not entry.is_file():
+                continue
+            prev = seen.get(entry.name)
+            if prev is not None:
+                if prev.resolve() == entry.resolve():
+                    continue
+                if not filecmp.cmp(prev, entry, shallow=False):
+                    raise ValueError(
+                        f'Conflicting override package filename {entry.name}: {prev} vs {entry}'
+                    )
+                continue
+            seen[entry.name] = entry
+            overrides.add(entry.name)
+
     for raw_dir in args.dirs:
         pdir = Path(raw_dir)
         if not pdir.is_dir():
             continue
         for entry in sorted(pdir.iterdir()):
             if not entry.name.endswith(ext) or not entry.is_file():
+                continue
+            if entry.name in overrides:
                 continue
             prev = seen.get(entry.name)
             if prev is not None:
@@ -167,6 +189,7 @@ def main():
     p_merge = sub.add_parser('merge')
     p_merge.add_argument('--dest', required=True)
     p_merge.add_argument('--ext', default='apk')
+    p_merge.add_argument('--override-dir', dest='override_dirs', action='append', default=[])
     p_merge.add_argument('dirs', nargs='*')
 
     p_idx = sub.add_parser('index')

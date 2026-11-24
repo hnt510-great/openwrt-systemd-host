@@ -386,8 +386,43 @@ def check_prepared(result, record):
         raise ValueError('Prepared release changed after upgrade validation')
 
 
+def validate_reused_generation(baseline, simulation, reused_generation):
+    """Assert zero kernel-payload touches when reusing the router's running generation."""
+    if not reused_generation:
+        return None
+    target_release = reused_generation.get('release')
+    target_seq = reused_generation.get('sequence')
+    if not target_release or not target_seq:
+        raise ValueError('Upgrade preflight: invalid reused_generation specification')
+    if baseline.get('release') != target_release:
+        return 'router-on-different-generation'
+    if 'plan' not in simulation:
+        raise ValueError('Upgrade preflight: reused-generation assertion requires an APK transaction plan')
+    prefix = f'1000.{target_seq}.'
+    touched = []
+    for change in simulation['plan'].get('changes', []):
+        name = change.get('name', '')
+        before = change.get('before')
+        after = change.get('after')
+        if name in ('linux-image-openwrt', 'kernel-dev-headers') or name.startswith(('linux-image-', 'linux-headers-')):
+            touched.append(f'{name} ({before} -> {after})')
+        elif name.startswith('kmod-'):
+            if before == after:
+                touched.append(f'{name} (reinstall {before})')
+            elif after is not None and not str(after).startswith(prefix):
+                touched.append(f'{name} (generation change {before} -> {after})')
+            elif before is not None and after is not None and str(before).startswith(prefix):
+                touched.append(f'{name} (same-generation change {before} -> {after})')
+    if touched:
+        raise ValueError(
+            f'Upgrade preflight: reused generation {target_release} must not modify kernel payloads '
+            f'on a router already running {target_release}: ' + ', '.join(touched)
+        )
+    return 'passed'
+
+
 def preflight(destination, origin, userspace, kernel, *, progress=None, expected_baseline=None,
-              baseline=None, recheck=True):
+              baseline=None, recheck=True, reused_generation=None):
     """Bind simulation to snapshot hashes; authorize() rechecks before promotion.
 
     baseline: a complete capture() taken earlier in this publication (see
@@ -467,6 +502,10 @@ def preflight(destination, origin, userspace, kernel, *, progress=None, expected
             raise ValueError('Router rejects prepared release: ' + solver_error(simulation['stderr']))
         if not legacy_router or abi == before['abi']:
             receipt['elf_transition'] = validate_elf_transition(before, userspace_manifest, simulation)
+            if reused_generation:
+                receipt['reused_generation'] = reused_generation
+                receipt['reused_generation_check'] = validate_reused_generation(
+                    before, simulation, reused_generation)
         if legacy_router and abi != before['abi']:
             target_indexes = list(indexes)
             for index in sorted(Path(userspace['snapshot']).rglob('packages.adb')):
@@ -482,6 +521,10 @@ def preflight(destination, origin, userspace, kernel, *, progress=None, expected
                 raise ValueError('Router rejects target ABI userspace view: ' +
                                  solver_error(target_simulation['stderr']))
             receipt['elf_transition'] = validate_elf_transition(before, userspace_manifest, target_simulation)
+            if reused_generation:
+                receipt['reused_generation'] = reused_generation
+                receipt['reused_generation_check'] = validate_reused_generation(
+                    before, target_simulation, reused_generation)
         if recheck:
             if progress:
                 progress(80, 'Recheck router baseline')

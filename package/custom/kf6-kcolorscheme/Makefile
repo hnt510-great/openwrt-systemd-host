@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=kf6-kcolorscheme
-PKG_VERSION:=6.20.0
+PKG_VERSION:=6.32.0
 PKG_RELEASE:=1
 PKG_SOURCE:=kcolorscheme-$(PKG_VERSION).tar.xz
-PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.20/
-PKG_HASH:=1505acc69b2cc1be9ad325a70ab9669bb8d316fc5d601ccf4032be22fab8c0c2
+PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.32/
+PKG_HASH:=235c73afa46669c41cbe2e3a14c5a6ae1f8ad8cbb386b3f65261f65449d2b915
 PKG_LICENSE:=LGPL-2.1-or-later
 
 KF6_TITLE:=Color Scheme

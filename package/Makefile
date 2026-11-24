@@ -54,8 +54,10 @@ PACKAGE_EXT:=$(if $(CONFIG_USE_APK),apk,ipk)
 PACKAGE_INDEX_FILE:=$(PACKAGE_DIR_ALL)/$(if $(CONFIG_USE_APK),packages.adb,Packages)
 PACKAGE_MERGE_LIST:=$(PACKAGE_DIR_ALL).list
 
+KERNEL_REUSE_OVERRIDE_DIRS:=$(if $(KERNEL_REUSE_DIR),$(KERNEL_REUSE_DIR)/kernel $(wildcard $(KERNEL_REUSE_DIR)/kmods/*))
+
 define package_merge_links
-	python3 $(SCRIPT_DIR)/apk-index.py merge --dest "$(PACKAGE_DIR_ALL)" --ext "$(PACKAGE_EXT)" $(PACKAGE_SUBDIRS);
+	python3 $(SCRIPT_DIR)/apk-index.py merge --dest "$(PACKAGE_DIR_ALL)" --ext "$(PACKAGE_EXT)" $(foreach d,$(KERNEL_REUSE_OVERRIDE_DIRS),--override-dir "$(d)") $(PACKAGE_SUBDIRS);
 endef
 
 # Kernel packages are assembled from every packed kmod, so they must be built
@@ -67,7 +69,7 @@ endif
 
 $(curdir)/merge: $(curdir)/kernel-bundle
 	mkdir -p $(dir $(PACKAGE_MERGE_LIST))
-	find $(PACKAGE_SUBDIRS) -maxdepth 1 -name '*.$(PACKAGE_EXT)' \
+	find $(KERNEL_REUSE_OVERRIDE_DIRS) $(PACKAGE_SUBDIRS) -maxdepth 1 -name '*.$(PACKAGE_EXT)' \
 		-printf '%p %s %T@\n' 2>/dev/null | LC_ALL=C sort > $(PACKAGE_MERGE_LIST).new
 	if cmp -s $(PACKAGE_MERGE_LIST).new $(PACKAGE_MERGE_LIST) && \
 	   [ -f $(PACKAGE_INDEX_FILE) ]; then \
@@ -136,13 +138,14 @@ define rootfs_cache_restore
 	cp -a $(ROOTFS_CACHE)/root.orig $(TARGET_DIR_ORIG)
 endef
 
-KERNEL_PIN_VERSION = $(strip $(shell cat $(STAGING_DIR)/kernel-package.version 2>/dev/null))
+KERNEL_PIN_VERSION = $(strip $(shell cat $(if $(KERNEL_REUSE_DIR),$(KERNEL_REUSE_DIR)/kernel-package.version,$(STAGING_DIR)/kernel-package.version) 2>/dev/null))
+KERNEL_ABI_FILE = $(if $(KERNEL_REUSE_DIR),$(KERNEL_REUSE_DIR)/kernel.version,$(STAGING_DIR)/kernel.version)
 APK_INSTALL_ARGS = \
 	$(if $(CONFIG_OPENWRT_KERNEL_UPGRADE),linux-image-openwrt$(if $(KERNEL_PIN_VERSION),=$(KERNEL_PIN_VERSION))) \
 	$(foreach pkg,$(shell cat $(TMP_DIR)/apk_install_pkgs 2>/dev/null),$(pkg)$(call GetABISuffix,$(pkg))) \
 	base-files=$(shell cat $(STAGING_DIR)/base-files.version) \
 	libc=$(shell cat $(STAGING_DIR)/libc.version) \
-	kernel=$(subst -rc,_rc,$(shell cat $(STAGING_DIR)/kernel.version))
+	kernel=$(subst -rc,_rc,$(shell cat $(KERNEL_ABI_FILE)))
 
 define apk_install_rootfs
 	mkdir -p $(TARGET_DIR)/tmp

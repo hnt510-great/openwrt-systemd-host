@@ -9,7 +9,14 @@ endif
 
 ifneq ($(SOURCE_DATE_EPOCH),)
   ifndef DUMP
-    KBUILD_BUILD_TIMESTAMP:=$(shell perl -e 'print scalar gmtime($(SOURCE_DATE_EPOCH))')
+    ifneq ($(filter command line environment environment override,$(origin KBUILD_BUILD_TIMESTAMP)),)
+      # Respect explicit caller-supplied KBUILD_BUILD_TIMESTAMP.
+    else
+      ifeq ($(CONFIG_OPENWRT_KERNEL_UPGRADE),y)
+        _RECORDED_KBUILD_TS:=$(strip $(shell python3 $(SCRIPT_DIR)/kernel-reuse.py timestamp --tree "$(TOPDIR)" --sequence "$(CONFIG_OPENWRT_KERNEL_SEQUENCE)" 2>/dev/null))
+      endif
+      KBUILD_BUILD_TIMESTAMP:=$(if $(_RECORDED_KBUILD_TS),$(_RECORDED_KBUILD_TS),$(shell perl -e 'print scalar gmtime($(SOURCE_DATE_EPOCH))'))
+    endif
   endif
 endif
 

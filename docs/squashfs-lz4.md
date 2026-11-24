@@ -114,10 +114,10 @@ options. Use the previous full XZ argument string (`-Xpreset 9 -Xe -Xlc 0 -Xlp 2
 readers, and specify the same processor count for each run. Alternate repeated
 pairs after a warm-up, do not run another build concurrently, and record elapsed
 CPU/wall time, maximum RSS and output bytes with `/usr/bin/time -v`. Whole-build
-elapsed time is not a compressor benchmark. Time the unchanged outer gzip step
-Compare outer gzip-compatible compressors separately on the full padded raw
-image; implementation, level and thread count have very different costs. See the
-validation record for the measured pigz selection and exact-image checks.
+elapsed time is not a compressor benchmark. Compare outer gzip-compatible
+compressors separately on the full padded raw image; implementation, level and
+thread count have very different costs. See the validation record for the
+measured pigz selection and exact-image checks.
 
 ## Recovery
 

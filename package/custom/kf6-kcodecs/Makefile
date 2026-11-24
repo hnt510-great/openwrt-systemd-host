@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=kf6-kcodecs
-PKG_VERSION:=6.20.0
+PKG_VERSION:=6.32.0
 PKG_RELEASE:=1
 PKG_SOURCE:=kcodecs-$(PKG_VERSION).tar.xz
-PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.20/
-PKG_HASH:=15920b9a859341b13831e6ed49baceea2e728c796fdd082128e51f8e127ff3a0
+PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.32/
+PKG_HASH:=2fc1ab6900df8488fe69811fde58ab37c7c6fdf6c1f1b32a01c20f3b3d9f6d9c
 PKG_LICENSE:=LGPL-2.1-or-later
 
 KF6_TITLE:=Codecs

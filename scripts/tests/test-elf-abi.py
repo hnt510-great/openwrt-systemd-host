@@ -345,26 +345,34 @@ class ElfAbiTests(unittest.TestCase):
         mapping = next(line.strip() for line in source.splitlines()
                        if '$(eval VERSION:=$(or $(ELF_REBUILD_' in line)
         cases = [
-            ('libcups-runtime', '2.4.20-r1', '2.4.20-r2'),
-            ('libcups-runtime', '2.4.20-r2', None),
-            ('libcups-runtime', '2.4.20-r3', '2.4.20-r4'),
-            ('libcups-runtime', '2.4.21-r2', '2.4.21-r2'),
-            ('mtd', '29', '29-r3'),
-            ('mtd', '29-r1', '29-r2'),
-            ('mtd', '29-r2', None),
-            ('mtd', '29-r3', None),
-            ('samba4-libs', '4.24.5-r2', '4.24.5-r4'),
-            ('samba4-libs', '4.24.5-r3', '4.24.5-r4'),
-            ('samba4-libs', '4.24.5-r4', None),
-            ('boost-program_options', '1.92.0-r3', '1.92.0-r4'),
-            ('boost-program_options', '1.92.0-r4', None),
-            ('avahi-utils', '0.9_rc5-r2', '0.9_rc5-r3'),
-            ('avahi-utils', '0.9_rc5-r3', None),
+            ('probe_widget', '1.0-rc1-r1', '1.0-rc1-r2'),
             ('probe_widget', '1.0-rc1-r2', None),
             ('probe', '1.0-rc1-r2', '1.0-rc1-r2'),
             ('chain', '1.0-r2', '1.0-r3'),
             ('chain', '1.0-r3', None),
+            ('bare_pkg', '29', '29-r3'),
+            ('bare_pkg', '29-r1', '29-r2'),
+            ('bare_pkg', '29-r2', None),
+            ('bare_pkg', '29-r3', None),
         ]
+        ledger_text = (TREE / 'configs/apk-elf-rebuilds.mk').read_text()
+        sampled = ('libcups-runtime', 'mtd', 'samba4-libs', 'boost-program_options', 'avahi-utils')
+        by_pkg = {pkg: {} for pkg in sampled}
+        for line in ledger_text.splitlines():
+            for pkg in sampled:
+                prefix = f'ELF_REBUILD_{pkg}_'
+                if line.startswith(prefix) and ':=' in line:
+                    src, dst = line[len(prefix):].split(':=', 1)
+                    by_pkg[pkg][src.strip()] = dst.strip()
+        for pkg in sampled:
+            mappings = by_pkg[pkg]
+            self.assertTrue(mappings, f'expected ledger entries for {pkg}')
+            sources = set(mappings)
+            targets = sorted(set(mappings.values()) - sources)
+            for src, dst in sorted(mappings.items()):
+                cases.append((pkg, src, dst))
+            for dst in targets:
+                cases.append((pkg, dst, None))
         for name, version, expected in cases:
             with self.subTest(name=name, version=version):
                 (self.work / 'Makefile').write_text(
@@ -373,6 +381,8 @@ class ElfAbiTests(unittest.TestCase):
                     'ELF_REBUILD_probe_widget_1.0-rc1-r1:=1.0-rc1-r2\n'
                     'ELF_REBUILD_chain_1.0-r1:=1.0-r2\n'
                     'ELF_REBUILD_chain_1.0-r2:=1.0-r3\n'
+                    'ELF_REBUILD_bare_pkg_29:=29-r3\n'
+                    'ELF_REBUILD_bare_pkg_29-r1:=29-r2\n'
                     + helpers + '\nVERSION:=' + version + '\n'
                     + guard.replace('$(1)', name) + '\n'
                     + mapping.replace('$(1)', name) + '\n'

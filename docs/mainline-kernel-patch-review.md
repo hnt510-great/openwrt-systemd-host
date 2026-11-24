@@ -69,6 +69,9 @@ Keep the heap objects in that directory's normal `obj-*` lists and validate
 their enabled configuration. `CONFIG_DMABUF_HEAPS` is unset in generation 30;
 the enabled DMA-BUF core and sync-file support are separate from these heaps.
 
+**Resolved.** See the DMA-BUF heap resolution section later in this report and
+`configs/mainline-kernel-patches.json`.
+
 ## Patch accounting and provenance
 
 The corrected disposition of the 481 source patches is:
@@ -1304,8 +1307,7 @@ for SDIO correctness. No affected physical card was verified, and the
 7.3 patch stack was not changed by this applicability check. There are no
 incoming x86-specific patches. All 354 current 7.3 patches apply cleanly;
 the registry remains intentionally behind the two SDIO and three earlier
-WED source additions. See [the synchronization report](upstream-sync-20261117.md)
-for exact inventory, integration repairs, tests and limitations.
+WED source additions.
 
 ### SDIO backports completed, 2026-11-17
 
@@ -1338,8 +1340,6 @@ preserved.
 The authorized full `-j16` build and coordinated publication completed as
 `7.3.4-66-openwrt`. The fresh staged rootfs passes all 27 bridge tests, and
 publication preflight passes. No VM or physical installation/reboot occurred.
-See [the publication record](build-publication-20261117.md) for snapshot IDs,
-artifact hashes, preservation checks and runtime limits.
 
 ### Subsequent physical boot confirmation, 2026-11-17
 
@@ -1357,9 +1357,7 @@ Merged OpenWrt through `27663a017ad8` (19 incoming main-tree commits) as
 `712beefa91`, plus 24 `packages`, 1 `luci` and 2 `passwall_luci` commits.
 Backup branches are `backup/pre-upstream-20261118T033529Z` across all 11
 repositories; preservation receipts and audit logs are in
-`.git/pull-preserve/20261118T033529Z/`. See
-[the synchronization report](upstream-sync-20261118.md) for package and feed
-details.
+`.git/pull-preserve/20261118T033529Z/`.
 
 ### Kernel patches and Linux 7.3.5 update
 
@@ -1395,9 +1393,7 @@ Merged OpenWrt through `ecd9120f0451` (8 incoming main-tree commits) as
 `5009212efb`, plus 23 `packages`, 1 `luci`, and 2 `passwall_luci` commits.
 Backup branches are `backup/pre-upstream-20261119T020337Z` across all 11
 repositories; preservation receipts and audit logs are in
-`.git/pull-preserve/20261119T020337Z/`. See
-[the synchronization report](upstream-sync-20261119.md) for package and feed
-details.
+`.git/pull-preserve/20261119T020337Z/`.
 
 - **Mainline Linux 7.3**: `update-mainline-kernel.py --check` reports Linux
   `7.3.5` (`8f293f83d54f0b7b9be56863ebc5e4ea79d73e530b4ae55c572be97ef39f0990`)
@@ -1421,9 +1417,7 @@ the `6.18.60` -> `6.18.64` stable bumps and GCC default 15 switch) as
 `49f4f53f74`, plus 20 `packages`, 7 `luci`, 3 `passwall_luci`, and 1 `video`
 commits. Backup branches are `backup/pre-upstream-20261120T015903Z` across all
 repositories; preservation receipts and audit logs are in
-`.git/pull-preserve/20261120T015903Z/`. See
-[the synchronization report](upstream-sync-20261120.md) for package and feed
-details.
+`.git/pull-preserve/20261120T015903Z/`.
 
 - **Mainline Linux 7.3**: `update-mainline-kernel.py --check` reports Linux
   `7.3.5` (`8f293f83d54f0b7b9be56863ebc5e4ea79d73e530b4ae55c572be97ef39f0990`)
@@ -1474,8 +1468,7 @@ full kernel or generation rebuild was performed.
 Merged OpenWrt through `e7f788a9c1` (five incoming main-tree commits) as
 `3ced84a7dc`, plus three LuCI and three Passwall packages commits. The other
 feeds were already current. All merges completed without conflicts and retain
-their previous local HEADs. Backup refs and preservation evidence are recorded
-in [the synchronization report](upstream-sync-20261121.md).
+their previous local HEADs.
 
 - **Mainline Linux 7.3**: `update-mainline-kernel.py --check` reports 7.3.5 is
   current. No incoming generic or x86 6.18 files changed, so no new native 7.3
@@ -1538,3 +1531,72 @@ an isolated x86/64 configuration with AMDGPU display enabled,
 `CONFIG_WERROR=y` and `CONFIG_FRAME_WARN=1024`. Each compile used the
 3072-byte AMDGPU override after the 1024-byte global flag. Validation
 covered object compilation without a full driver link or hardware test.
+
+## Upstream synchronization and Linux 7.3.6 update, 2026-11-24
+
+Merged OpenWrt through `ce245c8739` (11 incoming main-tree commits) as
+`f2f9d5cd84`, plus 1 `luci` (`4e067c2e51`), 5 `packages` (`5b68c6ddf`), 4
+`passwall_luci` (`21a1b9fc`, preserving the local `luci.mk` Git revision
+versioning in `luci-app-passwall/Makefile`), and 3 `passwall_packages`
+(`30edd77`) commits. The `routing`, `taskplan`, `telephony`, and `video` feeds
+had no incoming commits. Backup branches are `backup/pre-upstream-20261124T041713Z`
+across the main repository, all eight Git feeds, and `package/custom/luci-theme-argon`.
+
+- **Mainline Linux 7.3 -> 7.3.6**: Updated `target/linux/generic/kernel-7.3`
+  from `7.3.5` to `7.3.6` (SHA-256
+  `8183d475a76a0faffa92d6cd500af421f589dfd0300a0f1060bb875e11d45723`):
+  - Dropped `target/linux/generic/backport-7.3/706-04-v7.3-netfilter-flowtable-use-the-vlan-id-not-the-full-tci.patch`
+    (absorbed verbatim in Linux `7.3.6`; reverse-applies cleanly with zero fuzz)
+    and marked it `upstream` in `configs/mainline-kernel-patches.json`.
+  - Dropped `target/linux/generic/pending-7.3/880-leds-st1202-add-hardware-accelerated-blink-support.patch`
+    (absorbed upstream in Linux `7.3.6` with phase-shift and `max_brightness`
+    updates) and marked it `upstream` in `configs/mainline-kernel-patches.json`.
+  - Refreshed `target/linux/generic/hack-7.3/904-debloat_dma_buf.patch` for
+    Linux `7.3.6`'s removal of `select GENERIC_ALLOCATOR` in `net/Kconfig`
+    and `target/linux/generic/hack-7.3/940-kbuild-extract-modules-builtin-modinfo-from-vmlinux_o.patch`
+    for `7.3.6`'s simplified `cmd_modules_builtin_modinfo` context in
+    `scripts/Makefile.vmlinux`, updating both `ported_sha256` entries.
+  - All **356 remaining carried Linux 7.3 patches** (352 registered ports plus
+    4 local x86/7.3-only patches) match their registered hashes and apply with
+    `--fuzz=0` to the verified Linux `7.3.6` archive via both
+    `scripts/update-mainline-kernel.py --update` and `make target/linux/prepare`.
+  - Diffed all Kconfig files between `7.3.5` and `7.3.6` and ran
+    `make ARCH=x86_64 listnewconfig` against the merged x86/64 `config-7.3`;
+    no new x86/64 kernel Kconfig symbols or prompts were introduced (`7.3.6`
+    adds `DRM_AMD_DC_DCE` under disabled `DRM_AMD_DC` and 32-bit-only
+    `RTC_HCTOSYS_TIME32_LIMIT`, and converts unused `SERIAL_8250_HUB6` from
+    `tristate` to `bool`).
+- **Incoming 6.18 patches**: Zero files under `target/linux/generic/` or
+  `target/linux/x86/` were added, modified, or removed. Incoming kernel patches
+  are target-specific (`ipq806x` `stmmac` fixes with `CONFIG_STMMAC_ETH` unset
+  on x86/64, `rockchip` NanoPi R2S Plus DTS, `sunxi` `dwmac-sun8i` reset fix,
+  plus `airoha`/`ath79`/`bcm47xx` updates). No new 6.18 generic/x86 patch
+  requires backporting to Linux `7.3`. The full 583-patch generic/x86 6.18
+  audit matches the prior baseline (four previously reviewed non-x86
+  unregistered entries and 60 prior `6.18.61-6.18.64` context refreshes). The
+  optional MAP-E tunnel finding remains open.
+- **Custom packages**: Updated `gnome-control-center` (`51.1` -> `51.2.1`),
+  `google-chrome-bin` (`158.0.8127.36` -> `158.0.8127.88`), `mozjs140`
+  (`140.15.0` -> `140.17.0`; `rebuild_dependents: gjs`), `nautilus`
+  (`51.1` -> `51.2`), and `luci-theme-argon` (merged upstream `076355f` and
+  bumped `PKG_RELEASE` to `20261124`). Verified `make package/custom/<pkg>/prepare`
+  for `gnome-control-center`, `nautilus`, and `mozjs140`; all local patches
+  applied cleanly.
+- **Validation**: Regenerated all nine nonempty feed indexes, removed three
+  stale broken `package/feeds/packages/` symlinks (`dvtm`, `netcat`, `siit`),
+  passed isolated strict `conf --fatalrecursive --olddefconfig` with zero
+  selected-option changes (only unset `brcmsmac` entries removed), and passed
+  351 host Python unit tests across 11 suites plus 3 LuCI JS view tests.
+- **Build and publication (generation 87)**: Built Linux `7.3.6` generation
+  `87` (`linux-image-7.3.6-87-openwrt`, kernel ABI
+  `7.3.6~5eaacd40bf4a752328abbcfbf2b75c1e-r1`), allocated effective rebuild
+  releases for the nine kernel-dependent executables re-linked against glibc
+  2.44 `crt1.o` (`grub2-bios-setup` / `grub2-editenv` `2.12-r10`, `mtd`
+  `29-r4`, `ip-full` / `nstat` / `ss` / `tc-tiny` `7.3.0-r3`, `strace`
+  `6.18-r6`, `fuse-utils` `2.9.9-r6`), decoupled `router-audit` (`1.0.0-r8`)
+  from `docs/router-audit.md`, passed the coordinated router upgrade preflight
+  (1,605 packages, 3,312 ELF files), and published userspace snapshot
+  `20261124T051930.960788Z` and kernel snapshot `1795497048275680482`. VM not
+  run: routine Linux `7.3.5` -> `7.3.6` stable point release and compatible
+  package updates with no major behavior change or new functionality. No router
+  package installation or reboot was performed.

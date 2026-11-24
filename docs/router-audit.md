@@ -175,7 +175,7 @@ python3 analyze.py router-audit.sqlite > evidence.json
 python3 analyze.py router-audit.sqlite --format llm --window 1h
 ```
 
-Run the puller once a minute using an administrator-managed timer. Its first run backfills the router's whole 24-hour buffer; later runs continue from the stored cursor. It commits samples and cursor together, deduplicates batch IDs, and deletes records older than 30 days. SQLite free pages are reused, not automatically vacuumed. No hard Debian disk cap is implemented; monitor storage and adjust retention. The source repository is synchronized to Debian, but no analysis timer, database, model runtime or MCP client is installed there automatically. The current state of this Debian host (a user-level minute puller and its database, the model test workspace) and the handover notes for building the local analyzer are in `router-audit-debian.md`.
+Run the puller once a minute using an administrator-managed timer. Its first run backfills the router's whole 24-hour buffer; later runs continue from the stored cursor. It commits samples and cursor together, deduplicates batch IDs, and deletes records older than 30 days. SQLite free pages are reused, not automatically vacuumed. No hard Debian disk cap is implemented; monitor storage and adjust retention. The source repository is synchronized to Debian, but no analysis timer, database, model runtime or MCP client is installed there automatically.
 
 ### Deterministic analysis (`analyze.py`)
 
@@ -218,7 +218,7 @@ python3 explain.py router-audit.sqlite --endpoint http://127.0.0.1:8080/v1 --mod
 
 #### Model guidance for this Debian host
 
-The analysis host has an RX 6600-class GPU (8 GB VRAM, also driving the desktop), a Ryzen 7 5700X3D and 32 GB RAM. The design and the 2026 model comparison are in `docs/router-audit-llm-plan.md`; the measured comparison is in `docs/router-audit-validation.md`.
+The analysis host has an RX 6600-class GPU (8 GB VRAM, also driving the desktop), a Ryzen 7 5700X3D and 32 GB RAM. The measured 2026 model comparison is in `docs/router-audit-validation.md`.
 
 Measured on 2026-11-06 with llama.cpp b12143 (Vulkan) on identical code (`docs/router-audit-validation.md`):
 
@@ -241,8 +241,22 @@ Use a GGUF whose chat template carries the fixed Qwen3.5 tool-call template (for
 
 ## Disable / rollback
 
-```
-systemctl disable --now router-audit-collect.service
+Since `router-audit` `1.0.0-r6`, `daed` `2.1.1-r10`, and `dnsmasq` `2.93-r15`,
+background collection and producer hooks are **opt-in and disabled by default**
+(`router-audit.main.enabled='0'`). To turn off both collection and producer
+export cleanly:
+
+```sh
+uci set router-audit.main.enabled='0'
+uci commit router-audit
+/etc/init.d/router-audit reload
+/etc/init.d/dnsmasq reload
+/etc/init.d/daed reload
 ```
 
-Nonblocking producers then drop metadata while normal DNS continues. To avoid producer work entirely, remove audit activation from the init scripts or remove the audit package, then restart through `/etc/init.d/daed` and `/etc/init.d/dnsmasq`. Roll back the packages separately if needed. Original production init scripts from initial deployment were backed up on the router under `/srv/openwrt-validation/router-audit/backups`; they are not repository artifacts. Revoke the account's authorized key and sudoers rule to disable SSH audit access. Spool deletion is a separate administrator decision.
+Alternatively, stopping only `router-audit-collect.service`
+(`systemctl disable --now router-audit-collect.service`) leaves nonblocking
+producers dropping metadata while normal DNS continues. Revoke the
+`router-audit` account's authorized key and sudoers rule to disable SSH audit
+access. Spool deletion under `/srv/router-audit` is a separate administrator
+decision.

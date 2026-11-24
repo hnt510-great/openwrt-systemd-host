@@ -24,8 +24,9 @@ transition to validate. The router baseline records the state model.
 migration step: their kernelctl cannot yet validate kernel packages, and the
 receipt records `migration_step: userspace-only`. `packages` routers
 (schema 2) get one full simulation against the kernel channel and the
-`current` userspace snapshot. An unblessed or counted kernel never blocks
-publication.
+`current` userspace snapshot. The running release must be adopted in a ready
+baseline. A boot counter or unblessed release does not independently block
+publication for schema 2.
 
 If a full upgrade is blocked, userspace can be selected explicitly:
 
@@ -91,18 +92,21 @@ userspace and kernel snapshots before changing either active pointer. It then:
 1. Reads a consistent router baseline under APK's database lock, including
    package metadata, world, running ABI, protected constraints, kernel state,
    public-key/configuration hashes, APK identity, boot ID and the ELF
-   fingerprint of installed files. Pending trials or unreachable routers stop
-   publication. This complete scan happens once, before feed staging; the
+   fingerprint of installed files. Unreachable routers, pending APK transaction
+   journals, or (on legacy schema-1 `generations` routers) pending kernel trials
+   stop publication. This complete scan happens once, before feed staging; the
    simulation and receipt are bound to it.
-2. Checks installed logical kmods against the candidate ABI's actual trackers
-   and generation payloads. This check does not depend on the new `.config`.
+2. For a schema-1 ABI transition, checks installed logical kmods against the
+   candidate ABI's actual trackers and generation payloads. The check uses the
+   installed package inventory independently of the new `.config`.
 3. Fetches the candidate signed indexes into temporary router directories,
-   checks their hashes and simulates the real router transaction. Its current
-   ABI feeds remain in effect; staged userspace indexes join the simulation
-   when they match the running ABI. For an ABI transition, a second simulation
-   replaces managed feeds only in a temporary repository list with the staged
-   target-ABI views, preserving external feeds. Both upgrade paths must pass,
-   alongside the publisher's signature, dependency-ABI and ucode checks.
+   checks their hashes and simulates the router transaction. Schema 2 uses one
+   full simulation with both staged views. During a schema-1 migration to kernel
+   packages, the first simulation uses `--userspace-only`. When the schema-1
+   running ABI differs from the candidate ABI, a second simulation uses the
+   staged target-ABI views in a temporary managed repository list and preserves
+   external feeds. Every applicable simulation must pass, along with signature,
+   dependency-ABI and ucode checks.
 4. Rechecks the router baseline, policy/rule hashes and every prepared file.
    Snapshot hashes are recorded before simulation; the coordinator rechecks
    both views before either pointer moves. The preflight helper does not
@@ -121,7 +125,16 @@ userspace and kernel snapshots before changing either active pointer. It then:
    userspace pointer. Post-commit snapshot-GC failures are reported separately.
 
 Production receipts live in `<destination>/upgrade-receipts/` and bind the
-baseline and prepared snapshot hashes. They omit raw world/database contents.
+baseline, prepared snapshot hashes, and Phase 2 rebuild tool hashes
+(`diagnoser_sha256`, `allocator_sha256`, `elf_type_abi_sha256`,
+`cold_verify_sha256`). If any userspace APKs were reused, the receipt also
+records `reused_published_apks`. See [rebuild release allocation](apk-rebuild-release.md).
+When the candidate reuses a kernel generation and the router already runs that
+release, preflight asserts that the transaction leaves its kernel payloads
+intact. If the router is on a different release, its normal upgrade checks
+apply and the receipt records `router-on-different-generation`. See
+[kernel generation reuse](kernel-generation-reuse-plan.md). Receipts omit raw
+world and APK database contents.
 The exact prepared files are promoted; publication never rebuilds a second
 candidate from mutable `bin/`. Routine publication without major behavior changes
 or new functionality does not require VM validation; source/package checks and

@@ -1,9 +1,5 @@
 # Desktop kernel support
 
-> Systemd is the sole normal init on current x86/64 images. References below
-> to procd recovery or firmware flashing from the running system describe
-> older images. See [current boot and migration guidance](systemd-only-plan.md).
-
 The x86-64 native-systemd desktop image includes the selections in
 `configs/desktop-kernel.config`. They are also merged into the existing
 `configs/x86-64-systemd-desktop.config` and build `.config`; existing package
@@ -76,25 +72,21 @@ and `configs/x86-64-systemd-router.config`), the x86-64 baseline also enables:
   `kmod-macvlan`, `kmod-macvtap`, `kmod-ipvlan`, `kmod-dummy`, `kmod-tls`,
   `kmod-unix-diag`, `kmod-packet-diag`.
 
-Full kmod tools use dependency/alias indexes. Native early init generates
-them after mounting the overlay and before starting systemd; procd recovery
-generates them before normal module loading. An APK post-commit hook refreshes
-them after online package transactions, including removal. Offline image
-assembly does not execute target binaries. Procd still owns device events
-and the normal OpenWrt module loading sequence.
+Full kmod tools (`kmod` 34.3) use dependency/alias indexes. Native early init
+generates them after mounting the overlay and before starting systemd. An APK
+post-commit hook refreshes them after online package transactions, including
+removal. Offline image assembly does not execute target binaries. `systemd-udevd`
+owns raw device events and forwards `/etc/hotplug.d` handlers to procd, while
+OpenWrt retains its normal module loading sequence.
 
 Native images preserve kernel paths in `modules.builtin` so full kmod also
-recognizes built-in modules whose names start with digits. The packages feed
-repair in `patches/feeds/0008-packages-kmod-glibc.patch` fixes three freed
-basename pointers in kmod 32's compatibility patch. Provenance is recorded in
-`configs/desktop-kernel-feeds.json`. Both `kmod` and `libkmod` use release r2.
+recognizes built-in modules whose names start with digits.
 
-Build and inspect:
+Build and inspect (reserving a kernel generation without publishing):
 
 ```sh
 make defconfig
-make target/linux/compile -j4 V=s
-make -j4 V=s
+python3 scripts/build-and-publish.py build-only -j12 V=s
 ```
 
 Native firmware and matching signed packages are under `bin/systemd`.

@@ -1,0 +1,28 @@
+From: OpenWrt KDE Plasma Port <openwrt@local>
+Subject: [PATCH] Search staged QML dir in ECMFindQmlModule when cross-compiling
+
+In cross-compilation, KDE_INSTALL_FULL_QMLDIR is /usr/lib/qt6/qml on the
+target, while installed QML modules reside under CMAKE_FIND_ROOT_PATH
+(which may already end in /usr). Check both prefixes for qmldir so
+ecm_find_qmlmodule() locates staged KF6/Plasma QML modules cleanly.
+
+--- a/modules/ECMFindQmlModule.cmake.in
++++ b/modules/ECMFindQmlModule.cmake.in
+@@ -18,6 +18,17 @@
+     set(KDE_QMLDIR "${KDE_INSTALL_FULL_QMLDIR}/${MODULEDIR}")
+     find_file(QMLDIR_FILE qmldir ${KDE_QMLDIR} NO_CACHE)
+     if (NOT QMLDIR_FILE)
++        foreach(_ecm_root ${CMAKE_FIND_ROOT_PATH})
++            if (EXISTS "${_ecm_root}${KDE_QMLDIR}/qmldir")
++                set(QMLDIR_FILE "${_ecm_root}${KDE_QMLDIR}/qmldir")
++                break()
++            elseif (EXISTS "${_ecm_root}/${KDE_INSTALL_QMLDIR}/${MODULEDIR}/qmldir")
++                set(QMLDIR_FILE "${_ecm_root}/${KDE_INSTALL_QMLDIR}/${MODULEDIR}/qmldir")
++                break()
++            endif()
++        endforeach()
++    endif()
++    if (NOT QMLDIR_FILE)
+         find_file(QMLDIR_FILE qmldir PATHS ENV QML_IMPORT_PATH ENV QML2_IMPORT_PATH PATH_SUFFIXES "${MODULEDIR}" NO_CACHE)
+     endif()
+     if (NOT QMLDIR_FILE) # Check the install destination, the QT_PLUGIN_PATH might not be set up correctly at this point

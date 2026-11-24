@@ -25,6 +25,58 @@ GUARD = importlib.util.module_from_spec(_guard_spec)
 _guard_spec.loader.exec_module(GUARD)
 
 
+class SameVersionRebuildError(ValueError):
+    """Published support packages whose rebuilt bytes changed; entries feed the allocator."""
+
+    def __init__(self, message, entries, snapshot=None):
+        super().__init__(message)
+        self.entries = entries
+        self.snapshot = snapshot
+
+
+def _raise_changed_support_error(apk, active, keys, destination, changed_support):
+    filenames = [filename for filename, *_ in changed_support]
+    header = ('Published kernel channel package changed: ' + ', '.join(filenames) +
+              '; bump this support package PKG_RELEASE and rebuild. '
+              'The published file will not be overwritten')
+    lines = [header]
+    entries = []
+    snapshot = str(active.resolve()) if active.exists() else None
+    try:
+        alloc_spec = importlib.util.spec_from_file_location(
+            'kernel_allocate_rebuilds', Path(__file__).with_name('allocate-rebuild-releases.py'))
+        allocate = importlib.util.module_from_spec(alloc_spec)
+        alloc_spec.loader.exec_module(allocate)
+        diag_spec = importlib.util.spec_from_file_location(
+            'kernel_diagnose_rebuild', Path(__file__).with_name('diagnose-apk-rebuild.py'))
+        diagnose = importlib.util.module_from_spec(diag_spec)
+        diag_spec.loader.exec_module(diagnose)
+        context = {'baseline_snapshot': snapshot, 'destination': str(destination)}
+        raw_entries = []
+        for idx, (filename, old_path, new_path) in enumerate(changed_support):
+            label = f'kernel-upgrades/{filename}'
+            try:
+                entry, report = allocate.classify(
+                    old_path, new_path, label, apk,
+                    keys_dir=keys, context=context)
+                if idx < 8:
+                    lines.append(diagnose.format_report(report, label=label))
+            except Exception as error:
+                entry = {'path': label, 'name': None, 'version': None, 'verdict': 'unknown',
+                         'so_changed': False, 'so_removed': [], 'so_added': []}
+                lines.append(f'{label}: diagnosis failed: {error}')
+            raw_entries.append(entry)
+        try:
+            entries = allocate.deduplicate_entries(raw_entries)
+        except ValueError:
+            entries = raw_entries
+    except Exception:
+        entries = [{'path': f'kernel-upgrades/{filename}', 'name': None, 'version': None,
+                    'verdict': 'unknown', 'so_changed': False, 'so_removed': [], 'so_added': []}
+                   for filename in filenames]
+    raise SameVersionRebuildError('\n'.join(lines), entries, snapshot=snapshot)
+
+
 def image_sequence(name, version):
     """The build number of a versioned kernel image, in either naming scheme."""
     current = CURRENT_IMAGE.fullmatch(name)
@@ -83,7 +135,7 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def publish(source, destination, apk, key, keys, dry_run=False, stage_only=False):
+def publish(source, destination, apk, key, keys, dry_run=False, stage_only=False, generation_record=None):
     GUARD.require_coordinator(destination, stage_only or dry_run)
     destination.mkdir(parents=True, exist_ok=True)
     with (destination / '.kernel-publish.lock').open('a') as lock:
@@ -107,6 +159,7 @@ def publish(source, destination, apk, key, keys, dry_run=False, stage_only=False
                        'linux-image-openwrt', 'apk-mbedtls', 'apk-openssl', 'ubox',
                        'systemd-openwrt', 'lan-apk-feeds', 'grub2', 'grub2-efi', 'grub2-editenv'}
             incoming = {}
+            changed_support = []
             retained_payloads = {entry['info']['name']: entry['info']['version']
                 for entry in packages.values() if '-owrt-' in entry['info']['name']}
             for path in sorted(source.rglob('*.apk')):
@@ -147,12 +200,13 @@ def publish(source, destination, apk, key, keys, dry_run=False, stage_only=False
                 incoming[filename] = checksum
                 if filename in packages and packages[filename]['sha256'] != checksum:
                     if name in allowed and name not in ('kernel', 'kernel-dev-headers', 'linux-image-openwrt'):
-                        raise ValueError('Published kernel channel package changed: ' + filename +
-                                         '; bump this support package PKG_RELEASE and rebuild. '
-                                         'The published file will not be overwritten')
+                        changed_support.append((filename, active / filename, path))
+                        continue
                     raise ValueError('Published kernel channel package changed: ' + filename)
                 packages[filename] = {'sha256': checksum, 'info': info}
                 shutil.copy2(path, stage / filename)
+            if changed_support:
+                _raise_changed_support_error(apk, active, keys, destination, changed_support)
             images = {entry['info']['name']: entry['info']['version'] for entry in packages.values()
                       if entry['info']['name'].startswith('linux-image-') and
                       entry['info']['name'] != 'linux-image-openwrt'}
@@ -196,9 +250,24 @@ def publish(source, destination, apk, key, keys, dry_run=False, stage_only=False
                 raise ValueError('Refusing to publish a stale kernel generation')
             if previous and any(image_sequences[name] <= previous['sequence'] for name in new_images):
                 raise ValueError('New kernel generations require an increasing publication sequence')
+            kept_sequences = {str(image_sequences[name]) for name in images}
+            generations = {
+                seq_key: rec for seq_key, rec in (previous.get('generations') or {}).items()
+                if seq_key in kept_sequences
+            } if previous else {}
+            if generation_record is not None:
+                rec_seq = str(int(generation_record['sequence']))
+                if generation_record.get('signing_key_sha256') != fingerprint:
+                    raise ValueError('Generation record signing key disagrees with channel signing key')
+                for fname, meta in (generation_record.get('kernel_packages') or {}).items():
+                    if fname not in packages or packages[fname]['sha256'] != meta.get('sha256'):
+                        raise ValueError('Generation record package disagrees with staged kernel channel: ' + fname)
+                if rec_seq in kept_sequences:
+                    generations[rec_seq] = generation_record
+            previous_generations = previous.get('generations') or {} if previous else {}
             if previous and packages.keys() == previous['packages'].keys() and all(
                     entry['sha256'] == previous['packages'][name]['sha256']
-                    for name, entry in packages.items()):
+                    for name, entry in packages.items()) and generations == previous_generations:
                 if digest(active / 'packages.adb') != previous['index_sha256']:
                     raise ValueError('Retained kernel channel index changed')
                 subprocess.run([str(apk), 'verify', '--keys-dir', str(keys), str(active / 'packages.adb')],
@@ -214,6 +283,8 @@ def publish(source, destination, apk, key, keys, dry_run=False, stage_only=False
                         'keep_generations': KEEP_GENERATIONS,
                         'signing_key_sha256': fingerprint,
                         'index_sha256': digest(stage / 'packages.adb')}
+            if generations:
+                manifest['generations'] = generations
             (stage / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
             if stage_only:
                 snapshots = destination / 'public/kernel-snapshots'

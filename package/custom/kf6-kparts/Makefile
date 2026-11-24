@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=kf6-kparts
-PKG_VERSION:=6.20.0
+PKG_VERSION:=6.32.0
 PKG_RELEASE:=1
 PKG_SOURCE:=kparts-$(PKG_VERSION).tar.xz
-PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.20/
-PKG_HASH:=9e71e3d20c9525f66533dd7a5846f0d982eefdd7425bfbadecd6a17908ebd709
+PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.32/
+PKG_HASH:=f2e437b038a0b0b3c40f0dfc81eb5689542c2d4e1f6025436a29e17f11caa79d
 PKG_LICENSE:=LGPL-2.1-or-later
 
 KF6_TITLE:=Parts

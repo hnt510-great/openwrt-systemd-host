@@ -1,29 +1,48 @@
 include $(TOPDIR)/rules.mk
+
 PKG_NAME:=adwaita-icons
-PKG_VERSION:=3.38.0
-PKG_RELEASE:=2
+PKG_VERSION:=51.0
+PKG_RELEASE:=1
+
 PKG_SOURCE:=adwaita-icon-theme-$(PKG_VERSION).tar.xz
-PKG_SOURCE_URL:=https://download.gnome.org/sources/adwaita-icon-theme/3.38/
-PKG_HASH:=6683a1aaf2430ccd9ea638dd4bfe1002bc92b412050c3dba20e480f979faaf97
+PKG_SOURCE_URL:=https://download.gnome.org/sources/adwaita-icon-theme/51/
+PKG_HASH:=ba561cf3c96305a47179fa5605856ad695c9238ea07f7093aebd9ba80c4e323b
 PKG_BUILD_DIR:=$(BUILD_DIR)/adwaita-icon-theme-$(PKG_VERSION)
+
 PKG_LICENSE:=CC-BY-SA-3.0 LGPL-3.0-or-later
-PKG_BUILD_DEPENDS:=python3/host
+PKG_INSTALL:=1
+MESON_USE_STAGING_PYTHON:=1
+
 include $(INCLUDE_DIR)/package.mk
+include $(INCLUDE_DIR)/meson.mk
+
 define Package/adwaita-icons
   SECTION:=utils
   CATEGORY:=Utilities
+  SUBMENU:=GNOME desktop
   TITLE:=adwaita-icon-theme
+  URL:=https://gitlab.gnome.org/GNOME/adwaita-icon-theme
   DEPENDS:=+hicolor-icon-theme
 endef
 
-define Build/Compile
-	$(STAGING_DIR_HOSTPKG)/bin/python3 ./files/build-index.py $(PKG_BUILD_DIR)
+MESON_ARGS += --prefix=/usr --datadir=share
+
+define Build/InstallDev
+	$(INSTALL_DIR) $(1)/usr/share/pkgconfig
+	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/pkgconfig/adwaita-icon-theme.pc $(1)/usr/share/pkgconfig/
 endef
 
 define Package/adwaita-icons/install
-	$(INSTALL_DIR) $(1)/usr/share/icons/Adwaita
-	$(CP) $(PKG_BUILD_DIR)/index.theme $(1)/usr/share/icons/Adwaita/
-	$(foreach size,16 22 24 32 48 64 96 256,$(CP) $(PKG_BUILD_DIR)/Adwaita/$(size)x$(size) $(1)/usr/share/icons/Adwaita/;)
-	$(CP) $(PKG_BUILD_DIR)/Adwaita/scalable $(PKG_BUILD_DIR)/Adwaita/scalable-up-to-32 $(1)/usr/share/icons/Adwaita/
+	$(INSTALL_DIR) $(1)/usr/share/icons
+	$(CP) $(PKG_INSTALL_DIR)/usr/share/icons/Adwaita $(1)/usr/share/icons/
 endef
+
+define Package/adwaita-icons/postinst
+#!/bin/sh
+if [ -z "$$IPKG_INSTROOT" ] && command -v gtk4-update-icon-cache >/dev/null 2>&1; then
+	gtk4-update-icon-cache -qtf /usr/share/icons/Adwaita >/dev/null 2>&1 || true
+fi
+exit 0
+endef
+
 $(eval $(call BuildPackage,adwaita-icons))

@@ -87,6 +87,13 @@ ifeq ($(CONFIG_OPENWRT_KERNEL_UPGRADE),y)
 # kernel-dev-headers pack hooks staged. package/Makefile runs this after all
 # package compiles and before the rootfs install.
 kernel-bundle: FORCE
+ifneq ($(KERNEL_REUSE_DIR),)
+	@test "$$(cat "$(KERNEL_REUSE_DIR)/release" 2>/dev/null)" = "$(KERNEL_GENERATION)" || { \
+		echo "ERROR: KERNEL_REUSE_DIR release disagrees with $(KERNEL_GENERATION)" >&2; \
+		exit 1; \
+	}
+	@echo "kernel-bundle: reusing verified published $(KERNEL_GENERATION) from $(KERNEL_REUSE_DIR)"
+else
 	python3 $(SCRIPT_DIR)/kernel-bundle.py \
 		--stage "$(KERNEL_BUILD_DIR)/kernel-bundle/$(KERNEL_GENERATION)" \
 		--config "$(TOPDIR)/.config" \
@@ -97,4 +104,5 @@ kernel-bundle: FORCE
 		--apk "$(STAGING_DIR_HOST)/bin/apk" \
 		--fakeroot "$(STAGING_DIR_HOST)/bin/fakeroot" \
 		$(if $(CONFIG_SIGN_EACH_PACKAGE),--key "$(BUILD_KEY_APK_SEC)")
+endif
 endif

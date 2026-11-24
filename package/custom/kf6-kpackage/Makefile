@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=kf6-kpackage
-PKG_VERSION:=6.20.0
+PKG_VERSION:=6.32.0
 PKG_RELEASE:=1
 PKG_SOURCE:=kpackage-$(PKG_VERSION).tar.xz
-PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.20/
-PKG_HASH:=61884114af604f827c4b83634551ea64921050e233c9c6d5fc400b97e402529e
+PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.32/
+PKG_HASH:=f3959f4a5956a29ce9bd083410d7df63d4f93a1a4e451cb87c2ccf834995e3ca
 PKG_LICENSE:=LGPL-2.1-or-later
 
 KF6_TITLE:=Package

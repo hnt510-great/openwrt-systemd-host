@@ -30,16 +30,27 @@ case "${1:-}" in
 		ensure_xdg_user_dirs
 		exit 0
 		;;
-	'') ;;
-	*)
-		printf 'Usage: desktop-user-setup [--xdg-dirs]\n' >&2
+	'')
+		session=
+		;;
+	-*)
+		printf 'Usage: desktop-user-setup [--xdg-dirs | SESSION]\n' >&2
 		exit 1
+		;;
+	*)
+		session=$1
 		;;
 esac
 
 ensure_xdg_user_dirs
-wants="$config_home/systemd/user/gnome-session.target.wants"
+wants="$config_home/systemd/user/graphical-session.target.wants"
 mkdir -p "$wants"
-for unit in openwrt-gnome-remotes.service openwrt-fcitx5.service; do
-	[ ! -f "/usr/lib/systemd/user/$unit" ] || ln -sfn "/usr/lib/systemd/user/$unit" "$wants/$unit"
-done
+if [ -f /usr/lib/systemd/user/openwrt-desktop-services.service ]; then
+	ln -sfn /usr/lib/systemd/user/openwrt-desktop-services.service "$wants/openwrt-desktop-services.service"
+fi
+if [ -n "$session" ]; then
+	. /usr/libexec/desktop-common.sh
+	if desktop_load_session "$session" 2>/dev/null; then
+		desktop_session_user_setup
+	fi
+fi

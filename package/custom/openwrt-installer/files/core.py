@@ -13,6 +13,13 @@ ESP = 'C12A7328-F81F-11D2-BA4B-00A0C93EC93B'
 LINUX = '0FC63DAF-8483-4772-8E79-3D69D8477DE4'
 BIOS = '21686148-6449-6E6F-744E-656564454649'
 FILESYSTEMS = ('ext4', 'btrfs', 'xfs')
+DESKTOP_COMPONENTS = ('gnome', 'plasma')
+
+
+def selected_desktops(components):
+    if not components:
+        return []
+    return [c for c in DESKTOP_COMPONENTS if c in components]
 
 
 def default_components(catalog):
@@ -40,6 +47,9 @@ def validate_components(selected, catalog):
         missing = [dep for dep in known[cid].get('depends', []) if dep not in chosen]
         if missing:
             raise ValueError(f"{known[cid]['label']} ({cid}) requires: {', '.join(missing)}")
+        any_deps = known[cid].get('depends_any') or []
+        if any_deps and not any(dep in chosen for dep in any_deps):
+            raise ValueError(f"{known[cid]['label']} ({cid}) requires: one of {', '.join(any_deps)}")
     return ordered
 
 
@@ -183,10 +193,37 @@ def validate_answers(answers, existing_users=(), catalog=None):
     if user:
         if not re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}', user['name']) or user['name'] in set(existing_users) | {'root'}:
             raise ValueError('Invalid or existing username')
-        if type(user.get('gnome_autostart')) is not bool:
-            raise ValueError('GNOME autostart must be a boolean')
-        if catalog is not None and user['gnome_autostart'] and 'gnome' not in a['components']:
-            raise ValueError('GNOME autostart requires the gnome component')
+        desktops = ['gnome'] if catalog is None else selected_desktops(a.get('components'))
+        if 'desktop_autostart' in user:
+            if type(user['desktop_autostart']) is not bool:
+                raise ValueError('Desktop autostart must be a boolean')
+            autostart = user['desktop_autostart']
+        elif 'gnome_autostart' in user:
+            if type(user['gnome_autostart']) is not bool:
+                raise ValueError('GNOME autostart must be a boolean')
+            autostart = user['gnome_autostart']
+            if catalog is not None and autostart and 'gnome' not in a['components']:
+                raise ValueError('GNOME autostart requires the gnome component')
+            if catalog is not None:
+                user['desktop_autostart'] = autostart
+        else:
+            raise ValueError('Desktop autostart must be a boolean')
+        session = user.get('desktop_session')
+        if session is not None:
+            if session not in DESKTOP_COMPONENTS:
+                raise ValueError(f"Unsupported desktop session '{session}'")
+            if catalog is not None and session not in desktops:
+                raise ValueError(f"Desktop session '{session}' requires the {session} component")
+        elif catalog is not None:
+            if len(desktops) == 1:
+                session = desktops[0]
+            elif len(desktops) > 1 and autostart:
+                session = 'gnome' if user.get('gnome_autostart') and 'gnome' in desktops else desktops[0]
+            user['desktop_session'] = session
+        if catalog is not None and autostart and not desktops:
+            raise ValueError('Desktop autostart requires a desktop component')
+        if 'gnome_autostart' not in user:
+            user['gnome_autostart'] = bool(autostart and session == 'gnome')
         hashes.append(user['password_hash'])
     if any(not re.fullmatch(r'\$6\$(?:rounds=[0-9]+\$)?[./a-zA-Z0-9]{1,16}\$[./a-zA-Z0-9]{86}', h) for h in hashes):
         raise ValueError('Accounts require SHA-512 crypt password hashes')
@@ -335,5 +372,13 @@ def display_summary(a, plan, component_plan=None):
               f"NAT: {enabled(fw['masq'])}  full-cone: {enabled(fw['fullcone'] and fw['masq'])}  LAN to WAN: {enabled(fw['lan_to_wan'])}",
               'Root password: set']
     user = a['accounts'].get('user')
-    lines.append(('User: ' + user['name'] + '  password: set  GNOME at boot: ' + enabled(user['gnome_autostart'])) if user else 'Regular user: none')
+    if user:
+        sess = user.get('desktop_session')
+        auto = user.get('desktop_autostart', user.get('gnome_autostart', False))
+        if sess:
+            lines.append(f"User: {user['name']}  password: set  desktop: {sess}  autostart: {enabled(auto)}")
+        else:
+            lines.append(f"User: {user['name']}  password: set  desktop: none")
+    else:
+        lines.append('Regular user: none')
     return '\n'.join(lines) + '\n'

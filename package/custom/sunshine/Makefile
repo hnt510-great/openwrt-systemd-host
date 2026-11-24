@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=sunshine
 PKG_VERSION:=2026.914.233613
-PKG_RELEASE:=13
+PKG_RELEASE:=16
 PKG_SOURCE:=sunshine-source-63d35f702ee9.tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/LizardByte/Sunshine/tar.gz/63d35f702ee9e362e43263742981836ec0710384?
 PKG_HASH:=2564df7ee9c1ac1d617e30b406ec0ed7d358cbba485cfb013956bdab528dae5f

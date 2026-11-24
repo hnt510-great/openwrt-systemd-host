@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=kf6-knewstuff
-PKG_VERSION:=6.20.0
-PKG_RELEASE:=2
+PKG_VERSION:=6.32.0
+PKG_RELEASE:=1
 PKG_SOURCE:=knewstuff-$(PKG_VERSION).tar.xz
-PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.20/
-PKG_HASH:=49443add4f1caace2e64fe7dcbe4cf78cd6b692bf0c77ba01082c82761dfa2b9
+PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.32/
+PKG_HASH:=91ee15856bb831d1f4022fb45c8b29b15be6e9330bbc8447fadeee9d6f16ab27
 PKG_LICENSE:=LGPL-2.1-or-later
 
 KF6_TITLE:=NewStuff

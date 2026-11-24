@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=freerdp
 PKG_VERSION:=3.33.1
-PKG_RELEASE:=2
+PKG_RELEASE:=4
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://pub.freerdp.com/releases
 PKG_HASH:=4431bbf04d370545cfe2924b9d9f116b95c90c64ff156b2550bbaf82d34e7124
@@ -55,7 +55,8 @@ CMAKE_OPTIONS += \
 	-DWITH_CLANG_FORMAT=OFF -DWITH_CCACHE=OFF
 
 define Build/InstallDev
-	$(INSTALL_DIR) $(1)/usr/include $(1)/usr/lib/pkgconfig $(1)/usr/lib/cmake
+	$(INSTALL_DIR) $(1)/usr/bin $(1)/usr/include $(1)/usr/lib/pkgconfig $(1)/usr/lib/cmake
+	$(CP) $(PKG_INSTALL_DIR)/usr/bin/winpr-* $(1)/usr/bin/
 	$(CP) $(PKG_INSTALL_DIR)/usr/include/. $(1)/usr/include/
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/*.so* $(1)/usr/lib/
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/*.pc $(1)/usr/lib/pkgconfig/

@@ -1,9 +1,5 @@
 # Restart advice on native-systemd OpenWrt
 
-> Systemd is the sole normal init on current x86/64 images. References below
-> to procd recovery or firmware flashing from the running system describe
-> older images. See [current boot and migration guidance](systemd-only-plan.md).
-
 Select `openwrt-needrestart` under Utilities and optionally
 `luci-app-needrestart` under LuCI applications. These packages target the
 x86_64/glibc/APK native-systemd variant. Neither package changes service lifecycle
@@ -47,7 +43,7 @@ queued request for another scan. A worker can wait up to 60 seconds for APK;
 manual scans wait up to 2 seconds. Failures are visible through the journal and
 RPC error status and do not change the package transaction's exit code.
 
-Offline image assembly and procd recovery do not queue inspection. Fresh and
+Offline image assembly does not queue inspection. Fresh and
 cached CLI queries require root and a native-systemd boot. No existing
 maintenance service is started or enabled. Removing the package stops only its
 own reporting path/worker.
@@ -65,10 +61,12 @@ times are rechecked before publishing process evidence.
 
 OpenWrt slices and current procd instance records identify original init-script
 owners, including legacy descendants. Native/user services use libsystemd's
-process ownership APIs. Advice never targets an OpenWrt transient scope.
+process ownership APIs. Advice never targets an OpenWrt transient scope or
+transient `openwrt-SERVICE@INSTANCE.service` unit directly (it points to the
+init script or `openwrt@SERVICE`).
 Supervisor infrastructure requires maintenance review; network/SSH/RPC services
 are marked potentially disruptive. Unassigned processes remain separate.
-The optional systemctl service bridge is not required.
+The systemctl service bridge is not required.
 
 Kernel advice consumes the existing kernel-manager state and verifies the GRUB
 one-shot trial selection. `reboot-pending` means a ready, armed, different-ABI

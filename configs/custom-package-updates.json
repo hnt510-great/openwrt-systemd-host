@@ -1,5 +1,51 @@
 {
   "schema": 1,
+  "feed_groups": {
+    "qt6": {
+      "provider": "directory",
+      "policy": "series",
+      "index": "https://download.qt.io/archive/qt/",
+      "series_dir_pattern": "[0-9]+\\.[0-9]+",
+      "version_dir_pattern": "[0-9]+\\.[0-9]+\\.[0-9]+",
+      "subdir": "submodules/",
+      "version_file": "feeds/video/frameworks/qt6/common.mk",
+      "feed_repo": "feeds/video",
+      "feed_manifest": "configs/kde-plasma-feeds.json",
+      "feed_name": "video",
+      "rebuild_dependents": [
+        "extra-cmake-modules",
+        "kwin",
+        "plasma-workspace",
+        "dolphin"
+      ],
+      "feed_modules": {
+        "qt6base": {
+          "recipe": "feeds/video/frameworks/qt6/qt6base/Makefile",
+          "module": "qtbase"
+        },
+        "qt6quick": {
+          "recipe": "feeds/video/frameworks/qt6/qt6quick/Makefile",
+          "module": "qtdeclarative"
+        },
+        "qt6shadertools": {
+          "recipe": "feeds/video/frameworks/qt6/qt6shadertools/Makefile",
+          "module": "qtshadertools"
+        },
+        "qt6svg": {
+          "recipe": "feeds/video/frameworks/qt6/qt6svg/Makefile",
+          "module": "qtsvg"
+        },
+        "qt6tools": {
+          "recipe": "feeds/video/frameworks/qt6/qt6tools/Makefile",
+          "module": "qttools"
+        },
+        "qt6translations": {
+          "recipe": "feeds/video/frameworks/qt6/qt6translations/Makefile",
+          "module": "qttranslations"
+        }
+      }
+    }
+  },
   "packages": {
     "accountsservice": {
       "provider": "gitlab",
@@ -9,14 +55,15 @@
     },
     "adwaita-icons": {
       "provider": "directory",
-      "policy": "series",
-      "index": "https://download.gnome.org/sources/adwaita-icon-theme/3.38/",
+      "policy": "major",
+      "index": "https://download.gnome.org/sources/adwaita-icon-theme/51/",
       "filename_pattern": "adwaita\\-icon\\-theme\\-(?P<version>[0-9]+(?:\\.[0-9]+)*(?:\\.pl[0-9]+)?)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/adwaita-icon-theme/"
     },
     "apk-transaction-guard": {
       "provider": "local",
-      "reason": "Locally maintained integration package"
+      "reason": "Locally maintained integration package",
+      "local_kind": "local-integration"
     },
     "appstream": {
       "provider": "github",
@@ -33,7 +80,7 @@
     },
     "baobab": {
       "provider": "directory",
-      "policy": "series",
+      "policy": "major",
       "index": "https://download.gnome.org/sources/baobab/50/",
       "filename_pattern": "baobab\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/baobab/"
@@ -65,7 +112,8 @@
     },
     "cockpit-runtime-deps": {
       "provider": "local",
-      "reason": "Locally maintained integration package"
+      "reason": "Locally maintained integration package",
+      "local_kind": "local-integration"
     },
     "colord": {
       "provider": "github",
@@ -80,8 +128,10 @@
       "filename_pattern": "cpio\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.bz2"
     },
     "daed": {
-      "provider": "local",
-      "reason": "Composed from the daed v2.1.1 dashboard, dae-wing b089b56 and dae v2.1.1 with backported fixes through 8722db0; daed and dae-wing are archived as of 2026-11-09; return to the daed release recipe once a daed release bundles dae core 2.1.1 or newer"
+      "provider": "github",
+      "policy": "series",
+      "project": "daeuniverse/dae",
+      "catalog": "releases"
     },
     "dconf": {
       "provider": "directory",
@@ -117,8 +167,16 @@
       "series_index": "https://download.gnome.org/sources/evolution-data-server/"
     },
     "extra-cmake-modules": {
-      "provider": "local",
-      "reason": "Pinned CMake modules for desktop input methods and the KF6/Konsole build"
+      "provider": "directory",
+      "policy": "major",
+      "index": "https://download.kde.org/stable/frameworks/",
+      "version_dir_pattern": "[0-9]+\\.[0-9]+",
+      "filename_pattern": "extra\\-cmake\\-modules\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
+      "rebuild_dependents": [
+        "kwin",
+        "plasma-workspace",
+        "dolphin"
+      ]
     },
     "fastfetch": {
       "provider": "github",
@@ -146,7 +204,7 @@
     },
     "file-roller": {
       "provider": "directory",
-      "policy": "series",
+      "policy": "major",
       "index": "https://download.gnome.org/sources/file-roller/44/",
       "filename_pattern": "file\\-roller\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/file-roller/"
@@ -203,7 +261,8 @@
     },
     "glib2-build-tools": {
       "provider": "local",
-      "reason": "Locally maintained integration package"
+      "reason": "Locally maintained integration package",
+      "local_kind": "local-integration"
     },
     "glib2-gir": {
       "provider": "follow",
@@ -212,19 +271,23 @@
     },
     "glibc-distro-compat": {
       "provider": "local",
-      "reason": "Version follows the target kernel/libc"
+      "reason": "Version follows the target kernel/libc",
+      "local_kind": "derived-from-base"
     },
     "glibc-gconv": {
       "provider": "local",
-      "reason": "Version follows the target kernel/libc"
+      "reason": "Version follows the target kernel/libc",
+      "local_kind": "derived-from-base"
     },
     "glibc-getent": {
       "provider": "local",
-      "reason": "Version follows the target kernel/libc"
+      "reason": "Version follows the target kernel/libc",
+      "local_kind": "derived-from-base"
     },
     "glibc-locale-utf8": {
       "provider": "local",
-      "reason": "Version follows the target kernel/libc"
+      "reason": "Version follows the target kernel/libc",
+      "local_kind": "derived-from-base"
     },
     "glycin": {
       "provider": "directory",
@@ -249,63 +312,68 @@
     },
     "gnome-calculator": {
       "provider": "directory",
-      "policy": "series",
+      "policy": "major",
       "index": "https://download.gnome.org/sources/gnome-calculator/51/",
       "filename_pattern": "gnome\\-calculator\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/gnome-calculator/"
     },
     "gnome-control-center": {
       "provider": "directory",
-      "policy": "series",
+      "policy": "major",
       "index": "https://download.gnome.org/sources/gnome-control-center/51/",
       "filename_pattern": "gnome-control-center-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/gnome-control-center/"
     },
     "gnome-desktop": {
       "provider": "directory",
-      "policy": "series",
+      "policy": "major",
       "index": "https://download.gnome.org/sources/gnome-desktop/51/",
       "filename_pattern": "gnome\\-desktop\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/gnome-desktop/"
     },
     "gnome-keyring": {
       "provider": "directory",
-      "policy": "series",
+      "policy": "major",
       "index": "https://download.gnome.org/sources/gnome-keyring/51/",
       "filename_pattern": "gnome\\-keyring\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/gnome-keyring/"
     },
     "gnome-remote-desktop": {
       "provider": "directory",
-      "policy": "series",
+      "policy": "major",
       "index": "https://download.gnome.org/sources/gnome-remote-desktop/51/",
       "filename_pattern": "gnome\\-remote\\-desktop-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.(?:xz|gz)",
       "series_index": "https://download.gnome.org/sources/gnome-remote-desktop/"
     },
     "gnome-session": {
       "provider": "directory",
-      "policy": "series",
+      "policy": "major",
       "index": "https://download.gnome.org/sources/gnome-session/51/",
       "filename_pattern": "gnome\\-session-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.(?:xz|gz)",
       "series_index": "https://download.gnome.org/sources/gnome-session/"
     },
     "gnome-settings-daemon": {
       "provider": "directory",
-      "policy": "series",
+      "policy": "major",
       "index": "https://download.gnome.org/sources/gnome-settings-daemon/51/",
       "filename_pattern": "gnome\\-settings\\-daemon-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.(?:xz|gz)",
       "series_index": "https://download.gnome.org/sources/gnome-settings-daemon/"
     },
     "gnome-shell": {
       "provider": "directory",
-      "policy": "series",
+      "policy": "major",
       "index": "https://download.gnome.org/sources/gnome-shell/51/",
       "filename_pattern": "gnome\\-shell-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
-      "series_index": "https://download.gnome.org/sources/gnome-shell/"
+      "series_index": "https://download.gnome.org/sources/gnome-shell/",
+      "rebuild_dependents": [
+        "gnome-shell-extension-kimpanel"
+      ]
     },
     "gnome-shell-extension-kimpanel": {
       "provider": "local",
-      "reason": "Pinned to the GNOME Shell 51 compatible upstream commit; review Shell API compatibility before updating"
+      "reason": "Pinned to the GNOME Shell 51 compatible upstream commit",
+      "local_kind": "pinned-upstream",
+      "upgrade_condition": "Verify metadata.json shell-version compatibility and test on GNOME Shell before updating across Shell major versions"
     },
     "gnome-terminal": {
       "provider": "directory",
@@ -316,14 +384,14 @@
     },
     "gnome-text-editor": {
       "provider": "directory",
-      "policy": "series",
+      "policy": "major",
       "index": "https://download.gnome.org/sources/gnome-text-editor/51/",
       "filename_pattern": "gnome\\-text\\-editor\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/gnome-text-editor/"
     },
     "gnome-tweaks": {
       "provider": "directory",
-      "policy": "series",
+      "policy": "major",
       "index": "https://download.gnome.org/sources/gnome-tweaks/49/",
       "filename_pattern": "gnome\\-tweaks-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/gnome-tweaks/"
@@ -348,7 +416,7 @@
     },
     "gsettings-desktop-schemas": {
       "provider": "directory",
-      "policy": "series",
+      "policy": "major",
       "index": "https://download.gnome.org/sources/gsettings-desktop-schemas/51/",
       "filename_pattern": "gsettings\\-desktop\\-schemas\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/gsettings-desktop-schemas/"
@@ -415,7 +483,9 @@
     },
     "iso-codes": {
       "provider": "local",
-      "reason": "Pinned ISO language data"
+      "reason": "Pinned ISO 639/3166/15924 language data from Debian pool (no standalone upstream SHA256 file; paired with local files/legacy-xml.py generator)",
+      "local_kind": "pinned-upstream",
+      "upgrade_condition": "Re-evaluate when Fcitx5/GNOME requires new ISO codes or when switching to an upstream source with published checksums"
     },
     "kbd": {
       "provider": "directory",
@@ -425,185 +495,133 @@
     },
     "kernel-dev-headers": {
       "provider": "local",
-      "reason": "Version follows the target kernel/libc"
+      "reason": "Version follows the target kernel/libc",
+      "local_kind": "derived-from-base"
     },
     "kf6-karchive": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "karchive\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kbookmarks": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kbookmarks\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kcodecs": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kcodecs\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kcolorscheme": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kcolorscheme\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kcompletion": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kcompletion\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kconfig": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kconfig\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kconfigwidgets": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kconfigwidgets\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kcoreaddons": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kcoreaddons\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kcrash": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kcrash\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kdbusaddons": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kdbusaddons\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kglobalaccel": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kglobalaccel\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kguiaddons": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kguiaddons\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-ki18n": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "ki18n\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kiconthemes": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kiconthemes\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kio": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kio\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kitemviews": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kitemviews\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kjobwidgets": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kjobwidgets\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-knotifications": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "knotifications\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-knotifyconfig": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "knotifyconfig\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kparts": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kparts\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kpty": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kpty\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kservice": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kservice\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-ktextwidgets": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "ktextwidgets\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kwidgetsaddons": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kwidgetsaddons\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kwindowsystem": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kwindowsystem\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kxmlgui": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kxmlgui\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-solid": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "solid\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-sonnet": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "sonnet\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "konsole": {
       "provider": "directory",
       "policy": "series",
-      "index": "https://download.kde.org/stable/release-service/26.08.3/src/",
+      "index": "https://download.kde.org/stable/release-service/",
+      "version_dir_pattern": "[0-9]+\\.[0-9]+\\.[0-9]+",
+      "subdir": "src/",
       "filename_pattern": "konsole\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
     },
     "lan-apk-feeds": {
       "provider": "local",
-      "reason": "Locally maintained integration package"
+      "reason": "Locally maintained integration package",
+      "local_kind": "local-integration"
     },
     "libX11": {
       "provider": "directory",
@@ -742,7 +760,7 @@
     },
     "libgdm": {
       "provider": "directory",
-      "policy": "series",
+      "policy": "major",
       "index": "https://download.gnome.org/sources/gdm/51/",
       "filename_pattern": "gdm-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
     },
@@ -980,14 +998,20 @@
     },
     "loupe": {
       "provider": "directory",
-      "policy": "series",
+      "policy": "major",
       "index": "https://download.gnome.org/sources/loupe/51/",
       "filename_pattern": "loupe\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/loupe/"
     },
     "luci-app-daed": {
       "provider": "local",
-      "reason": "Locally maintained LuCI control for daed"
+      "reason": "Locally maintained LuCI control for daed",
+      "local_kind": "local-integration"
+    },
+    "luci-app-desktop": {
+      "provider": "local",
+      "reason": "Locally maintained LuCI control for the desktop session",
+      "local_kind": "local-integration"
     },
     "luci-app-desktop-setup": {
       "provider": "local",
@@ -995,23 +1019,28 @@
     },
     "luci-app-needrestart": {
       "provider": "local",
-      "reason": "Locally maintained integration package"
+      "reason": "Locally maintained integration package",
+      "local_kind": "local-integration"
     },
     "luci-app-podman": {
       "provider": "local",
-      "reason": "Locally maintained integration package"
+      "reason": "Locally maintained integration package",
+      "local_kind": "local-integration"
     },
     "luci-app-qemu": {
       "provider": "local",
-      "reason": "Locally maintained integration package"
+      "reason": "Locally maintained integration package",
+      "local_kind": "local-integration"
     },
     "luci-app-systemd-journal": {
       "provider": "local",
-      "reason": "Locally maintained integration package"
+      "reason": "Locally maintained integration package",
+      "local_kind": "local-integration"
     },
     "luci-app-uci-history": {
       "provider": "local",
-      "reason": "Locally maintained configuration history integration"
+      "reason": "Locally maintained configuration history integration",
+      "local_kind": "local-integration"
     },
     "luci-theme-argon": {
       "provider": "git-checkout",
@@ -1020,28 +1049,40 @@
     },
     "mozjs140": {
       "provider": "directory",
-      "policy": "series",
-      "index": "https://archive.mozilla.org/pub/firefox/releases/140.15.0esr/source/",
-      "filename_pattern": "firefox\\-(?P<version>140(?:\\.[0-9]+)+)esr\\.source\\.tar\\.xz"
+      "policy": "major",
+      "index": "https://archive.mozilla.org/pub/firefox/releases/",
+      "version_dir_pattern": "140\\.[0-9]+(?:\\.[0-9]+)*esr",
+      "subdir": "source/",
+      "filename_pattern": "firefox\\-(?P<version>140(?:\\.[0-9]+)+)esr\\.source\\.tar\\.xz",
+      "checksums": "https://archive.mozilla.org/pub/firefox/releases/{version}esr/SHA256SUMS",
+      "checksum_filename": "source/firefox-{version}esr.source.tar.xz",
+      "rebuild_dependents": [
+        "gjs"
+      ]
     },
     "mutter": {
       "provider": "directory",
-      "policy": "series",
+      "policy": "major",
       "index": "https://download.gnome.org/sources/mutter/51/",
       "filename_pattern": "mutter-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.(?:xz|gz)",
-      "series_index": "https://download.gnome.org/sources/mutter/"
+      "series_index": "https://download.gnome.org/sources/mutter/",
+      "rebuild_dependents": [
+        "gnome-shell"
+      ]
     },
     "native-build-deps": {
       "provider": "local",
-      "reason": "Locally maintained integration package"
+      "reason": "Locally maintained integration package",
+      "local_kind": "local-integration"
     },
     "native-libs-dev": {
       "provider": "local",
-      "reason": "Locally maintained integration package"
+      "reason": "Locally maintained integration package",
+      "local_kind": "local-integration"
     },
     "nautilus": {
       "provider": "directory",
-      "policy": "series",
+      "policy": "major",
       "index": "https://download.gnome.org/sources/nautilus/51/",
       "filename_pattern": "nautilus-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz",
       "series_index": "https://download.gnome.org/sources/nautilus/"
@@ -1073,47 +1114,58 @@
     },
     "openwrt-appimage": {
       "provider": "local",
-      "reason": "Locally maintained integration package"
+      "reason": "Locally maintained integration package",
+      "local_kind": "local-integration"
     },
     "openwrt-desktop": {
       "provider": "local",
-      "reason": "Locally maintained integration package"
+      "reason": "Locally maintained integration package",
+      "local_kind": "local-integration"
     },
     "openwrt-desktop-audio": {
       "provider": "local",
-      "reason": "Locally maintained desktop audio integration"
+      "reason": "Locally maintained desktop audio integration",
+      "local_kind": "local-integration"
     },
     "openwrt-desktop-ime": {
       "provider": "local",
-      "reason": "Locally maintained Weston input method integration"
+      "reason": "Locally maintained Weston input method integration",
+      "local_kind": "local-integration"
     },
     "openwrt-desktop-launcher": {
       "provider": "local",
-      "reason": "Locally maintained Weston application launcher"
+      "reason": "Locally maintained Weston application launcher",
+      "local_kind": "local-integration"
     },
     "openwrt-flatpak": {
       "provider": "local",
-      "reason": "Locally maintained integration package"
+      "reason": "Locally maintained integration package",
+      "local_kind": "local-integration"
     },
     "openwrt-full-utils": {
       "provider": "local",
-      "reason": "Locally maintained integration package"
+      "reason": "Locally maintained integration package",
+      "local_kind": "local-integration"
     },
     "openwrt-installer": {
       "provider": "local",
-      "reason": "Locally maintained whole-disk USB installer"
+      "reason": "Locally maintained whole-disk USB installer",
+      "local_kind": "local-integration"
     },
     "openwrt-kernel-upgrade": {
       "provider": "local",
-      "reason": "Locally maintained integration package"
+      "reason": "Locally maintained integration package",
+      "local_kind": "local-integration"
     },
     "openwrt-needrestart": {
       "provider": "local",
-      "reason": "Locally maintained integration package"
+      "reason": "Locally maintained integration package",
+      "local_kind": "local-integration"
     },
     "openwrt-podman-rootless": {
       "provider": "local",
-      "reason": "Locally maintained integration package"
+      "reason": "Locally maintained integration package",
+      "local_kind": "local-integration"
     },
     "osinfo-db": {
       "provider": "gitlab",
@@ -1183,7 +1235,8 @@
     },
     "router-audit": {
       "provider": "local",
-      "reason": "Locally maintained read-only router audit export and DNS event collection"
+      "reason": "Locally maintained read-only router audit export and DNS event collection",
+      "local_kind": "local-integration"
     },
     "rtkit": {
       "provider": "gitlab",
@@ -1199,7 +1252,9 @@
     },
     "sunshine": {
       "provider": "local",
-      "reason": "Release and hashed gitlink archives in sources.json must be updated together"
+      "reason": "Release tarball and hashed gitlink submodule archives in sources.json must be updated together",
+      "local_kind": "pinned-upstream",
+      "upgrade_condition": "Update manually on official LizardByte/Sunshine releases while regenerating sources.json gitlink archives and SHA256 hashes together"
     },
     "swtpm": {
       "provider": "github",
@@ -1209,7 +1264,7 @@
     },
     "tecla": {
       "provider": "directory",
-      "policy": "series",
+      "policy": "major",
       "index": "https://download.gnome.org/sources/tecla/49/",
       "filename_pattern": "tecla-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
     },
@@ -1233,7 +1288,8 @@
     },
     "uci-history": {
       "provider": "local",
-      "reason": "Locally maintained configuration history integration"
+      "reason": "Locally maintained configuration history integration",
+      "local_kind": "local-integration"
     },
     "upower": {
       "provider": "gitlab",
@@ -1263,7 +1319,9 @@
     },
     "virtiofsd": {
       "provider": "local",
-      "reason": "Cargo vendor tarball: bump PKG_VERSION and PKG_VENDOR_HASH from the GitLab v<version> archive, then regenerate PKG_HASH with make package/custom/virtiofsd/download (scripts/gen-cargo-vendor-tarball.sh)"
+      "reason": "Cargo vendor tarball combines upstream source with vendored crates",
+      "local_kind": "pinned-upstream",
+      "upgrade_condition": "Bump PKG_VERSION and PKG_VENDOR_HASH from the GitLab v<version> archive, then regenerate PKG_HASH via make package/custom/virtiofsd/download (scripts/gen-cargo-vendor-tarball.sh)"
     },
     "wireplumber": {
       "provider": "github",
@@ -1288,11 +1346,18 @@
       "provider": "github",
       "policy": "series",
       "project": "flatpak/xdg-desktop-portal",
-      "catalog": "releases"
+      "catalog": "releases",
+      "linked_sources": [
+        {
+          "recipe": "package/custom/flatpak/Makefile",
+          "version_var": "FLATPAK_INTERFACES_VERSION",
+          "hash_var": "FLATPAK_INTERFACES_HASH"
+        }
+      ]
     },
     "xdg-desktop-portal-gnome": {
       "provider": "directory",
-      "policy": "series",
+      "policy": "major",
       "index": "https://download.gnome.org/sources/xdg-desktop-portal-gnome/51/",
       "filename_pattern": "xdg\\-desktop\\-portal\\-gnome-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.(?:xz|gz)",
       "series_index": "https://download.gnome.org/sources/xdg-desktop-portal-gnome/"
@@ -1339,58 +1404,45 @@
       "stable_pattern": "(?!.*\\.99(?:\\.|$))[0-9]+(?:\\.[0-9]+)*"
     },
     "kf6-attica": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "attica\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kcmutils": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kcmutils\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kirigami": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kirigami\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-knewstuff": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "knewstuff\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "kf6-kpackage": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "kpackage\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
     },
     "plasma-wayland-protocols": {
       "provider": "directory",
-      "policy": "series",
+      "policy": "major",
       "index": "https://download.kde.org/stable/plasma-wayland-protocols/",
       "filename_pattern": "plasma\\-wayland\\-protocols\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
     },
     "qt6multimedia": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.qt.io/archive/qt/6.9/6.9.3/submodules/",
-      "filename_pattern": "qtmultimedia\\-everywhere\\-src\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "feeds/video/frameworks/qt6/common.mk",
+      "feed_group": "qt6"
     },
     "qt6speech": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.qt.io/archive/qt/6.9/6.9.3/submodules/",
-      "filename_pattern": "qtspeech\\-everywhere\\-src\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "feeds/video/frameworks/qt6/common.mk",
+      "feed_group": "qt6"
     },
     "qt6wayland": {
-      "provider": "directory",
-      "policy": "series",
-      "index": "https://download.qt.io/archive/qt/6.9/6.9.3/submodules/",
-      "filename_pattern": "qtwayland\\-everywhere\\-src\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "provider": "follow",
+      "recipe": "feeds/video/frameworks/qt6/common.mk",
+      "feed_group": "qt6"
     },
     "fcitx5-qt": {
       "provider": "directory",
@@ -1414,17 +1466,286 @@
     },
     "hunspell-en": {
       "provider": "local",
-      "reason": "Dictionary data pinned to the wooorm/dictionaries commit"
+      "reason": "Dictionary data pinned to wooorm/dictionaries commit 8cfea406b505e4d7df52d5a19bce525df98c54ab (monorepo without per-language versioned tags)",
+      "local_kind": "pinned-upstream",
+      "upgrade_condition": "Update manually when refreshing spellcheck dictionaries or if upstream publishes tagged en_US releases"
     },
     "libutempter": {
       "provider": "local",
-      "reason": "Pinned altlinux/libutempter commit (no tagged release)"
+      "reason": "Pinned to altlinux/libutempter commit 717116b93d496a19f7f8abf8702517de0053f66e (no tagged GitHub releases)",
+      "local_kind": "pinned-upstream",
+      "upgrade_condition": "Re-evaluate if upstream publishes tagged release tarballs with verifiable checksums or when security fixes land on main"
     },
     "kf6-breeze-icons": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "qt65compat": {
+      "provider": "follow",
+      "recipe": "feeds/video/frameworks/qt6/common.mk",
+      "feed_group": "qt6"
+    },
+    "qt6positioning": {
+      "provider": "follow",
+      "recipe": "feeds/video/frameworks/qt6/common.mk",
+      "feed_group": "qt6"
+    },
+    "qt6location": {
+      "provider": "follow",
+      "recipe": "feeds/video/frameworks/qt6/common.mk",
+      "feed_group": "qt6"
+    },
+    "kf6-frameworkintegration": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-kauth": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-kdeclarative": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-kded": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-kfilemetadata": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-kholidays": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-kidletime": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-kimageformats": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-kitemmodels": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-kquickcharts": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-krunner": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-kstatusnotifieritem": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-ksvg": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-ktexteditor": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-kunitconversion": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-kuserfeedback": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-kwallet": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-prison": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-qqc2-desktop-style": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kf6-syntax-highlighting": {
+      "provider": "follow",
+      "recipe": "package/custom/extra-cmake-modules/Makefile"
+    },
+    "kwin": {
       "provider": "directory",
       "policy": "series",
-      "index": "https://download.kde.org/stable/frameworks/6.20/",
-      "filename_pattern": "breeze\\-icons\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+      "index": "https://download.kde.org/stable/plasma/",
+      "version_dir_pattern": "[0-9]+\\.[0-9]+\\.[0-9]+",
+      "filename_pattern": "kwin\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+    },
+    "kdecoration": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "kwayland": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "layer-shell-qt": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "libkscreen": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "plasma-activities": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "plasma-activities-stats": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "kglobalacceld": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "kpipewire": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "knighttime": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "libplasma": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "union": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "aurorae": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "breeze": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "qqc2-breeze-style": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "kscreenlocker": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "libksysguard": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "kactivitymanagerd": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "milou": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "plasma5support": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "plasma-workspace": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "plasma-desktop": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "polkit-kde-agent-1": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "xdg-desktop-portal-kde": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "plasma-integration": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "kde-cli-tools": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "kscreen": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "systemsettings": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "plasma-pa": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "krdp": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "ocean-sound-theme": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "plasma-workspace-wallpapers": {
+      "provider": "follow",
+      "recipe": "package/custom/kwin/Makefile"
+    },
+    "dolphin": {
+      "provider": "follow",
+      "recipe": "package/custom/konsole/Makefile"
+    },
+    "polkit-qt6": {
+      "provider": "directory",
+      "policy": "stable",
+      "index": "https://download.kde.org/stable/polkit-qt-1/",
+      "filename_pattern": "polkit\\-qt\\-1\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+    },
+    "kirigami-addons": {
+      "provider": "directory",
+      "policy": "stable",
+      "index": "https://download.kde.org/stable/kirigami-addons/",
+      "filename_pattern": "kirigami\\-addons\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+    },
+    "pulseaudio-qt": {
+      "provider": "directory",
+      "policy": "stable",
+      "index": "https://download.kde.org/stable/pulseaudio-qt/",
+      "filename_pattern": "pulseaudio\\-qt\\-(?P<version>[0-9]+(?:\\.[0-9]+)*)\\.tar\\.xz"
+    },
+    "qcoro6": {
+      "provider": "github",
+      "catalog": "releases",
+      "policy": "stable",
+      "project": "qcoro/qcoro",
+      "tag_pattern": "v(?P<version>[0-9]+(?:\\.[0-9]+)*)"
+    },
+    "qtkeychain-qt6": {
+      "provider": "github",
+      "catalog": "releases",
+      "policy": "stable",
+      "project": "frankosterfeld/qtkeychain",
+      "tag_pattern": "(?P<version>[0-9]+(?:\\.[0-9]+)*)"
+    },
+    "openwrt-desktop-plasma": {
+      "provider": "local",
+      "reason": "Locally maintained KDE Plasma desktop integration package",
+      "local_kind": "local-integration"
     }
   }
 }

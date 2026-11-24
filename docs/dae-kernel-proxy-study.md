@@ -8,12 +8,14 @@ a kernel module (`.ko`), and whether that would make proxying faster on this
 router: a Celeron N5105 (Tremont cores with AES-NI and PCLMULQDQ, no AVX2)
 behind a 2.5 Gbps WAN, using VLESS with XTLS Vision over REALITY/TLS.
 
-This is a design study only. Nothing was built, benchmarked or installed, and
-the router was not touched. Every throughput or CPU figure below is either an
-order-of-magnitude **estimate** (marked as such) or a published figure with its
-source. Source references point to the upstream trees: dae core paths start
-with `control/` or `common/`, outbound paths with `protocol/` or `netproxy/`,
-kernel paths with `net/`.
+This is a design study only (dated 2026-11-04; Option A's Vision splice
+handover was later implemented in `daed` r4 — see [daed.md](daed.md), while
+Options B/C/D remain unimplemented reference material; the tree has since moved
+to Linux 7.3.5 and `daed` 2.1.1-r10). Every throughput or CPU figure below is
+either an order-of-magnitude **estimate** (marked as such) or a published figure
+with its source. Source references point to the upstream trees: dae core paths
+start with `control/` or `common/`, outbound paths with `protocol/` or
+`netproxy/`, kernel paths with `net/`.
 
 ## Answer
 

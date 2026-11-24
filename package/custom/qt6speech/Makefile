@@ -1,12 +1,12 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=qt6speech
-PKG_VERSION:=6.9.3
-PKG_RELEASE:=2
+PKG_VERSION:=6.11.3
+PKG_RELEASE:=1
 PKG_SOURCE:=qtspeech-everywhere-src-$(PKG_VERSION).tar.xz
-PKG_SOURCE_URL:=https://download.qt.io/archive/qt/6.9/$(PKG_VERSION)/submodules/
+PKG_SOURCE_URL:=https://download.qt.io/archive/qt/6.11/$(PKG_VERSION)/submodules/
 PKG_BUILD_DIR:=$(BUILD_DIR)/qtspeech-everywhere-src-$(PKG_VERSION)
-PKG_HASH:=f86f5a4c742fb86ccc6e90ee72a9213150986575c3d238829a4b48a28bc9ab3e
+PKG_HASH:=cfadb37721f20c2dc85926a1edbf6c165d9162ea38ccdb6cbc4466109a21578c
 PKG_LICENSE:=LGPL-3.0-only GPL-2.0-only GPL-3.0-only
 PKG_LICENSE_FILES:= \
 	LICENSES/LicenseRef-Qt-Commercial.txt \

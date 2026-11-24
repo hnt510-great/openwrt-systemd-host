@@ -1,0 +1,17 @@
+include $(TOPDIR)/rules.mk
+
+PKG_NAME:=plasma-activities
+PKG_VERSION:=6.8.3
+PKG_RELEASE:=1
+PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+PKG_SOURCE_URL:=https://download.kde.org/stable/plasma/6.8.3/
+PKG_HASH:=bdd3c491e74a2c4b1afa3c8074edfbf8b024b6584c945e56ed9f3a28254c80f1
+PKG_LICENSE:=GPL-2.0-or-later LGPL-2.1-or-later
+
+KF6_SUBMENU:=KDE Plasma 6
+KF6_PACKAGE_TITLE:=Plasma Activities
+KF6_DEPENDS:=+qt6base-core +qt6base-dbus +qt6base-sql +kf6-kconfig +kf6-kcoreaddons
+
+include $(INCLUDE_DIR)/kf6-package.mk
+
+$(eval $(call BuildPackage,$(PKG_NAME)))

@@ -140,5 +140,5 @@ Detailed private evidence is retained in
 `vm-network-final/validation.json`, and the `vm-clean/` and `vm-upgrade-final/`
 logs and receipts.
 
-The subsequent authorized publication and physical-router installation, without
-a reboot, are recorded in [the deployment report](mainline-kernel-deployment-20261024.md).
+Authorized publication and physical-router installation (without a reboot)
+subsequently completed on 2026-10-24.

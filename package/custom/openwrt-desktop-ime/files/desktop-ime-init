@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+umask 077
+config_home=${XDG_CONFIG_HOME:-$HOME/.config}
+mkdir -p "$config_home/fcitx5/conf"
+for name in config profile; do
+	# noclobber also preserves existing files and symlinks, including broken ones.
+	if [ ! -e "$config_home/fcitx5/$name" ] && [ ! -L "$config_home/fcitx5/$name" ]; then
+		(set -C; cat "/usr/share/openwrt-desktop-ime/$name" > "$config_home/fcitx5/$name") || :
+	fi
+done
+if [ ! -e "$config_home/fcitx5/conf/classicui.conf" ] && [ ! -L "$config_home/fcitx5/conf/classicui.conf" ]; then
+	(set -C; cat /usr/share/openwrt-desktop-ime/classicui.conf > "$config_home/fcitx5/conf/classicui.conf") || :
+fi

@@ -37,13 +37,29 @@ REST API。对于按正式发行跟踪的包，仅在发现更高的候选版本
 发行历史。标签及 HTTP 元数据在本次进程内缓存。
 
 - `series`：固定当前版本的前两个数字段，例如 `1.2.x`；
-  `0.41` 这样的两段版本保持在这一系列。
-- `major`：固定当前主版本。Firefox 保持当前 ESR，Node 保持当前 LTS 主版本。
+  `0.41` 这样的两段版本保持在这一系列。KDE Plasma（`kwin` 等 32 项）和
+  KDE Gear（`konsole`/`dolphin`）使用此策略跟踪当前维护线，跨系列发行单列审阅。
+- `major`：固定当前主版本。Firefox 保持当前 ESR，Node 保持当前 LTS 主版本，
+  `mozjs140` 从 Mozilla 发行父目录跟踪 `140.*esr` 正式源码并校验 `SHA256SUMS`，
+  使用整数发行目录的 GNOME 项目（如 `51/`）允许 `51.1 -> 51.2`、`51.2 -> 51.2.1`
+  并在扫描父目录时将下一整数系列单列审阅。
 - `stable`：用于整数和日期/年份发布序列，跟随稳定发行。
 - `follow`：跟随指定基础配方的版本；相同源码的绑定同时使用基础配方的摘要。
   `glib2-gir` 跟随 `glib2`，`python3-libxml2` 跟随主树 `libxml2`。
   `libvirt` 与 `libvirt-python` 成组更新，任一成员校验失败都不写入该组。
-- `local`：本地整合包或版本派生于内核/glibc 的包，保留已有版本机制。
+  额外附带源码通过 `linked_sources` 联动（例如 `xdg-desktop-portal` 联动
+  `flatpak` 更新 `FLATPAK_INTERFACES_VERSION` 与 `FLATPAK_INTERFACES_HASH`）。
+- `feed_groups`：跨仓库联动组。Qt6 组以 `feeds/video/frameworks/qt6/common.mk`
+  为版本基准，将 `feeds/video` 中的 6 个 Qt6 模块、主树的 6 个 custom Qt6 模块
+  及 `configs/kde-plasma-feeds.json` 指定的补丁镜像作为一个原子更新组；选择任一
+  成员都会展开整组，默认跟踪 `6.11.x` 并将 `6.12` 等新系列单列审阅。任一模块缺失、
+  校验失败或两个仓库存在本地修改时，保留原组合不变。
+- `local`：本地整合包（`local-integration`）、随内核/glibc 派生的包
+  （`derived-from-base`）或有明确升级条件的固定上游源码（`pinned-upstream`），
+  保留已有版本机制并在注册表中注明分类与重新评估条件。
+
+桌面核心组件（Qt6、ECM/KF6、Mutter、GNOME Shell、mozjs140）在注册表中声明
+`rebuild_dependents`，报告中会一并列出需要联编的下游包。
 
 Passt 从官方标签页列出的源码归档跟随稳定日期版本。目录匹配中的
 `source_version` 保存完整的日期和提交哈希标签，`version` 将日期中的
@@ -107,9 +123,11 @@ python3 scripts/update-custom-packages.py --check --package libvirt
 辅助程序的 `--update` 只修改配方；随后需要运行
 `./scripts/feeds update -i custom` 刷新索引。通常直接使用 feeds 入口。
 
-检查模式返回 0 表示没有可更新/待审阅版本，1 表示存在更新或分支需要
-审阅，2 表示检查错误。更新模式成功返回 0，错误返回非零。网络不可达、
-API 限流、上游格式变化、摘要错误和本地修改都会明确报错。
+检查模式先离线校验全部配方覆盖、来源类型、必填字段、正则与循环依赖，再逐组查询。
+单个上游查询失败时会继续检查其余独立组，最后汇总失败项并返回 2。检查模式返回 0
+表示没有可更新/待审阅版本，1 表示存在更新或分支需要审阅，2 表示检查错误。更新模式
+成功返回 0，错误返回非零。网络不可达、API 限流、上游格式变化、摘要错误和本地修改
+都会明确报错。
 
 GitHub API 仍对待升级的正式发行做验证。可通过环境变量 `GH_TOKEN` 或
 `GITHUB_TOKEN` 提供已有令牌；只向 `api.github.com` 发送认证头，令牌不放入

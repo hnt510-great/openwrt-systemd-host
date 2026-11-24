@@ -62,10 +62,17 @@ comparison, hold the source, config, signing key, timestamp, retained directorie
 and initial feed state fixed.
 
 Compare APK identities, dependency metadata and byte hashes across paths, then
-check that rolling followed by a full build produces valid fresh media. The
-historical full-build stage totals in the
-[original investigation](incremental-build-acceleration-plan.md) include
-kernel bundle and other shared work and cannot be counted as rolling savings.
+check that rolling followed by a full build produces valid fresh media.
+Historical full-build stage totals include kernel bundle and other shared work
+and cannot be counted as rolling savings.
+
+The original investigation recorded per-stage timings, warm-build invalidation
+evidence, and profiling follow-ups. Read that historical handoff from the
+repository root when investigating the remaining performance gap:
+
+```sh
+git show 687fab97f03e0bbafa3724e2563542b9b8434aef:docs/incremental-build-acceleration-plan.md
+```
 
 ## Host checks
 

@@ -1,0 +1,69 @@
+#!/bin/sh
+set -eu
+set +x
+[ "$(id -u)" -ge 1000 ] || exit 1
+umask 077
+export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+
+user="$(id -un)"
+port="$(/sbin/uci -q get desktop.main.rdp_port || printf 3389)"
+cert="/etc/desktop/tls/$user.crt"
+key="/etc/desktop/tls/$user.key"
+
+# Read the password directly from stdin inside Python so it never appears in
+# process arguments, and store it in the unlocked Secret Service using the
+# QtKeychain schema (service="KRDP", key=username).
+python3 -c '
+import sys
+import gi
+gi.require_version("Secret", "1")
+from gi.repository import Secret
+
+username = sys.argv[1]
+password = sys.stdin.readline().rstrip("\r\n")
+if not password:
+    sys.stderr.write("Empty RDP password\n")
+    raise SystemExit(1)
+
+schema = Secret.Schema.new(
+    "org.qt.keychain",
+    Secret.SchemaFlags.NONE,
+    {
+        "user": Secret.SchemaAttributeType.STRING,
+        "server": Secret.SchemaAttributeType.STRING,
+        "type": Secret.SchemaAttributeType.STRING,
+    },
+)
+attrs = {
+    "user": username,
+    "server": "KRDP",
+    "type": "plaintext",
+}
+Secret.password_store_sync(
+    schema,
+    attrs,
+    Secret.COLLECTION_DEFAULT,
+    f"KRDP ({username})",
+    password,
+    None,
+)
+' "$user"
+
+kwriteconfig6 --file krdpserverrc --group General --key Users "$user"
+kwriteconfig6 --file krdpserverrc --group General --key Autostart false
+kwriteconfig6 --file krdpserverrc --group General --key AutogenerateCertificates false
+kwriteconfig6 --file krdpserverrc --group General --key ListenPort "$port"
+kwriteconfig6 --file krdpserverrc --group General --key Certificate "$cert"
+kwriteconfig6 --file krdpserverrc --group General --key CertificateKey "$key"
+
+# Pre-authorize org.kde.krdpserver in xdg-permission-store so
+# xdg-desktop-portal-kde starts screencasting without blocking on a local
+# interactive consent dialog.
+if command -v gdbus >/dev/null 2>&1; then
+	gdbus call --session \
+		--dest org.freedesktop.impl.portal.PermissionStore \
+		--object-path /org/freedesktop/impl/portal/PermissionStore \
+		--method org.freedesktop.impl.portal.PermissionStore.SetPermission \
+		"kde-authorized" true "remote-desktop" "org.kde.krdpserver" "['yes']" >/dev/null 2>&1 || :
+fi

@@ -2,9 +2,8 @@
 
 Validation workspace: `/srv/openwrt-validation/kernel-upgrade-validation-20261015`.
 The initial validation below performed no physical router deployment, flashing,
-reboot, bridge attachment, or LAN feed publication. The later support-only
-physical installation and LAN publication are recorded separately in
-[the physical deployment report](kernel-upgrade-physical-20261015.md).
+reboot, bridge attachment, or LAN feed publication (support-only physical
+installation and LAN publication occurred separately on 2026-10-15).
 QEMU used disposable qcow2 disks, an independent NVMe
 extroot, and restricted user networking. Existing host VMs were left running.
 
@@ -254,9 +253,8 @@ The root-only physical backup is `/root/kernel-preupgrade-fix-20261016T021302/`.
 The user subsequently upgraded and rebooted the physical router. Read-only
 verification confirmed successful G7 boot and health promotion, complete matching
 module payloads/vermagic, native systemd/network/KVM operation and preservation of
-the original bootable kernel. Exact checks, evidence and the untested physical
-failed-boot/guest-OS boundaries are recorded in
-[the physical deployment report](kernel-upgrade-physical-20261015.md#subsequent-physical-g7-acceptance-2026-10-16).
+the original bootable kernel (untested physical failed-boot/guest-OS boundaries
+remain separate).
 
 ## Boot payload retention (2026-10-18)
 

@@ -1,6 +1,6 @@
 [Unit]
-Description=Sunshine Moonlight host for the GNOME desktop
-PartOf=gnome-session.target
+Description=Sunshine Moonlight host for the active desktop
+PartOf=graphical-session.target
 ConditionPathExists=/run/openwrt-desktop/%U.env
 Requires=pipewire-pulse.service wireplumber.service
 After=pipewire-pulse.service wireplumber.service
@@ -16,4 +16,4 @@ NoNewPrivileges=false
 UMask=0077
 
 [Install]
-WantedBy=gnome-session.target
+WantedBy=graphical-session.target

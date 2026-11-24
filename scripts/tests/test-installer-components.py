@@ -81,15 +81,28 @@ def sha256_bytes(data):
 class InstallerComponentsTests(unittest.TestCase):
     def test_selection_defaults_and_empty(self):
         cat = sample_catalog()
-        all_ids = [c['id'] for c in cat['components']]
-        self.assertEqual(core.default_components(cat), all_ids)
-        self.assertEqual(core.validate_components(None, cat), all_ids)
+        default_ids = [c['id'] for c in cat['components'] if c.get('default', True)]
+        self.assertEqual(core.default_components(cat), default_ids)
+        self.assertEqual(core.validate_components(None, cat), default_ids)
         self.assertEqual(core.validate_components([], cat), [])
         self.assertEqual(core.resolve_component_packages([], cat), [])
 
-        # Omitted components in answers defaults to all components.
+        # Omitted components in answers defaults to default components.
         a = core.validate_answers(sample_answers(components=None), catalog=cat)
-        self.assertEqual(a['components'], all_ids)
+        self.assertEqual(a['components'], default_ids)
+
+        # Pure Plasma selection is valid and resolves Plasma packages without GNOME.
+        self.assertEqual(core.validate_components(['plasma'], cat), ['plasma'])
+        self.assertEqual(core.validate_components(['plasma', 'audio', 'ime', 'rdp', 'sunshine'], cat),
+                         ['plasma', 'audio', 'ime', 'rdp', 'sunshine'])
+        plasma_pkgs = core.resolve_component_packages(['plasma', 'audio', 'ime', 'rdp', 'virtualization'], cat)
+        self.assertIn('openwrt-desktop-plasma-core', plasma_pkgs)
+        self.assertIn('openwrt-desktop-plasma-rdp', plasma_pkgs)
+        self.assertIn('openwrt-desktop-ime-plasma', plasma_pkgs)
+        self.assertIn('plasma-pa', plasma_pkgs)
+        self.assertIn('virt-manager', plasma_pkgs)
+        self.assertNotIn('openwrt-desktop-core', plasma_pkgs)
+        self.assertNotIn('openwrt-desktop-rdp', plasma_pkgs)
 
         # Empty components in answers is base-only and rejects gnome_autostart=True.
         with self.assertRaisesRegex(ValueError, 'GNOME autostart requires'):
@@ -447,11 +460,20 @@ class InstallerComponentsTests(unittest.TestCase):
             ('gnome_autostart_and_audio',
              {'name': 'alice', 'password_hash': HASH, 'gnome_autostart': True, 'components': ['gnome', 'audio']},
              [['id', 'alice'], ['useradd', '-m', '-G', 'sudo', 'alice'], ['usermod', '-p', HASH, 'alice'],
+              ['uci', 'set', 'desktop.main.session=gnome'], ['uci', 'commit', 'desktop'],
+              ['desktop-setup', 'alice'], ['desktop-audio-setup', 'alice']],
+             True, None),
+            ('plasma_autostart_and_audio',
+             {'name': 'alice', 'password_hash': HASH, 'desktop_session': 'plasma', 'desktop_autostart': True,
+              'components': ['plasma', 'audio']},
+             [['id', 'alice'], ['useradd', '-m', '-G', 'sudo', 'alice'], ['usermod', '-p', HASH, 'alice'],
+              ['uci', 'set', 'desktop.main.session=plasma'], ['uci', 'commit', 'desktop'],
               ['desktop-setup', 'alice'], ['desktop-audio-setup', 'alice']],
              True, None),
             ('gnome_no_autostart',
              {'name': 'alice', 'password_hash': HASH, 'gnome_autostart': False, 'components': ['gnome']},
              [['id', 'alice'], ['useradd', '-m', '-G', 'sudo', 'alice'], ['usermod', '-p', HASH, 'alice'],
+              ['uci', 'set', 'desktop.main.session=gnome'], ['uci', 'commit', 'desktop'],
               ['desktop-setup', 'alice', '--no-autostart']],
              True, None),
             ('base_only',
@@ -461,6 +483,7 @@ class InstallerComponentsTests(unittest.TestCase):
             ('audio_failure_keeps_request',
              {'name': 'alice', 'password_hash': HASH, 'gnome_autostart': True, 'components': ['gnome', 'audio']},
              [['id', 'alice'], ['useradd', '-m', '-G', 'sudo', 'alice'], ['usermod', '-p', HASH, 'alice'],
+              ['uci', 'set', 'desktop.main.session=gnome'], ['uci', 'commit', 'desktop'],
               ['desktop-setup', 'alice'], ['desktop-audio-setup', 'alice']],
              False, 'desktop-audio-setup'),
         ]:
@@ -490,19 +513,45 @@ class InstallerComponentsTests(unittest.TestCase):
 
     def test_rdp_package_split_recipes(self):
         desktop_mk = (ROOT / 'package/custom/openwrt-desktop/Makefile').read_text()
-        core_block = desktop_mk.split('define Package/openwrt-desktop-core', 1)[1].split('endef', 1)[0]
-        rdp_block = desktop_mk.split('define Package/openwrt-desktop-rdp', 1)[1].split('endef', 1)[0]
+        base_block = desktop_mk.split('define Package/openwrt-desktop-base\n', 1)[1].split('endef', 1)[0]
+        core_block = desktop_mk.split('define Package/openwrt-desktop-core\n', 1)[1].split('endef', 1)[0]
+        rdp_block = desktop_mk.split('define Package/openwrt-desktop-rdp\n', 1)[1].split('endef', 1)[0]
         meta_block = desktop_mk.split('define Package/openwrt-desktop\n', 1)[1].split('endef', 1)[0]
+        self.assertNotIn('gnome-shell', base_block)
+        self.assertNotIn('gnome-keyring', base_block)
+        self.assertNotIn('gnome-remote-desktop', base_block)
+        self.assertIn('+python3', base_block)
+        self.assertIn('+openwrt-desktop-base', core_block)
         self.assertNotIn('gnome-remote-desktop', core_block)
         self.assertIn('+openwrt-desktop-core', rdp_block)
         self.assertIn('+gnome-remote-desktop', rdp_block)
         self.assertIn('+openwrt-desktop-core', meta_block)
         self.assertIn('+openwrt-desktop-rdp', meta_block)
 
-        for pkg in ('openwrt-desktop-audio', 'openwrt-desktop-ime', 'openwrt-flatpak', 'openwrt-appimage'):
+        for pkg in ('luci-app-desktop', 'openwrt-desktop-audio', 'openwrt-appimage'):
             mk = (ROOT / 'package/custom' / pkg / 'Makefile').read_text()
-            self.assertIn('+openwrt-desktop-core', mk)
+            self.assertIn('+openwrt-desktop-base', mk)
+            self.assertNotIn('+openwrt-desktop-core', mk)
             self.assertNotRegex(mk, r'\+openwrt-desktop(?:\s|$)')
+
+        ime_mk = (ROOT / 'package/custom/openwrt-desktop-ime/Makefile').read_text()
+        ime_base = ime_mk.split('define Package/openwrt-desktop-ime-base', 1)[1].split('endef', 1)[0]
+        ime_gnome = ime_mk.split('define Package/openwrt-desktop-ime\n', 1)[1].split('endef', 1)[0]
+        self.assertIn('+openwrt-desktop-base', ime_base)
+        self.assertNotIn('gnome', ime_base)
+        self.assertIn('+openwrt-desktop-ime-base', ime_gnome)
+        self.assertIn('+openwrt-desktop-core', ime_gnome)
+        self.assertIn('+gnome-shell-extension-kimpanel', ime_gnome)
+
+        fp_mk = (ROOT / 'package/custom/openwrt-flatpak/Makefile').read_text()
+        fp_base = fp_mk.split('define Package/openwrt-flatpak-base', 1)[1].split('endef', 1)[0]
+        fp_gnome = fp_mk.split('define Package/openwrt-flatpak\n', 1)[1].split('endef', 1)[0]
+        self.assertIn('+openwrt-desktop-base', fp_base)
+        self.assertNotIn('gnome', fp_base)
+        self.assertIn('+openwrt-flatpak-base', fp_gnome)
+        self.assertIn('+openwrt-desktop-core', fp_gnome)
+        self.assertIn('+xdg-desktop-portal-gtk', fp_gnome)
+        self.assertIn('+xdg-desktop-portal-gnome', fp_gnome)
 
 
 if __name__ == '__main__':

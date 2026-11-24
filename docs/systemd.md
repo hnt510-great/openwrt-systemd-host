@@ -19,9 +19,11 @@ registers runs as a transient `openwrt-SERVICE@INSTANCE.service`; see
 [systemd supervision of OpenWrt services](systemd-native-supervision.md). procd
 reports readiness after ubus registration and its first-boot udev coldplug.
 `openwrt-services.service` runs enabled OpenWrt rc scripts in order. Existing UCI, LuCI and `/etc/init.d/*` controls continue
-to address procd-managed router services. D-Bus and OpenSSH have native units
-and their rc scripts are skipped in systemd mode. The rc shutdown unmount script is also
-skipped so systemd can unmount filesystems after stopping services.
+to address procd-managed router services. D-Bus, OpenSSH, Samba (`samba4`),
+`wsdd2`, `avahi-daemon`, `cron`, `nlbwmon`, `ddns-go`, `podman.socket`, and
+`apk-resume` have native static systemd units (with thin native init adapters
+where needed, and `umount` omitted on systemd-only x86/64 so systemd unmounts
+filesystems after stopping services).
 The bridge completes the rc sequence even if an optional script returns a
 nonzero status, matching procd's rc queue, and reports that status in the
 journal. An active bridge means the sequence completed; check individual
@@ -31,10 +33,9 @@ login helper. Daemon executions run as transient services beneath per-service
 slices; rc scripts and the few instances procd still starts itself occupy
 scopes there. See [cgroup ownership and cleanup](systemd-cgroups.md).
 
-An optional [service control bridge](systemd-service-bridge.md) exposes
-individual openwrt@NAME.service controls, shared rc.d enablement and live
-status through systemctl. It preserves the ownership and boot ordering above
-and defaults to off.
+The default-on [service control bridge](systemd-service-bridge.md) exposes
+individual `openwrt@NAME.service` controls, shared `rc.d` enablement and live
+status through `systemctl`, preserving the ownership and boot ordering above.
 
 OpenWrt retains netifd, firewall, DHCP/DNS, NTP, module loading, sysctl and
 logd. udevd receives device events and forwards those with `/etc/hotplug.d`
@@ -135,18 +136,20 @@ already recorded by systemd-coredump.
 
 ## Filesystem and packages
 
-Native images identify themselves in /etc/os-release (an alias of
-/usr/lib/os-release) as **OpenWrt Systemd Host**, with
-ID=openwrt-systemd, ID_LIKE="openwrt lede" and
-VARIANT_ID=native-systemd. Standard procd images keep their existing identity.
-The native template is package/base-files/os-release.systemd; release,
+Native x86/64 images identify themselves in `/etc/os-release` (an alias of
+`/usr/lib/os-release`) as **OpenWrt Systemd Host**, with
+`ID=openwrt-systemd`, `ID_LIKE="openwrt lede"` and
+`VARIANT_ID=native-systemd`.
+The native template is `package/base-files/os-release.systemd`; release,
 revision, architecture and board values still come from the normal build
-metadata. OPENWRT_FEATURES lists the capabilities built into the image:
-router, plus desktop, virtualization, flatpak and containers when
-their corresponding packages are selected.
+metadata. `OPENWRT_FEATURES` lists the capabilities built into the image:
+`router`, plus `desktop`, `virtualization`, `flatpak`, `appimage`,
+`containers`, `distrobox`, and `native-development` when their corresponding
+packages are selected.
 
-Agents should read the OPENWRT_* identity fields for package and service
-commands. Read `/proc/1/comm` to verify that systemd started.
+Read `OPENWRT_SYSTEM_DESCRIPTION_FILE` (`/usr/share/doc/openwrt/system-description.md`)
+for package and service conventions, and `/proc/1/comm` to verify that systemd
+started.
 
 Package payloads and root overlays are normalized to merged `/usr`: `/bin`,
 `/sbin` and `/lib` become relative aliases for `/usr/bin`, `/usr/sbin` and
@@ -157,17 +160,22 @@ payload collisions fail the build instead of silently overwriting files.
 
 Stock upstream APK repositories are commented out in this variant because
 their payload layout is incompatible. Serve repositories from this build's
-`bin/systemd` tree and configure `/etc/apk/repositories.d/customfeeds.list`.
+`bin/systemd` tree via `lan-apk-feeds` (which manages
+`/etc/apk/repositories.d/lan-local.list` with `current/` and `kernel-upgrades/`;
+see [LAN APK feeds](lan-apk-feeds.md)).
 Use matching native APKs for installation and upgrades. Keep the signing
 key private; the firmware includes the public verification key.
 
-From `systemd` `262-r13`, `-Dtpm2=enabled` (`+tpm2-tss`) is built in and the
-x86_64 desktop snapshot selects `kmod-tpm-crb` and `kmod-tpm-tis`, enabling
-`systemd-creds --with-key=tpm2` and `LoadCredentialEncrypted=` on hardware TPM
-2.0. Because `/lib/upgrade/keep.d/systemd` keeps `/etc/systemd/` rather than
-`/var/lib/systemd/credential.secret`, persistent disk credentials meant to
-survive `sysupgrade` and kernel upgrades should seal with `--with-key=tpm2`
-and an empty PCR mask (`--tpm2-pcrs=""`) instead of `host` or fixed PCRs.
+From `systemd` `262-r13` (current `262-r15`, which also enables reviewed
+`99-systemd.rules` device boundaries, zstd/lz4 journal compression, elfutils
+backtraces, and the BPF framework), `-Dtpm2=enabled` (`+tpm2-tss`) is built in
+and the x86_64 desktop snapshot selects `kmod-tpm-crb` and `kmod-tpm-tis`,
+enabling `systemd-creds --with-key=tpm2` and `LoadCredentialEncrypted=` on
+hardware TPM 2.0. Because `/lib/upgrade/keep.d/systemd` keeps `/etc/systemd/`
+rather than `/var/lib/systemd/credential.secret`, persistent disk credentials
+meant to survive config backups/restores (`sysupgrade -b`/`-r`) and kernel
+upgrades should seal with `--with-key=tpm2` and an empty PCR mask
+(`--tpm2-pcrs=""`) instead of `host` or fixed PCRs.
 
 ## Administration and recovery
 
@@ -184,8 +192,11 @@ Replace firmware using installation media or offline disk imaging.
 
 The boot bridge lives in the main repository; PAM-enabled SSH and native
 D-Bus support also have local changes in the packages feed, documented in
-[permissions and sessions](systemd-permissions.md). The integration does not
-change `scripts/feeds`. Preserve main-tree and feed-local changes when updating OpenWrt. This
+[permissions and sessions](systemd-permissions.md). Note that `scripts/feeds`
+in this fork also initializes the `luci-theme-argon` submodule and invokes
+`scripts/update-custom-packages.py --update` on `./scripts/feeds update -a`
+(use `-i -a` for index regeneration only). Preserve main-tree and feed-local
+changes when updating OpenWrt. This
 checkout uses merge-based pulls (`pull.rebase=false`), preserving its existing
 local commits and merge history. Review outstanding changes before updating:
 
@@ -220,10 +231,11 @@ checkout, so save its local work before changing `feeds.conf*`. Upstream
 force-pushes require a separate history review; rebasing is not automatically
 safe in that case.
 
-After updating, check that `CONFIG_OPENWRT_SYSTEMD=y` remains selected and
-rebuild the native image. Upstream changes to procd, package payload handling
-or x86 image rules may require conflict resolution and renewed boot/recovery
-validation; a clean Git merge alone does not prove firmware compatibility.
+After updating, normalize `.config` (`CONFIG_OPENWRT_SYSTEMD` is fixed `y` on
+x86_64/glibc/APK) and rebuild the native image. Upstream changes to procd,
+package payload handling or x86 image rules may require conflict resolution and
+renewed boot/recovery validation; a clean Git merge alone does not prove
+firmware compatibility.
 
 ## Validation
 

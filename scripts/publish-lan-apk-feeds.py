@@ -547,6 +547,22 @@ def publish(args):
             previous_hashes = {f'{name}/{p.name}': sha256(p)
                                for name in old['repositories']
                                for p in (previous / name).glob('*.apk')}
+        immutability_root = previous if old else None
+        immutability_hashes = previous_hashes
+        current_alias = public / 'current'
+        if (args.incremental and kernel_upgrade_view and old is None
+                and current_alias.exists() and (current_alias / 'manifest.json').is_file()):
+            current_old = json.loads((current_alias / 'manifest.json').read_text())
+            if current_old.get('signing_key_sha256') == key_hash:
+                immutability_root = current_alias.resolve()
+                kernel_paths = set(current_old.get('kernel_packages', {}))
+                raw_current = current_old.get('apk_files', {})
+                if not raw_current:
+                    raw_current = {f'{name}/{p.name}': sha256(p)
+                                   for name in current_old.get('repositories', {})
+                                   for p in (immutability_root / name).glob('*.apk')}
+                immutability_hashes = {path: digest for path, digest in raw_current.items()
+                                       if path not in kernel_paths}
         source_files = {}
         for name, source in sources:
             packages = sorted(source.glob('*.apk'))
@@ -616,9 +632,10 @@ def publish(args):
             effective_changes = []
             for path in changes:
                 source, digest = source_files[path]
-                prev_file = previous / path if (args.incremental and old) else None
+                prev_file = (immutability_root / path
+                             if (args.incremental and immutability_root is not None) else None)
                 if (not frozen_artifacts and prev_file is not None and prev_file.is_file()
-                        and path in previous_hashes and previous_hashes[path] != digest):
+                        and path in immutability_hashes and immutability_hashes[path] != digest):
                     # Reuse the published APK if both files pass signature verification
                     # and decode to the exact same uncompressed ADB stream.
                     try:
@@ -626,15 +643,15 @@ def publish(args):
                         same_stream = DIAGNOSE.adb_streams_identical(prev_file, source)
                     except (subprocess.CalledProcessError, OSError):
                         same_stream = False
-                    if same_stream and sha256(prev_file) == previous_hashes[path]:
+                    if same_stream and sha256(prev_file) == immutability_hashes[path]:
                         reused_published_apks[path] = {
                             'candidate_sha256': digest,
-                            'selected_sha256': previous_hashes[path],
+                            'selected_sha256': immutability_hashes[path],
                             'reason': 'identical_adb_stream_outer_framing_only',
                         }
-                        source_files[path] = (prev_file, previous_hashes[path])
+                        source_files[path] = (prev_file, immutability_hashes[path])
                         if expected and path in expected_digests:
-                            expected_digests[path] = previous_hashes[path]
+                            expected_digests[path] = immutability_hashes[path]
                         continue
                 effective_changes.append(path)
                 target = payload / path
@@ -713,7 +730,7 @@ def publish(args):
                     if path in changes:
                         changed_packages.append({'repository': name, 'name': info['name'],
                                                  'version': info['version'], 'filename': filename})
-                        if path in previous_hashes and digest != previous_hashes[path]:
+                        if path in immutability_hashes and digest != immutability_hashes[path]:
                             same_version_rebuilds.append(path)
                     if info['arch'] not in ('x86_64', 'all', 'noarch'):
                         raise ValueError(f'Wrong architecture: {info["name"]}')
@@ -745,8 +762,8 @@ def publish(args):
                 manifest['reused_published_apks'] = reused_published_apks
             if same_version_rebuilds:
                 raise same_version_rebuild_error(
-                    apk, previous, payload, same_version_rebuilds,
-                    keys_dir=keys, snapshot=str(previous.resolve()),
+                    apk, immutability_root, payload, same_version_rebuilds,
+                    keys_dir=keys, snapshot=str(immutability_root.resolve()),
                     destination=str(destination))
             if expected:
                 for path, digest in expected_digests.items():

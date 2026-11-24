@@ -147,8 +147,9 @@ Applying the two explicitly audited libc/passt pin migrations would select
 801 changes instead. Those live pins remain intact until a separately reviewed
 deployment. Source configuration changed only in the kernel sequence, 34 to 35.
 
-An exact `libc=<old release>` world pin, or an APK checksum pin from a previous
-offline installation, intentionally prevents an ordinary upgrade. Migration
+An exact `libc=<old release>` world pin (note: `libc` was unpinned from world
+in favor of exact sibling-package pinning on 2026-11-22), or an APK checksum pin
+from a previous offline installation, intentionally prevents an ordinary upgrade. Migration
 maps only pins whose installed version exactly matches the audited ledger:
 version pins stay version pins, checksum pins stay checksum pins, repository tags
 are retained, and bare names stay bare. Kernel/generation pins are excluded.
@@ -200,6 +201,10 @@ router validation separately.
 
 SONAME checks detect library removal/name changes, not arbitrary incompatible
 symbol changes hidden behind an unchanged SONAME or every `dlopen()` contract.
+For same-version rebuild diagnosis, DWARF/libabigail type-ABI evidence
+(`scripts/elf-type-abi.py`), guarded cold rebuilds, and atomic ledger
+allocation (`--allocate-rebuilds`), see
+[same-version APK rebuild diagnosis and release allocation](apk-rebuild-release.md).
 
 ## Deployment record: 2026-10-24
 

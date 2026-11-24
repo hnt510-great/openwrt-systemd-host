@@ -1,10 +1,8 @@
-# 并行构建、staging 和打包修复计划
+# 并行构建、staging 和打包修复记录
+
+**状态：核心 P0 与 P1 修复及 4 个补充回归用例已于 2026-11-22 实施（commits `4185e6f2b8`、`4474586716`、`1a95ddc477`、`4ad76b1a8f`、`5cc7069271`，回归测试见 `scripts/tests/test-parallel-build-staging.py`）。条件性 P2 项（同名 recipe 映射、kernel-bundle 缓存）仍待按需评估。** 以下保留清单与设计规格作为参考。
 
 适用于这个 checkout 的 x86/64、glibc、APK、merged-/usr 和分代内核。以相同配置和顶层 `-j16` 验收。精确依赖决定作业何时开始。包私有目录中的配置、编译、strip 和压包可以重叠。只在读取共享快照或提交同一个资源时协调访问。
-
-**给接手实施的 agent，2026-11-22。** 实施范围包括下面的 **20 条原始清单（P0 九条、P1 九条、P2 两条）和 4 个补充验收用例**。最后一项 bundle 缓存以测得收益为启用条件。交接时主树 HEAD 为 `8dc5cd8806`，原计划文档提交为 `61be1d9222`。实现仍在独立工作树打样，整机与并行性能验收待执行。
-
-先阅读根目录 [AGENTS.md](../AGENTS.md) 和 [CLAUDE.md](../CLAUDE.md)。实施及故障注入使用独立树。主树的 `.config`、Qt/KF6 开发改动、独立 feeds、overlay、现有签名材料及在途构建均需保留。诊断用的临时配置、测试签名与计时日志放在验证环境内。交付终点为本地 build-only 和产物核验；发布、安装到路由器、刷机与重启另行授权。
 
 ## 修复清单
 
@@ -49,7 +47,7 @@
 - **现有草稿**在本机 `/srv/openwrt-validation/openwrt-parallel-draft`，基于 `687fab97f0`，与主树有版本差。先在主树运行 `git worktree list`，再在草稿树运行 `git status --short` 和 `git diff`。两个新文件 `scripts/stage-package.py`、`scripts/cached-download.py` 在交接时未跟踪，普通 `git diff` 不显示其内容。草稿还涉及 package、download、scan、toplevel、kernel 的 Make 规则及 ELF、strip、依赖提取脚本。按子系统移植有验证的改动，避免从旧树整目录覆盖主树。
 - **可复用的部分**包括共享读锁的放置、将 staging 和最终打包的 ELF 输出分开、私有下载候选文件，以及提交前准备清单的思路。草稿的读者遇到 `.stage-pending` 会退出，旧所有者迁移也有上述两个已复现缺陷。实施时增加读写入口共用的恢复步骤，正常重试须自动完成恢复。排序记录能固定遍历次序，私有 RPATH 仍需按真实调用链验证。
 - **规模与热点**。上轮实测 424 份开发清单、983 份 runtime ELF 记录；交接复核时分别为 424 和 984。早期扫描还发现 53 个原始开发清单路径重叠，其中含历史清单。第一次迁移建立按路径查询的索引，之后随包提交增量更新；锁内只处理本包触及的路径。用当前配置和构建输出筛选真实冲突。当前扫描未发现活跃 recipe basename 重名，这一项使用专门构造的同名用例验收。
-- **已掌握的测试基线**。前轮 23 项 ELF 测试在提供 host `cc`、staged `apk` 和独立测试签名材料后通过。在空工作树可出现 `OK (skipped=23)`，记录实际执行数。上述结果只覆盖当时的 ELF 测试。历史 `-j16` 日志有过 ELF JSON 解析失败，也有只留下 `kernel/linux` 或 `luci-lib-ip` 目标名的失败；后两者的首个错误没有被保留下来。历史热构建曾重新链接内核；相关耗时和 WeeChat 变体案例见[增量构建验证](incremental-build-acceleration-validation.md)和[变体与 Kconfig 验证](scheduled-kconfig-validation.md)。
+- **已掌握的测试基线**。前轮 23 项 ELF 测试在提供 host `cc`、staged `apk` 和独立测试签名材料后通过。在空工作树可出现 `OK (skipped=23)`，记录实际执行数。上述结果只覆盖当时的 ELF 测试。历史 `-j16` 日志有过 ELF JSON 解析失败，也有只留下 `kernel/linux` 或 `luci-lib-ip` 目标名的失败；后两者的首个错误没有被保留下来。历史热构建曾重新链接内核；相关耗时见[增量构建验证](incremental-build-acceleration-validation.md)。
 
 ## 可重复利用的故障实验
 

@@ -52,10 +52,13 @@ ACPI fake-reboot disk-lease fix. Build it with
 APK along with the UI when installing on older firmware.
 
 Matching APKs are emitted under `bin/systemd/packages/x86_64/base/` in this
-checkout. Install both signed local APKs on compatible firmware:
+checkout. On a router using the LAN APK feed, install with
+`sudo apk add luci-app-qemu luci-i18n-qemu-zh-cn` (or install signed local
+APKs from the same build, e.g. `libvirt-daemon-12.9.0-r*.apk` and
+`luci-app-qemu-*.apk`, then restart `rpcd` and clear `/tmp/luci-indexcache*`):
 
 ```sh
-apk add --no-network /tmp/libvirt-daemon-12.8.0-r2.apk /tmp/luci-app-qemu-1.0.0-r1.apk /tmp/luci-i18n-qemu-zh-cn-0.apk
+sudo apk add luci-app-qemu luci-i18n-qemu-zh-cn
 /etc/init.d/rpcd restart
 rm -f /tmp/luci-indexcache*
 ```

@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=extra-cmake-modules
-PKG_VERSION:=6.20.0
+PKG_VERSION:=6.32.0
 PKG_RELEASE:=1
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
-PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.20/
-PKG_HASH:=3711de8572db5da618efe3f28cc094ca25a1abb0bddffc63dced12c4f8caae5f
+PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.32/
+PKG_HASH:=305f4e2b82eb073be6ac3e50ace85578b3c0c409be262ccc51d445449e3d9312
 PKG_LICENSE:=BSD-3-Clause
 PKG_INSTALL:=1
 

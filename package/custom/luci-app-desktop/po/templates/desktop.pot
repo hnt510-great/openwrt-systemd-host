@@ -1,0 +1,215 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "Active session"
+msgstr ""
+
+msgid "Audio"
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
+
+msgid "Configuration"
+msgstr ""
+
+msgid "Configuration changed (%s). Restart the desktop to apply changes to the running session."
+msgstr ""
+
+msgid "Confirm"
+msgstr ""
+
+msgid "Desktop"
+msgstr ""
+
+msgid "Desktop account or keyring is not provisioned yet. Run desktop-setup USER over SSH first."
+msgstr ""
+
+msgid "Desktop action failed"
+msgstr ""
+
+msgid "Desktop action failed: %s"
+msgstr ""
+
+msgid "Desktop environment"
+msgstr ""
+
+msgid "Desktop is enabled but not currently running. Check the log below."
+msgstr ""
+
+msgid "Desktop is running (%s, user %s, PID %d)."
+msgstr ""
+
+msgid "Desktop is starting…"
+msgstr ""
+
+msgid "Desktop service is disabled."
+msgstr ""
+
+msgid "Desktop session switch failed"
+msgstr ""
+
+msgid "Desktop session switch failed: %s"
+msgstr ""
+
+msgid "Desktop user"
+msgstr ""
+
+msgid "Disabled"
+msgstr ""
+
+msgid "Display mode"
+msgstr ""
+
+msgid "Display mode out of range"
+msgstr ""
+
+msgid "Display output"
+msgstr ""
+
+msgid "Enable LAN RDP"
+msgstr ""
+
+msgid "Enable desktop service"
+msgstr ""
+
+msgid "Enabled (idle)"
+msgstr ""
+
+msgid "Expecting preferred or WIDTHxHEIGHT[@HZ]"
+msgstr ""
+
+msgid "Invalid DRM output name"
+msgstr ""
+
+msgid "Keyring"
+msgstr ""
+
+msgid "LAN address"
+msgstr ""
+
+msgid "Loading…"
+msgstr ""
+
+msgid "Manage the OpenWrt native-systemd desktop session and switch between installed desktop environments without replacing TPM2 keyring unlocking."
+msgstr ""
+
+msgid "Mutter KMS scheduling"
+msgstr ""
+
+msgid "No log entries yet."
+msgstr ""
+
+msgid "None"
+msgstr ""
+
+msgid "Not configured"
+msgstr ""
+
+msgid "Not provisioned"
+msgstr ""
+
+msgid "Plaintext fallback"
+msgstr ""
+
+msgid "Quick switch"
+msgstr ""
+
+msgid "RDP"
+msgstr ""
+
+msgid "RDP port"
+msgstr ""
+
+msgid "Refresh log"
+msgstr ""
+
+msgid "Restart"
+msgstr ""
+
+msgid "Restart desktop"
+msgstr ""
+
+msgid "Restart desktop session"
+msgstr ""
+
+msgid "Restarting the desktop will close open graphical applications and disconnect active RDP or Sunshine streams. Continue?"
+msgstr ""
+
+msgid "Running"
+msgstr ""
+
+msgid "Running (%s)"
+msgstr ""
+
+msgid "Running (%s:%s)"
+msgstr ""
+
+msgid "Saved desktop session %s."
+msgstr ""
+
+msgid "Service Log"
+msgstr ""
+
+msgid "Start"
+msgstr ""
+
+msgid "Status"
+msgstr ""
+
+msgid "Stop"
+msgstr ""
+
+msgid "Stop desktop session"
+msgstr ""
+
+msgid "Stopped"
+msgstr ""
+
+msgid "Stopped (%s)"
+msgstr ""
+
+msgid "Stopping the desktop will close open graphical applications and disconnect active RDP or Sunshine streams. Continue?"
+msgstr ""
+
+msgid "Sunshine"
+msgstr ""
+
+msgid "Sunshine capture mode"
+msgstr ""
+
+msgid "Switch & Restart"
+msgstr ""
+
+msgid "Switch desktop session"
+msgstr ""
+
+msgid "Switched desktop session to %s and restarted."
+msgstr ""
+
+msgid "Switching to %s will restart the running desktop session and disconnect active RDP or Sunshine streams. Continue?"
+msgstr ""
+
+msgid "TPM2 sealed"
+msgstr ""
+
+msgid "Unable to query desktop status."
+msgstr ""
+
+msgid "Unable to read log: %s"
+msgstr ""
+
+msgid "Unavailable"
+msgstr ""
+
+msgid "Unknown error"
+msgstr ""
+
+msgid "%s (locked)"
+msgstr ""
+
+msgid "%s (not installed)"
+msgstr ""
+
+msgid "%s (unlocked)"
+msgstr ""

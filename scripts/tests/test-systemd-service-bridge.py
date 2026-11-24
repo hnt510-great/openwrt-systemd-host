@@ -366,7 +366,9 @@ with open(root / 'fixture.lock', 'a') as lock:
         if not (root / 'etc/init.d').is_dir():
             self.skipTest('No staged image available')
         identity = root / 'usr/lib/os-release'
-        if not identity.is_file() or 'OPENWRT_FAILSAFE_MODE="preinit"' not in identity.read_text():
+        if (not identity.is_file()
+                or 'VARIANT_ID="native-systemd"' not in identity.read_text()
+                or (root / 'etc/init.d/umount').exists()):
             self.skipTest('Staged rootfs predates the systemd-only image')
         kinds = dict(line.split() for line in (SOURCE / 'files/service-kinds').read_text().splitlines()
                      if line.strip() and not line.startswith('#'))

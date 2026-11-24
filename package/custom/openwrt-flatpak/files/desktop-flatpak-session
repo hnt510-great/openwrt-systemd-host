@@ -2,8 +2,15 @@
 set -eu
 [ -d /run/systemd/system ] || exit 0
 : "${XDG_RUNTIME_DIR:?}" "${WAYLAND_DISPLAY:?}"
-export XDG_CURRENT_DESKTOP=GNOME
 export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
-systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_DATA_DIRS DBUS_SESSION_BUS_ADDRESS
-if [ -n "${DISPLAY:-}" ]; then systemctl --user import-environment DISPLAY; fi
+if [ -z "${XDG_CURRENT_DESKTOP:-}" ]; then
+	XDG_CURRENT_DESKTOP=$(systemctl --user show-environment 2>/dev/null |
+		sed -n 's/^XDG_CURRENT_DESKTOP=//p' | head -n 1 || :)
+	[ -z "$XDG_CURRENT_DESKTOP" ] || export XDG_CURRENT_DESKTOP
+fi
+import_vars="WAYLAND_DISPLAY XDG_DATA_DIRS DBUS_SESSION_BUS_ADDRESS"
+[ -z "${XDG_CURRENT_DESKTOP:-}" ] || import_vars="$import_vars XDG_CURRENT_DESKTOP"
+[ -z "${DISPLAY:-}" ] || import_vars="$import_vars DISPLAY"
+# shellcheck disable=SC2086
+systemctl --user import-environment $import_vars
 systemctl --user start openwrt-flatpak-session.target

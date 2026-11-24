@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=kf6-kcmutils
-PKG_VERSION:=6.20.0
+PKG_VERSION:=6.32.0
 PKG_RELEASE:=1
 PKG_SOURCE:=kcmutils-$(PKG_VERSION).tar.xz
-PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.20/
-PKG_HASH:=a2d726c7b6b8feaddff29dc0e75e1c15467f02d1ebe6f8e96f35cd84b23e16ed
+PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.32/
+PKG_HASH:=473395787e6921d37298e191cc1718f8818f630b98bdf312583ad25606f6a09e
 PKG_LICENSE:=GPL-2.0-or-later LGPL-2.0-or-later LGPL-3.0-only
 
 KF6_TITLE:=KCM Utilities

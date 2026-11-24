@@ -27,7 +27,7 @@ libubus、libuci、libblobmsg_json、libjson_script 开发文件。
 `libjson_script`。OpenWrt 库的 pkg-config 版本使用本次构建的 ABI 日期。
 libevent 提供 core API，libnl 提供 core/route API；其他组件按需安装。
 
-在刷入新固件后，直接编译并运行：
+在安装新镜像或通过签名 LAN APK feed 安装开发包后，直接编译并运行：
 
 ```sh
 cat > hello.c <<'EOF'
@@ -54,11 +54,11 @@ bzip2 没有上游 pkg-config 文件，使用 `#include <bzlib.h>` 和 `-lbz2`�
 此包支持动态链接；不打包这些第三方库的静态 `.a` 文件，也不提供
 `pkg-config --static` 的完整依赖闭包。CMake 可以使用 `FindOpenSSL`、
 `FindCURL` 等内置模块，或 `FindPkgConfig`。修改构建树不会改变旧镜像，
-需要重新构建镜像后刷入，或在匹配的固件中安装生成的 APK 包。
+可通过签名 LAN APK feed 安装更新后的 APK，或使用安装介质/离线写盘替换整机镜像。
 
 ## 原生应用依赖与 Cockpit
 
-`native-libs-dev 1-r3` 补齐 Cockpit 源码编译遇到的开发文件：GLib/GIO
+`native-libs-dev`（自 `1-r3` 起，当前配方为 `1-r13`）补齐 Cockpit 源码编译遇到的开发文件：GLib/GIO
 （包括 `gio-unix-2.0` 和 `glibconfig.h`）、JSON-GLib、GnuTLS、
 Nettle/Hogweed、PAM、libcrypt 和 Kerberos。另补充 libtasn1/com_err、
 libcap、libattr/libacl、D-Bus、libuv、YAML、XSLT/EXSLT、libusb 和
@@ -88,8 +88,8 @@ libarchive，作为常见应用的开发依赖。
 
 GLib 的交叉编译 `.pc` 仍保留构建主机工具路径；只有安装到设备的副本改回
 `${bindir}`，避免破坏交叉构建。Kerberos 的交叉编译 `krb5-config` 同样不变，
-开发包使用原始目标版脚本。Kerberos 构建传入 `WARN_CFLAGS=`，避免 GCC 14
-触发上游的警告即错误策略。
+开发包使用原始目标版脚本。Kerberos 构建传入 `WARN_CFLAGS=`，避免较新 GCC
+（当前工具链为 GCC 15.3.0）触发上游的警告即错误策略。
 
 独立 packages feed 的改动导出到
 `patches/feeds/0016-packages-native-app-deps.patch`，基准记录在
@@ -157,70 +157,16 @@ Cockpit 本体目前仍是远端源码安装，本次依赖包不会重装或切
 APK 安装的系统库；只有新构建实际使用这些系统库后，才完成从旧
 `/usr/local` 库的迁移。
 
-### 2026-10-18 验证
+### 历史验证与脚本说明
 
-上述新增包与 `native-libs-dev 1-r3` 均已完成构建。使用当前公钥验证签名的
-临时 APK 仓库，从空的 usr-merge 根目录模拟并安装 `native-build-deps`、
-`cockpit-runtime-deps` 和 `base-files`，共 229 个包、384.4 MiB，无文件归属
-冲突。安装脚本和服务 hook 被禁用，仅在隔离目录应用包声明的 alternatives。
-通过用户命名空间/chroot 执行目标 x86_64/glibc 工具，新增库的实际编译、
-链接和运行、GLib 代码生成及 gettext XML 翻译全部通过。
+仓库提供两套目标机验证脚本（可复制到设备后用 `sh` 执行）：
 
-本地 LAN 发布 dry-run 通过，识别 17 个变更包、3 个仓库，内核频道保持不变；
-没有执行发布或远端安装。严格 Kconfig 检查仍被既有的 dnsmasq-full、
-fwknopd、gensio 循环依赖阻挡，修改前后报告的相关符号完全一致。
-此验证不是 QEMU 启动或物理设备/Cockpit 登录验证。
-日志、APK 哈希及重现脚本保存在
-`/srv/openwrt-validation/native-app-deps-validation-20261018/`。
+- `scripts/test-native-libs.sh`：在临时目录中验证所有列出的库及头文件、C/C++ 动态链接、线程、程序运行，以及 CMake/pkg-config 构建（CMake 检查需要安装 `cmake-bin`）。
+- `scripts/test-native-app-deps.sh`：验证 GLib/GIO、JSON-GLib、GnuTLS、Kerberos 等库调用、D-Bus C 代码生成、GLib resource 编译与 gettext XML 翻译。
 
-### 2026-10-18 发布与物理设备迁移
-
-已发布对应 ABI `6.18.55~1e6d3a41204c57acfef0c7a584b7cc0e-r1` 的依赖包。
-第一次发布更新 17 个包，随后单独发布最低版本约束修复
-`native-build-deps 1-r2`。最终快照为 `20261018T121405.098015Z`，
-内核频道保持原 G18，未发布新内核代际。
-
-物理路由器通过既有信任密钥刷新 feeds、模拟安装后完成安装。相对安装前
-新增 8 个包，升级 4 个包；`native-libs-dev` 从 `1-r2` 升到 `1-r3`。
-设备上实际运行 `scripts/test-native-app-deps.sh`，库调用、代码生成及 XML
-翻译全部通过。
-
-旧 Cockpit 的 `cockpit-session` 依赖本地 `libcom_err.so.3`，而 APK 提供
-`libcom_err.so.0`，因此没有直接删除旧库。使用 APK 开发文件，在
-`/home/builder/cockpit-build/apk-cockpit-369/` 重新配置和编译 Cockpit 369，
-再替换 5 个 C 程序：`cockpit-session`、`cockpit-tls`、`cockpit-ws`、
-`cockpit-wsinstance-factory`、`cockpit-certificate-ensure`。均无 RPATH/RUNPATH，
-动态依赖解析至系统库；运行中的 Cockpit 进程映射也确认不再加载
-`/usr/local/lib`。现有 Python bridge、60 个 Python 源文件、`.pth` 和
-vendored D-Bus 缓存修复保留。
-
-与 APK 重复的 64 项开发文件已移到备份目录，避免编译器优先使用旧头文件。
-旧版 Kerberos 命令所需的版本化本地运行库继续保留。远端
-`build-cockpit.sh` 已改为使用系统工具和 pkg-config，构建 5 个 C 程序并
-检查依赖；`APK-MIGRATION.md` 记录当前用法。
-
-Cockpit socket 已重启，仍只监听 `192.0.2.1:9090`。HTTPS 返回 200、
-证书校验成功；无凭据的 `/cockpit/login` 返回预期的 401。重复连接不存在
-的用户 D-Bus 未污染缓存，系统 D-Bus 连接正常。未使用账号密码进行浏览器
-登录验证。PAM、证书、监听配置、网络、防火墙、DHCP、GRUB、内核状态及
-boot ID 的前后核对均未改变；没有重启路由器。
-
-远端回退文件保存在 `/root/native-app-deps-migration-20261018/`，包括
-安装前 `/usr/local` 和配置归档、APK 数据库/world、原始脚本、被移走的
-开发文件清单，以及原来的 5 个 C 程序。构建和部署证据保存在本机
+初始镜像验证与 2026-10-18 物理设备 Cockpit 依赖迁移记录保留在外部证据目录
+`/srv/openwrt-validation/native-app-deps-validation-20261018/` 与
 `/srv/openwrt-validation/native-app-deps-deployment-20261018/`。
-
-仓库的 `scripts/test-native-libs.sh` 可以复制到设备后用 `sh` 执行。
-它在临时目录中验证所有列出的库及头文件、C/C++ 动态链接、线程、
-程序运行，以及 CMake/pkg-config 构建；CMake 检查需要安装 `cmake-bin`。
-
-2026-10-11 已在当前 x86_64/glibc/systemd EFI 镜像的全新 QEMU/KVM
-启动环境中通过此脚本：GCC/G++ 14.4.0 编译运行、C++ 线程与容器、
-各库的动态链接（包括 ncurses），以及 CMake 构建均通过。
-扩展版本 `native-libs-dev 1-r2` 的新增 16 个库接口也通过了独立 C
-程序与 CMake 构建运行检查，包括 LZ4 压缩往返、Netlink 对象和
-socket、systemd API、UCI 上下文以及 libubox JSON 处理。
-镜像 SHA256 校验和开发包 APK 签名校验通过；未刷写实际设备。
 
 ## 解析器和内核构建工具
 
@@ -269,7 +215,7 @@ the kernel's own internal headers come from the cloned kernel source.
 The [upstream build requirements](https://docs.kernel.org/process/changes.html)
 describe configuration-dependent tools such as Rust, LLVM, and pahole.
 
-Native GCC release 8 restores the upstream `limitx.h + glimits.h + limity.h`
+Native GCC (since release 8; current GCC 15.3.0 release 13) restores the upstream `limitx.h + glimits.h + limity.h`
 wrapper during packaging. Cross-building native GCC can otherwise leave only
 its integer limits in `<limits.h>`, hiding glibc/POSIX `PATH_MAX`, `NAME_MAX`,
 and `MB_LEN_MAX`. This causes Kconfig compilation to fail before defconfig.

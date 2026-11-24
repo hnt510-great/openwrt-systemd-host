@@ -1,9 +1,5 @@
 # Native systemd supervision for NAS discovery services (`wsdd2` and `avahi-daemon`)
 
-> Systemd is the sole normal init on current x86/64 images. References below
-> to procd recovery or firmware flashing from the running system describe
-> older images. See [current boot and migration guidance](systemd-only-plan.md).
-
 Alongside `samba4` (`samba4.service` and `samba4@.service`), `wsdd2` and
 `avahi-daemon` run as native static systemd units in `nas.slice` on
 native-systemd boots rather than as procd transient units under `openwrt.slice`.
@@ -35,10 +31,12 @@ See [Samba file sharing](samba4.md) for the `samba4` unit model.
 
 ## Compatibility and lifecycle
 
-- `/etc/init.d/wsdd2` and `/etc/init.d/avahi-daemon` exit 0 on `boot`/`shutdown`
-  in native mode and delegate `start`/`stop`/`restart`/`reload`/`status`/`running`/`enable`/`disable`/`enabled`
-  to systemd; in `procd` recovery boots they retain the original `USE_PROCD=1`
-  implementation.
+- Under `CONFIG_OPENWRT_SYSTEMD=y`, `wsdd2-native.init` and
+  `avahi-daemon-native.init` (`patches/feeds/0046-packages-systemd-only.patch`)
+  exit 0 on `boot`/`shutdown` and unconditionally delegate
+  `start`/`stop`/`restart`/`reload`/`status`/`running`/`enable`/`disable`/`enabled`
+  to `/usr/libexec/wsdd2-systemd` and `/usr/libexec/avahi-daemon-systemd`.
+  Non-systemd builds retain the original `USE_PROCD=1` init scripts.
 - `openwrt@wsdd2.service` and `openwrt@avahi-daemon.service` are excluded in
   `systemd-openwrt-services` and direct callers to the native units.
 - Package upgrades (`PKG_UPGRADE=1`) never start a second daemon alongside an

@@ -1,6 +1,8 @@
 #!/bin/sh
 case "$ACTION" in
 	add|change)
+		# Respect an explicit stop until the desktop is started again or the host reboots.
+		[ ! -e /run/openwrt-desktop/manual-stop ] || exit 0
 		# Mutter handles display hotplug. Only start a previously absent session.
 		[ "$(uci -q get desktop.main.enabled)" = 1 ] && /etc/init.d/desktop start
 		;;

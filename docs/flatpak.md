@@ -1,15 +1,13 @@
 # Flatpak on the native systemd desktop
 
-> Systemd is the sole normal init on current x86/64 images. References below
-> to procd recovery or firmware flashing from the running system describe
-> older images. See [current boot and migration guidance](systemd-only-plan.md).
-
 This optional package supports ordinary-user and system-wide Flatpak
-applications on the x86_64/glibc/systemd GNOME image. Applications can be
-managed from a terminal or through a Flatpak-aware graphical software store.
-The desktop integration covers Wayland windows and file selection through the
-GTK desktop portal. Desktop audio and screen sharing require their separate
-OpenWrt desktop packages and provisioning.
+applications on the x86_64/glibc/systemd desktop (both GNOME 51 and KDE Plasma
+6.8.3). Applications can be managed from a terminal or through a Flatpak-aware
+graphical software store. Desktop integration covers Wayland windows and file
+selection through the XDG desktop portal (`xdg-desktop-portal-gtk` +
+`xdg-desktop-portal-gnome` on GNOME, or `xdg-desktop-portal-kde` on Plasma).
+Desktop audio and screen sharing require their separate OpenWrt desktop
+packages and provisioning.
 
 ## Build
 
@@ -32,13 +30,21 @@ mv .config.flatpak .config
 make defconfig
 ```
 
-Select `openwrt-flatpak` in Utilities and run `make defconfig`. It selects
-Flatpak, OSTree, AppStream, the desktop portals and their dependencies.
+`package/custom/openwrt-flatpak` (`1-r14`) splits Flatpak integration into two
+packages:
+
+- `openwrt-flatpak-base`: DE-agnostic Flatpak, OSTree, AppStream, `openwrt-desktop-base`,
+  `flatpak-user-setup`, and `openwrt-flatpak-session.target` (used on KDE Plasma
+  alongside `xdg-desktop-portal-kde`, or standalone).
+- `openwrt-flatpak`: GNOME integration (`openwrt-flatpak-base`,
+  `openwrt-desktop-core`, `xdg-desktop-portal-gtk`, `xdg-desktop-portal-gnome`).
+
 As of `xdg-desktop-portal` `1.22.1-r5`, `xdg-desktop-portal` extracts
 `org.freedesktop.portal.Flatpak.xml` from the pinned Flatpak source archive at
-build time and no longer pulls in the `flatpak` runtime on its own; GNOME can
-therefore be built without Flatpak, while `openwrt-flatpak` explicitly pulls in
-`flatpak`.
+build time and no longer pulls in the `flatpak` runtime on its own; both GNOME
+and KDE Plasma can therefore be built without Flatpak, while `openwrt-flatpak-base`
+/ `openwrt-flatpak` (or the offline installer's `flatpak` component) pull it in
+explicitly.
 `FUSE3_UTILS_SETUID` enables the setuid `fusermount3` helper for ordinary-user
 document portal mounts. Bubblewrap remains non-setuid and uses user namespaces
 and seccomp.
@@ -87,8 +93,9 @@ Do not treat successful package compilation as validation of that image.
 
 ## Account setup and applications
 
-Create an ordinary account and password after flashing, as described in
-[desktop.md](desktop.md). As root, configure its repository and desktop:
+Create an ordinary account and password after installation, as described in
+[gnome-desktop.md](gnome-desktop.md) or [kde-plasma.md](kde-plasma.md). As root,
+configure its repository and desktop:
 
 ```sh
 flatpak-user-setup alice
@@ -164,13 +171,16 @@ symlinked `/var`. The direct repository path preserves the same read/write
 access that Bazaar declares for its system backend; it is not a global override
 for other applications.
 
-GNOME session setup exports the per-user and system Flatpak export directories,
+Desktop session setup exports the per-user and system Flatpak export directories,
 display and session D-Bus address into `systemd --user`.
-`desktop-flatpak-session` starts `openwrt-flatpak-session.target`, which is
-ordered after `graphical-session-pre.target` and belongs to
-`gnome-session.target`. Portal services are D-Bus-activated as needed; the GTK
-backend handles file-selection dialogs and the document portal uses the
-setuid `fusermount3` helper. Native udev rules provide `/dev/fuse` access.
+`openwrt-desktop-services.service` (`desktop-session-services` →
+`desktop-flatpak-session`) starts `openwrt-flatpak-session.target`, which is
+ordered after `graphical-session-pre.target` and has
+`PartOf=graphical-session.target` so it works across both GNOME and KDE Plasma.
+Portal services are D-Bus-activated as needed (`xdg-desktop-portal-gtk` /
+`xdg-desktop-portal-gnome` on GNOME, `xdg-desktop-portal-kde` on Plasma) and the
+document portal uses the setuid `fusermount3` helper. Native udev rules provide
+`/dev/fuse` access.
 SSH alone does not provide a graphical display; run applications from the
 desktop terminal. For diagnostics use:
 
@@ -183,20 +193,21 @@ journalctl --user -u xdg-desktop-portal -u xdg-desktop-portal-gtk
 
 The repository uses the persistent overlay under `/srv`, not volatile `/var`.
 Applications, runtimes and update downloads share the image's disk capacity.
-The current root partition is 8 GiB; check `df -h /srv` before installing large
-applications. A separately provisioned persistent data filesystem can be
-mounted at `/srv/flatpak` before setup. This package does not repartition disks
-or alter existing mounts.
+Check `df -h /srv` before installing large applications. A separately
+provisioned persistent data filesystem can be mounted at `/srv/flatpak` before
+setup. This package leaves existing partitions and mounts in place.
 
-Existing configuration-preserving upgrade backups include `/home`, including
-`~/.var/app` personal data and the repository symlink. They do not follow that
-link into `/srv/flatpak`, and do not include the system repository, so
-applications and runtimes are not copied into the configuration archive. A
-repository on the root overlay can be erased by a firmware upgrade; a separate
-data disk must remain mounted to reuse its data. Back up system remotes and the
-`flatpak list --system` application list separately before such an upgrade.
+Before replacing firmware via [installation media](installer-iso.md) or offline
+disk imaging, use `sysupgrade -l` to check the configuration backup's file list.
+The default `sysupgrade -b` archive does not include entire home directories or
+Flatpak repositories. Individual files can be included by local entries in
+`/etc/sysupgrade.conf` or `/lib/upgrade/keep.d/`. Back up `~/.var/app`, the
+application lists, and remote details separately. If `/srv/flatpak` is on the
+root overlay, back it up to keep its contents. If it is on a separate filesystem,
+preserve that filesystem and mount it again before setup.
 
-Before upgrading, as each user:
+Before replacing firmware, save the application list and remote details as each
+user:
 
 ```sh
 mkdir -p ~/.config
@@ -204,26 +215,23 @@ flatpak list --user --app --columns=application,branch,origin > ~/.config/flatpa
 flatpak remotes --user --show-details > ~/.config/flatpak-remotes.txt
 ```
 
-Keep the application list and remote details with your backup. After restoring
-accounts and homes, run `flatpak-user-setup USER` again as root, add Flathub as
-the user, and reinstall the listed applications/branches. Recreate any custom
-remotes using their original trusted repository definitions. Runtimes are
-downloaded automatically. Application personal data remains in `~/.var/app`;
-repository-local overrides and portal grants need to be reapplied when the
-repository is recreated.
+Save these files outside the disk being replaced. Also save the system
+application list (`flatpak list --system`) and system remotes
+(`flatpak remotes --system --show-details`). After restoring accounts and homes
+from backup, run `flatpak-user-setup USER` again as root. If the repository was
+recreated, restore `~/.var/app` from backup, add Flathub as the user, and
+reinstall the listed applications and branches. Recreate custom remotes using
+their original trusted repository definitions. Flatpak downloads runtimes during
+installation. Reapply repository-local overrides and portal grants as needed.
 
-Native systemd flashing remains guarded: use the GRUB procd-recovery entry and
-the existing configuration-preserving upgrade procedure. See [systemd.md](systemd.md).
-Upload the firmware to `/tmp` after booting recovery and verify its SHA256
-before running `sysupgrade -T` and the actual upgrade. Keep a copy of the
-configuration backup outside the device.
+For routine package updates, use signed `apk upgrade` from the LAN APK feed.
 
 ## Validation limits
 
 Acceptance requires a freshly built image in an isolated VM: ordinary-user
 installation and signature checks, Wayland GUI input, portal file grants,
-reboot persistence, upgrade restoration and existing router/SSH/VNC services.
+reboot persistence, upgrade restoration and existing router/SSH/RDP services.
 VM rendering does not establish physical Intel GPU performance. Record actual
 image size, disk usage and memory measurements with the validation report.
 See [flatpak-validation.md](flatpak-validation.md) for the completed build,
-VM acceptance results, measured resources and recovery-upgrade limitations.
+VM acceptance results, and measured resources.

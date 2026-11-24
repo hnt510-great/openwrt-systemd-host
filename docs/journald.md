@@ -1,9 +1,5 @@
 # Persistent journald on OpenWrt
 
-> Systemd is the sole normal init on current x86/64 images. References below
-> to procd recovery or firmware flashing from the running system describe
-> older images. See [current boot and migration guidance](systemd-only-plan.md).
-
 The native-systemd firmware keeps journal files in `/srv/journal` on the
 writable root filesystem. With NVMe extroot mounted by OpenWrt preinit, this
 directory is on the NVMe automatically. No separate log partition or
@@ -34,7 +30,7 @@ Defaults in `/etc/systemd/journald.conf.d/openwrt.conf`:
 | `RuntimeMaxFileSize` | `16M` | Bound individual runtime files |
 | `MaxRetentionSec` | `30day` | Remove archived files older than 30 days |
 | `MaxFileSec` | `1day` | Rotate files at least daily when logging |
-| `Compress` | `yes` | Compress eligible log payloads |
+| `Compress` | `yes` | Compress eligible log payloads (ZSTD default and LZ4 enabled since `systemd 262-r15`) |
 
 Journald deletes the oldest archived files automatically as limits are
 reached. Retention is an upper bound, not a guarantee of 30 days: heavy logging
@@ -58,7 +54,7 @@ configuration with `systemd-analyze cat-config systemd/journald.conf`.
 This configuration is preserved by normal configuration backups/upgrades.
 Journal data under `/srv/journal` is deliberately excluded from the usual
 configuration backup; rebooting keeps it, but formatting/replacing the
-root/extroot or flashing over its filesystem may remove it. Existing devices
+root/extroot via installation media or offline disk imaging removes it. Existing devices
 with a locally preserved `Storage=volatile` drop-in must merge the new defaults
 after upgrading the package. Journald also stores OpenWrt router syslog and
 kernel messages; logd reads the journal to provide the legacy interfaces.
@@ -122,9 +118,11 @@ logread -e netifd
 The systemd package explicitly enables PCRE2 (`libpcre2`) for journalctl's
 `--grep` regular-expression filtering.
 
-Router services remain procd-managed, so their trusted systemd unit is generally
-`openwrt-procd.service`, rather than a native unit named after each daemon.
-Use syslog tags such as `journalctl -t dnsmasq` to filter them.
+Under `procd --systemd=units`, procd-managed router service instances run as
+transient `openwrt-SERVICE@INSTANCE.service` units (and native static services
+such as `dbus`, `sshd`, `samba4`, `wsdd2`, `avahi-daemon`, `cron`, `nlbwmon`,
+and `ddns-go` use their own `.service` units). You can filter either by unit
+(`journalctl -u 'openwrt-dnsmasq@*'`) or by syslog tag (`journalctl -t dnsmasq`).
 
 ### Upgrade and recovery
 
@@ -132,15 +130,13 @@ Install matching journal-capable logd and systemd-openwrt packages together.
 Do not switch ownership of `/dev/log` on a running installation. Apply the
 transition on the next boot after reviewing preserved configuration. Older
 images installed `/etc/systemd/system/systemd-journald-dev-log.socket` as a
-symlink to `/dev/null`; remove that legacy package mask before the next native
-boot. Preserve other administrator socket overrides. An incomplete migration
-(legacy mask or logd without `-J` support) fails the native preflight and falls
-back to procd recovery with a diagnostic.
-
-Recovery/failsafe and non-systemd builds keep stock logd ownership of `/dev/log`
-and `/proc/kmsg`, without opening the journal. Existing UCI logging and firmware
-recovery controls remain available there. Journald does not collect new recovery
-boot logs. No upgrade hook restarts logging services or reboots the machine.
+symlink to `/dev/null`; remove that legacy package mask before the next boot.
+Preserve other administrator socket overrides. On systemd-only x86/64, an
+incomplete migration or failed preflight stops in early init with a diagnostic
+rather than falling back to a procd boot; use GRUB's native OpenWrt failsafe
+(`failsafe=true`) to inspect or repair persistent settings. Non-systemd targets
+keep stock logd ownership of `/dev/log` and `/proc/kmsg`. No upgrade hook
+restarts logging services or reboots the machine.
 
 ## Inspect storage and history
 
@@ -275,8 +271,6 @@ python3 logd-journal-guest.py --disposable --storage-recovery
 This creates an explicitly named test drop-in, then removes only that drop-in
 when recovering the mount and flushing to persistent storage. Recovery verifies
 that subsequent messages arrive and pre-flush history is not replayed.
-After booting the GRUB procd recovery entry, use
-`python3 logd-journal-guest.py --disposable --recovery` to test the stock path.
 
 ## Unified logging validation (2026-10-19)
 

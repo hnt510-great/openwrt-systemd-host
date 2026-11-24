@@ -222,8 +222,6 @@ radio/client test, service restart or reboot is claimed by this repair.
 The authorized full `-j16` build and coordinated publication completed as
 `7.3.4-66-openwrt`. The fresh staged rootfs passes all 27 bridge tests, and
 publication preflight passes. No VM or physical installation/reboot occurred.
-See [the publication record](build-publication-20261117.md) for snapshot IDs,
-artifact hashes, preservation checks and runtime limits.
 
 ### Subsequent physical boot confirmation, 2026-11-17
 

@@ -1,4 +1,149 @@
 # Shared POSIX helpers; sourced by the root-only setup and service scripts.
+DESKTOP_SESSIONS_DIR=/usr/libexec/openwrt-desktop/sessions.d
+DESKTOP_SESSION_REQUIRE_ROOT=1
+
+desktop_validate_session_id() {
+	case "$1" in
+		''|*[!a-z0-9_-]*|-*|_*|?????????????????????????????????*)
+			desktop_error "Invalid desktop session '$1'"
+			return 1
+			;;
+	esac
+}
+
+desktop_session_plugin_path() {
+	local id path owner
+	id="$1"
+	desktop_validate_session_id "$id" || return 1
+	path="$DESKTOP_SESSIONS_DIR/$id"
+	[ -f "$path" ] && [ ! -L "$path" ] || {
+		desktop_error "Desktop session '$id' is not registered"
+		return 1
+	}
+	if [ "$DESKTOP_SESSION_REQUIRE_ROOT" = 1 ]; then
+		owner="$(stat -c %u "$path" 2>/dev/null || :)"
+		[ "$owner" = 0 ] || {
+			desktop_error "Unsafe desktop session plugin '$id'"
+			return 1
+		}
+	fi
+	printf '%s\n' "$path"
+}
+
+desktop_load_session() {
+	local id path
+	id="$1"
+	path="$(desktop_session_plugin_path "$id")" || return 1
+	SESSION_ID=
+	SESSION_TITLE=
+	SESSION_DESCRIPTION=
+	SESSION_EXEC=
+	SESSION_SUPPORTS_RDP=0
+	SESSION_SUPPORTS_KMS_SCHEDULING=0
+	SESSION_CREDENTIAL_BACKEND=
+	SESSION_RDP_UNIT=
+	SESSION_UNSET_VARS=
+	desktop_session_check() { [ -n "$SESSION_EXEC" ] && [ -x "$SESSION_EXEC" ]; }
+	desktop_session_setup() { return 0; }
+	desktop_session_user_setup() { return 0; }
+	desktop_session_credential_prop() { return 0; }
+	desktop_session_unlock() { return 0; }
+	desktop_session_pre_start() { return 0; }
+	desktop_session_exec() { desktop_error "Desktop session plugin '$id' has no exec hook"; return 1; }
+	desktop_session_stop() { return 0; }
+	# shellcheck disable=SC1090
+	. "$path"
+	[ "$SESSION_ID" = "$id" ] || {
+		desktop_error "Desktop session plugin '$id' has mismatched SESSION_ID"
+		return 1
+	}
+}
+
+desktop_list_available_sessions() {
+	local path name owner
+	[ -d "$DESKTOP_SESSIONS_DIR" ] || return 0
+	for path in "$DESKTOP_SESSIONS_DIR"/*; do
+		[ -f "$path" ] && [ ! -L "$path" ] || continue
+		name="${path##*/}"
+		case "$name" in
+			''|*[!a-z0-9_-]*|-*|_*|?????????????????????????????????*) continue ;;
+		esac
+		if [ "$DESKTOP_SESSION_REQUIRE_ROOT" = 1 ]; then
+			owner="$(stat -c %u "$path" 2>/dev/null || :)"
+			[ "$owner" = 0 ] || continue
+		fi
+		if ( desktop_load_session "$name" >/dev/null 2>&1 && desktop_session_check >/dev/null 2>&1 ); then
+			printf '%s\n' "$name"
+		fi
+	done
+}
+
+desktop_resolve_session() {
+	local configured avail count first list id
+	configured="${1:-}"
+	if [ -n "$configured" ]; then
+		if ( desktop_load_session "$configured" && desktop_session_check ); then
+			printf '%s\n' "$configured"
+			return 0
+		fi
+		desktop_error "Desktop session '$configured' is not installed or unavailable"
+		return 1
+	fi
+	count=0
+	first=
+	list=
+	avail="$(desktop_list_available_sessions)"
+	for id in $avail; do
+		count=$((count + 1))
+		if [ "$count" -eq 1 ]; then
+			first="$id"
+			list="$id"
+		else
+			list="$list, $id"
+		fi
+	done
+	if [ "$count" -eq 1 ]; then
+		printf '%s\n' "$first"
+		return 0
+	fi
+	if [ "$count" -eq 0 ]; then
+		desktop_error 'No desktop session is installed or available'
+		return 1
+	fi
+	desktop_error "Multiple desktop sessions are available ($list); configure desktop.main.session explicitly"
+	return 1
+}
+
+desktop_collect_unset_vars() {
+	local vars path name owner line extra var
+	vars="DISPLAY XAUTHORITY WAYLAND_DISPLAY WAYLAND_SOCKET GTK_IM_MODULE GTK_IM_MODULE_FILE LIBSEAT_BACKEND XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP DESKTOP_SESSION XDG_SESSION_TYPE QT_IM_MODULE QT_QPA_PLATFORMTHEME QT_STYLE_OVERRIDE XMODIFIERS MUTTER_DEBUG_KMS_SCHEDULING_PRIORITY"
+	if [ -d "$DESKTOP_SESSIONS_DIR" ]; then
+		for path in "$DESKTOP_SESSIONS_DIR"/*; do
+			[ -f "$path" ] && [ ! -L "$path" ] || continue
+			name="${path##*/}"
+			case "$name" in
+				''|*[!a-z0-9_-]*|-*|_*|?????????????????????????????????*) continue ;;
+			esac
+			if [ "$DESKTOP_SESSION_REQUIRE_ROOT" = 1 ]; then
+				owner="$(stat -c %u "$path" 2>/dev/null || :)"
+				[ "$owner" = 0 ] || continue
+			fi
+			line="$(sed -n 's/^SESSION_UNSET_VARS=//p' "$path" | head -n 1)"
+			extra="$(printf '%s' "$line" | tr -d "\"'")"
+			for var in $extra; do
+				case "$var" in
+					''|[0-9]*|*[!A-Za-z0-9_]*) continue ;;
+				esac
+				case " $vars " in
+					*" $var "*) ;;
+					*) vars="$vars $var" ;;
+				esac
+			done
+		done
+	fi
+	printf '%s\n' "$vars"
+}
+
 desktop_validate_mode() {
 	[ "$1" = preferred ] && return 0
 	case "$1" in ''|*[!0-9x@]*) desktop_error 'Invalid desktop display mode'; return 1 ;; esac
@@ -124,4 +269,20 @@ desktop_setup_tls() {
 	chown "$DESKTOP_USER_UID:$DESKTOP_USER_GID" "$key" "$cert"
 	chmod 0600 "$key"
 	chmod 0644 "$cert"
+}
+
+desktop_keyring_credential_prop() {
+	local secret cred
+	secret="/etc/desktop/gnome/$DESKTOP_USER_UID.keyring-passphrase"
+	cred="$secret.cred"
+	if [ -f "$cred" ] && [ ! -L "$cred" ] && [ -s "$cred" ] && [ "$(stat -c %u:%a "$cred")" = 0:600 ]; then
+		printf 'LoadCredentialEncrypted=keyring-passphrase:%s\n' "$cred"
+		return 0
+	fi
+	if [ -f "$secret" ] && [ ! -L "$secret" ] && [ -s "$secret" ] && [ "$(stat -c %u:%a "$secret")" = 0:600 ]; then
+		printf 'LoadCredential=keyring-passphrase:%s\n' "$secret"
+		return 0
+	fi
+	desktop_error 'Run desktop-setup to provision unattended keyring access'
+	return 1
 }

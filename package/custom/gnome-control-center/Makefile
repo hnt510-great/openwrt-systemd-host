@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=gnome-control-center
-PKG_VERSION:=51.1
+PKG_VERSION:=51.2.1
 PKG_RELEASE:=1
-PKG_SOURCE:=gnome-control-center-51.1.tar.xz
+PKG_SOURCE:=gnome-control-center-51.2.1.tar.xz
 PKG_SOURCE_URL:=https://download.gnome.org/sources/gnome-control-center/51/
-PKG_HASH:=1054976c2f1977f770ba134b872f547c89db7005e4422f09a96d521379c083cb
+PKG_HASH:=6dab67eab50ec842ae55c797b180b853b8a8d3f0292cf4325a081fbb5b75ffc1
 PKG_LICENSE:=GPL-2.0-or-later
 PKG_BUILD_DEPENDS:=blueprint-compiler/host
 GNOME_TITLE:=GNOME Settings for the netifd desktop

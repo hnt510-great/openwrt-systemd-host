@@ -1,0 +1,8 @@
+{
+  "packages": {
+    "url": "https://github.com/openwrt/packages.git",
+    "base": "a582a06b384184901a44731d685155e83e0f479f",
+    "commit": "3e3f037225a23d3053b25491f6cfa11715b85753",
+    "patch": "patches/feeds/0051-packages-gvfs-network-discovery.patch"
+  }
+}

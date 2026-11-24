@@ -2,3 +2,7 @@
 	path = package/custom/luci-theme-argon
 	url = ../openwrt-luci-theme-argon.git
 	branch = master
+[submodule "daed-src"]
+	path = package/custom/daed/src
+	url = ../daed.git
+	branch = main

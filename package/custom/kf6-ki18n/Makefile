@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=kf6-ki18n
-PKG_VERSION:=6.20.0
+PKG_VERSION:=6.32.0
 PKG_RELEASE:=1
 PKG_SOURCE:=ki18n-$(PKG_VERSION).tar.xz
-PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.20/
-PKG_HASH:=f29c805137af9cee6abab424b380fea964a59b089f90fb909601d9fc78df5f73
+PKG_SOURCE_URL:=https://download.kde.org/stable/frameworks/6.32/
+PKG_HASH:=b574b381e7510cf3b14d6a16f6ed5670220f10df7f2494c21a579d20ca1d017f
 PKG_LICENSE:=LGPL-2.1-or-later
 PKG_BUILD_DEPENDS:=gettext-full/host
 

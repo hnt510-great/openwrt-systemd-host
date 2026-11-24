@@ -1,0 +1,11 @@
+{
+	"admin/services/desktop": {
+		"title": "Desktop",
+		"order": 62,
+		"action": { "type": "view", "path": "desktop/settings" },
+		"depends": {
+			"acl": [ "luci-app-desktop" ],
+			"uci": { "desktop": true }
+		}
+	}
+}
