@@ -96,30 +96,37 @@ Inspect UCI and the running kernel before assuming optional features are active:
 
 ## Optional capabilities
 
-`OPENWRT_FEATURES` values: `desktop` (GNOME Wayland), `virtualization`
-(libvirt/QEMU), `flatpak`, `containers` (Podman), `appimage`, `distrobox`,
-`native-development` (GCC/headers).
+`OPENWRT_FEATURES` values: `desktop` (GNOME / KDE Plasma Wayland),
+`virtualization` (libvirt/QEMU), `flatpak`, `containers` (Podman), `appimage`,
+`distrobox`, `native-development` (GCC/headers).
 
 ### Desktop, audio and IME
 
-- **GNOME session & RDP**: runs as an ordinary user (`openwrt-desktop.service`,
-  configured via `desktop-setup USER` and `/etc/config/desktop`). GNOME Remote
-  Desktop shares that same session over LAN IPv4 TCP 3389 (`desktop-rdp-setup
-  USER`; no VNC/xrdp). Keyring bootstrap credentials live under root-only
-  `/etc/desktop/gnome/` (TPM2-sealed when available)—preserve user keyrings,
-  bootstrap creds and RDP TLS identity across upgrades.
-- **Apps**: Nautilus, GNOME Terminal, Settings (router networking remains in
-  LuCI/UCI), Tweaks, Firefox ESR and `google-chrome-bin` (Wayland, updated via
-  APK).
+- **Sessions & control (`openwrt-desktop-base`)**: runs an ordinary-user
+  Wayland session on VT7 (`openwrt-desktop.service`, `/etc/config/desktop`) for
+  GNOME (`gnome`) and/or KDE Plasma (`plasma`) via plugins in
+  `/usr/libexec/openwrt-desktop/sessions.d/`. Provision with `desktop-setup
+  USER`; inspect or switch via `desktop-ctl` (`--json status`, `switch
+  --session gnome|plasma`) or LuCI *Services → Desktop*. Both share
+  `gnome-keyring-daemon` (TPM2-sealed bootstrap creds in root-only
+  `/etc/desktop/gnome/`, TLS identity in `/etc/desktop/tls/`—preserve across
+  upgrades).
+- **RDP**: `desktop-rdp-setup USER [--session gnome|plasma]` shares the active
+  session over LAN IPv4 TCP 3389 (no VNC/xrdp): `gnome-remote-desktop` on
+  GNOME, `krdp` (with PipeWire RDPSND audio) on Plasma.
+- **Apps**: GNOME ships Nautilus (GVfs SMB/DNS-SD LAN discovery), Terminal,
+  Settings, Tweaks and core utilities; Plasma ships Dolphin, Konsole and System
+  Settings. Router networking remains in LuCI/UCI. Browsers: Firefox ESR and
+  `google-chrome-bin` (Wayland, updated via APK).
 - **Audio & streaming**: `desktop-audio-setup USER` enrolls PipeWire/WirePlumber
   (`wpctl status`, `pactl info`). `sunshine-setup USER
   --capture=portal|--enable-kms` configures Sunshine/Moonlight.
 - **Scheduling**: RealtimeKit (`rtkit-daemon.service`) grants priority to Mutter
-  and PipeWire (`kms_scheduling` in `/etc/config/desktop`; kernel built with
-  `PREEMPT_DYNAMIC`, `HZ=1000`, `RT_GROUP_SCHED_DEFAULT_DISABLED`).
-- **IME (`openwrt-desktop-ime`)**: Fcitx5 (IBus compat, Kimpanel, GTK/Qt
-  modules) with offline Chinese Pinyin; **Ctrl+Space** toggles on fresh
-  profiles.
+  (`kms_scheduling` in `/etc/config/desktop`, GNOME only) and PipeWire; kernel
+  built with `PREEMPT_DYNAMIC`, `HZ=1000`, `RT_GROUP_SCHED_DEFAULT_DISABLED`.
+- **IME (`openwrt-desktop-ime*`)**: Fcitx5 (GTK/Qt modules, Kimpanel on GNOME,
+  `fcitx5-qt` on Plasma) with offline Chinese Pinyin; **Ctrl+Space** toggles on
+  fresh profiles.
 - Run `systemctl --user`, `wpctl`, `flatpak` and desktop commands in the
   ordinary user's session, not root's.
 
@@ -133,8 +140,9 @@ Inspect UCI and the running kernel before assuming optional features are active:
 - **Containers & apps**: Podman (rootful and rootless with systemd/Quadlets),
   Distrobox, Flatpak (per-user and `flatpak-system-helper.service` authorized by
   polkit/`sudo` group) and AppImage.
-- **Native development**: GCC, native headers/pkg-config and
-  `kernel-dev-headers` (`/usr/lib/modules/<release>/build`).
+- **Native development**: GCC, native headers/pkg-config, `kernel-dev-headers`
+  (`/usr/lib/modules/<release>/build`) and optional on-device Qt 6 development
+  packages (`qt6base-dev`, `qt6quick-dev`, `qt6tools`, etc. via APK).
 
 ## Packages, kernels and recovery
 
@@ -156,6 +164,7 @@ Inspect UCI and the running kernel before assuming optional features are active:
   (advisory only; does not restart workloads).
 - **Firmware, failsafe & installer**: `sysupgrade` (`-b`, `-l`, `-r`) is for
   configuration backup/restore only; replace firmware via offline disk imaging
-  or the hybrid BIOS/UEFI whole-disk installer ISO (GPT: ESP, read-only rootfs,
-  ext4/btrfs/xfs overlay; excludes untracked personal overlays). The GRUB
-  failsafe entry boots native OpenWrt preinit (`mount_root`).
+  or the hybrid BIOS/UEFI whole-disk installer ISO (GPT: ESP, base read-only
+  rootfs, ext4/btrfs/xfs overlay, optional offline signed APK components;
+  excludes untracked personal overlays). The GRUB failsafe entry boots native
+  OpenWrt preinit (`mount_root`).

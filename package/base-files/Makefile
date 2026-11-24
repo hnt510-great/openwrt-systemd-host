@@ -13,7 +13,7 @@ include $(INCLUDE_DIR)/feeds.mk
 
 PKG_NAME:=base-files
 PKG_FLAGS:=nonshared
-PKG_RELEASE:=$(COMMITCOUNT).22
+PKG_RELEASE:=$(COMMITCOUNT).23
 
 # The embedded revision and build timestamp change with every checkout commit.
 # Include the checkout-wide commit count and actual HEAD in the APK identity:
@@ -50,8 +50,10 @@ PKG_CONFIG_DEPENDS += \
 	CONFIG_CLEAN_IPKG \
 	CONFIG_OPENWRT_SYSTEMD \
 	CONFIG_PACKAGE_openwrt-desktop \
+	CONFIG_PACKAGE_openwrt-desktop-base \
 	CONFIG_PACKAGE_libvirt-daemon \
 	CONFIG_PACKAGE_openwrt-flatpak \
+	CONFIG_PACKAGE_openwrt-flatpak-base \
 	CONFIG_PACKAGE_podman \
 	CONFIG_PACKAGE_openwrt-appimage \
 	CONFIG_PACKAGE_distrobox \
@@ -64,9 +66,9 @@ include $(INCLUDE_DIR)/package.mk
 
 # Describe capabilities included in the image, excluding packages built only as modules.
 SYSTEMD_HOST_FEATURES:=$(strip router \
-	$(if $(filter y,$(CONFIG_PACKAGE_openwrt-desktop)),desktop) \
+	$(if $(filter y,$(CONFIG_PACKAGE_openwrt-desktop) $(CONFIG_PACKAGE_openwrt-desktop-base)),desktop) \
 	$(if $(filter y,$(CONFIG_PACKAGE_libvirt-daemon)),virtualization) \
-	$(if $(filter y,$(CONFIG_PACKAGE_openwrt-flatpak)),flatpak) \
+	$(if $(filter y,$(CONFIG_PACKAGE_openwrt-flatpak) $(CONFIG_PACKAGE_openwrt-flatpak-base)),flatpak) \
 	$(if $(filter y,$(CONFIG_PACKAGE_podman)),containers) \
 	$(if $(filter y,$(CONFIG_PACKAGE_openwrt-appimage)),appimage) \
 	$(if $(filter y,$(CONFIG_PACKAGE_distrobox)),distrobox) \
