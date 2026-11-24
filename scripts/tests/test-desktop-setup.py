@@ -308,10 +308,22 @@ class KeyringStdinTests(unittest.TestCase):
             credentials = work / 'credentials'
             helper_log = work / 'helper-args'
             common = work / 'common'
+            keyring_helper = work / 'desktop-gnome-keyring-setup'
+            helper_source = (ROOT / 'package/custom/openwrt-desktop/files/desktop-gnome-keyring-setup').read_text()
+            helper_source = helper_source.replace('/usr/libexec/desktop-common.sh', str(common))
+            helper_source = helper_source.replace('secret_dir=/etc/desktop/gnome', 'secret_dir=' + str(credentials))
+            keyring_helper.write_text(helper_source)
+            keyring_helper.chmod(0o755)
+            session_plugin = work / 'gnome-session-plugin'
+            plugin_source = (ROOT / 'package/custom/openwrt-desktop/files/sessions.d/gnome').read_text()
+            plugin_source = plugin_source.replace('/usr/libexec/desktop-gnome-keyring-setup', str(keyring_helper))
+            session_plugin.write_text(plugin_source)
             common.write_text('desktop_error() { echo "$*" >&2; return 1; }\n'
-                              'desktop_validate_user() { DESKTOP_USER_UID=1001; DESKTOP_USER_GID=1001; '
+                              'desktop_validate_user() { DESKTOP_USER_NAME="$1"; DESKTOP_USER_UID=1001; DESKTOP_USER_GID=1001; '
                               'DESKTOP_USER_HOME="' + str(home) + '"; }\n'
-                              'desktop_setup_tls() { :; }\n')
+                              'desktop_setup_tls() { :; }\n'
+                              'desktop_resolve_session() { echo gnome; }\n'
+                              'desktop_load_session() { . "' + str(session_plugin) + '"; }\n')
             commands = {
                 'id': '#!/bin/sh\nprintf 0\n',
                 'stat': '#!/bin/sh\nprintf 0:600\n',
