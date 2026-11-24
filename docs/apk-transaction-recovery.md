@@ -32,7 +32,7 @@ Validation: [apk-transaction-recovery-validation.md](apk-transaction-recovery-va
 | Journal | `0108-openwrt-transaction-journal.patch` (apk r18) | Before the first package write on a live root, APK writes `/lib/apk/db/transaction/journal` (fsynced, atomic rename), copies of the signed indexes it used and of every verified payload (hard links where possible). The directory is removed after the database, post-commit hooks and kernel policy have finished. |
 | Refusal | same | While a journal is pending, every other committing APK run is refused with a pointer to `apk-resume`. Simulations still work. |
 | Resume | `apk fix --openwrt-resume` | Re-solves the journaled transaction with solver-local identity pins, requires exactly the journaled changes and commits them. If the database had already been written, only the post-commit hooks and `kernelctl apk-post` run again. |
-| Boot recovery | `apk-transaction-guard` | `apk-resume.service` runs before `openwrt-services.service` (after ubusd/procd, so maintainer scripts work). `/etc/init.d/apk-resume` (`START=11`) covers procd and recovery boots. |
+| Boot recovery | `apk-transaction-guard` | `apk-resume.service` runs before `openwrt-services.service` (after ubusd/procd, so maintainer scripts work). |
 | Caller isolation | `apk-transaction-guard` hook `00-transaction-scope` | Under systemd, the pre-commit hook moves APK into `apk-transaction-<pid>.scope` and starts `apk-transaction-inhibit-<pid>.service`, a `shutdown:sleep` block inhibitor that lasts until APK exits. |
 | Publication | `scripts/apk-upgrade-preflight.py` | The router baseline refuses publication while a journal is pending. |
 
@@ -87,17 +87,19 @@ resume fails, read `journalctl -u apk-resume.service`, fix the cause
 run `apk-resume` again. Each attempt increments `attempt`.
 
 **When the normal boot cannot reach the resume step.** If a cut-off upgrade of
-the C library or systemd prevents a native boot, `openwrt-systemd-prepare`
-falls back to procd, whose `apk-resume` init script runs the same tool. If the
-installed `apk` cannot load its libraries, `apk-resume` retries with the
-read-only image's loader and APK (`/rom/usr/lib/ld-linux-*.so.*
---library-path /rom/usr/lib /rom/usr/bin/apk`), provided that image already
-carries apk r18. As a last resort, boot the GRUB **failsafe** entry, then:
+the C library or systemd prevents a normal systemd boot (early preflight stops
+with a diagnostic on systemd-only x86/64), or if the installed `apk` cannot
+load its libraries, boot the GRUB **failsafe** entry (`failsafe=true`), then:
 
 ```sh
 mount_root
 apk-resume
 ```
+
+`apk-resume` automatically retries with the read-only image's loader and APK
+(`/rom/usr/lib/ld-linux-*.so.* --library-path /rom/usr/lib /rom/usr/bin/apk`)
+if the overlaid `apk` cannot load its libraries, provided that image already
+carries apk r18.
 
 **Shutdown blocking.** With the guard installed, a systemd block inhibitor
 (`systemd-inhibit --list`) is held while a commit is in progress, so `reboot`

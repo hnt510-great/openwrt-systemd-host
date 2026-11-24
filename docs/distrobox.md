@@ -1,6 +1,6 @@
 # Distrobox on the native-systemd host
 
-The glibc desktop profile includes Distrobox 1.8.2.5 and the matching glibc
+The glibc desktop profile includes Distrobox (`1.8.2.6`) and the matching glibc
 `getent` utility. Distrobox uses the existing rootless Podman runtime and
 ordinary-user login session. It installs no additional boot service.
 

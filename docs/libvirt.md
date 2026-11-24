@@ -1,10 +1,6 @@
 # Libvirt and virsh on native-systemd OpenWrt
 
-> Systemd is the sole normal init on current x86/64 images. References below
-> to procd recovery or firmware flashing from the running system describe
-> older images. See [current boot and migration guidance](systemd-only-plan.md).
-
-This package targets x86_64/glibc with CONFIG_OPENWRT_SYSTEMD=y. It provides
+This package targets x86_64/glibc with `CONFIG_OPENWRT_SYSTEMD=y`. It provides
 libvirt 12.9.0, virsh, modular QEMU/secret/directory-storage daemons, the
 node-device and network-filter daemons, virtlogd and virtlockd, plus UEFI
 (OVMF) firmware, the swtpm virtual TPM and virtiofsd for virtio-fs shares. Select CONFIG_PACKAGE_libvirt-daemon=y and
@@ -21,7 +17,7 @@ separate APKs; the daemon package pulls in the client and QEMU runtime.
 
 On a native boot, the packaged systemd sockets and virtqemud start after
 openwrt-services.service and the persistent state mount. There is no procd
-startup script, so the recovery and failsafe entries do not launch guests.
+startup script, so the native failsafe entry does not launch guests.
 
     virsh -c qemu:///system version
     virsh list --all
@@ -139,8 +135,9 @@ Guest images and /srv/libvirt/state are not included in the firmware backup:
 back them up separately with guests stopped, and preserve external disks.
 That state directory also holds UEFI variable stores (`qemu/nvram`), virtual
 TPM state (`swtpm`) and the vTPM certificate authority (`swtpm-localca`).
-Before reflashing, boot the existing procd recovery entry as described in
-systemd.md. A firmware upgrade alone is not a virtual-machine data backup.
+Replace full firmware via installation media ([installer-iso.md](installer-iso.md))
+or offline disk imaging, and use signed `apk upgrade` for package updates.
+A firmware backup alone is not a virtual-machine data backup.
 
 Validation results and exact firmware hash are recorded in
 [libvirt-validation.md](libvirt-validation.md).
@@ -490,7 +487,7 @@ Replace `1000` with `audio_uid`. A complete new-VM example is installed as
 `/usr/share/libvirt/examples/openwrt-graphics-pipewire-vm.xml`; adjust its UID,
 disk path, name and network before defining it. Direct audio remains available
 when the viewer closes, while the desktop user's PipeWire server is running.
-It does not enable audio in a guest without a sound driver, or during recovery.
+It does not enable audio in a guest without a sound driver.
 For `qemu:///session` under the same desktop user, no cross-user ACL is needed;
 session networking and disk access must be configured separately.
 

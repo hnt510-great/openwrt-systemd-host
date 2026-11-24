@@ -1,7 +1,5 @@
 # Custom 包的上游更新
 
-Qt、KDE Plasma、GNOME 及其他 custom 包的后续改进见[自动更新与桌面依赖兼容修复计划](custom-package-updates-plan.md)。
-
 在仓库根目录使用标准 OpenWrt 流程：
 
 ```sh

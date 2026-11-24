@@ -1,26 +1,30 @@
 # x86-64 mainline kernel
 
-The x86/64 subtarget selects Linux 7.3 instead of 6.18.55. Other x86
-subtargets and other boards retain their existing kernel selection. The
-versioned 6.18 configuration and patch directories remain available.
+The x86/64 subtarget selects Linux 7.3 (currently `7.3.5`) instead of the 6.18
+LTS branch (`6.18.64`). Other x86 subtargets and other boards retain their
+existing kernel selection. The versioned 6.18 configuration and patch
+directories remain available.
 
 The port retains the selected router/desktop modules and built-in KVM,
-including Hyper-V support. Linux 7.3 removes the nonpreemptible choice from
-x86; this target uses the upstream scheduler-controlled `PREEMPT_LAZY` model.
+including Hyper-V support. The x86/64 desktop kernel enables dynamic full
+preemption (`CONFIG_PREEMPT=y`, `CONFIG_PREEMPT_DYNAMIC=y`, `CONFIG_HZ_1000=y`,
+and `CONFIG_RT_GROUP_SCHED_DEFAULT_DISABLED=y`; runtime preemption remains
+selectable via `preempt=` / `/sys/kernel/debug/sched/preempt`, see
+[gnome-desktop.md](gnome-desktop.md#realtime-scheduling-and-kernel-preemption)).
 The PHY package accommodates the renamed `mdio_bus.ko`. The downstream DT
 MTD concat driver has a distinct configuration symbol so it can coexist with
 the new upstream virtual-concat core.
 
 The port keeps nfnetlink as a separately packaged module, updates the crypto,
 RAID and WMI module paths, and declares the additional PHY, sound and network
-module dependencies. Wireless backports remain at 7.2, release 11, with a
-version-guarded include for the hex helper declarations moved in Linux 7.3.
+module dependencies. Wireless backports (`package/kernel/mac80211`) are at 7.2,
+release 17, with a version-guarded include for the hex helper declarations moved
+in Linux 7.3.
 
-Linux 7.3 is the final mainline release dated 2026-10-18 on
-[kernel.org](https://www.kernel.org/releases.json). The source is
-`https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.3.tar.xz`; its SHA256
-is `87363c24f10e06321eb362765521094e94471f6bff8bce2d6b3e40f39f004953`,
-checked against kernel.org's `v7.x/sha256sums.asc`.
+The current tracked source in `target/linux/generic/kernel-7.3` is Linux
+`7.3.5` (`https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.3.5.tar.xz`,
+SHA-256 `8f293f83d54f0b7b9be56863ebc5e4ea79d73e530b4ae55c572be97ef39f0990`,
+verified against kernel.org's `v7.x/sha256sums.asc`).
 
 ## Explicit synchronization
 

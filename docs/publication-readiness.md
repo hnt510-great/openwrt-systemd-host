@@ -4,9 +4,12 @@ A successful firmware build covers selected packages. Incremental feeds also
 retain APKs for packages no longer selected in `.config`. Those retained APKs
 still need current ELF metadata and compatible runtime dependencies.
 
-The proposed kernel reuse workflow, the verified generation-85 migration
-baseline, and the implementation acceptance tests are in the
-[kernel generation reuse handover](kernel-generation-reuse-plan.md).
+The kernel generation reuse workflow (`scripts/kernel-reuse.py`, narrowed
+schema-2 `scripts/kernel-build-inputs.py`, same-generation zero-kernel-touch
+preflight, and `--explain-kernel`) is documented in
+[kernel generation reuse](kernel-generation-reuse-plan.md); Phase 2 same-version
+APK rebuild diagnosis and `--allocate-rebuilds` are documented in
+[APK rebuild diagnosis and release allocation](apk-rebuild-release.md).
 
 The October 30 failures had three causes:
 
@@ -43,7 +46,7 @@ user-requested checks and applicable feature validation procedures.
 For routine publication, run the relevant source checks and package builds,
 then the coordinated publication preflight. Signature, ELF/ucode and dependency
 checks, immutable package identities, retained-APK auditing, reachable-router
-baseline checks and both upgrade simulations remain mandatory where applicable.
+baseline checks and the applicable upgrade simulations remain mandatory.
 Skipping a VM does not bypass any of these gates.
 
 Record the change scope, checks performed and why VM validation was unnecessary
@@ -94,13 +97,12 @@ python3 scripts/build-and-publish.py build-only -j3 V=s
 ./scripts/publish-changed-feeds.sh --dry-run
 ```
 
-The publication wrapper validates existing outputs; it does not run a build or
-edit router world constraints. Its early router check reports missing target
-trackers and incompatible installed checksum/version locks before expensive feed
-staging. That early check is the complete router baseline scan the simulation
-reuses; both actual solver simulations and a second complete scan, which must
-match it, remain mandatory before promotion. A baseline change at any point
-after the early check requires a retry.
+The command above validates existing outputs and leaves the router's world
+constraints untouched. The early router baseline scan reports relevant tracker
+and installed-version blockers before expensive feed staging. Before promotion,
+the publisher requires the applicable [upgrade simulations](apk-upgrade-preflight.md)
+and a second complete scan that matches the first. A baseline change requires
+a retry.
 
 The ELF audit reports all missing, stale or malformed inventories in one pass,
 including retained migration alternatives. An excluded package can be rebuilt

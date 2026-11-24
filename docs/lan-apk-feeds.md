@@ -1,10 +1,5 @@
 # Local LAN APK feeds
 
-The checked-in settings use anonymized example addresses. Configure your own
-origin, nginx listener and allowed subnets, create the `openwrt-feeds` service
-account, and set `upgrade_preflight.ssh_target` before publication. The default
-SSH target is empty, so production publication fails closed.
-
 The Debian build host uses nginx to serve signed native-systemd/glibc packages at
 `http://apk.example.invalid:8088`. Its system service is `lan-apk-feeds.service` and
 starts automatically at boot. The `lan-apk-feeds` package (release 6 and later)
@@ -85,19 +80,25 @@ Publication runs only after make succeeds. Ordinary `make` keeps its existing
 behavior. Source APKs and indexes under `bin/` are not modified.
 
 When `CONFIG_OPENWRT_KERNEL_UPGRADE=y`, this command also publishes the protected
-kernel channel. Full/default builds reuse the sequence and kernel timestamp for
-unchanged kernel inputs. Pure userspace changes therefore keep the existing
-kernel generation. Relevant kernel/module/config/toolchain changes automatically
-reserve a new publication sequence in `.config` and rebuild matching modules,
-even if the ABI hash stays the same. Missing local input history conservatively
-reserves a new generation. Both feed types pass signature, generation, completeness and
-immutability preflight before publication. Userspace views are published first;
-the kernel channel is exposed last. Existing ABI-local kernel packages and old
-generations are limited to the two newest publication sequences in the kernel
-channel, including their matching kmods, headers and trackers. Obsolete kernel
-snapshots are deleted after the signed channel switches successfully. ABI-local
-feeds remain unchanged. Stale build outputs are filtered rather than deleted.
-See [the kernel upgrade guide](kernel-upgrade.md#build-and-publish).
+kernel channel. Full/rolling builds reuse a verified published generation when
+kernel inputs (`scripts/kernel-build-inputs.py`, schema 2, excluding image/
+squashfs/ISO/GRUB config keys) match (`scripts/kernel-reuse.py`, inspectable
+with `--explain-kernel`). If the router already runs the reused release, the
+preflight checks that the upgrade plan leaves its kernel payloads intact.
+Relevant kernel, module, configuration and toolchain changes automatically
+reserve a new publication sequence in
+`.config` and rebuild matching modules, even if the ABI hash stays the same.
+The publisher can reuse a verified published record even without local input
+history. See the generation reuse guide below for the fallback and verification
+rules. Both feed types pass signature, generation, completeness and immutability
+preflight before publication. Userspace views are published first. The kernel channel is exposed
+last. The kernel channel keeps the **three** newest publication sequences
+(`KEEP_GENERATIONS = 3` in `scripts/publish-kernel-upgrade-feed.py`), including
+their matching kmods, headers and trackers. Obsolete kernel snapshots are
+deleted after the signed channel switches successfully. ABI-local feeds remain
+unchanged. Stale build outputs are filtered rather than deleted.
+See [the kernel upgrade guide](kernel-upgrade.md#build-and-publish) and
+[kernel generation reuse](kernel-generation-reuse-plan.md).
 
 In this mode, `publish-changed-feeds.sh` also handles both feed types, without
 advancing the sequence. Package-only builds require a completed matching kernel
@@ -183,32 +184,19 @@ arguments override JSON defaults. Each ABI keeps its separate snapshot alias.
 
 Output lists `changed_packages`, `affected_repositories`, and
 `same_version_rebuilds`. Increase a package's `PKG_VERSION` or `PKG_RELEASE`
-for reliable upgrade detection. A same-version content change is rejected
-before switching the active feed, for every package. The
-publisher does not change package versions, connect to the router, or install
-updates there.
+for reliable upgrade detection. The low-level repository publisher rejects
+same-version content changes before any active feed switch. The coordinated
+wrapper runs the router preflight, and APK installation is a separate step.
 
-The rejection explains the first eight such packages with
-`scripts/diagnose-apk-rebuild.py`, which can also be run by hand on the paths
-the error names, or on any two APK files:
-
-```sh
-python3 scripts/diagnose-apk-rebuild.py base/daed-2.1.1-r4.apk
-python3 scripts/diagnose-apk-rebuild.py OLD.apk NEW.apk [--brief|--json]
-```
-
-A feed path compares the newest published snapshot copy with the rebuilt APK
-under `bin/systemd`. The tool compares APK metadata, install scripts and the
-file list, then descends into each changed file: ELF sections (including ELF
-objects embedded in a section, such as BPF programs in Go binaries), BTF type
-tables, Go build information, gzip, zip, `.pyc` and text. Each finding is
-`benign` (build nondeterminism with no runtime effect: archive or `.pyc`
-timestamps, BTF types emitted in a different order), `change` (metadata,
-scripts, files or text changed; allocate a new release) or `unknown` (bytes
-differ in code or data it cannot judge). The package verdict is the worst
-finding; exit status is 0 for identical or benign, 1 for unknown and 2 for a
-change. A benign verdict still needs a new release or the published file
-restored, since published identities are immutable.
+`scripts/diagnose-apk-rebuild.py` evaluates same-version rebuilds and reports
+actions such as `reuse_published`, `allocate_release`, and
+`review_before_allocate`. The incremental publisher can retain an eligible
+published APK byte for byte. For conflicts eligible for a new release, both
+wrappers accept `--allocate-rebuilds` to allocate an effective release and
+rebuild. Use the standalone `publish-changed-feeds.sh` entry point when passing
+a digest-bound `--approval` file. See [same-version APK rebuild diagnosis and
+release allocation](apk-rebuild-release.md) for the command examples, decision
+table and ledger rules.
 
 When a recipe uses `configs/apk-elf-rebuilds.mk`, choose a release newer than
 the allocated outputs as well as the upstream recipe release. Two input
@@ -216,37 +204,6 @@ releases may map to the same historical migration output; an upstream bump
 alone does not guarantee a new effective APK version. For example, nginx
 `1.30.5-r1` and `-r2` both mapped to `-r3`; the next local recipe release is
 `-r4`. Preserve historical mappings for exact dependency migration.
-
-#### Allocating releases for relinked consumers
-
-A provider SONAME change (ICU 78→79, libubox 20261103) correctly rebuilds its
-consumers through the `pkginfo/*.sonames` stamps, but their recipe versions
-do not move, so the publisher rejects them. The rejection now classifies every
-named package. `scripts/allocate-rebuild-releases.py` turns it into ledger
-entries:
-
-```sh
-python3 scripts/allocate-rebuild-releases.py base/nautilus-51.1-r3.apk ...          # plan only
-python3 scripts/allocate-rebuild-releases.py --apply base/nautilus-51.1-r3.apk ...  # edit the ledger
-```
-
-A package is allocated when its verdict is `change` or its `so:` dependencies
-changed between the published and rebuilt APK. `benign` and `unknown`
-differences without a dependency change are refused; fix the nondeterminism,
-or after reviewing the diagnosis pass `--accept-unknown`. The next release is
-one past every release of that upstream version found in published snapshots,
-`bin/systemd` and ledger outputs. Only the `ELF_REBUILD_`/`ELF_DEP_` keys for
-the package's current recipe version are written, in a dated
-`automatic same-version rebuild allocations` section; older keys are left
-alone so their outputs stay reserved.
-
-`build-and-publish.sh --allocate-rebuilds -j16` (or
-`publish-changed-feeds.sh --allocate-rebuilds`) does this automatically: on a
-same-version rejection it allocates, rebuilds only the affected source
-packages with the same `-j`/`V=` options, and retries publication, for at most
-three rounds (exact-version dependents can cascade). The retry repeats the
-full router preflight. The ledger is not a kernel build input, so the reserved
-generation stays valid. Commit the ledger change afterwards.
 
 `base-files` embeds the checkout revision and build timestamp, so its APK version
 also contains the checkout-wide Git commit count and actual HEAD hash. A local
@@ -256,9 +213,8 @@ commits no longer need recurring base-files ledger allocations. Non-Git exports
 use `SOURCE_DATE_EPOCH` and the revision hash, while SDKs can retain the locked
 `BASE_FILES_VERSION`. The `base-files.version` lock records the effective `VERSION`,
 including any historical ledger mapping, so rootfs installation pins the exact
-APK that was built. See the [base-files version validation record](base-files-version-validation.md).
-The measured retained-tree acceleration investigation and delegated implementation
-handoff are in the [incremental build acceleration plan](incremental-build-acceleration-plan.md).
+APK that was built. See the [base-files version validation record](base-files-version-validation.md)
+and the [rolling build and VM artifact workflow](incremental-build-acceleration-validation.md).
 
 Passwall uses the existing LuCI Git revision versioning for code and
 translations independently, rather than upstream's manually maintained
@@ -340,20 +296,11 @@ conflicting APKs with the same filename are rejected. Source registration
 and the router's binary repository serve different purposes; see
 [OpenWrt feeds](https://openwrt.org/docs/guide-developer/feeds).
 
-The router's custom feed URL is:
+The router's current custom feed URL is:
 
 ```text
-http://apk.example.invalid:8088/abi/6.18.55~ef561c78a2b577ae422f9289311ff293-r1/custom/packages.adb
+http://apk.example.invalid:8088/current/custom/packages.adb
 ```
-
-On 2026-10-14 the source index contained 72 source definitions and 80 binary
-package definitions; 76 built custom APKs were available. The physical
-router refreshed all nine feeds, downloaded `openwrt-desktop` using only the
-custom repository, verified its signature with existing keys, and completed
-a simulated add without installing packages. Its world, package inventory,
-kernel, boot ID, network, firewall, and DHCP state were unchanged.
-`customfeeds.list` is included in the router's sysupgrade backup. The original
-file is saved in `/root/custom-apk-feed-backup-20261014/`.
 
 HTTP serves only APKs, signed indexes, manifests, and repository lists from
 this separate publication directory, plus browsable directory indexes and
@@ -363,104 +310,28 @@ clients in `10.0.0.0/24` (the router forwards the `wireguard` zone to `lan`
 without masquerading, so nginx sees the client address); APK signature
 verification remains enabled on the router.
 
-## Kernel hash mismatch
+## Legacy ABI-pinned feeds (pre-r6 history)
 
-The running router remains on its original ABI:
-
-```text
-kernel package: 6.18.55~ef561c78a2b577ae422f9289311ff293-r1
-configuration hash: ef561c78a2b577ae422f9289311ff293
-```
-
-The rebuilt desktop-kernel image uses a different ABI:
-
-```text
-kernel package: 6.18.55~f10b60a7da5b97b579b974213f7b729c-r1
-configuration hash: f10b60a7da5b97b579b974213f7b729c
-```
-
-Publish a completed build into its own ABI namespace automatically:
-
-```sh
-./scripts/publish-changed-feeds.sh --dry-run
-./scripts/publish-changed-feeds.sh
-```
-
-Alternatively use `./scripts/build-and-publish.sh -j16 V=s` for both steps.
-The publisher checks every direct kernel dependency and the signed kernel
-APK version. It creates a separate ABI alias atomically and retains the old
-router's publication. There is deliberately no global `latest` alias.
-
-The image selects `CONFIG_PACKAGE_lan-apk-feeds=y`. Its router configuration
-is `/etc/lan-apk-feeds.conf`, containing the LAN origin and repository names,
-with no kernel hash. The helper `/usr/sbin/lan-apk-feeds-sync` reads the exact
-installed kernel version from APK's installed database and atomically writes
-all nine URLs. `/etc/init.d/lan-apk-feeds` is enabled for boot; an APK post-commit
-hook also refreshes the file. Neither path accesses the network or installs
-packages. The helper safely migrates the earlier local custom URL out of
-`customfeeds.list`, preserving unrelated URLs and comments. Unmarked,
-unrecognized `lan-local.list` contents are rejected rather than overwritten.
-
-After deploying matching new firmware, the boot helper switches its feed URLs
-automatically. Until then, the old router continues using its old ABI even
-when the build host publishes a new one. Existing exact kernel constraints
-in `/etc/apk/world` are untouched. Sysupgrade normally excludes the old world
-file; the rebuilt image supplies its matching pin. Keep this helper package
-selected in subsequent firmware builds. Missing publications fail normally
-at `apk update`; the client never falls back to another ABI.
-
-OpenWrt derives this package dependency hash from sorted kernel configuration
-entries set to `y` or `m` (`include/kernel-defaults.mk`). Matching `uname -r`
-alone is insufficient. Changing the selected kmods can change the hash.
-The APK kernel constraint protects package selection; it does not independently
-prove kernel source or symbol compatibility.
-
-For an existing matching module, use this ABI-specific local feed. For a new
-module, rebuild against the exact firmware source, patches, kernel
-configuration, and toolchain used for the running kernel. Check the resulting
-`.vermagic` and package dependencies before publishing. Preserve that build
-context before updating or cleaning the checkout.
-
-If the build has a different kernel ABI, publish it under its own kernel
-version. The router's existing URL stays on the old ABI. Moving the router to
-that new ABI requires matching firmware deployment and reboot. The helper
-then selects matching URLs automatically. That deployment was not performed here.
-Do not rewrite `.vermagic`, edit package dependencies to claim a false match,
-remove the kernel pin, or force incompatible modules into the running system.
-See OpenWrt's [kernel dependency guidance](https://openwrt.org/faq/cannot_satisfy_dependencies).
-
-### Desktop-kernel publication on 2026-10-14
-
-The desktop-kernel ABI above was published as snapshot
-`20261014T064100.759892Z`. It contains nine signed repositories: `target`,
-`base`, `luci`, `packages`, `passwall_luci`, `passwall_packages`, `taskplan`,
-`video` and `custom`. The source set has 1,094 APK files; projection into
-`custom` produces 1,170 repository entries, including duplicate copies.
-There are 251 kernel-dependent entries, all pinned to the new ABI.
-
-The dry run, publication and unchanged incremental rerun passed. All nine
-indexes were fetched over HTTP and signature-verified. The existing router
-downloaded the new target index and `kmod-vhost-net` APK, verified both with
-its existing trust keys, and confirmed the module's exact new-kernel
-dependency. No package was installed.
-
-The old ABI alias, all 1,033 previously published APK files and all old index
-hashes were verified unchanged. The publisher's eight regression tests also
-passed, including wrong-ABI rejection and retained-snapshot immutability.
-The service remains running without a restart. Validation evidence is under
-`/srv/openwrt-validation/openwrt-feed-publish-validation-20261014-144027/`.
+Before `lan-apk-feeds` release 6 and distribution-style kernel packages
+(`linux-image-<release>`), feeds were keyed per exact kernel configuration ABI
+hash (`<base>/abi/<kernel-abi>/<repo>/packages.adb`). Current `lan-apk-feeds`
+unconditionally writes `/kernel-upgrades/packages.adb` and `/current/<repo>/packages.adb`
+to `/etc/apk/repositories.d/lan-local.list`, while the publisher retains the
+legacy `public/abi/<config-abi>/` alias for unmigrated routers. `/etc/init.d/lan-apk-feeds`
+and its APK post-commit hook keep `lan-local.list` synchronized without network
+access and refuse to overwrite unmanaged files.
 
 ## Service, address, and rollback
 
 The installed unit is `/etc/systemd/system/lan-apk-feeds.service`; its source
 template is `configs/lan-apk-feeds.service`. Its standalone nginx configuration
 is `/etc/openwrt-feeds/nginx.conf`, sourced from
-`configs/lan-apk-feeds.nginx.conf`. The service runs nginx as `openwrt-feeds`, with
+`configs/lan-apk-feeds.nginx.conf`. The service runs nginx as `desktop-user`, with
 a read-only filesystem and a writable `/run/lan-apk-feeds` runtime directory.
 It does not use the distribution `nginx.service` or its default website.
 
 Directory URLs ending in `/` are browsable LAN/WireGuard-only indexes (for example
-`http://apk.example.invalid:8088/abi/<kernel-abi>/base/`), so individual APKs can
+`http://apk.example.invalid:8088/current/base/`), so individual APKs can
 be found and downloaded from a browser. Listings omit dot entries; downloads are
 still limited to `*.apk`, `packages.adb`, `manifest.json`, `repositories.list`
 and approved image files, and only GET/HEAD are accepted.
@@ -477,11 +348,11 @@ sudo systemctl enable --now lan-apk-feeds.service
 
 When replacing an already running service, use `systemctl restart` after
 installing the files. For configuration-only changes, run
-`sudo -u openwrt-feeds nginx -t -c /etc/openwrt-feeds/nginx.conf` before
+`sudo -u desktop-user nginx -t -c /etc/openwrt-feeds/nginx.conf` before
 `sudo systemctl reload lan-apk-feeds.service`. Publication itself needs no reload:
 nginx follows the publisher-owned snapshot symlinks on each request. Keep this
 publication tree writable only by the trusted publisher; do not place symlinks
-to files outside the publication tree in it. Directory listings, dotfiles,
+to files outside the publication tree in it. Dotfiles,
 unapproved file types, and methods other than GET/HEAD are blocked. Responses
 retain `Cache-Control: no-cache` and `X-Content-Type-Options: nosniff`.
 
@@ -491,7 +362,7 @@ sudo journalctl -u lan-apk-feeds.service
 ```
 
 The router has a dedicated DHCP reservation `dhcp.apk_server` for
-`02:00:00:00:00:01` at `192.0.2.165`. The build host's NetworkManager `br0`
+`9a:9e:28:ee:71:f3` at `192.0.2.165`. The build host's NetworkManager `br0`
 profile pins that bridge MAC so the reservation remains valid after reboot.
 The router's `dhcp.apk_feed_dns` record resolves `apk.example.invalid` to this
 address for clients using the router's DNS; no public DNS record is required.
@@ -501,30 +372,32 @@ Reload DNS and restart `lan-apk-feeds.service` on the build host. When changing
 the feed origin, run `sudo lan-apk-feeds-sync` on the router. Passwall's DNS
 instance also reads `/tmp/hosts`; send it SIGHUP to refresh new local records
 without restarting proxy connections. The feed configuration is a package
-conffile and survives sysupgrade; boot regenerates the ABI-specific list.
-
-The 2026-10-25 address/domain migration backups are under
-`/root/network-apk-backup-20261025T135406` on the router and
-`/root/network-apk-backup-20261025T135407` on the build host. Domain resolution,
-HTTP index access, and router `apk update` were verified; world constraints
-and the router boot ID were unchanged.
-
-Router backups are in `/root/lan-apk-feeds-backup-20261014`: previous feed
-files, world constraints, DHCP configuration, sysupgrade configuration, and
-before/after package, module, kernel, network, firewall, and boot checks.
+conffile and survives configuration backups; boot regenerates `lan-local.list`.
 
 To remove this setup, first disable/remove `lan-apk-feeds` so it no longer
 regenerates the list. While preserving other subsequent changes, remove
 `/etc/apk/repositories.d/lan-local.list`, remove its explicit line from
 `/etc/sysupgrade.conf`, remove the local custom URL from `customfeeds.list`,
-and delete only `dhcp.lan_apk_feeds_host` with UCI,
+and delete `dhcp.apk_server` / `dhcp.apk_feed_dns` with UCI,
 commit DHCP, and reload dnsmasq. On the host, disable the server with
 `sudo systemctl disable --now lan-apk-feeds.service`. Retain backups and
 published snapshots until they are no longer needed.
 
-To roll back a publication, atomically point the ABI symlink at a retained
-matching snapshot, then run `sudo apk update`. This rolls back feed contents,
-not packages already installed from them.
+### Feed rollback
+
+If only the userspace view changed, identify the retained signed userspace
+snapshot that matches the active `public/kernel-upgrades` snapshot. Under the
+destination's `.upgrade-publish.lock`, atomically restore `public/current` and
+the corresponding legacy ABI alias if clients still use it. If the publication
+also changed `public/kernel-upgrades`, use the retained publication receipts to
+identify the original pair of signed snapshots. Verify their hashes, signatures
+and upgrade compatibility, then restore the pair as a coordinated operation
+under the same lock. See [the coordinated publication procedure](apk-upgrade-preflight.md)
+for the checks and switch order.
+
+Refresh the router's indexes with `sudo apk update` after the aliases have been
+restored. The alias changes only affect what clients can download. On-device
+kernel rollback is handled separately by [kernelctl](kernel-upgrade.md).
 
 ## Validation on 2026-10-14
 

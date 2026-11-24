@@ -1,9 +1,5 @@
 # Samba file sharing
 
-> Systemd is the sole normal init on current x86/64 images. References below
-> to procd recovery or firmware flashing from the running system describe
-> older images. See [current boot and migration guidance](systemd-only-plan.md).
-
 The x86_64 native-systemd desktop profile includes Samba 4, its client and
 diagnostic utilities, LuCI Network Shares, and the Simplified Chinese
 translation. `configs/samba4.config` contains the reusable selections.
@@ -59,11 +55,11 @@ sudo testparm -s
 sudo smbclient -L 192.0.2.1 -U builder
 ```
 
-`/etc/init.d/samba4` delegates runtime operations and native enablement to
-systemd. Its `boot`/`shutdown` actions do nothing in native mode, so the rc
-queue cannot start duplicate daemons or deadlock against the native units.
-In procd recovery boots, the original procd implementation and independent
-rc.d links remain available.
+Under `CONFIG_OPENWRT_SYSTEMD=y`, `/etc/init.d/samba4` (`samba4-native.init`)
+exits 0 on `boot`/`shutdown` so the rc queue cannot start duplicate daemons or
+deadlock against the native units, and unconditionally delegates runtime
+operations and enablement to `/usr/libexec/samba4-systemd` (non-systemd targets
+retain the original procd init script).
 
 A native path watcher observes `/etc/config/{samba4,system,dhcp}` and
 `/etc/samba/smb.conf.template`, including LuCI Save & Apply. An interface

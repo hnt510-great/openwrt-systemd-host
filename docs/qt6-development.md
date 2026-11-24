@@ -13,13 +13,17 @@ apk add qt6base-dev qt6quick-dev qt6svg-dev qt6multimedia-dev \
 ```
 
 `qt6quick-dev` pulls `qt6quick-tools` and `qt6base-dev`; the other module
-development packages pull `qt6base-dev` as well. `qt6base-dev` depends on
-`native-libs-dev`, which supplies the common graphics and system headers that
-Qt applications and Qt itself need: Xlib/XCB, OpenGL/GLES2/EGL, GBM, libdrm,
-ALSA, xkbcommon, Wayland client/server, HarfBuzz, FreeType and Fontconfig.
+development packages pull `qt6base-dev` as well. Since Qt 6.11.3,
+`qt6waylandclient-dev` is built by `qt6base` and depends on `wayland-scanner`
+and `wayland-protocols`; `qt6tools` also provides runtime `libQt6UiTools.so.*`
+alongside the Linguist CLI tools. `qt6base-dev` depends on `native-libs-dev`,
+which supplies the common graphics and system headers that Qt applications and
+Qt itself need: Xlib/XCB, OpenGL/GLES2/EGL, GBM, libdrm, ALSA, xkbcommon,
+Wayland client/server, HarfBuzz, FreeType and Fontconfig.
 
-The opt-in `configs/qt6-dev.config` fragment selects all of these packages and
-also enables the Qt SQL and OpenGL ES build options:
+The opt-in `configs/qt6-dev.config` fragment selects all of these packages
+(including `wayland-scanner`) and also enables the Qt SQL and OpenGL ES build
+options:
 
 ```sh
 ./scripts/kconfig.pl + .config configs/qt6-dev.config > .config.new

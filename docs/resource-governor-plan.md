@@ -1,9 +1,19 @@
 # Plan: Router-first resource policy, and an adaptive governor only if it earns its place
 
-Status: plan approved by the user on 2026-11-07. Implementation has not started: nothing is built,
-and the router has not been changed (only read-only probes have run). Agents picking this up should
-read [§12 Handoff notes](#12-handoff-notes-for-the-implementing-agent) first, then record each
-gate outcome (G0, G1, G2) in this status line as it happens.
+Status: plan approved on 2026-11-07. The resbench harness, static policy and adaptive governor
+are pending, along with gates G0, G1 and G2. Start with
+[the handoff notes](#12-handoff-notes-for-the-implementing-agent) and record each gate outcome here.
+
+> **Baseline drift note (updated 2026-11-24):** Before starting G0, re-verify
+> live router hardware and slice layout. Since 2026-11-07: (1) RealtimeKit and
+> the desktop kernel defaults (`PREEMPT_DYNAMIC` with full preemption,
+> `HZ=1000`, `RT_GROUP_SCHED_DEFAULT_DISABLED=y`) are already implemented.
+> The [RT validation record](rtkit-validation.md) covers generation 59. The
+> current source targets Linux `7.3.5`. Phase 4 measures the existing RT setup
+> under contention. (2) `samba4`, `wsdd2`, and `avahi-daemon` now run natively in
+> `nas.slice`, and `cron`/`nlbwmon`/`ddns-go` run natively in `auxiliary.slice`;
+> (3) `router-audit` background collection is now opt-in disabled by default;
+> (4) desktop sessions now support both GNOME 51 and KDE Plasma 6.8.3.
 
 ## Context
 
@@ -75,7 +85,7 @@ its current form, and the result is documented as such.**
 | H4 | Memory pressure: router pages reclaimed or zram-swapped, kswapd competing with softirq, GFP_ATOMIC failures | memory PSI of router slices, rx_alloc_failed, DNS p99 | MemoryLow (S), oomd ordering (S), transient MemoryHigh on expendable work (A) |
 | H5 | Background I/O stalls desktop page-ins (router daemons mostly write to tmpfs) | io PSI of session.slice, frame-late% | measure only; `io.max` via A if needed |
 | H6 | Desktop competes equally with SSH builds and agents inside user-32769.slice | GTK frame-late%, desktop probe p99, session.slice `cpu.pressure` | session-scope weight (S) |
-| H7 | Compositor and audio threads lack RT | frame-late% at moderate load, PipeWire xruns | track R (rtkit + `rt_group_sched=0`) |
+| H7 | Compositor or audio threads lack the expected RT scheduling | frame-late% at moderate load, PipeWire xruns | Verify active scheduling with the existing desktop RT setup in Phase 4 |
 | H8 | Heavy network load degrades the desktop | desktop metrics in N2 vs N0 | expected negligible at WAN rates; measured |
 
 ---
@@ -89,7 +99,10 @@ its current form, and the result is documented as such.**
 | B0 | The current image unchanged (the policy is installed but masked) | none |
 | S | `openwrt-resource-policy`: unit drop-ins, oomd configuration, `bg-run` helper, `resource-policy-ctl` | zero daemons |
 | A | S plus `resgovd` (C, sd-bus/sd-event) | target ≤0.1% of one core |
-| R (optional, separate) | rtkit + `rt_group_sched=0` | needs a reboot per arm |
+
+The existing desktop RT configuration is part of the baseline. Keep the same
+RT settings across B0, S and A so policy effects can be attributed to the
+policy under test.
 
 `resource-policy-ctl enable|disable|status` masks or unmasks every policy drop-in with
 same-named `/dev/null` links in `/run/systemd/system/<unit>.d/`, which outrank `/usr/lib`, and then
@@ -447,17 +460,19 @@ uci-history and are reverted the same night.
    transition rate.
 4. Run S against A on the matrix plus T1 and SOAK (A) for 24 h. **G2** is the A criteria in §4.
 
-### Phase 4 (optional, separate): Desktop RT track R
+### Phase 4 (optional, separate): Validate desktop RT under contention
 
-Pursue this only if, after S, frame-late% or PipeWire xruns in S09/S10 still fail the criteria.
-It needs:
+Pursue this if frame-late% or PipeWire xruns in S09/S10 still fail the criteria
+after S. Start from the existing `rtkit` package and desktop kernel defaults.
+Record the active session, kernel and preemption mode. Verify that RTKit is
+running and check the actual scheduling classes of the compositor and PipeWire
+threads. Use the GNOME-specific KMS check only on GNOME. Use the same desktop
+session when comparing arms.
 
-- a new custom package `rtkit`;
-- `rt_group_sched=0` on the GRUB cmdline through kernelctl (or `CONFIG_RT_GROUP_SCHED_DEFAULT_DISABLED`,
-  which needs a new kernel generation).
-
-The block design runs across reboots. Also check that the RT compositor and PipeWire threads do
-not hurt P1–P3, since RT threads outrank ksoftirqd.
+Measure frame-late%, xruns and P1–P3 together. RT threads can delay ksoftirqd,
+so desktop improvements must also satisfy the routing guardrails. If a separate
+RT configuration is needed to isolate the effect, run it as a separate experiment
+and record its settings with the evidence. See [RT validation](rtkit-validation.md).
 
 ### Phase 5: Ship and document
 
@@ -469,9 +484,8 @@ not hurt P1–P3, since RT threads outrank ksoftirqd.
 - Update `package/base-files/system-description.systemd.md` and bump base-files PKG_RELEASE.
 - Update the snapshot `configs/x86-64-systemd-desktop.config`.
 - Commits: `resource-policy: …`, `resgov: …`, `docs: …`.
-- Publication goes through `publish-changed-feeds.sh`. It is userspace-only; no new kernel
-  generation is needed unless track R takes the config route. Physical install only with explicit
-  authorization.
+- Publication goes through `publish-changed-feeds.sh`. The resource policy
+  changes are userspace-only. Physical installation requires explicit authorization.
 
 ---
 
@@ -500,8 +514,8 @@ not hurt P1–P3, since RT threads outrank ksoftirqd.
   `systemctl disable --now systemd-oomd`.
 - **A:** `systemctl disable --now openwrt-resgov`. ExecStopPost restores S values; runtime
   properties never survive a reboot; the package can be removed.
-- **R:** select the previous GRUB entry or remove the cmdline parameter, then remove rtkit. The procd
-  recovery entry stays available.
+- **Desktop RT experiment:** restore the settings recorded before the experiment.
+  If it booted a different kernel, use the [kernel rollback guide](kernel-upgrade.md).
 - **Testbed:** a uci-history revert of the bench interface, zone, sqm and daed rule; remove `/tmp`
   tools and the bench VM. The client runs `netns-setup.sh down`.
 - **Failure containment:** neither S nor A touches router-critical cgroups, IRQ/RPS, sysctls or the
@@ -576,7 +590,7 @@ drift, so re-run the §12.3 probe before relying on any number here.
 | VMs and rootful containers | Normal class by default, with per-VM/container opt-in to `machine-background.slice`. |
 | Authorization | Every step that touches the router (test topology, tools copied to `/tmp`, policy arms, VM definitions) needs the user's explicit go-ahead for that window. Feed publication and physical installation also need explicit authorization (`AGENTS.md`, `CLAUDE.md`). |
 | UCI changes on the router | Always inside `uci-history --json begin --timeout 600 --note '…'`, then verify and `uci-history --json confirm` (CLAUDE.md, "Changing router configuration"). Never paste `--show-secrets` output. |
-| Never change | irqbalance and its arguments, RPS/XPS masks, IRQ affinities, ring sizes, coalescing, `net.core.*` budgets/backlog, CAKE parameters, the kernel config (outside optional track R). |
+| Keep fixed across B0, S and A | irqbalance and its arguments, RPS/XPS masks, IRQ affinities, ring sizes, coalescing, `net.core.*` budgets/backlog, CAKE parameters, and kernel and desktop RT settings. |
 | Commits | Commit only when the user asks. Use focused `area: summary` subjects (`resbench: …`, `resource-policy: …`, `resgov: …`, `docs: …`) and stage explicit paths. Never commit `files/` beyond its 11 tracked files. |
 
 ### 12.2 Verified in source on 2026-11-07

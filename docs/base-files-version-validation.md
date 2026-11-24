@@ -9,7 +9,7 @@ A local commit could therefore change signed content without changing its versio
 
 The APK identity now adds the checkout-wide Git commit count and actual HEAD hash.
 The rootfs version lock uses the effective package `VERSION`, including any legacy
-ELF rebuild mapping. See [LAN APK feed publishing](lan-apk-feeds.md#allocating-releases-for-relinked-consumers).
+ELF rebuild mapping. See [same-version APK rebuild diagnosis and release allocation](apk-rebuild-release.md).
 
 No VM was run because this changes package identity and build metadata, not runtime
 behavior. The focused host tests, an actual package build, a complete image build,

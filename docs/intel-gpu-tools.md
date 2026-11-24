@@ -44,32 +44,9 @@ Upstream sources and documentation:
 [IGT GPU Tools](https://gitlab.freedesktop.org/drm/igt-gpu-tools) and
 [release archives](https://xorg.freedesktop.org/archive/individual/app/).
 
-## Validation on 2026-10-15
+## Historical validation note (2026-10-15)
 
-`make -j8 package/custom/intel-gpu-tools/compile V=s` completed with the
-x86_64/glibc target toolchain. Configuration normalization changed only the
-selected symbol `CONFIG_PACKAGE_intel-gpu-tools=y`; the existing unrelated
-WeeChat dependency-cycle warning remains. No kernel configuration changed.
-
-Only `intel-gpu-tools-2.6-r1.apk` was published, using an isolated publisher
-source directory and the existing incremental publisher. The `base` and
-projected `custom` repositories received the package; all previously
-published APK hashes and kernel-dependent package hashes were preserved.
-
-On `192.0.2.1`, signed feed refresh and installation simulation selected
-only `intel-gpu-tools`. Installation succeeded, and the executable hash
-matched the built package. `intel_gpu_top -L` identified Intel Jasper Lake
-(Gen11), with `card1` and `renderD128`. Five idle JSON samples contained all
-four engine types and GPU clients. A five-second offscreen EGL workload
-used `Mesa Intel(R) UHD Graphics (JSL)`; sixteen additional samples showed
-Render/3D activity, nonzero GPU frequency and the Python GPU client.
-
-Only the package and its unversioned world entry were added. The running
-kernel, kernel image hash, loaded module names, boot ID, router configuration,
-default route, procd state and netifd/dnsmasq PIDs were preserved. The PMU
-permission setting remained `perf_event_paranoid=2`. No router reboot or
-firmware flash occurred. The package is selected for future image builds;
-the firmware image was not rebuilt for this package-only deployment.
-
-Build, publication and physical-router evidence is in
-`/srv/openwrt-validation/intel-gpu-top-validation-20261015/`.
+Initial build and physical checks passed for `intel-gpu-tools` (current recipe
+`2.6-r4`) on an Intel Jasper Lake (Gen11) host (`intel_gpu_top -L`, idle and
+offscreen EGL JSON sampling across Render/3D, Blitter, Video, and VideoEnhance
+engines). Evidence: `/srv/openwrt-validation/intel-gpu-top-validation-20261015/`.

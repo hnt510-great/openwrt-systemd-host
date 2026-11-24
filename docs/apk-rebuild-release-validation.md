@@ -3,7 +3,6 @@
 - **Date**: 2026-11-22
 - **Implementation commit**: `1221771bb2ac65a71de079ac951d2b9481edc388`
 - **Guide**: [apk-rebuild-release.md](apk-rebuild-release.md)
-- **Handoff & phased plan**: [apk-rebuild-release-handoff.md](apk-rebuild-release-handoff.md)
 
 ## Real Replay Samples Verified
 

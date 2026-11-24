@@ -1,7 +1,8 @@
-# Google Chrome on the GNOME desktop
+# Google Chrome on the systemd desktop
 
 The x86_64/glibc desktop profile can include Google's official Chrome stable
-build as `google-chrome-bin`. The recipe repackages Google's signed Debian
+build as `google-chrome-bin` (supported on both GNOME 51 and KDE Plasma 6.8.3).
+The recipe repackages Google's signed Debian
 archive (`google-chrome-stable_VERSION-1_amd64.deb`) without rebuilding or
 stripping it. Chrome's private runtime (SwiftShader, its bundled Vulkan loader,
 Widevine CDM) stays under `/opt/google/chrome/`.
@@ -23,7 +24,8 @@ On a running router that already uses the LAN feed:
 sudo apk add google-chrome-bin
 ```
 
-After `desktop-setup USER`, start Google Chrome from the GNOME application grid,
+After `desktop-setup USER`, start Google Chrome from the desktop application
+launcher (GNOME Application Grid or KDE Plasma Application Launcher),
 or from a terminal as the desktop user:
 
 ```sh
@@ -33,7 +35,7 @@ google-chrome https://example.com/
 
 `google-chrome-stable` is the same launcher, and root launches are rejected.
 Each user has a private profile under `~/.config/google-chrome/`. The package
-does not create users or change the default browser. GNOME Settings lists
+does not create users or change the default browser. Desktop Settings lists
 Chrome as a candidate default browser through the upstream
 `default-apps/google-chrome.xml` entry.
 
@@ -43,7 +45,7 @@ Chrome as a candidate default browser through the upstream
 | --- | --- |
 | `/opt/google/chrome/*` | Installed byte-for-byte |
 | `chrome-sandbox` (setuid helper) | Omitted: Chrome uses its user-namespace sandbox, which this kernel provides (the same feature rootless Podman uses) |
-| `libqt5_shim.so`, `libqt6_shim.so` | Omitted: the image selects no Qt packages; Chrome uses its GTK UI |
+| `libqt5_shim.so`, `libqt6_shim.so` | Omitted: avoids Qt runtime dependencies in non-Qt/GNOME images and standardizes on Chrome's GTK UI |
 | `/etc/cron.daily/google-chrome`, `opt/google/chrome/cron` | Omitted: it would add Google's apt repository, which this system does not use |
 | `apparmor.d` | Omitted: no AppArmor |
 | Desktop entries, AppStream data, GNOME default-app entry, icons | Installed (`/usr/share/metainfo/` instead of `appdata/`) |
@@ -59,8 +61,9 @@ sandbox". Re-enable them instead of passing `--no-sandbox`.
 
 ## Display, GPU and video
 
-Chrome selects Wayland automatically in the GNOME session (`chrome://gpu` shows
-`Ozone platform: wayland`). Rendering uses Mesa's EGL through `libmesa`;
+Chrome selects Wayland automatically in GNOME and KDE Plasma sessions
+(`chrome://gpu` shows `Ozone platform: wayland`). Rendering uses Mesa's EGL
+through `libmesa`;
 SwiftShader is Chrome's software fallback. VA-API video decoding is not on by
 default in Chrome for Linux; the libraries are present for users who opt in
 from `chrome://flags`. Firefox ESR remains the validated browser for

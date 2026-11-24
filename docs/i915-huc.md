@@ -1,11 +1,12 @@
 # Intel HuC on Gen9–Gen11 GPUs
 
 Mainline i915 leaves GuC and HuC off on every GPU before Gen12, so Skylake
-through Ice Lake / Jasper Lake (the router's N5105 is Gen11) boot without the
+through Ice Lake / Jasper Lake (e.g., an N5105 Gen11 host) boot without the
 HuC media microcontroller. Their low-power VDENC encoders need HuC for
-bitrate control, which VA-API encoders such as Sunshine and GNOME Remote
-Desktop use. Without it, `VAEntrypointEncSliceLP` encoding is missing or
-limited to constant QP.
+bitrate control, which VA-API encoders such as Sunshine, GNOME Remote
+Desktop, and KDE Plasma KRdp use. Without it, `VAEntrypointEncSliceLP` encoding
+is missing or limited to constant QP. (Gen12+ hosts such as Raptor Lake-P are
+untouched by this patch and keep their upstream defaults.)
 
 `target/linux/x86/patches-7.3/992-drm-i915-load-huc-on-gen9-11.patch` changes
 only the driver's default (`enable_guc=-1`):
@@ -45,8 +46,8 @@ new kernel.
 
 ```sh
 dmesg | grep -iE 'guc|huc'
-# expect the ehl_guc/ehl_huc firmware loaded, "HuC: authenticated" and
-# "GuC submission disabled"
+# On a Gen9-Gen11 host (e.g. Jasper Lake), expect ehl_guc/ehl_huc loaded,
+# "HuC: authenticated" and "GuC submission disabled"
 cat /sys/kernel/debug/dri/*/gt*/uc/huc_info 2>/dev/null | head
 vainfo 2>/dev/null | grep -E 'EncSliceLP'
 ```

@@ -32,36 +32,43 @@ For kernel build number N of Linux version V the build produces:
 | `kernel-dev-headers` | `1000.N.V…` | metapackage for the newest headers |
 | `kmod-*` | `1000.N.V-r…` | autoload (`/etc/modules.d`), `modprobe.d` rules and dependencies only |
 
-`uname -r` is `V-N-openwrt`, for example `7.3.1-46-openwrt`. N is the build
+`uname -r` is `V-N-openwrt`, for example `7.3.5-85-openwrt`. N is the build
 number, which the build wrapper reserves. The OpenWrt configuration hash no
 longer appears in the release, and patch-only rebuilds are ordinary new kernels.
 
 Module binaries ship in the kernel package, so a `kmod-*` package only enables
 autoloading. A module that was not selected when the running kernel was built
 becomes available after the next kernel build that includes it and a reboot into
-that kernel. The bundled modules are the ones selected in `.config` (about 376
-`.ko` files from 254 kmods in the current profile).
+that kernel. The bundled modules are the ones selected in `.config` (about 386
+`.ko` files from 275 kmods in the current profile).
 
 ## Build and publish
 
 ```sh
-./scripts/build-and-publish.sh -j16      # build and publish
-python3 scripts/build-and-publish.py build-only -j12 V=s   # build, do not publish
-./scripts/publish-changed-feeds.sh [--dry-run]             # publish a completed build
+./scripts/build-and-publish.sh -j16 [--rolling]              # build and publish
+./scripts/build-and-publish.sh --explain-kernel              # explain kernel input changes
+python3 scripts/build-and-publish.py build-only -j12 V=s     # build, do not publish
+./scripts/publish-changed-feeds.sh [--dry-run]               # publish a completed build
 ```
 
-The wrapper fingerprints the kernel's inputs (kernel and target configuration,
-patches, selected module sources, shared build rules, tool identities and
-relevant make flags). Changed inputs reserve the next unused build number
-`CONFIG_OPENWRT_KERNEL_SEQUENCE`; unchanged inputs reuse the recorded number and
-kernel build timestamp. Tool identities are the OpenWrt cross toolchain and the
-`staging_dir/host` build tools; the host system's own `cc`, `ld`, `objcopy`,
-`bison`, `flex`, `perl`, `python3`, `make` and `bash` are recorded (`host` in
+The wrapper fingerprints the kernel's inputs (`scripts/kernel-build-inputs.py`,
+schema 2: kernel and target configuration excluding image/partition/squashfs/ISO/
+GRUB keys, patches, selected module sources, shared build rules, tool identities
+and relevant make flags). When kernel inputs match an already-published signed
+generation in `public/kernel-upgrades` + `public/current`, `scripts/kernel-reuse.py`
+verifies and reuses that published generation, including across rolling or ISO
+builds. The preflight checks for zero kernel payload changes if the router
+already runs the reused release. See [kernel generation reuse](kernel-generation-reuse-plan.md).
+Changed inputs reserve the next unused build number `CONFIG_OPENWRT_KERNEL_SEQUENCE`. Tool
+identities are the OpenWrt cross toolchain and the `staging_dir/host` build
+tools; the host system's own `cc`, `ld`, `objcopy`, `bison`, `flex`, `perl`,
+`python3`, `make` and `bash` are recorded (`host` in
 `tmp/.kernel-publication-inputs.json`) but a distribution upgrade of them alone
 does not reserve a new number, since make does not rebuild the kernel for it and
-changed bytes under a published number are refused. Plain `make` targets never reserve a build number. Do not
-run a plain full `make` with a number that is already published: the kmod
-configuration packages would collide with published identities.
+changed bytes under a published number are refused. Plain `make` targets never
+reserve a build number. Do not run a plain full `make` with a number that is
+already published: the kmod configuration packages would collide with published
+identities.
 
 How the kernel packages are assembled:
 
@@ -247,6 +254,7 @@ validate userspace changes separately.
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/tests/test-kernel-bundle.py
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/tests/test-kernel-build-inputs.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/tests/test-kernel-upgrade.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/tests/test-build-and-publish.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/tests/test-apk-upgrade-preflight.py
@@ -259,5 +267,4 @@ qcow2 overlays, an independent NVMe extroot and isolated user networking. VM
 proof is not physical-router proof.
 
 The previous per-generation design and its validation history are kept in
-[the validation report](kernel-upgrade-validation.md) and
-[the physical deployment report](kernel-upgrade-physical-20261015.md).
+[the validation report](kernel-upgrade-validation.md).

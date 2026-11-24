@@ -6,30 +6,36 @@ environment, and installs user-selected optional components offline from a
 same-build signed APK repository embedded in the ISO. UEFI and BIOS boot are
 supported; UEFI uses the removable boot path without NVRAM changes.
 
-Component catalog and design background:
-[optional component installation plan](installer-components-plan.md) and
-[implementation progress](installer-components-implementation-validation.md).
+Component catalog and validation:
+`configs/installer-components.json`,
+[implementation validation](installer-components-implementation-validation.md), and
+[KDE Plasma validation](kde-plasma-validation.md).
 
 ## Build
 
-The componentized installer ISO requires the **full desktop-profile
-configuration** (`configs/x86-64-systemd-desktop.config`) and **signed packages**
-(`CONFIG_SIGNED_PACKAGES=y`). `scripts/build-installer-components.py` verifies
-that the build repository is signed and contains the complete base router/ops
-package set plus all nine optional components defined in
-`configs/installer-components.json`. Pure-router configurations such as
+Build the componentized installer ISO from the **full desktop profile**
+(`configs/x86-64-systemd-desktop.config`) with **Plasma packages enabled** and
+**APK signing enabled** (`CONFIG_SIGNED_PACKAGES=y`). Plasma is optional at
+installation time. Its APKs must be available at build time so the offline
+repository can offer that choice.
+`scripts/build-installer-components.py` verifies that the build repository is
+signed and contains the complete base router/ops package set plus all ten
+optional components defined in `configs/installer-components.json` (`gnome`,
+`plasma`, `audio`, `ime`, `rdp`, `sunshine`, `flatpak`, `appimage`,
+`virtualization`, `containers`). Pure-router configurations such as
 `configs/x86-64-systemd-router.config` do not build those packages and are
 rejected, and disabling `CONFIG_SIGNED_PACKAGES` is rejected because the live
 installer verifies the offline repository against `/rom/etc/apk/keys`.
 
-Start from an existing full-desktop `.config` (or copy
-`configs/x86-64-systemd-desktop.config` first), merge
-`configs/installer-iso.config`, then normalize it:
+Run from the repository root with an existing full-desktop `.config`. In a new
+checkout, start with `configs/x86-64-systemd-desktop.config`. Merge the Plasma
+APK and installer fragments. The inner `m+` merge preserves existing `=y`
+selections, including Plasma if it is already built into the image.
 
 ```sh
-./scripts/kconfig.pl + .config configs/installer-iso.config > .config.new
-mv .config.new .config
-make defconfig
+./scripts/kconfig.pl + m+ .config configs/plasma-packages.config configs/installer-iso.config > .config.new &&
+mv .config.new .config &&
+make defconfig &&
 python3 scripts/build-and-publish.py build-only -j12 V=s
 ```
 
@@ -127,11 +133,15 @@ for all live writes. The installer does not start the ordinary router services.
 
 The screens cover target disk, optional components, guided/manual partitioning,
 physical ports, LAN, WAN, firewall, accounts, and confirmation. Cancel/Esc moves
-back one screen and preserves previous selections. All optional components
+back one screen and preserves previous selections. Nine optional components
 (`gnome`, `audio`, `ime`, `rdp`, `sunshine`, `flatpak`, `appimage`,
-`virtualization`, `containers`) are selected by default and can be unchecked;
-unselected components are not installed. Missing component dependencies are
-reported on the selection screen without silently re-checking unchecked items.
+`virtualization`, `containers`) are selected by default, while `plasma` (KDE
+Plasma 6.8.3) defaults to unchecked and can be enabled alongside or instead of
+`gnome`. Shared desktop add-ons (`audio`, `ime`, `rdp`, `sunshine`, `flatpak`,
+`appimage`) require at least one desktop (`gnome` or `plasma`) and pull in
+desktop-specific integration packages automatically. Unselected components are
+not installed. Missing component dependencies are reported on the selection
+screen without silently re-checking unchecked items.
 Before erasing the target disk, the installer runs an offline APK preflight
 against the embedded signed repository using the booted base system's trusted
 keys (`/rom/etc/apk/keys`), verifies package checksums and build identity, and
@@ -148,7 +158,9 @@ static or none. IPv6 is enabled by default. WAN masquerade and LAN to WAN
 forwarding are enabled; full-cone NAT is disabled. Further policy can be changed
 later in LuCI.
 
-Root needs a password. An optional regular user can start GNOME automatically.
+Root needs a password. An optional regular user can start the selected desktop
+automatically; when both `gnome` and `plasma` are selected, the installer lets
+you choose the default desktop session (`gnome` or `plasma`).
 Passwords are immediately hashed with SHA-512 crypt. The final summary hides
 passwords and hashes. Installation requires an explicit, default-No confirmation
 that all data on the selected disk will be erased. On errors, return to the
@@ -176,9 +188,9 @@ stock odhcpd first-boot defaults. The installed GRUB uses the unique FAT
 UUID rather than the shared `kernel` label. The failsafe entry uses the new root PARTUUID too.
 
 The firstboot unit runs after OpenWrt defaults create the sudo group. It creates
-the optional user, runs `desktop-setup` (with `--no-autostart` when GNOME is
-installed without boot autostart) if `gnome` was selected, and runs
-`desktop-audio-setup` if `audio` was selected.
+the optional user, sets `desktop.main.session` via UCI and runs `desktop-setup`
+(with `--no-autostart` when boot autostart is disabled) if `gnome` and/or
+`plasma` was selected, and runs `desktop-audio-setup` if `audio` was selected.
 It deletes the private request only after success; failures remain in the journal
 and retry on the next boot. On other systems the request is absent and the unit
 is skipped. `/etc/openwrt-installer/install.json` contains a redacted summary.
@@ -191,10 +203,49 @@ installation (including resolved component packages and space requirements).
 In `--answers`, `components` accepts a list of component IDs (`[]` for base
 system only; omitting `components` selects all default components). Unknown
 component IDs or missing dependencies fail before any disk writes. Both require
-the live installer entry and exclude the source media and read-only disks. Answers follow the schema and example in
-[installer-iso-plan.md](installer-iso-plan.md); only `$6$` password hashes are
-accepted. Protect answers files with mode 0600 because PPPoE credentials remain
-plaintext as required by UCI.
+the live installer entry and exclude the source media and read-only disks. Only
+`$6$` password hashes are accepted; protect answers files with mode 0600 because
+PPPoE credentials remain plaintext as required by UCI.
+
+Example answers JSON:
+
+```json
+{
+  "disk": "/dev/nvme0n1",
+  "components": ["gnome", "audio", "ime", "rdp", "sunshine", "flatpak", "appimage", "virtualization", "containers"],
+  "partitions": [
+    {"role": "boot", "size_mib": 512},
+    {"role": "rom", "size_mib": 1024},
+    {"role": "overlay", "fs": "ext4", "size_mib": null},
+    {"role": "data", "fs": "xfs", "size_mib": 20480}
+  ],
+  "network": {
+    "wan_port": "eth1",
+    "lan_ports": ["eth0", "eth2"],
+    "lan": {"ipaddr": "192.168.1.1", "netmask": "255.255.255.0",
+            "dhcp": true, "start": 100, "limit": 150},
+    "wan": {"proto": "dhcp"},
+    "ipv6": true
+  },
+  "firewall": {"masq": true, "fullcone": false, "lan_to_wan": true},
+  "accounts": {
+    "root_password_hash": "$6$...",
+    "user": {
+      "name": "alice",
+      "password_hash": "$6$...",
+      "desktop_session": "gnome",
+      "desktop_autostart": true
+    }
+  }
+}
+```
+
+Per-protocol `wan` fields: PPPoE `{"proto":"pppoe","username":...,"password":...}`;
+static `{"proto":"static","ipaddr":...,"netmask":...,"gateway":...,"dns":[...]}`;
+or `{"proto":"none"}`. In `partitions`, `size_mib: null` consumes the remaining
+disk space. Under `accounts.user`, `desktop_session` selects `"gnome"` or
+`"plasma"`, and `desktop_autostart` controls boot autostart (`gnome_autostart`
+is still accepted as a backward-compatible alias).
 
 After success remove the USB or eject the virtual CD-ROM, then reboot. The target disk contains its own BIOS
 and UEFI boot files, kernel, root filesystem and overlay, so later boots do not

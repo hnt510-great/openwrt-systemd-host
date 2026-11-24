@@ -69,6 +69,9 @@ Keep the heap objects in that directory's normal `obj-*` lists and validate
 their enabled configuration. `CONFIG_DMABUF_HEAPS` is unset in generation 30;
 the enabled DMA-BUF core and sync-file support are separate from these heaps.
 
+**Resolved.** See the DMA-BUF heap resolution section later in this report and
+`configs/mainline-kernel-patches.json`.
+
 ## Patch accounting and provenance
 
 The corrected disposition of the 481 source patches is:
@@ -1304,8 +1307,7 @@ for SDIO correctness. No affected physical card was verified, and the
 7.3 patch stack was not changed by this applicability check. There are no
 incoming x86-specific patches. All 354 current 7.3 patches apply cleanly;
 the registry remains intentionally behind the two SDIO and three earlier
-WED source additions. See [the synchronization report](upstream-sync-20261117.md)
-for exact inventory, integration repairs, tests and limitations.
+WED source additions.
 
 ### SDIO backports completed, 2026-11-17
 
@@ -1338,8 +1340,6 @@ preserved.
 The authorized full `-j16` build and coordinated publication completed as
 `7.3.4-66-openwrt`. The fresh staged rootfs passes all 27 bridge tests, and
 publication preflight passes. No VM or physical installation/reboot occurred.
-See [the publication record](build-publication-20261117.md) for snapshot IDs,
-artifact hashes, preservation checks and runtime limits.
 
 ### Subsequent physical boot confirmation, 2026-11-17
 
@@ -1357,9 +1357,7 @@ Merged OpenWrt through `27663a017ad8` (19 incoming main-tree commits) as
 `712beefa91`, plus 24 `packages`, 1 `luci` and 2 `passwall_luci` commits.
 Backup branches are `backup/pre-upstream-20261118T033529Z` across all 11
 repositories; preservation receipts and audit logs are in
-`.git/pull-preserve/20261118T033529Z/`. See
-[the synchronization report](upstream-sync-20261118.md) for package and feed
-details.
+`.git/pull-preserve/20261118T033529Z/`.
 
 ### Kernel patches and Linux 7.3.5 update
 
@@ -1395,9 +1393,7 @@ Merged OpenWrt through `ecd9120f0451` (8 incoming main-tree commits) as
 `5009212efb`, plus 23 `packages`, 1 `luci`, and 2 `passwall_luci` commits.
 Backup branches are `backup/pre-upstream-20261119T020337Z` across all 11
 repositories; preservation receipts and audit logs are in
-`.git/pull-preserve/20261119T020337Z/`. See
-[the synchronization report](upstream-sync-20261119.md) for package and feed
-details.
+`.git/pull-preserve/20261119T020337Z/`.
 
 - **Mainline Linux 7.3**: `update-mainline-kernel.py --check` reports Linux
   `7.3.5` (`8f293f83d54f0b7b9be56863ebc5e4ea79d73e530b4ae55c572be97ef39f0990`)
@@ -1421,9 +1417,7 @@ the `6.18.60` -> `6.18.64` stable bumps and GCC default 15 switch) as
 `49f4f53f74`, plus 20 `packages`, 7 `luci`, 3 `passwall_luci`, and 1 `video`
 commits. Backup branches are `backup/pre-upstream-20261120T015903Z` across all
 repositories; preservation receipts and audit logs are in
-`.git/pull-preserve/20261120T015903Z/`. See
-[the synchronization report](upstream-sync-20261120.md) for package and feed
-details.
+`.git/pull-preserve/20261120T015903Z/`.
 
 - **Mainline Linux 7.3**: `update-mainline-kernel.py --check` reports Linux
   `7.3.5` (`8f293f83d54f0b7b9be56863ebc5e4ea79d73e530b4ae55c572be97ef39f0990`)
@@ -1474,8 +1468,7 @@ full kernel or generation rebuild was performed.
 Merged OpenWrt through `e7f788a9c1` (five incoming main-tree commits) as
 `3ced84a7dc`, plus three LuCI and three Passwall packages commits. The other
 feeds were already current. All merges completed without conflicts and retain
-their previous local HEADs. Backup refs and preservation evidence are recorded
-in [the synchronization report](upstream-sync-20261121.md).
+their previous local HEADs.
 
 - **Mainline Linux 7.3**: `update-mainline-kernel.py --check` reports 7.3.5 is
   current. No incoming generic or x86 6.18 files changed, so no new native 7.3

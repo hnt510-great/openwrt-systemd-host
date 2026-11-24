@@ -1,7 +1,9 @@
 # GNOME desktop for native systemd
 
-This profile runs the shared GNOME desktop. Local display, GNOME
-Remote Desktop's RDP screen sharing, and Sunshine/Moonlight use one ordinary
+This profile provides a shared-user **GNOME 51** Wayland desktop on VT7 on
+x86_64/glibc native-systemd OpenWrt (coexisting with optional **KDE Plasma
+6.8.3** via `openwrt-desktop-base` and `sessions.d/`). Local display, GNOME
+Remote Desktop's RDP screen sharing, and Sunshine/Moonlight share one ordinary
 user's Wayland session. There is no VNC backend or separate RDP login session.
 The first validation milestone is a disposable VM; publication and installation
 on the physical router are separate operations.
@@ -11,17 +13,30 @@ The RDP server is `gnome-remote-desktop`, using FreeRDP libraries internally.
 
 ## Configuration and build
 
-Preserve `.config` before merging `configs/gnome-desktop.config`, then run
-`make defconfig`. The fragment requires x86_64, glibc and native systemd.
-`CONFIG_PACKAGE_libudev-zero`, seatd and the old desktop launcher must
-be absent from the resulting profile. Keep GTK-VNC if virt-manager needs it;
-that library does not provide a desktop VNC listener.
+Preserve `.config` before merging `configs/gnome-desktop.config` (full GNOME
+stack with Flatpak/AppImage/audio/IME) or `configs/gnome-desktop-core.config`
+(GNOME without Flatpak), then run `make defconfig`. The fragment requires
+x86_64, glibc and native systemd. `CONFIG_PACKAGE_libudev-zero`, Weston, seatd
+and the old desktop launcher must be absent from the resulting profile. Keep
+GTK-VNC if virt-manager needs it; that library does not provide a desktop VNC
+listener.
 
-Select `libmesa-virtualization` as the Mesa provider and leave
-`libmesa-softpipe` disabled. The virtualization variant includes Intel,
-VirtIO and software rendering with GLVND support. The standalone softpipe
-variant supplies EGL/GLES libraries that conflict with `libglvnd`, which
-Xwayland requires; selecting both prevents APK rootfs installation.
+`package/custom/openwrt-desktop` (`r42`) splits shared and GNOME-specific
+functionality across six packages:
+
+- `openwrt-desktop-base`: DE-agnostic launcher, `/etc/config/desktop`, PAM
+  config, `desktop-setup`, `desktop-ctl`, `desktop-session`,
+  `openwrt-desktop-services.service`, `sessions.d/` plugin dispatcher,
+  `openwrt-desktop-coldplug.service`, icon-theme APK commit hook, and `+rtkit`.
+- `openwrt-desktop-keyring`: shared TPM2/plaintext Secret Service unlock
+  helpers used by both GNOME and KDE Plasma.
+- `openwrt-desktop-rdp-base`: shared `desktop-rdp-setup` CLI (`--session gnome|plasma`).
+- `openwrt-desktop-core`: `sessions.d/gnome`, GNOME 51 shell/session/core apps,
+  `openwrt-gnome-remotes.service`, and gschema overrides (no RDP server).
+- `openwrt-desktop-rdp`: `gnome-remote-desktop`, `desktop-rdp-configure`, and
+  systemd drop-in.
+- `openwrt-desktop`: compatibility metapackage (`openwrt-desktop-core` +
+  `openwrt-desktop-rdp` + `rtkit`).
 
 GNOME Shell/Mutter/session/settings use the 51 series. GTK4, libadwaita, GJS
 and SpiderMonkey are built from pinned upstream archives. Build tools are
@@ -46,7 +61,7 @@ schemas, GIO modules and input modules, so GNOME application icons can load.
 GNOME Shell and GTK rescan an icon theme only when the theme's top directory
 or its `icon-theme.cache` changes, but packages add icons to size
 subdirectories such as `hicolor/48x48/apps`. The APK commit hook
-`/usr/lib/apk/commit_hooks.d/70-icon-theme-refresh` (from `openwrt-desktop`)
+`/usr/lib/apk/commit_hooks.d/70-icon-theme-refresh` (from `openwrt-desktop-base`)
 therefore touches each theme whose subdirectories changed, refreshing an
 existing cache first. Applications installed into a running session, such as
 `google-chrome-bin`, then show their icons without logging out. Its host
@@ -62,23 +77,19 @@ session if Shell has already cached the unavailable TLS backend.
 GNOME Files (`nautilus`) is included. LocalSearch's indexer is optional in
 this profile; Nautilus handles its missing settings schema and retains basic
 file browsing and filesystem search without indexed content search.
-Nautilus depends on a minimal `gvfs` build that supplies the Trash, Recent,
-Network, Computer, FTP and SFTP backends and the metadata daemon; without it
-the Trash and Network sidebar entries fail with "Operation not supported" and
-"volume doesn't implement mount". Backends needing absent services are
-disabled: removable-media mounting (no `udisksd`), SMB/DNS-SD, MTP/gphoto2,
-WebDAV, FUSE and keyring integration.
-See the [physical TLS and Files validation](gnome-tls-files-validation.md)
-for the signed deployment and actual Shell/RDP checks.
+Nautilus depends on `gvfs`, which supplies the Trash, Recent, Network,
+Computer, FTP, SFTP, DNS-SD, SMB, and keyring backends along with the metadata
+daemon; without it the Trash and Network sidebar entries fail with "Operation
+not supported" and "volume doesn't implement mount". Backends needing absent
+services are disabled: removable-media mounting (no `udisksd`), MTP/gphoto2,
+WebDAV, and FUSE.
 
 GNOME Tweaks (`gnome-tweaks`) is included for additional appearance, font,
 keyboard, mouse, startup-application and window preferences. Its Python
 modules install into the target Python site-packages directory, with explicit
 PyGObject, GTK4, libadwaita, GUdev, Notify and desktop-schema dependencies.
-See the [physical Tweaks validation](gnome-tweaks-validation.md) for the
-signed deployment and application checks.
 
-`openwrt-desktop` also includes Wayland clipboard utilities and core desktop
+`openwrt-desktop-core` also includes Wayland clipboard utilities and core desktop
 applications:
 
 - `wl-clipboard` (`wl-copy`, `wl-paste`) for Wayland clipboard access,
@@ -144,13 +155,16 @@ Create an ordinary user with a nonempty login password and a writable home,
 then run as root:
 
 ```sh
-desktop-setup USER
-desktop-rdp-setup USER
+desktop-setup USER [--no-autostart]
+desktop-rdp-setup USER [--session gnome] [--password-stdin]
 sunshine-setup USER --capture=portal
+desktop-ctl --json status
 ```
 
-Sunshine enrollment also enables desktop audio. For an RDP-only setup, run
-`desktop-audio-setup USER` to enable playback and microphone access.
+Use `desktop-ctl` or LuCI `Services -> Desktop` (`luci-app-desktop`) to inspect
+status, restart the session, or switch between installed sessions (GNOME and
+KDE Plasma). Sunshine enrollment also enables desktop audio. For an RDP-only
+setup, run `desktop-audio-setup USER` to enable playback and microphone access.
 
 `desktop-setup` creates or preserves TLS credentials, provisions unattended
 GNOME keyring unlock, enables the desktop service and starts the user's
@@ -162,8 +176,9 @@ with `systemd-creds encrypt --with-key=tpm2 --tpm2-pcrs=""` (SRK-only, no PCR
 mask and no `host` key dependency on `/var/lib/systemd/credential.secret`) into
 `UID.keyring-passphrase.cred` (`0600`), verifies decryption and unlock, and
 shreds any legacy plaintext file. This keeps unattended unlock working across
-kernel upgrades and `sysupgrade` (which retains `/etc/desktop/` via
-`/lib/upgrade/keep.d/desktop` without retaining `/var/lib/systemd/`). On
+kernel upgrades and configuration backups/restores (`sysupgrade -b`/`-r`, which
+retain `/etc/desktop/` via `/lib/upgrade/keep.d/desktop` without retaining
+`/var/lib/systemd/`). On
 non-TPM2 targets or pre-migration nodes, `desktop.init` falls back to legacy
 plaintext `LoadCredential`. Re-running `desktop-setup USER` on a TPM2 host
 automatically migrates an existing legacy plaintext file to `.cred`. The
@@ -181,11 +196,15 @@ across upgrades. Changing the login-keyring passphrase requires running
 before testing reboot persistence. An invalid replacement leaves the existing
 credential file intact.
 
-The local session can start before LAN readiness. A user supervisor waits for
-Mutter and starts remote listeners only when the root service has supplied a
-LAN address. LAN changes replace the listener environment and restart remote
-services without replacing GNOME. RDP does not negotiate another port or bind
-a wildcard address. The default is TCP 3389 on LAN IPv4 only.
+The local session can start before LAN readiness. GNOME-specific
+`openwrt-gnome-remotes.service` (`desktop-gnome-remotes`) waits for Mutter and
+starts `gnome-remote-desktop.service` only when the root service has supplied a
+LAN address, while DE-agnostic `openwrt-desktop-services.service`
+(`desktop-session-services`, from `openwrt-desktop-base`) supervises PipeWire
+audio, Flatpak session targets, and Sunshine under `graphical-session.target`.
+LAN changes replace the listener environment and restart remote services without
+replacing GNOME. RDP does not negotiate another port or bind a wildcard address.
+The default is TCP 3389 on LAN IPv4 only.
 
 RDP shares the local monitor, so changing its mode or scale in Settings >
 Displays during a session closes Mutter's screen-cast stream. The server
@@ -218,18 +237,21 @@ reboot persistence of that permission is an acceptance check. Explicit
 its capture capability. Portal enrollment removes that capability. Configure
 Sunshine Web UI credentials and pair Moonlight on its LAN endpoint.
 
-Fcitx5 remains the input daemon. Its IBus compatibility frontend serves GNOME's
-native text-input path; the pinned GNOME 51 Kimpanel extension supplies
-candidate popups. GTK3/GTK4 modules support other clients. Provisioning does
-not overwrite existing Fcitx profiles, dictionaries or shortcuts. A global
-GTK input-module override is not imposed on native Wayland or Flatpak clients.
-New profiles use Ctrl+Space as the primary input-method shortcut. Fcitx is
-supervised for the lifetime of the GNOME session and also recovers after a
-clean process exit; an explicit service/session stop still stops it.
+Fcitx5 remains the input daemon (`openwrt-desktop-ime-base` +
+`openwrt-desktop-ime`). Its IBus compatibility frontend serves GNOME's
+native text-input path; `sessions.d/gnome` exports `QT_IM_MODULE=fcitx` and
+the pinned GNOME 51 Kimpanel extension supplies candidate popups. GTK3/GTK4
+modules support other clients. Provisioning does not overwrite existing Fcitx
+profiles, dictionaries or shortcuts. A global GTK input-module override is not
+imposed on native Wayland or Flatpak clients. New profiles use `Control+Space`
+and `Control+Shift+Return` as input-method shortcuts. Fcitx is supervised for
+the lifetime of the GNOME session (`openwrt-fcitx5.service`) and also recovers
+after a clean process exit; an explicit service/session stop still stops it.
+See [desktop IME](desktop-ime.md).
 
 ## Realtime scheduling and kernel preemption
 
-`openwrt-desktop` and `openwrt-desktop-audio` depend on RealtimeKit (`rtkit`
+`openwrt-desktop-base`, `openwrt-desktop`, and `openwrt-desktop-audio` depend on RealtimeKit (`rtkit`
 0.14 from `gitlab.freedesktop.org/pipewire/rtkit`). `rtkit-daemon.service` is
 D-Bus activated as `org.freedesktop.RealtimeKit1`, runs as the `rtkit` system
 user (UID/GID 193), chroots into `/proc` and keeps only `CAP_SYS_NICE` and
@@ -319,4 +341,6 @@ probe; they do not restore the former hard-coded TPM device dependency.
 
 Pluggable desktop session selection (`sessions.d/`), `desktop-ctl`, and the
 `Services -> Desktop` LuCI panel (`luci-app-desktop`) are documented in
-[desktop session switcher](desktop-session-switcher.md).
+[desktop session switcher](desktop-session-switcher.md); see also
+[KDE Plasma 6.8.3](kde-plasma.md) and
+[desktop package decoupling validation](desktop-package-decoupling-validation.md).

@@ -49,22 +49,26 @@ is selected automatically, while zero or multiple available sessions fail
 preflight with an explicit message before touching any running session.
 
 `openwrt-desktop-core` installs the `gnome` plugin
-(`/usr/libexec/openwrt-desktop/sessions.d/gnome`). `desktop-ctl` and
-`luci-app-desktop` automatically discover additional installed plugins.
-See [desktop package decoupling plan](desktop-package-decoupling-plan.md) and
+(`/usr/libexec/openwrt-desktop/sessions.d/gnome`), and
+`openwrt-desktop-plasma-core` installs the `plasma` plugin
+(`/usr/libexec/openwrt-desktop/sessions.d/plasma`). `desktop-ctl` and
+`luci-app-desktop` automatically discover installed plugins.
+See [KDE Plasma 6.8.3](kde-plasma.md) and
 [desktop package decoupling validation](desktop-package-decoupling-validation.md).
 
 ## Lifecycle and Active-Session Tracking
 
-- `/etc/config/desktop` stores `option session 'gnome'` (defaulting to `gnome`
-  when absent).
+- `/etc/config/desktop` defaults `option session ''` (auto-selecting when a
+  single session plugin is installed, and requiring an explicit `'gnome'` or
+  `'plasma'` value when multiple plugins are installed).
 - When `/etc/init.d/desktop start` launches `openwrt-desktop.service`, it
   passes `OPENWRT_DESKTOP_SESSION` to `/usr/libexec/desktop-session` and
   atomically writes `/run/openwrt-desktop/active.env` (`ACTIVE_SESSION`,
   `ACTIVE_USER`, `ACTIVE_KMS_SCHEDULING`, `ACTIVE_OUTPUT`, `ACTIVE_MODE`).
 - `/usr/libexec/desktop-session` collects `SESSION_UNSET_VARS` from all
   registered plugins, clears them from both the process and `systemctl --user`,
-  runs `/usr/libexec/desktop-keyring-unlock` (preserving TPM2 SRK unlock) and
+  calls `desktop_session_unlock` (which invokes `/usr/libexec/desktop-keyring-unlock`
+  in both the `gnome` and `plasma` plugins, preserving TPM2 SRK unlock) and
   `/usr/libexec/desktop-user-setup --xdg-dirs`, then calls
   `desktop_session_exec`.
 - `/etc/init.d/desktop stop` reads `/run/openwrt-desktop/active.env` so a
@@ -104,19 +108,20 @@ through `/usr/share/rpcd/ucode/luci.desktop` with separated read/write ACLs:
   banner with a confirmed **Restart desktop** action alongside a dedicated
   **Switch & Restart** control.
 
-## Earlier KDE Plasma Notes
+## Installed Session Plugins
 
-When a second DE (such as KDE Plasma) is ported:
-
-1. Install `/usr/libexec/openwrt-desktop/sessions.d/plasma` with
-   `SESSION_EXEC="/usr/bin/startplasma-wayland"` and
-   `SESSION_UNSET_VARS="KDE_FULL_SESSION KDE_SESSION_VERSION KDE_SESSION_UID"`.
-2. Migrate shared user units (`openwrt-fcitx5.service`,
-   `openwrt-audio-session.target`, `sunshine.service`) from
-   `gnome-session.target` to `graphical-session.target` while keeping
-   `openwrt-gnome-remotes.service` attached to `gnome-session.target`.
-3. Disable KWallet's Secret Service backend so KDE applications share the
-   TPM2-unlocked `gnome-keyring-daemon` over `org.freedesktop.secrets`.
+- **GNOME 51 (`gnome`)**: `/usr/libexec/openwrt-desktop/sessions.d/gnome` (from
+  `openwrt-desktop-core`), with GNOME-specific `openwrt-gnome-remotes.service`
+  and `openwrt-fcitx5.service` (`openwrt-desktop-ime`). See
+  [GNOME desktop](gnome-desktop.md).
+- **KDE Plasma 6.8.3 (`plasma`)**: `/usr/libexec/openwrt-desktop/sessions.d/plasma`
+  (from `openwrt-desktop-plasma-core`), with `openwrt-plasma-remotes.service`,
+  `openwrt-fcitx5-plasma.service` (`openwrt-desktop-ime-plasma`), and shared
+  Secret Service keyring unlock (`kf6-kwallet` client-only so `gnome-keyring-daemon`
+  owns `org.freedesktop.secrets`). See [KDE Plasma 6.8.3](kde-plasma.md).
+- **Shared services**: `openwrt-audio-session.target`,
+  `openwrt-flatpak-session.target`, and `sunshine.service` bind to
+  `graphical-session.target` via `openwrt-desktop-services.service`.
 
 ## Validation
 

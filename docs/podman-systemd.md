@@ -1,23 +1,17 @@
 # Desktop-style Podman on the native-systemd image
 
-> Systemd is the sole normal init on current x86/64 images. References below
-> to procd recovery or firmware flashing from the running system describe
-> older images. See [current boot and migration guidance](systemd-only-plan.md).
+The x86_64/glibc desktop image builds Podman (`6.1.2-r5`) with the upstream
+`systemd` Go tag, builds conmon with `libsystemd` (journald container logs) and
+installs the upstream systemd units, Quadlet generator and tmpfiles fragment.
+crun already builds with systemd support. This is the same shape a Fedora or
+Arch desktop uses: a per-user API socket, socket-activated API service,
+container restart at boot, health check timers and journald events. The
+router-specific rootless enrollment in [Rootless Podman](podman-rootless.md) is
+unchanged.
 
-The x86_64/glibc desktop image builds Podman with the upstream `systemd` Go
-tag, builds conmon with `libsystemd` (journald container logs) and installs the
-upstream systemd units, Quadlet generator and tmpfiles fragment. crun already
-builds with systemd support. This is the same shape a Fedora or Arch desktop
-uses: a per-user API socket, socket-activated API service, container restart at
-boot, health check timers and journald events. The router-specific rootless
-enrollment in [Rootless Podman](podman-rootless.md) is unchanged.
-
-The `systemd` tag changes Podman's runtime defaults. On a native systemd boot
-Podman uses the systemd cgroup manager, journald event storage and journald
-container logs. Under the GRUB `procd recovery` entry the same binary detects
-that systemd is not running and falls back to cgroupfs, file events and
-`k8s-file` container logs. Nothing in `/etc/containers/containers.conf`
-forces either choice.
+The `systemd` tag changes Podman's runtime defaults: Podman uses the systemd
+cgroup manager, journald event storage, and journald container logs without
+forcing them in `/etc/containers/containers.conf`.
 
 ## Installed units
 
@@ -193,9 +187,8 @@ and grants managed by this helper are revoked when a user leaves the group.
 The dependency uses `Wants` and ordering, rather than requiring success:
 a missing module produces an explicit failed preparation unit without blocking
 ordinary login. Container startup still fails normally if TUN is unavailable.
-`/etc/modules-boot.d/30-podman-tun` and the legacy boot permission hook remain
-for procd recovery. Early autoload alone cannot guarantee device and ACL
-readiness before lingering user managers, especially with managed kernels.
+Early module autoload alone cannot guarantee device and ACL readiness before
+lingering user managers, especially with managed kernels.
 
 This barrier covers TUN, not WAN readiness. Quadlets wait for the system
 `network-online.target` through `podman-user-wait-network-online.service`; on
@@ -216,35 +209,11 @@ systemctl status podman.socket
 ```
 
 The rootful socket is `/run/podman/podman.sock`. Set `DOCKER_HOST` for
-clients that do not accept a socket path directly. The procd init script
-`/etc/init.d/podman` is still installed for the recovery boot, but it is a
-no-op while systemd is PID 1; it cannot conflict with `podman.socket`.
-
-## procd recovery
-
-Boot the GRUB `(procd recovery)` entry (or pass `openwrt.init=procd`). The
-same Podman binary reports `cgroupfs` and file events, because
-`/run/systemd/system` is absent. User units and health check timers do not
-exist in this mode; `podman` and the rootful API start through
-`/etc/init.d/podman start`. Use recovery for firmware operations, not for
-running the desktop container stack.
-
-## Upgrade from podman-5.8.4-r4
-
-Older packages installed `events_logger = "none"` and injected
-`cgroup_manager = "systemd"` (systemd builds) or `cgroupfs` (procd builds)
-into `/etc/containers/containers.conf`. The new package post-install script
-removes only those exact lines during an APK upgrade; other user edits are
-preserved. A fresh image does not contain them.
-
-If APK leaves a `containers.conf.apk-new`, review it and remove it after the
-upgrade; the old file has already been migrated. Reboot (or restart the user
-units) after upgrading so the new binary and units are used:
-
-```sh
-systemctl --user daemon-reload
-systemctl --user restart podman.socket podman-restart.service
-```
+clients that do not accept a socket path directly. Under
+`CONFIG_OPENWRT_SYSTEMD=y`, `/etc/init.d/podman` (`podman-native.init`) exits 0
+on `boot`/`shutdown` and delegates runtime/enablement actions directly to
+`systemctl ... podman.socket` (`openwrt@podman.service` is excluded from the
+service bridge and points to `podman.socket`).
 
 ## Build
 
@@ -252,7 +221,7 @@ systemctl --user restart podman.socket podman-restart.service
 make package/feeds/packages/podman/clean
 make package/feeds/packages/podman/compile V=s
 make package/feeds/packages/docker-compose/compile V=s
-make -j16
+python3 scripts/build-and-publish.py build-only -j12 V=s
 ```
 
 The native image is written under `bin/systemd`. The feed changes are captured
@@ -260,8 +229,4 @@ in `patches/feeds/0013-packages-podman-systemd.patch`; the feed base and
 commit are recorded in `configs/podman-systemd-feeds.json`.
 
 See the [2026-10-18 validation record](podman-systemd-validation.md) for the
-VM checks, including the Compose health-check reproduction and the procd
-recovery comparison.
-
-The TUN startup and D-Bus ownership repair is covered by
-[boot readiness validation](boot-readiness-validation.md).
+VM checks, including the Compose health-check reproduction.

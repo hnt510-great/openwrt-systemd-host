@@ -68,8 +68,9 @@ Pod 默认不创建 infra 容器，也不共享命名空间，仅将容器分组
 例如测试用的已缓存 Alpine 镜像可配合 `/bin/sleep 600`；生产环境应使用
 适合长期运行的 infra 镜像和命令。
 
-当前固件的 Podman 5.8.4 在启动内置 infra 根文件系统时可能报 overlay
-`invalid argument`；显式使用镜像可避开该问题，应用不修改用户的存储配置。
+在旧版 Podman 5.8.4 上启动内置 infra 根文件系统时曾出现 overlay `invalid argument`
+（当前固件为 Podman `6.1.2-r5`，且 ext4 `/overlay` 默认使用原生 OverlayFS）；如需
+显式指定 infra 镜像，应用同样支持且不修改用户的存储配置。
 
 删除操作需要页面确认，不使用 `--force`，不执行 prune 或 system reset。
 正在使用的资源由 Podman 拒绝删除。当前界面覆盖上述常用操作，不提供终端、
@@ -102,20 +103,14 @@ python3 scripts/tests/test-luci-podman.py
 node scripts/tests/test-luci-podman-view.js
 ```
 
-当前 x86_64/glibc native-systemd 产物：
-
-```text
-bin/systemd/packages/x86_64/base/luci-app-podman-1.0.0-r1.apk
-bin/systemd/packages/x86_64/base/luci-i18n-podman-zh-cn-0.apk
-```
-
-安装到有匹配依赖的 OpenWrt 系统：
+当前 x86_64/glibc native-systemd 产物位于 `bin/systemd/packages/x86_64/base/`
+（`luci-app-podman` 与 `luci-i18n-podman-zh-cn`）；已包含在
+`configs/x86-64-systemd-desktop.config` 与离线安装器的 `containers` 组件中，
+也可通过签名 LAN APK feed 安装：
 
 ```sh
-apk add /tmp/luci-app-podman-1.0.0-r1.apk /tmp/luci-i18n-podman-zh-cn-0.apk
+sudo apk update
+sudo apk add luci-app-podman luci-i18n-podman-zh-cn
 ```
-
-若要编入固件，在 menuconfig 选择上述包，再构建镜像。
-应用开发阶段没有更改已有 `.config`。后续物理设备安装情况见验证记录。
 
 实际验证结果见 [验证记录](luci-podman-validation.md)。

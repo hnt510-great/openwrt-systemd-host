@@ -10,9 +10,9 @@ This repository is a heavily customized OpenWrt fork tracking `openwrt/openwrt` 
 
 - **C Library (`glibc`)**: Uses `glibc` instead of `musl` (`CONFIG_LIBC_USE_GLIBC=y`, `CONFIG_USE_GLIBC=y`), with Debian multiarch compatibility (`/lib/x86_64-linux-gnu`, `/usr/lib/x86_64-linux-gnu`) via `glibc-distro-compat`.
 - **Package Manager (`APK`)**: Uses signed APK packages (`CONFIG_USE_APK=y`, `CONFIG_SIGNED_PACKAGES=y`) with explicit ELF SONAME (`so:<SONAME>=0`) and ucode ABI contracts instead of `opkg`.
-- **Init & Supervision (`native systemd` + `procd`)**: Runs native `systemd` as PID 1 (`CONFIG_OPENWRT_SYSTEMD=y`) with a merged `/usr` filesystem (`scripts/merge-usr.py`) and reviewed `99-systemd.rules` device boundaries (`docs/systemd-udev-boundary.md`), while retaining `procd` as the OpenWrt ubus/hotplug/rc service API. `samba4`, `wsdd2`, and `avahi-daemon` run natively in `nas.slice`.
-- **Kernel (`Mainline Linux 7.3`)**: Target `x86/64` runs mainline Linux 7.3 (`CONFIG_LINUX_7_3=y`, currently 7.3.4, with `CONFIG_GRUB_BOOTOPTS="split_lock_detect=off"`); `6.18` kernel configs/patches are retained alongside it. Kernels ship as parallel, ABI-pinned distribution packages (`linux-image-<kver>-<gen>-openwrt`) managed on-device by `kernelctl` (generation 66 published on 2026-11-17; working `.config` sequence 67).
-- **Desktop Session (`GNOME 51`)**: Shared-user GNOME Wayland desktop on VT7 (`package/custom/openwrt-desktop` r34, TPM2-sealed keyring credentials) started via PAM/logind without a display manager, shared over LAN IPv4 RDP (`gnome-remote-desktop`) and Sunshine/Moonlight, with Fcitx5 (`openwrt-desktop-ime`), PipeWire (`openwrt-desktop-audio`), and `google-chrome-bin`.
+- **Init & Supervision (`native systemd` + `procd`)**: Runs native `systemd` (`262-r15`) as the sole x86/64 PID 1 (`CONFIG_OPENWRT_SYSTEMD=y`) with a merged `/usr` filesystem (`scripts/merge-usr.py`) and reviewed `99-systemd.rules` device boundaries (`docs/systemd-udev-boundary.md`), while retaining `procd` as the OpenWrt ubus/hotplug/rc service API. `samba4`, `wsdd2`, and `avahi-daemon` run natively in `nas.slice`; `cron`, `nlbwmon`, and `ddns-go` run natively in `auxiliary.slice`.
+- **Kernel (`Mainline Linux 7.3`)**: Target `x86/64` runs mainline Linux 7.3 (`CONFIG_LINUX_7_3=y`, currently 7.3.5, toolchain `GCC 15.3.0`, with `CONFIG_GRUB_BOOTOPTS="split_lock_detect=off"`); `6.18` kernel configs/patches are retained alongside it. Kernels ship as parallel, ABI-pinned distribution packages (`linux-image-<kver>-<gen>-openwrt`) managed on-device by `kernelctl`, with automatic reuse of verified published generations when kernel inputs are unchanged (`docs/kernel-generation-reuse-plan.md`).
+- **Desktop Stack (`GNOME 51` & `KDE Plasma 6.8.3`)**: Decoupled shared-user Wayland desktop on VT7 (`openwrt-desktop-base`, `desktop-ctl`, `luci-app-desktop`, TPM2-sealed keyring credentials) supporting both GNOME 51 (`openwrt-desktop`) and KDE Plasma 6.8.3 (`openwrt-desktop-plasma`, Qt 6.11.3, KF6 6.32.0, Konsole), started via PAM/logind without a display manager, shared over LAN IPv4 RDP (`gnome-remote-desktop` / `krdp`) and Sunshine/Moonlight, with Fcitx5 (`openwrt-desktop-ime` / `-plasma`), PipeWire (`openwrt-desktop-audio`), `firefox-esr-bin`, and `google-chrome-bin`.
 - **Core Build-System Surgery**: Directly modifies upstream build and core files (`include/kernel.mk`, `include/package-pack.mk`, `include/package.mk`, `include/rootfs.mk`, `package/base-files`, `package/system/{apk,procd,systemd}`, `package/network/{services/dnsmasq,utils/nftables,config/firewall4}`, `package/libs/libnftnl`, `target/linux/x86/image`).
 
 Build outputs:
@@ -40,7 +40,7 @@ make download                      # Prefetch source archives into dl/
 # Merge a feature fragment into .config (never overwrite .config with the full snapshot unprompted):
 ./scripts/kconfig.pl + .config configs/<feature>.config > .config.new && mv .config.new .config && make defconfig
 ```
-- **Full Snapshot**: `configs/x86-64-systemd-desktop.config` (~379 KiB) is the tracked full desktop configuration snapshot (`cp configs/x86-64-systemd-desktop.config .config && make defconfig`). Working `.config` may sit at a newer `CONFIG_OPENWRT_KERNEL_SEQUENCE` (currently 67 vs 64 in the snapshot and 66 published) and normalized QEMU sub-options.
+- **Full Snapshots**: `configs/x86-64-systemd-desktop.config` is the tracked full GNOME desktop configuration snapshot (`cp configs/x86-64-systemd-desktop.config .config && make defconfig`), and `configs/x86-64-systemd-router.config` is the standalone pure-router profile. Merge `configs/plasma-packages.config` or `configs/plasma.config` when building KDE Plasma packages or the 10-component installer ISO. Working `.config` may sit at a newer `CONFIG_OPENWRT_KERNEL_SEQUENCE` and carry local optional selections.
 - Do **not** rely on `scripts/diffconfig.sh` to minimize `.config`; circular Kconfig dependencies (`video-support`, `openwrt-desktop`, `glib2-gir`, Mesa) break minimization.
 
 ### Building & Patch Refreshing
@@ -51,7 +51,7 @@ make target/linux/compile V=s                             # Build kernel only
 make package/<name>/prepare V=s                           # Unpack and apply patches for a package
 make package/<name>/refresh V=s                           # Regenerate quilt patches for a package
 make target/linux/refresh V=s                             # Regenerate quilt patches for the kernel
-python3 scripts/build-and-publish.py build-only -j12 V=s  # Full build reserving a kernel generation without publishing
+python3 scripts/build-and-publish.py build-only -j12 V=s  # Full build without publishing, with kernel generation checks
 ```
 
 ### Publication & Kernel Maintenance
@@ -65,38 +65,39 @@ python3 scripts/update-mainline-kernel.py --check|--update # Compare Linux 7.3 s
 
 ## 3. Architecture & Subsystems
 
-### 3.1 Dual-Init & Native Systemd Supervision
-- **Boot path**: OpenWrt preinit mounts the overlay and hands PID 1 to systemd. The native failsafe console uses `failsafe=true`.
+### 3.1 Systemd-Only Init & Native Supervision
+- **Boot path**: On x86/64, systemd is the sole normal init (`docs/systemd-only-plan.md`). OpenWrt preinit mounts the overlay and hands PID 1 to systemd. The native failsafe console uses `failsafe=true`.
 - **Integration (`package/system/systemd-openwrt/`)**:
   - `openwrt-ubusd.service`: Runs `ubusd`.
   - `openwrt-procd.service`: Runs `procd --systemd=units`. `procd` remains the ubus service/system/hotplug API and runs `/etc/hotplug.d` and `/etc/rc.button` handlers fed by `systemd-udevd`, while each normal service instance registered via `procd.sh` becomes a transient `openwrt-SERVICE@INSTANCE.service` under `openwrt-SERVICE.slice` (procd patch `130-systemd-transient-units.patch`). Instances requiring `vrf`, `trace`, `bundle`, or descriptor passing fall back to procd children in `openwrt-*.scope`.
   - `openwrt-services.service`: Runs enabled `/etc/init.d/*` rc scripts in sequence.
   - `openwrt-network-wait-online.service`: Holds `network-online.target` until `netifd` brings up autostart static local interfaces (e.g., `lan`), up to 120s.
 - **CLI Service Bridge (`package/system/systemd-openwrt-services/`)**:
-  - Maps `systemctl start|stop|restart|reload|enable|status openwrt@NAME.service` onto `/etc/init.d/NAME`. Excludes `dbus`, `sshd`, `samba4`, `wsdd2`, `avahi-daemon`, `apk-resume` (which use native units), and the old `umount` script, while classifying `wifi_schedule` and other one-shot setup scripts in `files/service-kinds`. PID 1 refuses direct start/stop/restart/reload jobs on transient `openwrt-SERVICE@INSTANCE.service` units from non-procd clients so init script hooks are not bypassed.
-- **Device & NAS Supervision Boundaries**:
-  - `systemd-udev` 262-r14 installs a reviewed subset (`package/system/systemd/files/99-systemd.rules`) restoring `.device` units (including `dev-tpmrm0.device`) without moving network, mount, or driver-loading policy from `netifd`/`fstools`/`blockd` (`docs/systemd-udev-boundary.md`).
-  - `samba4`, `wsdd2`, and `avahi-daemon` run as native static systemd units under `nas.slice` (`CPUWeight=100`, sibling of `openwrt.slice`), with systemd lifecycle adapters (`docs/samba4.md`, `docs/nas-systemd.md`).
+  - Maps `systemctl start|stop|restart|reload|enable|status openwrt@NAME.service` onto `/etc/init.d/NAME`. Excludes `dbus`, `sshd`, `samba4`, `wsdd2`, `avahi-daemon`, `cron`, `nlbwmon`, `ddns-go`, `podman`, `apk-resume` (which use native units), and the old `umount` script, while classifying `wifi_schedule` and other one-shot setup scripts in `files/service-kinds`. PID 1 refuses direct start/stop/restart/reload jobs on transient `openwrt-SERVICE@INSTANCE.service` units from non-procd clients so init script hooks are not bypassed.
+- **Device, NAS & Auxiliary Supervision Boundaries**:
+  - `systemd-udev` (`262-r15`, rules added in r14) installs a reviewed subset (`package/system/systemd/files/99-systemd.rules`) restoring `.device` units (including `dev-tpmrm0.device`) without moving network, mount, or driver-loading policy from `netifd`/`fstools`/`blockd` (`docs/systemd-udev-boundary.md`).
+  - `samba4`, `wsdd2`, and `avahi-daemon` run as native static systemd units under `nas.slice` (`CPUWeight=100`, sibling of `openwrt.slice`), and `cron`, `nlbwmon`, and `ddns-go` run natively under `auxiliary.slice` (`docs/samba4.md`, `docs/nas-systemd.md`, `docs/auxiliary-systemd.md`).
 - **Merged `/usr` (`scripts/merge-usr.py`)**:
   - Invoked from `include/package-pack.mk` and `include/rootfs.mk` to rewrite `/bin`, `/sbin`, `/lib` into `/usr/...`. `ALTERNATIVE_COMMANDS` handles BusyBox applet collisions (`dmesg`, `mount`, `passwd`, `ping`, `reboot`, etc.).
 
 ### 3.2 Whole-Disk USB & Optical Installer ISO
 - Enabled via `configs/installer-iso.config` (`CONFIG_INSTALLER_ISO_IMAGES`), producing `bin/systemd/targets/x86/64-glibc/openwrt-x86-64-generic-installer.iso`.
-- Built from `TARGET_DIR_ORIG` plus **only git-tracked `files/` defaults** (personal untracked overlays in `files/` are excluded).
-- Boots via hybrid BIOS/UEFI from raw USB (partition 3) or optical/virtual SATA CD-ROM (external initramfs loop-mounts the appended squashfs read-only) with `fstools_overlay=tmpfs` into an English whiptail TUI (`package/custom/openwrt-installer`, supports `openwrt-installer --answers FILE [--dry-run]`).
-- Creates a fresh GPT (p128 BIOS gap, p1 FAT32 ESP `/boot`, p2 read-only `rootfs` squashfs, p3 `rootfs_data` overlay with `ext4`/`btrfs`/`xfs`, optional p4+ data partitions), configures LAN/WAN/firewall/accounts, and schedules a firstboot unit for optional regular user + `desktop-setup`. See `docs/installer-iso.md` (and `docs/installer-components-plan.md` for an unimplemented 2026-11-16 plan for optional component selection).
+- Built with a clean base router/ops squashfs (only git-tracked `files/` defaults; personal untracked overlays excluded) plus an embedded same-build signed offline APK repository for ten optional components (`configs/installer-components.json`: `gnome`, `plasma`, `audio`, `ime`, `rdp`, `sunshine`, `flatpak`, `appimage`, `virtualization`, `containers`). Requires `CONFIG_SIGNED_PACKAGES=y` and all ten component packages (`x86-64-systemd-desktop.config` + `plasma-packages.config` or `plasma.config`).
+- Boots via hybrid BIOS/UEFI from raw USB (partition 3) or optical/virtual SATA CD-ROM (external initramfs loop-mounts the appended plain-LZ4 squashfs read-only) with `fstools_overlay=tmpfs` into an English whiptail TUI (`package/custom/openwrt-installer`, supports `openwrt-installer --answers FILE [--dry-run]`).
+- Creates a fresh GPT (p128 BIOS gap, p1 FAT32 ESP `/boot`, p2 read-only `rootfs` squashfs, p3 `rootfs_data` overlay with `ext4`/`btrfs`/`xfs`, optional p4+ data partitions), installs selected components offline, configures LAN/WAN/firewall/accounts, and schedules a firstboot unit for optional regular user + `desktop-setup` (supporting `desktop_session` and `desktop_autostart`). See `docs/installer-iso.md`.
 
-### 3.3 GNOME 51 Desktop, Audio, IME & Remote Access
-- **Meta-packages**: `openwrt-desktop` (r34), `openwrt-desktop-ime` (Fcitx5 + Kimpanel + Pinyin/libime + CJK fonts), `openwrt-desktop-audio` (PipeWire + WirePlumber + PulseAudio compat), plus `google-chrome-bin` in the desktop snapshot (`docs/google-chrome.md`).
-- **Session model**: Runs as an ordinary user on VT7 via PAM/logind (`openwrt-desktop.service`). Shares the same local Wayland display over RDP (`gnome-remote-desktop` bound to LAN IPv4 TCP 3389) and Sunshine/Moonlight. Keyring bootstrap secrets live under root-only `/etc/desktop/gnome/`; when TPM2 is available, `desktop-setup` seals `UID.keyring-passphrase.cred` to the TPM2 SRK via `LoadCredentialEncrypted` (falling back to plaintext `LoadCredential` otherwise), and `desktop-gpu-coldplug` waits briefly for `/dev/tpmrm0`.
+### 3.3 Shared Desktop Stack (GNOME 51 & KDE Plasma 6.8.3), Audio, IME & Remote Access
+- **Decoupled packages**: `openwrt-desktop-base`, `openwrt-desktop-keyring`, `openwrt-desktop-rdp-base`, `openwrt-desktop-core` / `openwrt-desktop-rdp` / `openwrt-desktop` (`r42`, GNOME 51), `openwrt-desktop-plasma-core` / `openwrt-desktop-plasma-rdp` / `openwrt-desktop-plasma` (KDE Plasma 6.8.3, Qt 6.11.3, KF6 6.32.0, KRdp), `luci-app-desktop`, `openwrt-desktop-ime-base` / `-ime` / `-ime-plasma` (Fcitx5), `openwrt-desktop-audio` (PipeWire + WirePlumber + PulseAudio compat), `openwrt-flatpak-base` / `openwrt-flatpak`, `openwrt-appimage`, `sunshine`, `firefox-esr-bin`, and `google-chrome-bin`.
+- **Session model**: Runs as an ordinary user on VT7 via PAM/logind (`openwrt-desktop.service`), with pluggable session plugins under `/usr/libexec/openwrt-desktop/sessions.d/` (`gnome`, `plasma`) managed via `desktop-ctl` and LuCI `Services -> Desktop`. Shares the local Wayland display over LAN IPv4 RDP (`gnome-remote-desktop` / `krdp`) and Sunshine/Moonlight. Keyring bootstrap secrets live under root-only `/etc/desktop/gnome/` (shared by GNOME and Plasma); when TPM2 is available, `desktop-setup` seals `UID.keyring-passphrase.cred` to the TPM2 SRK via `LoadCredentialEncrypted` (falling back to plaintext `LoadCredential` otherwise), and `desktop-gpu-coldplug` waits briefly for `/dev/tpmrm0`.
 - **On-device provisioning commands (run as root)**:
   ```sh
-  desktop-setup USER
-  desktop-rdp-setup USER [--password-stdin]
+  desktop-setup USER [--no-autostart]
+  desktop-rdp-setup USER [--session gnome|plasma] [--password-stdin]
   sunshine-setup USER --capture=portal|--enable-kms
   desktop-audio-setup USER
+  desktop-ctl status|switch|action ...
   ```
-- See `docs/gnome-desktop.md`.
+- See `docs/gnome-desktop.md`, `docs/kde-plasma.md`, `docs/desktop-session-switcher.md`, `docs/desktop-ime.md`, `docs/desktop-audio.md`, and `docs/google-chrome.md`.
 
 ### 3.4 Mainline Kernel & Parallel Generations
 - **Series updates**: `scripts/update-mainline-kernel.py --check|--update` checks kernel.org, verifies source SHA-256, and tests applying generic + x86 patch stacks with zero fuzz before updating version metadata. Patch review state lives in `configs/mainline-kernel-patches.json` and `docs/mainline-kernel-patch-review.md`.
@@ -108,19 +109,18 @@ python3 scripts/update-mainline-kernel.py --check|--update # Compare Linux 7.3 s
 ### 3.5 ELF ABI, Signed APKs & Publication Gate
 - **ABI scanning**: `scripts/elf-abi.py` generates `/usr/lib/apk/packages/<name>.elf.json` (`so:<SONAME>=0` providers/requires; private loader paths in `configs/elf-abi-policy.json`). `scripts/ucode-abi.py` locks ucode interpreter/module ABI.
 - **Rebuild ledger**: `configs/apk-elf-rebuilds.mk` maps exact recipe versions to bumped effective releases for metadata migrations without touching feed recipes.
-- **Immutability**: Published APK package identities are immutable—any byte change requires bumping `PKG_RELEASE`. When a same-version rebuild differs, `scripts/diagnose-apk-rebuild.py` classifies differences as `benign`, `change`, or `unknown`. `scripts/allocate-rebuild-releases.py` (or `--allocate-rebuilds` on the build/publish wrappers) allocates ELF rebuild ledger releases for `change` or `so:`-dependency-changed packages.
+- **APK immutability and rebuild evidence**: Published APK identities are immutable. Ship changed bytes under a new effective release. `scripts/diagnose-apk-rebuild.py` reports actions such as `reuse_published`, `allocate_release`, and `review_before_allocate`. Both wrappers support `--allocate-rebuilds`. For a digest-bound approval, use `publish-changed-feeds.sh --allocate-rebuilds --approval FILE`. See `docs/apk-rebuild-release.md` for the evidence and preview workflow.
 - **Router-gated publication (`scripts/publish-changed-feeds.sh`)**:
-  - Publishes to `/srv/openwrt-feeds` (`configs/lan-apk-feeds.json`, served by nginx `lan-apk-feeds.service` for LAN (`192.0.2.0/24`) and WireGuard (`10.0.0.0/24`)).
-  - Requires a reachable live router (`upgrade_preflight.ssh_target`, `router-admin@192.0.2.1` (empty in public example)), reads its APK database under lock, checks installed kmods against candidate kernel ABI, and runs `scripts/apk-upgrade-preflight.py` (`--plan-json`, `--userspace-only`) before exposing snapshots. Never pushes packages directly onto the router.
+  - Publishes to `/srv/openwrt-feeds` (`configs/lan-apk-feeds.json`, served by nginx `lan-apk-feeds.service` for LAN `192.0.2.0/24` and WireGuard `10.0.0.0/24`).
+  - Requires a reachable router (`upgrade_preflight.ssh_target`) and reads its APK database under lock. Schema 2 runs one full simulation against both staged views. Legacy schema 1 checks installed kmods for ABI transitions and rejects unfinished kernel trials. A pending APK journal blocks either schema. When a candidate reuses a published generation, the zero-kernel-touch check applies if the router already runs the reused release. See `docs/apk-upgrade-preflight.md`.
 
 - **VM scope**: Routine publication with no major behavior change or new functionality does not require VM validation. Run relevant source/package checks and all coordinated publisher gates; record why VM checks were not run. Major changes and new functionality need relevant runtime validation. The disabled scheduler retains its own exact-image VM gate. See `docs/publication-readiness.md`.
-- **Interrupted APK recovery**: APK r18 journals live commits under `/lib/apk/db/transaction/`; `apk-transaction-guard` isolates commits and resumes them at boot with `apk-resume`. A pending journal blocks publication and other commits. Never delete it to bypass recovery. See `docs/apk-transaction-recovery.md`.
-- **Current project index**: `docs/project-state-20261114.md` records the 2026-11-14 architecture and feature/validation baseline; `docs/upstream-sync-20261117.md` and `docs/build-publication-20261117.md` cover the 2026-11-17 upstream merge (356 Linux 7.3.4 patches including carried SDIO fixes) and generation-66 publication.
+- **Interrupted APK recovery**: APK r18 journals live commits under `/lib/apk/db/transaction/`; `apk-transaction-guard` isolates commits and resumes them at boot with `apk-resume.service`. A pending journal blocks publication and other commits. Never delete it to bypass recovery. See `docs/apk-transaction-recovery.md`.
 
 ### 3.6 Router Configuration History (`uci-history`) & Observability (`router-audit`)
 - **`uci-history` (`package/custom/uci-history`, `luci-app-uci-history`, `docs/uci-history.md`)**:
   - Versions `/etc/config` and configured `extra_path`s (`/etc/sysupgrade.conf`, `/etc/nftables.d`, `/etc/crontabs`) in a bare Git repo (`/etc/uci-history/repo`, mode 0700) with automatic secret masking and timed rollback transactions (`uci-history-revert-ID.timer` + boot recovery `uci-history-boot.service`).
-- **`router-audit` (`package/custom/router-audit`, `docs/router-audit.md`, `docs/router-audit-debian.md`)**:
+- **`router-audit` (`package/custom/router-audit`, `docs/router-audit.md`)**:
   - Read-only collector (`router-audit-collect.service`, spool `/srv/router-audit` ≤ 256 MiB / 24h, schema 1.1) and exporter (`/usr/sbin/router-audit-export`). Background collection is **opt-in disabled by default** (`router-audit.main.enabled='0'` since router-audit r6 / daed r10 / dnsmasq r15), while manual exports and historical samples remain available.
   - When enabled, receives nonblocking DNS query metadata (`dns_queries`, `dns_minute`) from `dnsmasq` and `daed` (`ROUTER_AUDIT_DNS=1`), per-flow proxy dial metadata (`conn_flows`) from `daed` (`ROUTER_AUDIT_CONN=1`), and minute conntrack snapshots (`connections`).
   - Companion off-router Debian scripts in `/usr/share/router-audit/`: `pull.py` (SQLite ingestion via restricted `router-audit` SSH account), `analyze.py` (deterministic rates, 7-day baselines, findings, LLM text formatting), `explain.py` (local OpenAI-compatible LLM runner, defaulting to Qwen3.5-4B Q6_K with thinking off), and `mcp_server.py` (read-only stdio MCP server).
@@ -134,14 +134,14 @@ python3 scripts/update-mainline-kernel.py --check|--update # Compare Linux 7.3 s
 - **LAN Discovery `notrack`** (`docs/lan-discovery-notrack.md`): `firewall4` adds `upnp_ssdp_notrack` (UDP 1900) and `wsd_ipv4_notrack`/`wsd_ipv6_notrack` (UDP 3702) in `notrack_lan`.
 - **`irqbalance` Netdev CPU Pools** (`docs/irqbalance-netdev-cpus.md`, feed patch `0038`): Adds repeatable `--netdev-cpus` / UCI `netdev_cpus` rules to pin specified PCI NIC IRQs within a CPU pool.
 - **x86 Boot Option (`split_lock_detect=off`)**: Set in `configs/x86-64-systemd-desktop.config` via `CONFIG_GRUB_BOOTOPTS`.
-- **Unimplemented Plans**: `docs/resource-governor-plan.md` (approved 2026-11-07 cgroup v2 resource governor design) and `docs/installer-components-plan.md` (2026-11-16 optional installer component selection plan) are design records only, not yet built.
+- **Unimplemented Design Studies/Plans**: `docs/resource-governor-plan.md` (approved 2026-11-07 cgroup v2 resource governor design) and `docs/dae-kernel-proxy-study.md` (kernel proxy plane design study) are design records only, not yet built.
 
 ---
 
 ## 4. Feed & Submodule Structure
 
 - **Independent Feed Repos**: `feeds/packages`, `feeds/luci`, `feeds/video`, `feeds/telephony`, `feeds/passwall_packages`, and `feeds/passwall_luci` are independent Git repositories ignored by the root `.gitignore` but containing live local commits.
-  - `patches/feeds/NNNN-<feed>-<topic>.patch` (currently `0001`–`0041`) and `configs/*-feeds.json` mirror the local commit series for `packages`, `video`, and `luci`.
+  - `patches/feeds/NNNN-<feed>-<topic>.patch` (through `0052-video-qt6-11-plasma.patch`) and `configs/*-feeds.json` mirror the local commit series for `packages`, `video`, `luci`, and `taskplan`.
   - Never `git reset --hard` or wipe `feeds/` repositories. Do not re-apply `patches/feeds/*` if the feed repo already contains those commits.
 - **Submodule**: `package/custom/luci-theme-argon` is a tracked Git submodule (`.gitmodules`, branch `master`). Commits inside it belong to its own repo; the root repo records only the gitlink. (`package/luci-app-argon-config/` is retired and untracked.)
 - **Custom Packages (`package/custom/`)**: Linked as the `custom` feed (`src-link custom ../package/custom`). Includes prebuilt binary repacks (`cmake-bin`, `node-bin`, `firefox-esr-bin`, `google-chrome-bin`), glibc compatibility packages, on-device development headers (`native-libs-dev`, `kernel-dev-headers`, `native-build-deps`), X11/Wayland/GNOME/virtualization recipes (`xorg-client.mk`, `xorg-meson.mk`), Rust helpers (`include/rust-*.mk`), and system tools (`openwrt-installer`, `openwrt-kernel-upgrade`, `openwrt-needrestart`, `uci-history`, `router-audit`).
@@ -202,7 +202,7 @@ git diff --check
   - Use `component: imperative summary` for commit messages and stage explicit file paths.
 - **Workspace & Security Guardrails**:
   1. **Scheduled Maintenance is Disabled**: Automatic 72-hour maintenance (`scripts/scheduled-maintenance.py`) was disabled on 2026-10-18. Never reinstall its cron job or run it unless explicitly requested.
-  2. **Protect `files/` Overlay**: `.gitignore` ignores `/files`. Only **11 files** under `files/` are tracked (`etc/config/fstab`, `etc/skel/.zshrc`, `etc/ssh/sshd_config.d/00-openwrt-access.conf`, `etc/sudoers.d/10-multiuser`, `etc/uci-defaults/{99-multiuser,99-openssh-access,99-uhttpd-luci,99-zsh-default}`, `etc/zsh/zshrc`, `lib/upgrade/keep.d/{multiuser,openssh-access}`). Never stage or commit personal overlays (`99-zz-user`, credentials, network/DDNS/proxy configs) or root `private-key.pem`/`public-key.pem`.
+  2. **Protect `files/` Overlay**: `.gitignore` ignores `/files`. Only **11 files** under `files/` are tracked (`etc/config/fstab`, `etc/skel/.zshrc`, `etc/ssh/sshd_config.d/00-openwrt-access.conf`, `etc/sudoers.d/10-multiuser`, `etc/uci-defaults/{99-multiuser,99-openssh-access,99-uhttpd-luci,99-zsh-default}`, `etc/zsh/zshrc`, `lib/upgrade/keep.d/{multiuser,openssh-access}`). Never stage or commit personal overlays (`99-zz-desktop-user-user`, credentials, network/DDNS/proxy configs) or root `private-key.pem`/`public-key.pem`.
   3. **Publication vs. Deployment**: Feed publication (`publish-changed-feeds.sh`) and physical device installation are separate operations requiring explicit user authorization.
   4. **Safe Router Configuration (`uci-history`)**: Over SSH, always wrap UCI changes in a timed transaction:
      ```sh

@@ -1,8 +1,6 @@
-# 发布系统复用已发布内核：实施计划与交接
+# 发布系统复用已发布内核：设计与实现说明
 
-**交接日期为 2026-11-23。状态为已完成只读调查和设计，待实施。** 适用目标为本 checkout 的 x86/64、glibc、APK、native systemd。维护者已选择同时解决两个问题：rolling 和 VM 介质默认复用已发布内核，并缩小内核输入指纹。日常入口继续使用 `./scripts/build-and-publish.sh --rolling -j16`。用户态包的构建新鲜度、不可变 APK、当前的并行安装和 kernelctl 回退机制都是验收条件。
-
-**接手后的第一步是复核并保全基线。** 在修改 Make 规则、切换指纹算法、更新 feeds、清理 tmp 或运行任何预留代次的命令之前，完成第 4 节第一步。此时最有价值的证据是旧算法仍能解释当前发布的 85。本文记录观测值和复核方法，实际迁移应从当时有效的签名快照取得文件。
+**状态：已于 2026-11-23 实施（commit `978038e643`），包括 `scripts/kernel-reuse.py`、schema-2 窄化 `scripts/kernel-build-inputs.py`、`--explain-kernel`、同代次零内核变动 preflight 断言与分代记录。** 以下保留原始调查、设计与验收规范作为唯一功能参考（历史基线观测取自实施前 generation 84/85）。日常入口继续使用 `./scripts/build-and-publish.sh --rolling -j16`。
 
 ## 1. 84 → 85 事件与证据
 

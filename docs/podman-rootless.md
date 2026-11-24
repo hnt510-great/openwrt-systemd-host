@@ -1,16 +1,11 @@
 # Rootless Podman on the native-systemd image
 
-> Systemd is the sole normal init on current x86/64 images. References below
-> to procd recovery or firmware flashing from the running system describe
-> older images. See [current boot and migration guidance](systemd-only-plan.md).
-
-The x86_64/glibc desktop configuration includes Podman, matching glibc
-`shadow-newuidmap` and `shadow-newgidmap` packages, the TUN kernel module,
+The x86_64/glibc desktop configuration includes Podman (`6.1.2-r5`), matching
+glibc `shadow-newuidmap` and `shadow-newgidmap` packages, the TUN kernel module,
 and `openwrt-podman-rootless`. The UID/GID helpers are root-owned setuid
 executables. Native-systemd builds enable crun's systemd support and build
 Podman with the upstream `systemd` tag; Podman selects the systemd cgroup
-manager and journald at runtime. A procd recovery boot of the same image
-falls back to cgroupfs and file events. See
+manager and journald at runtime. See
 [Desktop-style Podman](podman-systemd.md) for the native units, socket and
 linger behavior.
 
@@ -44,11 +39,10 @@ refresh supplementary groups. No systemd-udevd rules are required. If an adminis
 and reloads the TUN module, rerun `/etc/init.d/podman-rootless start` to
 restore the group policy on the recreated device.
 
-The package also installs `/etc/modules-boot.d/30-podman-tun`. procd's early
-kmodloader reads it before handing off to systemd, so `/dev/net/tun` exists
-before the lingering user manager and `podman-restart.service` start. Without
-it, a boot-time rootless container using slirp4netns can fail with
-`open("/dev/net/tun"): No such file or directory`.
+The package also installs `podman-rootless-prepare.service` (with a
+`user@.service` ordering drop-in) and `/etc/modules-boot.d/30-podman-tun`, so
+`/dev/net/tun` and per-user UID ACLs are ready before lingering user managers
+and `podman-restart.service` start (`pasta` uses `/dev/net/tun`).
 
 On native systemd, enrollment also enables linger for that account:
 
@@ -61,7 +55,7 @@ This lets the user manager, `podman.socket`, `podman-restart.service`,
 `podman-auto-update.timer` and health check timers run at boot without an
 SSH login. `loginctl disable-linger alice` opts the account back out. The
 helper prints a warning instead of failing account setup if logind is not
-reachable (for example, during a procd recovery boot).
+reachable.
 
 After changing mappings, stop your containers and, as the ordinary user,
 run `podman system migrate` to restart Podman's existing rootless namespace.
@@ -133,9 +127,10 @@ overlay `mountopt` manually. Restart an active per-user `podman.service`
 to reload storage options for API requests. Running containers keep their
 existing mounts and need no restart.
 
-Podman 5.8.4-r7 also sets `xino=off` on its temporary rootless capability
-probes, including the compatibility and volatile probes that do not use
-the configured mount options. The feed patch is preserved in
+Podman (since `5.8.4-r7`; current `6.1.2-r5`) also sets `xino=off` on its
+temporary rootless capability probes (`020-rootless-overlay-probe-xino.patch`),
+including the compatibility and volatile probes that do not use the configured
+mount options. The feed patch is preserved in
 `patches/feeds/0019-packages-podman-overlay-xino.patch`.
 
 Existing Quadlets explicitly using `Network=slirp4netns` must change to
@@ -184,10 +179,9 @@ systemd/conmon/compose changes are in
 `configs/podman-systemd-feeds.json`. Pasta defaults and the upgrade guard are
 in `patches/feeds/0018-packages-podman-native-network.patch`, based on the feed
 revision in `configs/podman-native-feeds.json`; passt itself is a local package.
-Outputs for native systemd are under
-`bin/systemd`; install matching signed glibc APKs when applying this repair
-without a router reboot. Flashing the rebuilt image requires a separate
-reboot window.
+Outputs for native systemd are under `bin/systemd`; install matching signed
+glibc APKs from the LAN feed when updating without a router reboot, or replace
+full firmware via installation media or offline disk imaging.
 
 See the [2026-10-13 validation record](podman-rootless-validation.md) for
 fresh-image, VM reboot and physical-router results.

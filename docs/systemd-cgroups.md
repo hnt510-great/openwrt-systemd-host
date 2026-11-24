@@ -1,25 +1,21 @@
 # Native-systemd OpenWrt cgroups
 
-> Systemd is the sole normal init on current x86/64 images. References below
-> to procd recovery or firmware flashing from the running system describe
-> older images. See [current boot and migration guidance](systemd-only-plan.md).
-
 > **Units mode.** Since procd 6 / systemd-openwrt 14, `openwrt-procd.service`
-> runs `procd --systemd=units` and procd instances are transient
-> `openwrt-SERVICE@INSTANCE.service` units in the same per-service slices,
-> supervised by systemd; see
-> [systemd supervision of OpenWrt services](systemd-native-supervision.md).
+> runs `procd --systemd=units` and normal procd instances are transient
+> `openwrt-SERVICE@INSTANCE.service` units in per-service slices, supervised by
+> systemd; see [systemd supervision of OpenWrt services](systemd-native-supervision.md).
 > Their ubus records carry `systemd_unit` and `systemd_placement: unit`. The
-> scope mechanism below still applies to rc script executions
-> (`openwrt-cgroup exec`), to instances that units mode cannot express (vrf,
-> trace, OCI bundles, passed descriptors, jail console or setns) and to the
-> legacy `--systemd` mode used for rollback.
+> scope mechanism below applies to rc script executions (`openwrt-cgroup exec`),
+> to instances that units mode cannot express (vrf, trace, OCI bundles, passed
+> descriptors, jail console or setns), and to the legacy `--systemd` mode used
+> for rollback.
 
-Procd remains the supervisor for OpenWrt service instances. Original init scripts
-retain legacy lifecycle actions, respawn helpers, custom restart locks, UCI
-triggers, and rc.d enablement. Systemd owns the scope and slice hierarchy. The
-optional systemctl bridge supplies CLI control and live status without creating
-proxy service units or per-service observer processes.
+Systemd supervises transient OpenWrt service units and owns the scope and slice
+hierarchy, while procd remains the OpenWrt service API and fallback supervisor
+for scope-placed executions. Original init scripts retain legacy lifecycle
+actions, respawn helpers, custom restart locks, UCI triggers, and `rc.d`
+enablement. The default-on systemctl bridge supplies CLI control and live status
+without creating proxy service units or per-service observer processes.
 
 ## Audit and design decision
 
@@ -34,7 +30,7 @@ without improving lifecycle ownership.
 
 Use one small registration implementation shared by procd and the transient
 init-script launcher. Register the original execution, keep one slice per
-service for policy, and use a fresh scope for each execution. Keep the optional
+service for policy, and use a fresh scope for each execution. Keep the
 central CLI broker for authorization and status. No service mirroring,
 PID-scanning migration, controller daemon, or second supervisor is required.
 
@@ -59,7 +55,7 @@ Examples:
 
 Procd's ubus instance records expose `systemd_scope` and `systemd_placement`.
 The latter is `pending`, `managed`, or `inherited`, independently of daemon
-health. The optional bridge displays this metadata and observes processes in
+health. The service bridge displays this metadata and observes processes in
 the service slice. It reports unknown aggregate placement when membership
 cannot be established; absence of a scope is not proof of service failure.
 
@@ -113,9 +109,9 @@ On native systemd, OCI cgroup labels are local to the delegated payload subtree.
 Systemd-style labels supply the local container identifier; they do not grant
 permission to create or alter a host scope by path. Absolute or traversal paths
 outside this model are rejected. Standalone OCI jails establish a delegated
-scope before manipulating their subtree. Procd recovery retains the original
-cgroupfs behavior. Podman/crun retain their own system and user-manager scopes;
-OpenWrt does not move their container PIDs back into its service slices.
+scope before manipulating their subtree. Podman/crun retain their own system
+and user-manager scopes; OpenWrt does not move their container PIDs back into
+its service slices.
 
 If registration fails, ordinary launches log degraded placement and continue
 in their inherited cgroup. They never fall back to creating host-root cgroups.

@@ -1,9 +1,11 @@
-# Firefox ESR on the GNOME desktop
+# Firefox ESR on the systemd desktop
 
 The x86_64/glibc image includes Mozilla's official Simplified Chinese Firefox
-ESR build as `firefox-esr-bin`. It runs directly on Wayland as an ordinary user.
+ESR build as `firefox-esr-bin`. It runs directly on Wayland as an ordinary user
+in both GNOME 51 and KDE Plasma 6.8.3 sessions.
 After creating a user, setting a password and running `desktop-setup USER`,
-launch Firefox from the GNOME application overview. The browser does not start
+launch Firefox from the desktop application launcher (GNOME Application Grid or
+KDE Plasma Application Launcher). The browser does not start
 automatically. From the desktop terminal, run:
 
 ```sh
@@ -29,8 +31,9 @@ the browser uses Wayland and needs no Xorg or Xwayland server.
 
 This integration covers browsing, downloads and basic video pictures.
 Protected streaming and screen sharing are outside this integration. Hardware
-video decoding is validated separately from audio and remote-display transport. GNOME RDP and Sunshine share the desktop session; their audio paths are
-documented in [desktop audio](desktop-audio.md).
+video decoding is validated separately from audio and remote-display transport;
+remote display and browser audio are carried over LAN RDP (`gnome-remote-desktop`
+or `krdp`) and Sunshine/Moonlight via PipeWire (see [desktop-audio.md](desktop-audio.md)).
 
 ## VA-API video decoding
 
@@ -77,22 +80,21 @@ policy. Update the signed APK together with its dependencies, or install a new
 firmware image. Extension updates retain Firefox's normal behavior.
 Do not manually overwrite the APK-owned application directory.
 
-On the build host:
+On the build host, `firefox-esr-bin` is registered in
+`configs/custom-package-updates.json` (`provider: firefox`, `policy: major`), so
+`./scripts/feeds update -a` or the custom updater tracks new ESR releases
+(including new ESR major branches):
 
 ```sh
-package/custom/scripts/update-firefox-esr.sh --check
-package/custom/scripts/update-firefox-esr.sh --update
-make defconfig
+python3 scripts/update-custom-packages.py --check --package firefox-esr-bin
+python3 scripts/update-custom-packages.py --update --package firefox-esr-bin
 make package/custom/firefox-esr-bin/compile V=s
-make -j2 V=s
 ```
 
-The check is the default action; exit status 1 means an update is available.
-The update action verifies the official archive's SHA256, atomically changes
-version/hash metadata and resets the package release. It stays on the packaged
-ESR major branch. When that branch is no longer advertised, review a supported
-major version manually. Repeat ELF dependency and fresh-image VM validation
-before distributing updated packages.
+The updater verifies the official archive's SHA-256, updates version/hash
+metadata, and resets `PKG_RELEASE`. Publish updated APKs through the gated LAN
+feed workflow (`scripts/build-and-publish.sh` or `scripts/publish-changed-feeds.sh`)
+and install on the router with `apk upgrade`.
 
 Close Firefox before backing up its profile. As the desktop user:
 
@@ -101,20 +103,12 @@ tar -czf "$HOME/firefox-profile-backup.tar.gz" -C "$HOME" .config/mozilla/firefo
 ```
 
 For a legacy or custom profile, substitute the root directory shown by
-`about:profiles`. Store a copy outside the router. The existing upgrade rules preserve
-`/home/` when configuration is retained, including profiles and downloads;
-check the resulting backup size before upgrading. An upgrade without retained
-configuration removes this state. Keep a matching profile backup if rolling
-back to an older Firefox version; profiles updated by newer versions are not
-guaranteed to work after a downgrade.
-
-This image's sysupgrade backup also records the ownership and permissions of
-selected files' parent directories under `/home/`, using GNU tar without
-recursive expansion of the file selection. When upgrading from an older image,
-apply the updated sysupgrade script on the running system before creating the
-backup/starting the upgrade, or separately preserve and restore directory
-metadata. Installing a new image cannot retroactively add directory metadata
-to an archive created by the older upgrader.
+`about:profiles`. Store a copy outside the router: `/home` is excluded from
+config-only `sysupgrade -b` archives (`files/lib/upgrade/keep.d/multiuser`), so
+browser profiles and downloads must be backed up separately before replacing the
+disk image via installation media or offline imaging. Keep a matching profile
+backup if rolling back to an older Firefox version; profiles updated by newer
+versions are not guaranteed to work after a downgrade.
 
 ## Build and runtime checks
 
@@ -157,7 +151,7 @@ Run `python3 scripts/tests/test-firefox-updater.py` on the build host.
 Run `scripts/tests/firefox-smoke.sh` on the target after copying the script.
 Fresh-image VM checks cover Wayland, sandbox status, HTTPS, LuCI, Chinese text,
 clipboard, file selection/downloads, MP4/WebM playback, profile persistence,
-APK reinstall, retained-configuration recovery upgrades and desktop/remote-access
-regressions. Physical Intel display, USB and performance require hardware tests.
+APK reinstall and desktop/RDP regressions. Physical Intel display, USB and
+performance require hardware tests.
 
 See [the firmware validation record](firefox-validation.md) for results and artifacts.

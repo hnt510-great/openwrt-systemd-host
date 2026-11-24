@@ -53,8 +53,10 @@ four local changes:
 | `006-outbound-vision-offer-raw-sockets-after-direct-switch.patch` | local | Vision offers its raw socket per direction once that direction has switched to direct mode (`netproxy.DirectTCPConnProvider`); direct-mode writes over plain TLS are flushed instead of waiting in the record coalescer; see [Vision flows after the direct switch](#vision-flows-after-the-direct-switch) |
 | `007-dae-core-splice-vision-direct-flows.patch` | local | dae's copy loop moves a switched Vision direction to its `splice(2)` loop |
 
-Release **2.1.1-r8** keeps the local DNS/connection audit patches (008–009)
-and adds five later upstream dae fixes, refreshed with the package quilt workflow:
+Release **2.1.1-r8** (current **2.1.1-r10**, which also makes `router-audit`
+DNS/connection hooks opt-in via `/etc/config/router-audit`) keeps the local
+DNS/connection audit patches (008–009) and adds five later upstream dae fixes,
+refreshed with the package quilt workflow:
 
 | Patch | Upstream | Fix |
 | --- | --- | --- |
@@ -370,9 +372,7 @@ until the download direction read something or 128 KiB had accumulated.
   `send_redirects` fix and cleanup on stop, and drives the LuCI ACL as a
   restricted `luci-base` + `luci-app-daed` login (log, denied commands, the
   device picker's network calls and setting the default LAN interface,
-  enable/disable through `uci apply`, restart); it then boots the same disks once into the `procd
-  recovery` entry (GRUB `next_entry`, as for a kernel trial) and repeats the
-  autostart, routing and cleanup checks.
+  enable/disable through `uci apply`, restart).
 
 See the [validation record](daed-validation.md). Whether dae's proxy plane
 could move into a kernel module is analysed in the

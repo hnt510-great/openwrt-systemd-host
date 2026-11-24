@@ -65,8 +65,8 @@ and retain the native command's failure; they are never redirected.
 not respawn. `set-property`, `reset-failed`, `clean`, `freeze`, `thaw`, isolate
 and shutdown keep their existing behavior. Fallback `openwrt-<id>.scope`
 children (vrf, trace, bundle, passed descriptors) remain supervised by procd;
-stopping them follows procd's crash/respawn rules. The restriction requires a
-reboot or `systemctl daemon-reexec` into systemd 262-r12; no procd upgrade or
+stopping them follows procd's crash/respawn rules. The restriction was
+introduced in `systemd` `262-r12` (current `262-r15`); no procd upgrade or
 cgroup-layout change is needed.
 
 `ubus call service list` adds `systemd_unit`, `systemd_placement` (`unit`) and,
@@ -113,13 +113,11 @@ Differences from procd's own supervision:
 ### Daemons that call `setsid()`
 
 systemd makes every service a session leader, so a daemon that unconditionally
-calls `setsid()` or `setpgid()` at start fails with `EPERM` (Samba reports
-`Failed to create session`). procd's own children are not group leaders, so
-this only appears in units mode. Pass the daemon's "do not create a process
-group" option in its init script; for Samba this is `--no-process-group` on
-`smbd`, `nmbd`, `samba` and `winbindd` (samba4 4.24.5-r5, feed patch
-`0030-packages-samba4-no-process-group.patch`). The option is harmless under
-procd.
+calls `setsid()` or `setpgid()` at start fails with `EPERM`. procd's own
+children are not group leaders, so this only appears in units mode. Pass the
+daemon's "do not create a process group" option (such as `--no-process-group`,
+as historically done for Samba before `samba4` moved to native static units in
+`nas.slice`; see [samba4.md](samba4.md)) in its init script.
 
 ## Hotplug
 
@@ -146,7 +144,9 @@ Device permissions come from udev rules. The `hardware-support` packages ship
 MIDI nodes in `midi`, V4L2 nodes classified by `v4l-id`. For `/dev/kvm` and the
 render, accel and kfd nodes udev's defaults (0666) apply, as they already did in
 native boot. `hotplug.json.d` `makedev` rules are not used in this mode; a
-package that needs a node permission must ship a udev rule.
+package that needs a node permission must ship a udev rule. See
+[device management boundary](systemd-udev-boundary.md) for the reviewed
+`99-systemd.rules` subset installed by `systemd-udev`.
 
 ## Watchdog
 

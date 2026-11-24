@@ -1,60 +1,39 @@
 # 当前本地构建的源码保存
 
-本源码集合包含 virt-manager、自定义包、开发工具、GNOME 桌面、libvirt、
-普通用户/SSH 支持以及配套目标配置。主树与各 feed 分别维护提交历史。
+`configs/x86-64-systemd-desktop.config` 保存完整的 GNOME 桌面构建配置（x86_64/glibc、
+APK、native systemd、Linux 7.3），关闭 Weston、seatd 和旧启动器。在新 checkout 中可以
+复制为 `.config`，安装匹配 feeds 后再正常化配置。它不包含测试账号、测试 SSH 密钥或
+个人路由器凭据。构建 KDE Plasma 6.8.3 软件包可叠加 `configs/plasma-packages.config`
+（`=m`）。需在镜像中预装时使用 `configs/plasma.config`（`=y`）。构建 10 组件离线
+安装器 ISO 还需要 `configs/installer-iso.config`，完整合并命令见
+[安装器构建步骤](installer-iso.md#build)。
 
-`configs/x86-64-systemd-desktop.config` 保存完整构建配置，现已合并
-`configs/gnome-desktop.config`，使用 GNOME 与原生 systemd/udev。
-当前桌面的验收范围见 GNOME 验证与物理部署记录。
-在新 checkout 中可以复制为 `.config`，安装匹配 feeds 后再正常化配置。
-它不包含测试账号、测试 SSH 密钥或个人路由器凭据。
-
-纯路由独立构建配置保存在 `configs/x86-64-systemd-router.config`，可按需通过 `scripts/kconfig.pl +` 叠加模块化片段（`configs/gnome-desktop-core.config`、`configs/flatpak.config`、`configs/podman.config`、`configs/distrobox.config`、`configs/samba4.config`、`configs/virt-headless.config`）。纯路由构建应在独立 checkout 中执行，避免覆盖主工作区完整桌面 `.config` 与 `bin/systemd` 输出，也避免普通 combined 镜像纳入根目录未跟踪的个人 `files/`。详见 [native systemd 纯路由方案](systemd-router-decoupling-plan.md) 与 [纯路由与解耦验证记录](systemd-router-decoupling-validation.md)。
+纯路由独立构建配置保存在 `configs/x86-64-systemd-router.config`，可按需通过
+`scripts/kconfig.pl +` 叠加模块化片段（如 `configs/gnome-desktop-core.config`、
+`configs/plasma.config`、`configs/plasma-packages.config`、`configs/desktop-audio.config`、
+`configs/desktop-ime.config`、`configs/flatpak.config`、`configs/appimage.config`、
+`configs/firefox-esr.config`、`configs/google-chrome.config`、`configs/qt6-dev.config`、
+`configs/podman.config`、`configs/distrobox.config`、`configs/samba4.config`、
+`configs/virt-headless.config`、`configs/daed.config`、`configs/uci-history.config`）。
+纯路由构建应在独立 checkout 中执行，避免覆盖主工作区
+完整桌面 `.config` 与 `bin/systemd` 输出，也避免普通 combined 镜像纳入根目录未跟踪的
+个人 `files/`。详见 [纯路由与解耦验证记录](systemd-router-decoupling-validation.md)。
 
 x86/64 正式目标自动启用 glibc、APK 和 systemd。原生 failsafe 使用
 `failsafe=true`，整机安装使用安装介质或离线写盘。详见 [systemd 单 init](systemd-only-plan.md)。
 
 ## Feed 来源
 
-`feeds.conf.default` 指向 `hnt510-great` 账号下的 8 个公开 GitHub feed 仓库。
-它们保存现有本地提交；`custom` 仍直接链接主树的 `package/custom`。
-主树、主题、各 feed 的地址和分支见
-[`configs/github-source-repositories.json`](../configs/github-source-repositories.json)。
-停用的 `argon_config` 保存于主题仓库的 `retired-argon-config` 独立归档分支，
-不加入活动 feeds。清单中的 `local_branch` 仅描述迁移工作区的原分支名；
-新 clone 使用 `branch` 指定的 GitHub 分支。
-
-主树、feeds 和 Argon 主题均已公开，新机器无需登录 GitHub 即可通过 HTTPS 克隆：
-
-```sh
-git clone https://github.com/hnt510-great/openwrt-systemd-host.git
-cd openwrt-systemd-host
-./scripts/feeds update -a
-./scripts/feeds install -a
-cp configs/x86-64-systemd-desktop.config .config
-make defconfig
-```
-
-只在新 checkout 中复制配置；保留已有工作区的 `.config`。`update -a` 除拉取
-公开 feed 分支外，还会检查并更新注册的 custom 配方，可能产生工作区修改。
-它不会自动将 OpenWrt 官方或 Passwall 上游合并进你的公开 feed。
-签名密钥 `private-key.pem`/`public-key.pem` 不在仓库中，需单独管理。
-
-主树以私有 GitLab 为权威来源，GitHub `origin` 是公开发布目标；清单中的官方
-OpenWrt 地址仅说明代码来源。各 feed 独立维护提交历史；维护者如需同步某个 feed
-的原始上游，可在对应 feed 中添加 `upstream`，审阅、合并、测试后再按授权发布，例如：
-
-```sh
-git -C feeds/packages remote add upstream https://github.com/openwrt/packages.git
-git -C feeds/packages fetch upstream
-git -C feeds/packages merge upstream/master
-# 审阅并验证修改后
-git -C feeds/packages push origin master
-```
-
-其他机器再执行 `./scripts/feeds update -a`，即可快进到已推送的公开 feed。
-`patches/feeds/` 和旧功能清单保留为历史备份；从这些公开仓库获取源码时，
-不要重复应用已有补丁。旧工作区的 GitLab 远程保留在其他 remote 名称下。
+`feeds.conf.default` 只跟踪上游：OpenWrt 官方 feeds 使用 GitHub 镜像
+（`https://github.com/openwrt/<feed>.git`，不使用 git.openwrt.org），
+`passwall_packages`/`passwall_luci` 使用 `Openwrt-Passwall` 上游，`taskplan`
+使用 `sirpdboy/luci-app-ddns-go`，不指向本地 GitLab。带本地提交的 feed 分支跟踪
+`origin/<branch>` 并领先于上游；上游更新后 `./scripts/feeds update` 中的
+`git pull --ff-only` 会失败，需要在该 feed 仓库内手动合并。`packages`、`video`、`luci`
+和 `taskplan` 的本地提交镜像在 `patches/feeds/`（已编号至 `0052-video-qt6-11-plasma.patch`，
+配合各 `configs/*-feeds.json` 清单）；`telephony` 和 Passwall 的本地提交目前只保存在
+各自的 feed 仓库中。签名密钥 `private-key.pem`/`public-key.pem` 不在仓库中，需要从现有
+构建机单独复制。
 
 `scripts/feeds` 在 feed 地址改变时会删除并重新克隆该 feed；已有工作区更换
 `feeds.conf.default` 地址前，应先把新地址写入 `feeds/<name>.tmp/location`，
@@ -120,11 +99,10 @@ make -j3 V=s
 ```
 
 片段用单一 `libmesa-virtualization` 替换其他 Mesa OpenGL provider，启用
-SPICE、EGL/GBM、VirGL 并保留 VNC。新建客体仍默认关闭 3D；手动启用需要
-渲染节点权限和 GL 桌面。操作见 [virt-manager.md](virt-manager.md)，完整镜像
-校验和、嵌套 GPU 测试和实体 Intel 测试边界见
-[virtio-spice-validation.md](virtio-spice-validation.md)。现有 weechat Kconfig
-循环属于此前问题；本次已修复图形能力包的依赖选择循环。
+SPICE、EGL/GBM、VirGL、GLX 和 Vulkan ICDs。新建客体仍默认关闭 3D；手动启用需要
+渲染节点权限。操作见 [virt-manager.md](virt-manager.md)，当前虚拟化与 SPICE 验证见
+[libvirt-uefi-passthrough-validation.md](libvirt-uefi-passthrough-validation.md) 和
+[spice-egl-build-validation.md](spice-egl-build-validation.md)。
 
 ## Fastfetch 和 Argon 的 custom feed 更新
 
@@ -135,15 +113,15 @@ SPICE、EGL/GBM、VirGL 并保留 VNC。新建客体仍默认关闭 3D；手动�
 
 Fastfetch 按 `fastfetch-cli/fastfetch` 的最新稳定 release 更新版本与
 SHA256，允许跨次版本升级，保留本地 CMake 裁剪选项。
-`PKG_VERSION` 使用上游版本（当前为 `2.70.0`），源码目录和下载地址
-也使用该版本。安装包版本保留固定兼容前缀 `2026.06.28.`，生成
-`2026.06.28.2.70.0-r1`，高于旧快照 `2026.06.28~0e90f3a7-r3`，
-可以正常升级，无需显式降级。此前缀保持不变，后续稳定版仍按上游
-版本递增，例如 `2026.06.28.2.71.0-r1`。
+`PKG_VERSION` 使用上游版本（当前为 `2.71.0`），源码目录和下载地址
+也使用该版本。安装包版本保留固定兼容前缀 `2026.06.28.`（例如
+`2026.06.28.2.71.0-r1`），高于旧快照 `2026.06.28~0e90f3a7-r3`，
+可以正常升级，无需显式降级。此前缀保持不变，后续稳定版继续按上游
+版本递增。
 
 Argon 保留独立 Git 仓库，追踪 `jerrykuku/luci-theme-argon` 的 `master`
 （包括稳定版发布后的修复）。新 checkout 中 `./scripts/feeds update`
-会自动执行 `git submodule update --init` 从公开 GitHub 主题仓库初始化已保存的历史，
+会自动执行 `git submodule update --init` 从本地 GitLab 初始化已保存的历史，
 并切换到 `master` 分支。更新器合并上游并保留本地提交；合并前先检测
 冲突，有已跟踪文件改动、隐藏索引标记或未完成 Git 操作时停止，不覆盖
 未跟踪文件。更新前的 HEAD 保存在嵌套仓库的

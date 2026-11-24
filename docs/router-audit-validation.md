@@ -148,7 +148,7 @@ Personal SSH public keys, credentials, databases, generated APKs and local backu
 
 # r2: LLM-ready output and local model evaluation — 2026-11-06
 
-Design and model research: `docs/router-audit-llm-plan.md`. Guide: `docs/router-audit.md`.
+Guide: `docs/router-audit.md`.
 Evidence workspace (outside the repository): `/srv/openwrt-validation/router-audit-llm-test-20261106/`
 (`runs/` holds every report, eval result, server log and power sample).
 
@@ -262,7 +262,7 @@ The first r2 batch was schema 1.1 for every module, all 65 firewall rules carrie
 DNS client kept a port, an incremental restricted-SSH pull succeeded and LAN DNS answered over IPv4
 and IPv6. r3 (conntrack loss rated per hour; analyzer only) was published as snapshot
 `20261106T052212.303924Z` and not installed on the router. A user-level minute puller was then set
-up on Debian; see `router-audit-debian.md`.
+up on Debian.
 
 ## Known limits
 

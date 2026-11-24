@@ -6,8 +6,7 @@ in [Optical compatibility](#optical-compatibility--sequence-54). The original
 USB-only sequence-53 results are retained here as the baseline.
 
 Implementation, full build and disposable-VM acceptance completed. The guide is
-[installer-iso.md](installer-iso.md); the approved design is
-[installer-iso-plan.md](installer-iso-plan.md).
+[installer-iso.md](installer-iso.md).
 
 ## Artifacts and scope
 
