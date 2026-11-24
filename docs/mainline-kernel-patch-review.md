@@ -1586,6 +1586,17 @@ across the main repository, all eight Git feeds, and `package/custom/luci-theme-
   stale broken `package/feeds/packages/` symlinks (`dvtm`, `netcat`, `siit`),
   passed isolated strict `conf --fatalrecursive --olddefconfig` with zero
   selected-option changes (only unset `brcmsmac` entries removed), and passed
-  351 host Python unit tests across 11 suites plus 3 LuCI JS view tests. No
-  full build, kernel generation reservation, VM check, publication, Git push,
-  or router deployment was performed.
+  351 host Python unit tests across 11 suites plus 3 LuCI JS view tests.
+- **Build and publication (generation 87)**: Built Linux `7.3.6` generation
+  `87` (`linux-image-7.3.6-87-openwrt`, kernel ABI
+  `7.3.6~5eaacd40bf4a752328abbcfbf2b75c1e-r1`), allocated effective rebuild
+  releases for the nine kernel-dependent executables re-linked against glibc
+  2.44 `crt1.o` (`grub2-bios-setup` / `grub2-editenv` `2.12-r10`, `mtd`
+  `29-r4`, `ip-full` / `nstat` / `ss` / `tc-tiny` `7.3.0-r3`, `strace`
+  `6.18-r6`, `fuse-utils` `2.9.9-r6`), decoupled `router-audit` (`1.0.0-r8`)
+  from `docs/router-audit.md`, passed the coordinated router upgrade preflight
+  (1,605 packages, 3,312 ELF files), and published userspace snapshot
+  `20261124T051930.960788Z` and kernel snapshot `1795497048275680482`. VM not
+  run: routine Linux `7.3.5` -> `7.3.6` stable point release and compatible
+  package updates with no major behavior change or new functionality. No router
+  package installation or reboot was performed.
