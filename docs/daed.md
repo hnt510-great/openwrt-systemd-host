@@ -38,11 +38,14 @@ core instead, the same way upstream dae-wing did after the daed release:
 | dae core | dae **v2.1.3** release `dae-full-src.tar.xz` (includes all eight upstream fixes previously backported in r1–r8 plus v2.1.2/v2.1.3 fixes for UDP conn-state across stale endpoint rebuilds, advisory TCP-DNS probing, non-success DNS rcode surfacing, and clang 23 BPF bounds) |
 | Outbound library | The `github.com/olicesx/outbound` module version that dae-wing and the core already pin (`replace github.com/daeuniverse/outbound => …`), as the Go proxy zip that `go.sum` verifies, unpacked to `third_party/outbound` so it can be patched |
 
-Release **2.1.1-r11** moves `DAED_CORE_VERSION` from `2.1.1` to `2.1.3`, drops
-the eight upstream backport patches that are now in `dae v2.1.3`, moves the
-archived `dae-wing` + `daed v2.1.1` dashboard (including the default LAN
-interface fix) into the `package/custom/daed/src` submodule, and keeps five
-local patches in `package/custom/daed/patches/`:
+Release **2.1.3-r1** promotes `dae` core to `PKG_SOURCE` (`PKG_VERSION:=2.1.3`),
+registers `daed` in `configs/custom-package-updates.json` against
+`daeuniverse/dae` GitHub releases (`policy: "series"`, so `./scripts/feeds
+update -a` automatically tracks `2.1.x` releases and flags newer minor series
+for review), moves the archived `dae-wing` + `daed v2.1.1` dashboard (including
+the default LAN interface fix) into the `package/custom/daed/src` submodule,
+drops the eight upstream backport patches from r1–r8, and keeps five local
+patches in `package/custom/daed/patches/`:
 
 | Patch | Origin | Purpose |
 | --- | --- | --- |
@@ -55,8 +58,8 @@ local patches in `package/custom/daed/patches/`:
 As checked on 2026-11-24, daed and dae-wing remain archived upstream (since
 2026-09-24). The self-maintained `package/custom/daed/src` submodule tracks
 the backend and dashboard (`MAINTENANCE.md` inside it documents rebuilding
-`web-src/` into `webrender/web/`), while `Makefile` tracks `daeuniverse/dae`
-core releases (currently **v2.1.3**).
+`web-src/` into `webrender/web/`), while `./scripts/feeds update -a` tracks
+`daeuniverse/dae` core releases automatically.
 
 The dashboard of daed v2.1.1 is compatible with the re-pinned backend: the
 GraphQL schemas differ only in the global config, where `soMarkFromDaeSet` was
@@ -65,13 +68,11 @@ added; the dashboard never uses `soMarkFromDaeSet`, and every field it queries
 still exists. The new options keep their defaults because the dashboard does
 not show them.
 
-`daed --version` reports `2.1.1` (the dashboard release). Because the recipe
-is composed from four sources, `configs/custom-package-updates.json`
-registers it as `local`, so `./scripts/feeds update` does not bump it. When a
-daed release bundles dae core 2.1.1 or newer, switch the recipe back to that
-release's `daed-full-src.zip` and register it as a GitHub release with
-`"companion_assets": {"DAED_WEB_HASH": "web.zip"}` so the updater also
-refreshes the dashboard hash; drop patches that the new core contains.
+`daed --version` reports `$(PKG_VERSION)` (the tracked `dae` core release,
+currently `2.1.3`). When updating across a `dae` release that changes its
+pinned `olicesx/outbound` pseudo-version in `dae-core/go.mod`, update
+`DAED_OUTBOUND_VERSION`/`DAED_OUTBOUND_HASH` in `Makefile` and refresh the
+five local patches if needed.
 
 ## Kernel requirements
 

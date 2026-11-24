@@ -1,20 +1,23 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=daed
-PKG_VERSION:=2.1.1
-PKG_RELEASE:=11
+PKG_VERSION:=2.1.3
+PKG_RELEASE:=1
 
 # The archived upstream dae-wing (b089b56 + local router fixes) and daed v2.1.1
 # dashboard (prebuilt webrender/web/ plus web-src/ workspace) are maintained in
 # the package/custom/daed/src Git submodule. See docs/daed.md.
 #
-# dae core: the v2.1.3 release source, including the BPF headers submodule.
+# Primary download source: upstream dae core release (including the BPF headers
+# submodule), tracked automatically by scripts/update-custom-packages.py.
 # patches/ carries five local changes on top: a Vision UDP fix in the outbound
 # library (001), the splice handover for Vision flows after their direct switch
 # (002 in the outbound library, 003 in dae core), and opt-in router-audit
 # DNS/connection events (004-005).
-DAED_CORE_VERSION:=2.1.3
-DAED_CORE_HASH:=36c5ec1c05c229cf5735d1368eec4940890f830e5b757b046140c7bc9abd077c
+PKG_SOURCE:=dae-$(PKG_VERSION)-full-src.tar.xz
+PKG_SOURCE_URL:=https://github.com/daeuniverse/dae/releases/download/v$(PKG_VERSION)/
+PKG_SOURCE_URL_FILE:=dae-full-src.tar.xz
+PKG_HASH:=36c5ec1c05c229cf5735d1368eec4940890f830e5b757b046140c7bc9abd077c
 
 # The outbound proxy library that dae-wing and dae core pin through
 # "replace github.com/daeuniverse/outbound => github.com/olicesx/outbound".
@@ -35,18 +38,10 @@ include $(INCLUDE_DIR)/package.mk
 include $(INCLUDE_DIR)/bpf.mk
 include $(TOPDIR)/feeds/packages/lang/golang/golang-package.mk
 
-DAED_CORE_FILE:=dae-$(DAED_CORE_VERSION)-full-src.tar.xz
 DAED_OUTBOUND_FILE:=olicesx-outbound-$(DAED_OUTBOUND_VERSION).zip
 DAED_OUTBOUND_DIR:=$(PKG_BUILD_DIR)/third_party/outbound
 DAED_CORE_DIR:=$(PKG_BUILD_DIR)/dae-core
 DAED_MAX_MATCH_SET_LEN:=1024
-
-define Download/dae-core
-  URL:=https://github.com/daeuniverse/dae/releases/download/v$(DAED_CORE_VERSION)/
-  URL_FILE:=dae-full-src.tar.xz
-  FILE:=$(DAED_CORE_FILE)
-  HASH:=$(DAED_CORE_HASH)
-endef
 
 define Download/dae-outbound
   URL:=https://proxy.golang.org/github.com/olicesx/outbound/@v/
@@ -135,7 +130,7 @@ define Build/Prepare
 		$(HOST_TAR) -C $(PKG_BUILD_DIR) -xf -
 	rm -rf $(DAED_CORE_DIR)
 	mkdir -p $(DAED_CORE_DIR)
-	$(HOST_TAR) -C $(DAED_CORE_DIR) -xJf $(DL_DIR)/$(DAED_CORE_FILE)
+	$(HOST_TAR) -C $(DAED_CORE_DIR) -xJf $(DL_DIR)/$(PKG_SOURCE)
 	# Same compression step as dae-wing's "make bundle": keep whichever of the
 	# plain and gzip-compressed file is smaller.
 	find $(PKG_BUILD_DIR)/webrender/web -type f -size +4k \
@@ -192,7 +187,6 @@ define Package/daed-geosite/install
 	$(LN) ../v2ray/geosite.dat $(1)/usr/share/dae/geosite.dat
 endef
 
-$(eval $(call Download,dae-core))
 $(eval $(call Download,dae-outbound))
 $(eval $(call BuildPackage,daed))
 $(eval $(call BuildPackage,daed-geoip))

@@ -339,32 +339,34 @@ was performed. No packages were published or installed on the router, and no
 router configuration or service state was changed. Host BPF verifier and
 isolated-namespace checks do not establish target-router acceptance.
 
-## dae core v2.1.3 upgrade (daed 2.1.1-r11)
+## dae core v2.1.3 upgrade & automated tracking (daed 2.1.3-r1)
 
-Validated on 2026-11-24 on the build host (Go 1.27.4). `DAED_CORE_VERSION` was
-bumped from `2.1.1` to `2.1.3` (`dae-full-src.tar.xz` SHA-256
+Validated on 2026-11-24 on the build host (Go 1.27.4). `dae` core was upgraded
+from `2.1.1` to `2.1.3` (`dae-full-src.tar.xz` SHA-256
 `36c5ec1c05c229cf5735d1368eec4940890f830e5b757b046140c7bc9abd077c`, matching
-the upstream `.dgst` and GitHub asset digest). All eight upstream backport
-patches from r1–r8 were dropped; the archived `dae-wing` (`b089b56` + default
-LAN interface fix) and `daed v2.1.1` dashboard (`webrender/web/` + `web-src/`)
-were split into the `package/custom/daed/src` Git submodule (`139e0d2`); the
-five remaining local patches were renumbered `001`–`005` and refreshed with
-`make package/custom/daed/refresh V=s`.
+the upstream `.dgst` and GitHub asset digest) and promoted to `PKG_SOURCE`
+(`PKG_VERSION:=2.1.3`, `PKG_RELEASE:=1`) with `configs/custom-package-updates.json`
+tracking `daeuniverse/dae` GitHub releases (`policy: "series"`). All eight
+upstream backport patches from r1–r8 were dropped; the archived `dae-wing`
+(`b089b56` + default LAN interface fix) and `daed v2.1.1` dashboard
+(`webrender/web/` + `web-src/`) were split into the `package/custom/daed/src`
+Git submodule (`139e0d2`); the five remaining local patches were renumbered
+`001`–`005` and refreshed with `make package/custom/daed/refresh V=s`.
 
 | Check | Result |
 | --- | --- |
-| `make package/custom/daed/clean package/custom/daed/compile -j3 V=s` | Passed; all 5 patches applied cleanly; BPF objects regenerated; `daed --version` → `daed version 2.1.1`; binary and APKs are byte-for-byte identical before and after the submodule split |
+| `make package/custom/daed/clean package/custom/daed/compile -j3 V=s` | Passed; all 5 patches applied cleanly; BPF objects regenerated; `daed --version` → `daed version 2.1.3` |
 | `go test -count=1 ./graphql/service/config/` (dae-wing) | Passed |
 | `go test -race -count=1 -timeout=180s ./control ./component/daedns ./component/outbound/dialer ./common/netutils ./pkg/config_parser github.com/daeuniverse/outbound/protocol/vless/...` | All 7 packages passed |
 | `python3 scripts/tests/test-custom-package-updates.py` | 58 tests passed |
 | `node scripts/tests/test-luci-daed-view.js` | Passed |
-| `python3 scripts/update-custom-packages.py --check --package daed` | `daed: local` |
+| `python3 scripts/update-custom-packages.py --check --package daed` | `daed: current 2.1.3 -> 2.1.3` |
 
 | Artifact (`bin/systemd/packages/x86_64/base/`) | SHA-256 |
 | --- | --- |
-| `daed-2.1.1-r11.apk` | `7edcff39079b644848655daceabb2bba46f6d2cb4adf5fa3f89a1f6a12169b15` |
-| `daed-geoip-2.1.1-r11.apk` | `196ee0cb2efb43d499b09844ede632309cafcae8c6bae90246794becbc63f701` |
-| `daed-geosite-2.1.1-r11.apk` | `406418e23a173a955577c7a7330ec418778a0e2577d340d83bf08c804cac21fa` |
+| `daed-2.1.3-r1.apk` | `9daa841891d653026a194b8a110ab3024d77fc6771881b3074246c212b1c7437` |
+| `daed-geoip-2.1.3-r1.apk` | `eaea2c3a8c899933bcbbd176c98ac6e5352d003ab057877513dfd2585261e426` |
+| `daed-geosite-2.1.3-r1.apk` | `9fbec6a24a80afe861e16bd08d63fd63f60f49b544c90cf340e8d737483c7d0e` |
 
 Scope: host build and unit tests only. No firmware image build, disposable VM
 boot, feed publication, or physical-router installation was performed.
