@@ -1,0 +1,39 @@
+#!/bin/sh
+set -eu
+[ "$(id -u)" = 0 ] || exit 1
+dir=/run/openwrt-sunshine
+umask 077
+[ ! -L "$dir" ] || exit 1
+mkdir -p "$dir"
+chown 0:0 "$dir"
+chmod 0700 "$dir"
+
+# Claim the trigger first so a concurrent uinput change schedules a follow-up pass.
+rm -f "$dir/pending"
+
+fail_file="$dir/fail-count"
+if /usr/libexec/sunshine-permissions --uinput-only; then
+	rm -f "$fail_file"
+	exit 0
+fi
+
+count=0
+if [ -f "$fail_file" ] && [ ! -L "$fail_file" ]; then
+	count=$(cat "$fail_file" 2>/dev/null || echo 0)
+	case "$count" in ''|*[!0-9]*) count=0 ;; esac
+fi
+count=$((count + 1))
+tmp=$(mktemp "$dir/.fail.XXXXXX")
+printf '%s\n' "$count" > "$tmp"
+mv -f "$tmp" "$fail_file"
+
+backoff=1
+i=1
+while [ "$i" -lt "$count" ] && [ "$backoff" -lt 8 ]; do
+	backoff=$((backoff * 2))
+	i=$((i + 1))
+done
+[ "$backoff" -le 8 ] || backoff=8
+logger -t sunshine "Sunshine uinput ACL reconcile failed (attempt $count); backing off ${backoff}s"
+sleep "$backoff"
+exit 0

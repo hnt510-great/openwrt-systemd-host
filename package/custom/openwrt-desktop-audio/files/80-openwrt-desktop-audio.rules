@@ -1,0 +1,3 @@
+# Native systemd: signal the audio ACL reconciler on ALSA device add/change
+# and mark the event so the hotplug compatibility adapter does not duplicate it.
+SUBSYSTEM=="sound", ACTION=="add|change", ENV{OPENWRT_UDEV_HANDLED_AUDIO}="1", RUN+="/usr/libexec/desktop-audio-udev-notify"

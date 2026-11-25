@@ -1,0 +1,6 @@
+[Unit]
+Description=Reconcile Sunshine uinput device ACL
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/sunshine-uinput-reconcile

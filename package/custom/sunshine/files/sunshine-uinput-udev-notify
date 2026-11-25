@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+dir=/run/openwrt-sunshine
+umask 077
+[ ! -L "$dir" ] || exit 1
+mkdir -p "$dir"
+chown 0:0 "$dir"
+chmod 0700 "$dir"
+tmp=$(mktemp "$dir/.pending.XXXXXX")
+trap 'rm -f "$tmp"' EXIT HUP INT TERM
+printf '%s %s %s\n' "${SEQNUM:-0}" "${ACTION:-}" "${DEVPATH:-}" > "$tmp"
+mv -f "$tmp" "$dir/pending"
+trap - EXIT HUP INT TERM

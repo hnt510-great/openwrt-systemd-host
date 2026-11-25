@@ -1,0 +1,11 @@
+[Unit]
+Description=Watch uinput events for Sunshine virtual input ACLs
+
+[Path]
+PathExists=/run/openwrt-sunshine/pending
+Unit=openwrt-sunshine-uinput.service
+TriggerLimitIntervalSec=10s
+TriggerLimitBurst=200
+
+[Install]
+WantedBy=multi-user.target

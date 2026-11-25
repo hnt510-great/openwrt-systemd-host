@@ -1,0 +1,3 @@
+# Native systemd: signal the Sunshine uinput ACL reconciler on uinput add/change
+# and mark the event so the hotplug compatibility adapter does not duplicate it.
+SUBSYSTEM=="misc", KERNEL=="uinput", ACTION=="add|change", ENV{OPENWRT_UDEV_HANDLED_SUNSHINE}="1", RUN+="/usr/libexec/sunshine-uinput-udev-notify"

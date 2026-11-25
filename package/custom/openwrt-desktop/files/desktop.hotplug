@@ -1,9 +1,11 @@
 #!/bin/sh
-case "$ACTION" in
+case "${ACTION:-}" in
 	add|change)
-		# Respect an explicit stop until the desktop is started again or the host reboots.
-		[ ! -e /run/openwrt-desktop/manual-stop ] || exit 0
-		# Mutter handles display hotplug. Only start a previously absent session.
-		[ "$(uci -q get desktop.main.enabled)" = 1 ] && /etc/init.d/desktop start
+		# udev already notified openwrt-desktop-drm.path; avoid duplicating the
+		# request or waiting across openwrt-desktop-coldplug -> openwrt-desktop.
+		[ "${OPENWRT_UDEV_HANDLED_DESKTOP:-0}" = 1 ] && exit 0
+		# Direct hotplug-call / ubus hotplug.drm.call compatibility path:
+		# check config and manual-stop inside the desktop init lock.
+		/etc/init.d/desktop autostart
 		;;
 esac

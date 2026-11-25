@@ -1,30 +1,123 @@
 #!/bin/sh
 set -eu
 [ "$(id -u)" = 0 ] || exit 1
-state=/etc/desktop/sunshine-users
-[ -s "$state" ] || exit 0
-[ -f "$state" ] && [ ! -L "$state" ] && [ "$(stat -c %u:%a "$state")" = 0:600 ] || {
-	echo 'Unsafe Sunshine enrollment state' >&2; exit 1;
+
+mode=all
+case "${1:-}" in
+	'') ;;
+	--uinput-only) mode=uinput ;;
+	*) echo 'Usage: sunshine-permissions [--uinput-only]' >&2; exit 2 ;;
+esac
+
+run_dir=/run/openwrt-sunshine
+umask 077
+[ ! -L "$run_dir" ] || exit 1
+mkdir -p "$run_dir"
+chown 0:0 "$run_dir"
+chmod 0700 "$run_dir"
+
+exec 9>"$run_dir/lock"
+flock 9
+
+read_uid_file() {
+	local val=
+	if [ -f "$1" ] && [ ! -L "$1" ]; then
+		val=$(cat "$1" 2>/dev/null || :)
+		case "$val" in *[!0-9]*) val= ;; esac
+	fi
+	printf '%s' "$val"
 }
+
+write_uid_file() {
+	local tmp
+	tmp=$(mktemp "$run_dir/.uid.XXXXXX")
+	printf '%s\n' "$2" > "$tmp"
+	mv -f "$tmp" "$1"
+}
+
+uinput_state="$run_dir/uinput-acl-uid"
+binary_state="$run_dir/binary-acl-uid"
+prev_uinput=$(read_uid_file "$uinput_state")
+prev_binary=$(read_uid_file "$binary_state")
+
+reconcile_uinput() {
+	local target_uid=$1
+	if [ -c /dev/uinput ] && [ ! -L /dev/uinput ]; then
+		if [ -n "$prev_uinput" ] && [ "$prev_uinput" != "$target_uid" ]; then
+			setfacl -x "u:$prev_uinput" /dev/uinput 2>/dev/null || [ ! -e /dev/uinput ] || return 1
+		fi
+		if [ -n "$target_uid" ]; then
+			setfacl -m "u:$target_uid:rw" /dev/uinput || return 1
+		fi
+	fi
+	write_uid_file "$uinput_state" "$target_uid"
+}
+
+reconcile_binary() {
+	local target_uid=$1
+	[ -f /usr/bin/sunshine ] && [ ! -L /usr/bin/sunshine ] || return 1
+	if [ -n "$prev_binary" ] && [ "$prev_binary" != "$target_uid" ]; then
+		setfacl -x "u:$prev_binary" /usr/bin/sunshine 2>/dev/null || :
+	fi
+	if [ -z "$target_uid" ]; then
+		if [ -n "$(getcap /usr/bin/sunshine)" ]; then
+			setcap -r /usr/bin/sunshine
+		fi
+		write_uid_file "$binary_state" ''
+		return 0
+	fi
+	if [ "$(stat -c %U:%G:%a /usr/bin/sunshine)" != root:sunshine:750 ]; then
+		chown root:sunshine /usr/bin/sunshine
+		chmod 0750 /usr/bin/sunshine
+	fi
+	setfacl -m "u:$target_uid:rx" /usr/bin/sunshine
+	if [ "$(uci -q get desktop.main.sunshine_capture || :)" = kms ]; then
+		if [ "$(getcap /usr/bin/sunshine)" != '/usr/bin/sunshine cap_sys_admin=p' ]; then
+			setcap cap_sys_admin+p /usr/bin/sunshine
+		fi
+	elif [ -n "$(getcap /usr/bin/sunshine)" ]; then
+		setcap -r /usr/bin/sunshine
+	fi
+	write_uid_file "$binary_state" "$target_uid"
+}
+
+state=/etc/desktop/sunshine-users
+if [ ! -e "$state" ] || [ ! -s "$state" ]; then
+	if [ -L "$state" ]; then
+		echo 'Unsafe Sunshine enrollment state' >&2
+		exit 1
+	fi
+	# Unenrolled or revoked: clear any previously granted ACLs and KMS capability.
+	reconcile_uinput ''
+	if [ "$mode" = all ] && [ -f /usr/bin/sunshine ] && [ ! -L /usr/bin/sunshine ]; then
+		reconcile_binary ''
+	fi
+	exit 0
+fi
+
+[ -f "$state" ] && [ ! -L "$state" ] && [ "$(stat -c %u:%a "$state")" = 0:600 ] || {
+	echo 'Unsafe Sunshine enrollment state' >&2
+	exit 1
+}
+
 . /usr/libexec/desktop-common.sh
 user=$(cat "$state")
-desktop_validate_user "$user"
-[ "$(uci -q get desktop.main.user || :)" = "$user" ] || exit 1
-id -Gn "$user" | tr ' ' '\n' | grep -qx sunshine || exit 1
-# The root-owned executable is only runnable by the enrolled capture group.
-[ -f /usr/bin/sunshine ] && [ ! -L /usr/bin/sunshine ] || exit 1
-if [ "$(stat -c %U:%G:%a /usr/bin/sunshine)" != root:sunshine:750 ]; then
-	chown root:sunshine /usr/bin/sunshine
-	chmod 0750 /usr/bin/sunshine
+valid=1
+if ! desktop_validate_user "$user" ||
+   [ "$(uci -q get desktop.main.user || :)" != "$user" ] ||
+   ! id -Gn "$user" | tr ' ' '\n' | grep -qx sunshine; then
+	valid=0
 fi
-setfacl -m "u:$DESKTOP_USER_UID:rx" /usr/bin/sunshine
-if [ "$(uci -q get desktop.main.sunshine_capture || :)" = kms ]; then
-	if [ "$(getcap /usr/bin/sunshine)" != '/usr/bin/sunshine cap_sys_admin=p' ]; then
-		setcap cap_sys_admin+p /usr/bin/sunshine
+
+if [ "$valid" = 0 ]; then
+	reconcile_uinput '' || :
+	if [ "$mode" = all ] && [ -f /usr/bin/sunshine ] && [ ! -L /usr/bin/sunshine ]; then
+		reconcile_binary '' || :
 	fi
-elif [ -n "$(getcap /usr/bin/sunshine)" ]; then
-	setcap -r /usr/bin/sunshine
+	exit 1
 fi
-if [ -c /dev/uinput ]; then
-	setfacl -m "u:$DESKTOP_USER_UID:rw" /dev/uinput
+
+if [ "$mode" = all ]; then
+	reconcile_binary "$DESKTOP_USER_UID"
 fi
+reconcile_uinput "$DESKTOP_USER_UID"

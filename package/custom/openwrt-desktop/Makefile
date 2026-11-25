@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openwrt-desktop
-PKG_RELEASE:=45
+PKG_RELEASE:=46
 PKG_CONFIG_DEPENDS:=CONFIG_OPENWRT_SYSTEMD
 PKG_LICENSE:=MIT
 
@@ -112,15 +112,30 @@ define Package/openwrt-desktop-base/install
 	$(INSTALL_BIN) ./files/desktop-user-setup ./files/desktop-user-stop $(1)/usr/libexec/
 	$(INSTALL_BIN) ./files/desktop-session ./files/desktop-session-services $(1)/usr/libexec/
 	$(INSTALL_DATA) ./files/desktop-common.sh $(1)/usr/libexec/desktop-common.sh
-	$(INSTALL_DIR) $(1)/usr/lib/systemd/system $(1)/usr/lib/systemd/user
+	$(INSTALL_DIR) $(1)/usr/lib/systemd/system $(1)/usr/lib/systemd/user $(1)/etc/systemd/system/multi-user.target.wants $(1)/usr/lib/udev/rules.d
 	$(INSTALL_DATA) ./files/openwrt-desktop-coldplug.service $(1)/usr/lib/systemd/system/
-	$(INSTALL_BIN) ./files/desktop-gpu-coldplug $(1)/usr/libexec/
+	$(INSTALL_DATA) ./files/openwrt-desktop-drm.path $(1)/usr/lib/systemd/system/
+	$(INSTALL_DATA) ./files/openwrt-desktop-drm.service $(1)/usr/lib/systemd/system/
+	$(LN) /usr/lib/systemd/system/openwrt-desktop-drm.path $(1)/etc/systemd/system/multi-user.target.wants/
+	$(INSTALL_DATA) ./files/80-openwrt-desktop.rules $(1)/usr/lib/udev/rules.d/
+	$(INSTALL_BIN) ./files/desktop-gpu-coldplug ./files/desktop-drm-udev-notify ./files/desktop-drm-reconcile $(1)/usr/libexec/
 	$(INSTALL_DATA) ./files/openwrt-desktop-services.service $(1)/usr/lib/systemd/user/
 	$(INSTALL_DATA) ./files/desktop.keep $(1)/lib/upgrade/keep.d/desktop
 	$(INSTALL_DIR) $(1)/etc/hotplug.d/drm
 	$(INSTALL_BIN) ./files/desktop.hotplug $(1)/etc/hotplug.d/drm/95-desktop
 	$(INSTALL_DIR) $(1)/usr/lib/apk/commit_hooks.d
 	$(INSTALL_BIN) ./files/icon-theme-refresh.hook $(1)/usr/lib/apk/commit_hooks.d/70-icon-theme-refresh
+endef
+
+define Package/openwrt-desktop-base/postinst
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+if [ -d /run/systemd/system ]; then
+	systemctl daemon-reload 2>/dev/null || :
+	[ -x /usr/bin/udevadm ] && /usr/bin/udevadm control --reload-rules 2>/dev/null || :
+	systemctl start openwrt-desktop-drm.path 2>/dev/null || :
+fi
+exit 0
 endef
 
 define Package/openwrt-desktop-keyring/install

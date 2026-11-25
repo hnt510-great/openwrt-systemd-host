@@ -1,0 +1,4 @@
+# Native systemd: libvirt-daemon restricts KVM and DRM render nodes to their
+# hardware groups directly in udev, replacing hotplug and prepare rewrites.
+KERNEL=="kvm", GROUP="kvm", MODE="0660", OPTIONS+="static_node=kvm"
+SUBSYSTEM=="drm", KERNEL=="renderD*", GROUP="render", MODE="0660"

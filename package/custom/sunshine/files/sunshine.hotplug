@@ -1,3 +1,22 @@
 #!/bin/sh
-[ "${ACTION:-}" = add ] && [ "${DEVNAME:-}" = uinput ] || exit 0
-/usr/libexec/sunshine-permissions
+case "${ACTION:-}" in
+	add|change)
+		[ "${DEVNAME:-}" = uinput ] || exit 0
+		if [ "${OPENWRT_UDEV_HANDLED_SUNSHINE:-0}" = 1 ]; then
+			# udev already triggered openwrt-sunshine-uinput.path. Wait briefly if
+			# reconciliation is still in flight so later misc hotplug scripts observe
+			# converged /dev/uinput ACLs without duplicating the run.
+			i=0
+			while [ "$i" -lt 100 ]; do
+				if [ ! -e /run/openwrt-sunshine/pending ] &&
+				   ! systemctl is-active --quiet openwrt-sunshine-uinput.service 2>/dev/null; then
+					break
+				fi
+				sleep 0.05
+				i=$((i + 1))
+			done
+			exit 0
+		fi
+		/usr/libexec/sunshine-permissions --uinput-only
+		;;
+esac
