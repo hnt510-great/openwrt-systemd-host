@@ -5,7 +5,7 @@ The x86_64/glibc native-systemd desktop uses per-user PipeWire and WirePlumber.
 applications. The audio server's sockets stay in the user's private runtime
 directory. There is no network PulseAudio listener.
 
-`openwrt-desktop-audio` (`1-r8`, depending on `openwrt-desktop-base`, `rtkit`,
+`openwrt-desktop-audio` (`1-r9`, depending on `openwrt-desktop-base`, `rtkit`,
 and PipeWire) serves both the GNOME 51 and KDE Plasma 6.8.3 desktops. Merge
 `configs/desktop-audio.config` into the existing build configuration (or select
 the `audio` component in the offline installer ISO) and run `make defconfig`.
@@ -26,7 +26,10 @@ desktop-audio-setup USER
 This grants playback and physical microphone access through the `audio` and
 `audio-capture` groups. Per-user device ACLs also cover user managers which were
 already running before enrollment, without restarting unrelated sessions or
-containers. Boot and sound-device hotplug restore those ACLs.
+containers. Boot and sound-device events converge ACLs through
+`80-openwrt-desktop-audio.rules` and `openwrt-desktop-audio-acl.path`/`.service`,
+which run the locked `/usr/libexec/desktop-audio-permissions` helper (clearing
+any previous user's ACL and updating its state atomically).
 
 Restart the desktop when ready to activate its RDP audio settings:
 
@@ -105,7 +108,7 @@ remote audio. On Windows, use a shell which preserves binary pipeline data
 
 ## Sunshine and Moonlight
 
-Sunshine (`2026.914.233613-r16`, depending on `openwrt-desktop-audio`) is
+Sunshine (`2026.914.233613-r17`, depending on `openwrt-desktop-audio`) is
 source-built without a system tray, using the tree's target libraries. It
 captures the active GNOME or KDE Plasma Wayland display via `xdg-desktop-portal`
 by default (`--capture=portal`), or optionally via KMS (`--enable-kms`), and
@@ -127,6 +130,10 @@ in `/etc/config/desktop`). Opting into `--enable-kms` grants the executable
 the selected user virtual-input access to `/dev/uinput`. Installation alone does
 not grant KMS capabilities; switching back to `--capture=portal` removes them.
 Boot and package upgrades reapply permissions only after explicit enrollment.
+`/dev/uinput` hotplug events are handled by `80-openwrt-sunshine.rules` and
+`openwrt-sunshine-uinput.path`/`.service`, which invoke
+`sunshine-permissions --uinput-only` so device events update only `/dev/uinput`
+ACLs and never touch `/usr/bin/sunshine` or its KMS capabilities.
 
 Start a new desktop session, then open `https://ROUTER-LAN-IP:47990`, create Web
 UI credentials and pair Moonlight. Credentials and pairing remain in the user's

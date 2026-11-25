@@ -31,7 +31,11 @@ root-owned and mode 0600. Run the client as root or through sudo. TCP/TLS
 listeners and the remote proxy are not included. Ordinary-user session
 management is outside the supported scope. QEMU processes run under the locked, non-login libvirt-qemu service
 account, with supplementary membership in the kvm and render groups. No human
-account, password or SSH key is seeded.
+account, password or SSH key is seeded. `libvirt-daemon` (`12.9.0-r5`) ships
+`/usr/lib/udev/rules.d/65-libvirt-devices.rules` to set `/dev/kvm`
+(`root:kvm 0660`, including `static_node=kvm`) and `/dev/dri/renderD*`
+(`root:render 0660`) directly in udev, leaving udev's `0666` default untouched
+when `libvirt-daemon` is not installed.
 
 AppArmor/SELinux and private mount namespaces are disabled in this
 integration; libvirt retains DAC ownership management, disk locking and

@@ -1,6 +1,6 @@
 # x86/64 的 udev 接管与 OpenWrt hotplug 兼容层实施交接
 
-**交接日期：2026-11-25。状态：四个实施批次及上游合并审查工具已完成实现，主机单测（142/142）、候选 APK 构建与第 5 节全部隔离 KVM VM 验收（核心 7 阶段 + Suite A 扩展设备/故障/TPM2 + Suite B 纯路由 3-VM PPPoE/failsafe + Suite C GNOME 51/Plasma 6.8.3/音频/FreeRDP 3/Sunshine）已全部通过（见[迁移验证记录](systemd-udev-hotplug-migration-validation.md)）；LAN feed 发布与物理路由器实机安装/重启仍待单独授权执行。** 本文供接手实现、评审与验收的工程师或 agent 使用。现行架构和历史验证分别见[设备管理边界](systemd-udev-boundary.md)和[既有验证记录](systemd-udev-boundary-validation.md)。历史记录中的 VM、路由器结果仅适用于当时的版本。
+**交接日期：2026-11-25。状态：已完工。四个实施批次及上游合并审查工具已完成实现，主机单测（142/142）、候选 APK 构建、第 5 节全部隔离 KVM VM 验收（核心 7 阶段 + Suite A 扩展设备/故障/TPM2 + Suite B 纯路由 3-VM PPPoE/failsafe + Suite C GNOME 51/Plasma 6.8.3/音频/FreeRDP 3/Sunshine）、LAN APK feed 发布（`/srv/openwrt-feeds/public/snapshots/20261125T083350.498186Z`）、物理路由器（`192.0.2.1`）实机升级与重启后复检（`mode=queued`、零失败单元/零告警），以及主树与 `feeds/packages` 提交推送均已完成（见[迁移验证记录](systemd-udev-hotplug-migration-validation.md)）。** 本文供实现、评审与后续上游合并参考。现行架构和历史验证分别见[设备管理边界](systemd-udev-boundary.md)和[既有验证记录](systemd-udev-boundary-validation.md)。历史记录中的 VM、路由器结果仅适用于当时的版本。
 
 ## 1. 接手时先确认的决定
 
