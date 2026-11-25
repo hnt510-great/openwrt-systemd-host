@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=xdg-desktop-portal
 PKG_VERSION:=1.22.1
-PKG_RELEASE:=6
+PKG_RELEASE:=7
 PKG_SOURCE:=xdg-desktop-portal-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=https://github.com/flatpak/xdg-desktop-portal/releases/download/$(PKG_VERSION)
 PKG_HASH:=d4879ddb3d65ff1a8f19187497e6f13dc5d267bcac404a5d501218be355753d3
