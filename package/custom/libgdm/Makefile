@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=libgdm
-PKG_VERSION:=51.1.1
-PKG_RELEASE:=2
-PKG_SOURCE:=gdm-51.1.1.tar.xz
+PKG_VERSION:=51.2
+PKG_RELEASE:=1
+PKG_SOURCE:=gdm-51.2.tar.xz
 PKG_SOURCE_URL:=https://download.gnome.org/sources/gdm/51/
-PKG_HASH:=390ae9e7540f71db28a3dc64319a8f687f4d88bd4d5f1ff816b7a9f2249ab4aa
+PKG_HASH:=b9e5f940ba8a4a2a488f84f756c1be5b79c520931e054e82db4fe91d37feb03d
 PKG_BUILD_DIR:=$(BUILD_DIR)/gdm-$(PKG_VERSION)
 PKG_LICENSE:=LGPL-2.1-or-later
 GNOME_TITLE:=GDM client library and introspection for GNOME Shell
