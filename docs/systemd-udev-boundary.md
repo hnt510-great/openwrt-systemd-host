@@ -7,6 +7,10 @@ The installed file is `package/system/systemd/files/99-systemd.rules`.
 Keep it explicit and review upstream changes on systemd upgrades; do not copy
 upstream rules wholesale or silently filter them with installation-time sed.
 
+The [udev and hotplug migration plan](systemd-udev-hotplug-migration-plan.md) and
+[migration validation record](systemd-udev-hotplug-migration-validation.md)
+record the ownership changes, disconnect buffering and acceptance results.
+
 ## Ownership and event flow
 
 - netifd owns network naming/configuration, addresses, routes and device network

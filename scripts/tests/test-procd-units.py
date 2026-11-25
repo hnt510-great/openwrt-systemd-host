@@ -148,10 +148,42 @@ class ProcdUnitsTest(unittest.TestCase):
         for path in (HARDWARE / 'files/udev').glob('*.rules'):
             self.assertNotRegex(path.read_text(), r'KERNEL=="(kvm|renderD\*)"[^\n]*MODE')
 
+    def test_libvirt_daemon_owns_kvm_and_render_udev_rules(self):
+        libvirt = ROOT / 'package/custom/libvirt'
+        rule = libvirt / 'files/65-libvirt-devices.rules'
+        self.assertTrue(rule.is_file())
+        text = rule.read_text()
+        self.assertIn('KERNEL=="kvm", GROUP="kvm", MODE="0660", OPTIONS+="static_node=kvm"', text)
+        self.assertIn('SUBSYSTEM=="drm", KERNEL=="renderD*", GROUP="render", MODE="0660"', text)
+        self.assertNotIn('vhost-vsock', text)
+        self.assertFalse((libvirt / 'files/libvirt-render.hotplug').exists())
+        makefile = (libvirt / 'Makefile').read_text()
+        self.assertIn('65-libvirt-devices.rules', makefile)
+        self.assertNotIn('zz-libvirt-render\n', makefile)
+        self.assertIn('define Package/libvirt-daemon/postinst', makefile)
+        self.assertIn('define Package/libvirt-daemon/postrm', makefile)
+        prepare = (libvirt / 'files/libvirt-openwrt-prepare').read_text()
+        self.assertNotIn('/dev/kvm', prepare)
+        self.assertNotIn('renderD', prepare)
+
+    def test_virtio_console_helper_omits_duplicate_symlink_on_native_systemd(self):
+        qemu_mk = ROOT / 'feeds/packages/utils/qemu/Makefile'
+        if not qemu_mk.is_file():
+            self.skipTest('packages feed qemu recipe unavailable')
+        text = qemu_mk.read_text()
+        install = text.split('define Package/virtio-console-helper/install', 1)[1].split('endef', 1)[0]
+        self.assertIn('$(INSTALL_DIR) $(1)/etc/hotplug.d/virtio-ports', install)
+        self.assertIn('ifeq ($(CONFIG_OPENWRT_SYSTEMD),)', install)
+        self.assertIn('00-virtio-ports.hotplug', install)
+        self.assertIn('CONFIG_OPENWRT_SYSTEMD', text.split('PKG_CONFIG_DEPENDS +=', 1)[1].splitlines()[0])
+        ga_install = text.split('define Package/qemu-ga/install', 1)[1].split('endef', 1)[0]
+        self.assertIn('10-qemu-ga.hotplug', ga_install)
+
     @unittest.skipUnless(shutil.which('udevadm'), 'udevadm not available')
     def test_udev_rules_parse(self):
         files = [str(p) for p in (HARDWARE / 'files/udev').glob('*.rules')]
         files.append(str(PROCD / 'files/90-openwrt-hotplug.rules'))
+        files.append(str(ROOT / 'package/custom/libvirt/files/65-libvirt-devices.rules'))
         result = subprocess.run(['udevadm', 'verify', '--no-style', *files],
                                 capture_output=True, text=True)
         if result.returncode != 0 and 'Unknown verb' in result.stderr:
