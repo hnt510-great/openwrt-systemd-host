@@ -4188,3 +4188,6 @@ ELF_DEP_gcc_15.3.0-r13:=gcc=15.3.0-r14
 # reserved: ELF_REBUILD_nstat_7.3.0-r1 -> 7.3.0-r2
 # reserved: ELF_REBUILD_ss_7.3.0-r1 -> 7.3.0-r2
 # reserved: ELF_REBUILD_tc-tiny_7.3.0-r1 -> 7.3.0-r2
+# 2026-11-25 automatic same-version rebuild allocations
+ELF_REBUILD_native-libs-dev_1-r13:=1-r14
+ELF_DEP_native-libs-dev_1-r13:=native-libs-dev=1-r14
