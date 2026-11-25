@@ -55,3 +55,39 @@ and the router was upgraded from that feed; no image was built or flashed.
   current snapshot `20261122T052658.620916Z`.
 - Router test artifacts: `/tmp/qtsql-test.cpp`, `/tmp/qmlcheck.qml`,
   `/tmp/qtcmake` and `/tmp/qtquicktest`.
+
+## 2026-11-25 Qt 6.11.3 Charts, PIE, CMake, prefix, and plugins update
+
+### Scope
+
+Added `qt6charts` / `qt6charts-dev` (Qt 6.11.3), enabled `--enable-default-pie`
+on the on-device native `gcc` (`15.3.0-r15`), fixed Qt 6.11.3 PIE/PIC dev
+flags, missing CMake tool binaries (`wasmdeployqt`, `qmlcontextpropertydump`),
+dangling CMake/pkg-config entries and missing `.so` linker symlinks, set
+`-DFEATURE_relocatable=OFF` so `QLibraryInfo` resolves `/usr`, enabled
+`libqico.so`, and installed `qt6translations`, `offscreen`/`minimal` QPA
+plugins, and `jpeg`/`gif` imageformat plugins via the LAN APK feed on
+`192.0.2.1`. No firmware image was built or flashed; no VM run was required
+beyond host package audits and live physical-router testing.
+
+### Checks
+
+| Check | Result |
+| --- | --- |
+| Host audit of 1,512 Qt6 CMake files across all 7 `qt6*-dev` packages reports 0 missing `IMPORTED_LOCATION` targets | passed |
+| Host audit of 58 `Qt6*.pc` files reports 0 missing `.so` linker symlinks | passed |
+| `python3 scripts/tests/test-custom-package-updates.py` (58 tests) | passed |
+| Coordinated LAN feed publication preflight (1,609 packages, 3,317 ELF files) and promotion to snapshot `20261125T144928.142367Z` | passed |
+| Physical router (`192.0.2.1`) `apk upgrade` (72 packages) and `apk add` (`qt6charts`, `qt6charts-dev`, `qt6translations`, `jpeg`/`gif` plugins) | passed |
+| Default `g++` + `pkg-config` (`Qt6Widgets`, `Qt6Charts`, `Qt6Multimedia`, `Qt6MultimediaWidgets`, `Qt6TextToSpeech`, `Qt6WaylandClient`, `Qt6QmlCompiler`) builds `ET_DYN` PIE and `QTimer::timeout` `connect()` fires | passed |
+| `qmake6` default mkspec (`QT += widgets charts`) builds `ET_DYN` PIE and `QTimer::timeout` `connect()` fires | passed |
+| CMake `find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Quick Qml Charts ChartsQml Svg Multimedia MultimediaWidgets TextToSpeech WaylandClient Sql OpenGL OpenGLWidgets)` configures, builds `ET_DYN` PIE, and `QTimer::timeout` fires | passed |
+| `QLibraryInfo` reports `PrefixPath=/usr`, `TranslationsPath=/usr/share/qt6/translations`, and `qtbase_zh_CN.qm` loads | passed |
+| `QImageReader::supportedImageFormats()` reports `jpeg`, `gif`, and `ico`; `QT_QPA_PLATFORM=offscreen` and `minimal` both run cleanly | passed |
+
+### Evidence
+
+- Published snapshot: `/srv/openwrt-feeds/public/snapshots/20261125T144928.142367Z`.
+- Feed mirrors: `patches/feeds/0054-packages-gcc-default-pie.patch`,
+  `patches/feeds/0055-video-qt6-dev-fixes.patch`, and
+  `configs/qt6-dev-fixes-feeds.json`.

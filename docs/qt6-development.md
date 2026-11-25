@@ -8,8 +8,11 @@ or build tools.
 ## Install
 
 ```sh
-apk add qt6base-dev qt6quick-dev qt6svg-dev qt6multimedia-dev \
-    qt6speech-dev qt6waylandclient-dev qt6quick-tools qt6tools
+apk add qt6base-dev qt6quick-dev qt6svg-dev qt6charts-dev qt6multimedia-dev \
+    qt6speech-dev qt6waylandclient-dev qt6quick-tools qt6tools \
+    qt6translations qt6base-plugin-platforms-offscreen \
+    qt6base-plugin-platforms-minimal qt6base-plugin-imageformats-jpeg \
+    qt6base-plugin-imageformats-gif
 ```
 
 `qt6quick-dev` pulls `qt6quick-tools` and `qt6base-dev`; the other module
@@ -35,7 +38,7 @@ make defconfig
 
 | Path | Contents |
 | --- | --- |
-| `/usr/include/qt6` | Qt Core, Gui, Widgets, Network, DBus, Xml, PrintSupport, Concurrent, Test, Sql and OpenGL headers; Qml, Quick, Quick Controls, Labs, Svg, Multimedia, TextToSpeech and Wayland client headers |
+| `/usr/include/qt6` | Qt Core, Gui, Widgets, Network, DBus, Xml, PrintSupport, Concurrent, Test, Sql and OpenGL headers; Qml, Quick, Quick Controls, Labs, Svg, Charts, Multimedia, TextToSpeech and Wayland client headers |
 | `/usr/lib/cmake/Qt6*` | Qt CMake packages for the installed modules, including `Qt6QmlTools` |
 | `/usr/lib/pkgconfig/Qt6*.pc` | pkg-config metadata |
 | `/usr/lib/qt6/mkspecs` | qmake specs, including `linux-openwrt-g++` |
@@ -159,7 +162,7 @@ limited. The bindings do not use the distribution Qt packages from this feed.
 ## Scope
 
 The packages cover the public development files of Qt Base, Qt Declarative,
-Qt Svg, Qt Multimedia, Qt TextToSpeech and Qt Wayland Client. Qt Designer and
+Qt Svg, Qt Charts, Qt Multimedia, Qt TextToSpeech and Qt Wayland Client. Qt Designer and
 the Qt Linguist GUI application are not built; the command-line Linguist tools
 are. KDE Frameworks headers and CMake files are likewise not part of these
 packages.
