@@ -160,3 +160,51 @@ Published snapshot: `/srv/openwrt-feeds/public/snapshots/20261125T083350.498186Z
 - **Not executed in this pass**:
   - Full combined firmware image / ISO rebuild from scratch.
   - Interactive physical-client stress tests on physical USB audio hotplug or physical Moonlight streaming client (VM audio signal, `xfreerdp3`, and Sunshine portal/KMS checks passed in Suite C).
+
+## 5. Follow-up Removal of `150-systemd-udev-hotplug-queue.patch` (`procd` r12) — 2026-11-26
+
+Removed `package/system/procd/patches/150-systemd-udev-hotplug-queue.patch` (1,891 lines), bumped `procd` to `2026.11.03~fb611687-r12`, and restored direct `openwrt-udev-forward` → `procd.udev event` ubus forwarding into `procd`'s in-memory serial queue. Batches 2–3 single-writer udev rules, paired `.path` units, and `scripts/audit-hotplug-merge.py` remain unchanged.
+
+### Signed Candidate APKs Built (`procd` r12)
+
+| Package | File | SHA256 |
+| --- | --- | --- |
+| `procd` | `bin/systemd/packages/x86_64/base/procd-2026.11.03~fb611687-r12.apk` | `6c08c2d1afe7bc6fed7f62bda8451d46b9657ae9e66de56ace344b1eef28bd5c` |
+| `procd-ujail` | `bin/systemd/targets/x86/64-glibc/packages/procd-ujail-2026.11.03~fb611687-r12.apk` | `44164ec32aa7166d4e9d702d522f6f2a35ea0ceeaa6ec736d599c153d7d97b54` |
+| `procd-seccomp` | `bin/systemd/packages/x86_64/base/procd-seccomp-2026.11.03~fb611687-r12.apk` | `c040baa17fd6b1bb592ec983c4b4396b86df518041407f89e9816a61b275cf9e` |
+
+### Host & Source Validation
+
+| Check | Result |
+| --- | --- |
+| `make package/system/procd/clean && make package/system/procd/compile V=s` | Passed; `readelf -d` confirmed `openwrt-udev-forward` no longer links `libjson-c` |
+| `scripts/tests/test-procd-units.py` | 11/11 passed |
+| `scripts/tests/test-udev-hotplug-migration.py` | 9/9 passed (Batch 4 C queue test removed with patch) |
+| `scripts/tests/test-systemd-udev-boundary.py` | 3/3 passed |
+| `scripts/audit-hotplug-merge.py` | Passed; 14/14 hotplug JSON classifications verified |
+| `git diff --check` | Passed |
+
+### Isolated KVM VM Validation (`procd` r12)
+
+Base image tested: `bin/systemd/targets/x86/64-glibc/openwrt-x86-64-generic-squashfs-combined-efi.img.gz` (SHA256 `2ce1c65e6ec908b7f92460e14e3a7bc70ef0f5d044e7aaf807a140e6ddbf8876`). Evidence: `build_dir/procd-r12-vm-validation-20261126/results.json`.
+
+| Stage | Result |
+| --- | --- |
+| Stage 1: Online upgrade `procd` r11 → r12 & mixed-version window | Passed: before `procd` restart, r12 `openwrt-udev-forward` delivered `change null mem` once to r11 `procd`; after `systemctl restart openwrt-procd.service`, PID switched `1221` → `11183`, `procd.udev` exposed only `"event"`, and subsequent trigger delivered once |
+| Stage 2: 3 consecutive cold boots + `swtpm` TPM2 | Passed 3/3 (`boot_id`: `18d751ed...`, `5d006e33...`, `c8a53e09...`): `is-system-running=running`, `0` failed units, `0` ordering cycles, all 13 required units + dynamic network/dnsmasq + enabled NAS/auxiliary units (`samba4`, `wsdd2`, `avahi-daemon`, `cron`, `nlbwmon`) + all 14 `procd` instances `active`; `/run/openwrt-hotplug` absent; `/run/procd-udev-coldplug` present; `/dev/kvm` (`0660`), `/dev/dri/renderD128` (`0660`), `/dev/virtio-ports/org.qemu.guest_agent.0 -> ../vport2p1` converged; `systemd-creds --with-key=tpm2` sealed on boot 1 and decrypted on boot 2 |
+| Stage 3A–3E: Concurrency, device churn & policy isolation | Passed: 20 parallel `udevadm trigger` bursts + direct `/sbin/hotplug-call` + `ubus call hotplug.mem call` delivered all pairs strictly `A` before `B`; 20/20 rounds KVM + `renderD128` kept `0660`; 10/10 rounds QMP `virtserialport` hot-unplug/re-plug converged; 5x DRM `change` preserved `manual-stop`; audio `sound` trigger switched ACL `vmalice` → `vmbob`; `uinput` trigger granted ACL without KMS `cap_sys_admin`; QMP `virtio-scsi` ext4 mounted cleanly via `fstools` (`FragmentPath=` empty) and unmounted on `device_del` |
+| Stage 4: Existing guest regression suites | Passed: `scripts/tests/procd-units-guest.sh` and `scripts/tests/boot-readiness-guest.py` passed; `/run/procd-udev-coldplug` inode/mtime unchanged across `procd` restart; `/run/openwrt-hotplug` absent; `0` failed units |
+
+### Physical Router Verification (`192.0.2.1`, Post-Publication & User Reboot)
+
+Published snapshot: `/srv/openwrt-feeds/public/snapshots/20261126T151014.207032Z` (3 changed `procd` r12 APKs; kernel unchanged at `7.3.6-88-openwrt`), upgraded via `apk update && apk upgrade` (`uci-history` revision `113`), followed by user-initiated reboot (`boot_id` `<redacted>`).
+
+| Check | Result |
+| --- | --- |
+| Systemd & `procd` state | `systemctl is-system-running` = `running`, `0` failed units; `procd`/`procd-seccomp`/`procd-ujail` at `2026.11.03~fb611687-r12`; `openwrt-procd.service` `active` (PID `1518`); `/run/openwrt-hotplug` absent; `/run/procd-udev-coldplug` present; `ubus -v list procd.udev` exposes only `"event"` |
+| Core, `.path`, NAS & auxiliary units | `openwrt-ubusd`, `openwrt-procd`, `openwrt-services`, `openwrt-network-wait-online`, `dbus`, `sshd`, `systemd-udevd`, `systemd-logind`, `dev-tpmrm0.device`, `tpm2.target`, all 3 `.path` units (`drm`, `audio-acl`, `sunshine-uinput`), `samba4`, `wsdd2`, `avahi-daemon`, `cron`, `nlbwmon`, `openwrt-daed@daed`, `openwrt-dnsmasq@cfg01411c`, and `openwrt-network@instance1` all `active` |
+| Device permissions & ACLs | `/dev/kvm` (`root:kvm 660`), `/dev/dri/renderD128` (`root:render 660`), `/dev/uinput` (`root:video 660`, ACL `user:desktop-user:rw-`), `/dev/snd/controlC0` (`root:audio 660`, ACL `user:desktop-user:rw-`), `/dev/tpmrm0` (`root:root 600`) |
+| Physical desktop & libvirt VM | `desktop-ctl --json status`: KDE Plasma (`desktop-user`, physical `HDMI-A-2`), `keyring_credential=tpm2`, `keyring_unlocked=true`, `session_ready=true`, `rdp_active=true`, `sunshine_active=true`, `audio_active=true`, `n_restarts=0`; `virsh list --all`: `guest-vm` `running` |
+| Restart hygiene & boot journal | `needrestart --json`: `0` services, `0` applications, `0` warnings; `journalctl -b -p warning..err` matched zero `procd`/`udev`/`hotplug`/`desktop`/`sunshine`/`libvirt`/`tpm` warnings or errors |
+
+Scope note: no full combined firmware image or ISO rebuild from scratch was run in this pass.
