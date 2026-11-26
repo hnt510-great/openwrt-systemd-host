@@ -1600,3 +1600,63 @@ across the main repository, all eight Git feeds, and `package/custom/luci-theme-
   run: routine Linux `7.3.5` -> `7.3.6` stable point release and compatible
   package updates with no major behavior change or new functionality. No router
   package installation or reboot was performed.
+
+## Upstream synchronization review, 2026-11-26
+
+Merged OpenWrt through `e50f7f9651` (15 incoming main-tree commits) as
+`ebb5e3d72c`, plus 1 `luci` (`b4b9e07cc5`, Weblate translations through
+`8d1aecd021`) and 6 `packages` (`4a077958b`, including `ffmpeg` `9.1`,
+`onvif-simple-server`, `libpfring`, and `msmtp` through `a3cc8482f`) commits. The `passwall_luci`, `passwall_packages`,
+`routing`, `taskplan`, `telephony`, and `video` feeds had no incoming commits.
+Backup branches are `backup/pre-upstream-20261126T021905Z` across the main
+repository, all eight Git feeds, and `package/custom/luci-theme-argon`.
+
+- **Mainline Linux 7.3**: `update-mainline-kernel.py --check` reports Linux
+  `7.3.6` (`8183d475a76a0faffa92d6cd500af421f589dfd0300a0f1060bb875e11d45723`)
+  is `current`. No newer mainline kernel release is available on kernel.org.
+- **Incoming 6.18 patches**: Zero files under `target/linux/x86/` changed. The
+  only incoming generic 6.18 change is commit `655072fe44` (`generic: 6.18: fix
+  MxL862xx egress tag stripping`), adding
+  `pending-6.18/759-net-dsa-mxl862xx-ignore-inner-tpid-on-untagged-egress.patch`
+  and updating `pending-6.18/760-10-net-dsa-add-802.1Q-VLAN-based-tag-driver-for-MxL862x.patch`
+  (following the `2026-11-25` MxL862xx sync commits `d253e623cc` and
+  `ce51f2ff0f`). Other incoming kernel changes are board-specific (`airoha`,
+  `bcm27xx`, `loongarch64`, `realtek`):
+  - `backport-6.18/947-v7.3-net-dsa-mxl862xx-disable-the-stats-poll-on-teardown.patch`
+    reverse-applies cleanly (`--fuzz=0`) to pristine Linux `7.3.6`, confirming it
+    is already upstream.
+  - `pending-6.18/759-*`, `pending-6.18/760-04-driver-core-add-device_schedule_reprobe.patch`,
+    and the updated `760-*` MxL862xx DSA series are not needed for x86/64
+    because `CONFIG_NET_DSA` and `CONFIG_NET_DSA_MXL862` are disabled in x86/64
+    `config-7.3` (and `device_schedule_reprobe()` is only consumed by the
+    MxL862xx recovery patches). `759-*` applies with zero fuzz (offset 15 lines)
+    if MxL862xx DSA is synced later; `760-04-*` would need context rebasing on
+    7.3 `drivers/base/{base.h,dd.c}`.
+  - All **356 carried Linux 7.3 patches** match their registered SHA-256 hashes
+    and apply with `--fuzz=0` to a fresh extraction of verified Linux `7.3.6`
+    plus current generic/x86 overlays. No new 6.18-to-7.3 backport is needed
+    for x86/64; the earlier optional MAP-E tunnel finding remains open.
+- **Merged recipes & custom packages**:
+  - `dnsmasq`: resolved the `PKG_RELEASE` conflict to `17` (past local `15` and
+    reserved `2.93-r16` in `configs/apk-elf-rebuilds.mk`), preserving the local
+    `nftset` netlink fast path (`240-*`) and `router-audit` DNS hook (`250-*`)
+    alongside upstream `300-ubus-add-lease-methods.patch`.
+  - `ffmpeg` (`feeds/packages`): resolved to upstream `9.1-r1`, preserving local
+    `FFMPEG_VAAPI` support and `ffmpeg-private` header staging for Sunshine plus
+    upstream `--disable-libcurl` and V4L2/VC-1 patches.
+  - `bzip2`: upstream bumped `PKG_RELEASE` from `1` to `2` for LTO PIC flags;
+    bumped locally to `PKG_RELEASE:=5` to avoid the legacy
+    `ELF_REBUILD_bzip2_1.0.8-r2:=1.0.8-r3` ledger mapping downgrading past
+    published `1.0.8-r4`.
+  - `update-custom-packages.py` checked all 307 entries (`1` updated, `249`
+    current, `38` local, `19` intentional review pins including Qt 6.11.3 ->
+    6.12 and `evince` 48.5 -> 49), advancing `file-roller` from `44.7` to `44.8`.
+- **Validation**: Regenerated all nine nonempty feed indexes with zero broken
+  `package/feeds/` links; passed `scripts/audit-hotplug-merge.py` (14/14
+  classifications verified); passed isolated strict `conf --fatalrecursive
+  --olddefconfig` with zero selected-option changes (only unset
+  `onvif-simple-server` added) while preserving `.config`; prepared `ffmpeg`
+  `9.1-r1` and prepared + compiled `dnsmasq` `2.93-r17`, `bzip2` `1.0.8-r5`, and
+  `file-roller` `44.8-r1`; and passed 364 host Python unit tests across 12
+  suites plus 3 LuCI JS view tests. No full firmware build, VM test, feed
+  publication, Git push, router installation, or reboot was performed.
