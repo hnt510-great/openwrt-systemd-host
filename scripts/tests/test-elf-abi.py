@@ -605,6 +605,33 @@ class ElfAbiTests(unittest.TestCase):
         self.assertIn('allocated migration release 1-r2', str(failure.exception))
         self.assertIn('3 packages need rebuilding', str(failure.exception))
 
+    def test_non_elf_package_skips_staging_manifests_and_emits_empty_outputs(self):
+        staging = self.work / 'staging'
+        pkg_dir = staging / 'usr/lib/apk/packages'
+        pkg_dir.mkdir(parents=True)
+        # Poison staging manifest: a non-ELF package must not parse it.
+        (pkg_dir / 'poison.elf.json').write_text('{not-valid-json')
+        payload = self.work / 'data-only'
+        (payload / 'etc/config').mkdir(parents=True)
+        (payload / 'etc/config/sample').write_text('config demo\n')
+        dep = self.work / 'empty.depends'
+        prov = self.work / 'empty.provides'
+        stamp = self.work / 'empty.sonames'
+        pstamp = self.work / 'empty.private'
+        res = subprocess.run([
+            'python3', str(TREE / 'scripts/elf-abi.py'),
+            '--root', str(payload), '--package', 'data-only', '--version', '1-r1',
+            '--staging-root', str(staging), '--staging-lock', str(self.work / 'staging.flock'),
+            '--depends-output', str(dep), '--provides-output', str(prov),
+            '--stamp', str(stamp), '--private-stamp', str(pstamp),
+        ], capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(dep.read_text(), '\n')
+        self.assertEqual(prov.read_text(), '\n')
+        self.assertEqual(stamp.read_text(), '\n')
+        self.assertEqual(pstamp.read_text(), '')
+        self.assertFalse((payload / 'usr/lib/apk/packages/data-only.elf.json').exists())
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

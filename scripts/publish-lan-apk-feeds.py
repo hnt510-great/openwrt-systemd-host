@@ -564,20 +564,35 @@ def publish(args):
                 immutability_hashes = {path: digest for path, digest in raw_current.items()
                                        if path not in kernel_paths}
         source_files = {}
+        repo_packages = []
+        kernel_candidates = []
         for name, source in sources:
             packages = sorted(source.glob('*.apk'))
             if not packages and not kernel_upgrade_view:
                 if args.incremental and old and name in old['repositories']:
                     continue
                 raise ValueError(f'No APKs in {source}')
-            for package in packages:
-                if kernel_upgrade_view and package.name.startswith(
-                        ('kernel-', 'kmod-', 'linux-image-', 'linux-headers-')):
-                    # A userspace package literally named "kmod" also has
-                    # a kmod-<version>.apk filename. Classify package names,
-                    # not the ambiguous filename prefix.
-                    if kernel_channel_package(dump_index(apk, package)['info']):
+            repo_packages.append((name, packages))
+            if kernel_upgrade_view:
+                for package in packages:
+                    if '-owrt-' in package.name and package.name.startswith(
+                            ('linux-image-', 'kmod-', 'kernel-dev-headers-')):
                         continue
+                    if package.name.startswith(
+                            ('kernel-', 'kmod-', 'linux-image-', 'linux-headers-')):
+                        kernel_candidates.append(package)
+        kernel_channel_paths = set()
+        if kernel_candidates:
+            # A userspace package literally named "kmod" also has
+            # a kmod-<version>.apk filename. Classify package names in
+            # bounded batches rather than spawning apk per file.
+            for package, metadata in dump_indexes(apk, kernel_candidates):
+                if kernel_channel_package(metadata['info']):
+                    kernel_channel_paths.add(package)
+        for name, packages in repo_packages:
+            for package in packages:
+                if package in kernel_channel_paths:
+                    continue
                 # Immutable payloads belong to the multi-generation channel.
                 # ABI-specific views retain only their logical trackers, whose
                 # exact global kernel dependency this publisher checks below.
@@ -756,15 +771,15 @@ def publish(args):
                 for path, digest in old['kernel_packages'].items():
                     if manifest['kernel_packages'].get(path) != digest:
                         raise ValueError(f'Existing ABI package changed or disappeared: {path}')
-            manifest['ucode_abi'] = validate_ucode_abi(apk, keys, payload, indexes, work)
-            manifest['elf_abi'] = validate_elf_abi(apk, keys, payload, indexes, work)
-            if reused_published_apks:
-                manifest['reused_published_apks'] = reused_published_apks
             if same_version_rebuilds:
                 raise same_version_rebuild_error(
                     apk, immutability_root, payload, same_version_rebuilds,
                     keys_dir=keys, snapshot=str(immutability_root.resolve()),
                     destination=str(destination))
+            manifest['ucode_abi'] = validate_ucode_abi(apk, keys, payload, indexes, work)
+            manifest['elf_abi'] = validate_elf_abi(apk, keys, payload, indexes, work)
+            if reused_published_apks:
+                manifest['reused_published_apks'] = reused_published_apks
             if expected:
                 for path, digest in expected_digests.items():
                     if manifest['apk_files'].get(path) != digest:

@@ -255,8 +255,26 @@ endif
 
 $(curdir)/flags-install:= -j1
 
+$(TMP_DIR)/.config-packages: $(TOPDIR)/.config $(if $(wildcard $(TMP_DIR)/.config-packages),,FORCE)
+	@mkdir -p $(@D)
+	@sig=$$(stat -c '%y %s' "$(TOPDIR)/.config" 2>/dev/null); \
+	if [ -f "$@" ] && [ -n "$$sig" ] && [ -f "$@.sig" ] && [ "$$(cat "$@.sig" 2>/dev/null)" = "$$sig" ]; then \
+		exit 0; \
+	fi; \
+	tmp=$$(mktemp "$@.XXXXXX"); \
+	grep -v '^CONFIG_OPENWRT_KERNEL_SEQUENCE=' "$(TOPDIR)/.config" > "$$tmp" || true; \
+	if [ ! -f "$@" ] || ! cmp -s "$$tmp" "$@"; then \
+		mv "$$tmp" "$@"; \
+	else \
+		rm -f "$$tmp"; \
+	fi; \
+	if [ -n "$$sig" ]; then \
+		stmp=$$(mktemp "$@.sig.XXXXXX"); \
+		printf '%s\n' "$$sig" > "$$stmp" && mv "$$stmp" "$@.sig"; \
+	fi
+
 $(eval $(call stampfile,$(curdir),package,prereq,.config))
-$(eval $(call stampfile,$(curdir),package,cleanup,.config $(TMP_DIR)/.packageinfo))
+$(eval $(call stampfile,$(curdir),package,cleanup,$(TMP_DIR)/.config-packages $(TMP_DIR)/.packageinfo))
 $(eval $(call stampfile,$(curdir),package,compile,$(TMP_DIR)/.build))
 $(eval $(call stampfile,$(curdir),package,install,$(TMP_DIR)/.build))
 $(eval $(call stampfile,$(curdir),package,check,$(TMP_DIR)/.build))

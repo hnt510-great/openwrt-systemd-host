@@ -1178,6 +1178,58 @@ if 'SCAN_DIR' in values:
         self.assertNotIn('custom-update', self.calls())
         self.assertIn('PKG_VERSION:=1.2.3', (self.root / 'feeds/custom.index').read_text())
 
+    def test_bounded_parallel_check_deduplicates_urls_and_preserves_order(self):
+        import threading
+        import time
+
+        with tempfile.TemporaryDirectory(prefix='custom-parallel-test-') as td:
+            root = Path(td)
+            entries = {}
+            for i in range(6):
+                name = f'pkg{i}'
+                path = root / 'package/custom' / name / 'Makefile'
+                path.parent.mkdir(parents=True)
+                path.write_text(
+                    f'PKG_NAME:={name}\nPKG_VERSION:=1.0.0\nPKG_RELEASE:=1\n'
+                    f'PKG_SOURCE:={name}-$(PKG_VERSION).tar.gz\n'
+                    f'PKG_SOURCE_URL:=https://host{i % 3}.test/releases/\n'
+                    f'PKG_HASH:={"a" * 64}\n'
+                )
+                entries[name] = {
+                    'provider': 'directory', 'policy': 'series',
+                    'index': f'https://host{i % 3}.test/releases/',
+                    'filename_pattern': name + r'-(?P<version>[0-9]+(?:\.[0-9]+)+)\.tar\.gz',
+                }
+
+            class SlowFetcher(U.Fetcher):
+                def __init__(self):
+                    super().__init__()
+                    self.calls = []
+                    self._call_lock = threading.Lock()
+
+                def request(self, url, output=None):
+                    with self._call_lock:
+                        self.calls.append(url)
+                    time.sleep(0.08)
+                    idx = int(url.split('host', 1)[1][0])
+                    links = [f'<a href="pkg{j}-1.0.0.tar.gz">pkg{j}</a>' for j in range(6) if j % 3 == idx]
+                    return '\n'.join(links).encode()
+
+            fetcher = SlowFetcher()
+            updater = U.Updater(root, entries, fetcher=fetcher, update=False, workers=4)
+            buf = io.StringIO()
+            t0 = time.perf_counter()
+            with redirect_stdout(buf):
+                rc = updater.execute()
+            elapsed = time.perf_counter() - t0
+            self.assertEqual(rc, 0)
+            # Single-flight cache: 6 packages across 3 unique index URLs -> exactly 3 requests.
+            self.assertEqual(len(fetcher.calls), 3)
+            # Concurrent execution of 3x 80ms requests should finish well below serial 240ms.
+            self.assertLess(elapsed, 0.20)
+            lines = [line.split(':')[0] for line in buf.getvalue().splitlines()]
+            self.assertEqual(lines, [f'pkg{i}' for i in range(6)])
+
 
 if __name__ == '__main__':
     unittest.main()

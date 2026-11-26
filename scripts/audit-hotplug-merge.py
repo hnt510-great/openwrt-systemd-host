@@ -155,7 +155,7 @@ def audit_repo(name, repo_path, base_ref, head_ref):
                 report['procd_pin'] = {'before': before, 'after': after}
 
         # 5. Inspect diffs for hotplug.json.d and /etc/hotplug.d script installs
-        if not path.startswith('scripts/') and (path.endswith('Makefile') or 'hotplug' in path):
+        if not path.startswith(('scripts/', 'docs/', 'configs/')) and (path.endswith('Makefile') or 'hotplug' in path):
             rc, diff_text, _ = run_git(repo_path, 'diff', f'{base_ref}..{head_ref}', '--', path)
             if rc == 0:
                 if 'hotplug.json.d' in diff_text:
@@ -279,6 +279,10 @@ def main(argv=None):
             print('INVALID DISPOSITIONS (blocks acceptance):')
             for d in class_report['invalid_dispositions']:
                 print(f"  - {d['path']}: {d['disposition']}")
+        if class_report['stale_entries']:
+            print('STALE CLASSIFICATION ENTRIES (removed from tree):')
+            for s in class_report['stale_entries']:
+                print(f'  - {s}')
         for rep in repo_reports:
             total = sum(len(rep[k]) for k in (
                 'stock_or_preinit_json', 'hotplug_json_d_recipes', 'hardware_support',

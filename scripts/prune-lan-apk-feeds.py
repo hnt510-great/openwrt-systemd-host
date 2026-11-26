@@ -53,39 +53,54 @@ def prune(destination, apply, grace):
     snapshots = public / 'snapshots'
     handles = []
     try:
-        for name in LOCKS:
-            handle = (destination / name).open('a')
-            handles.append(handle)
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        raise SystemExit('A publication is in progress; try again later')
-    live = referenced(public)
-    live_files = set()
-    for snapshot in live:
-        if snapshot.is_dir():
-            for item in snapshot.rglob('*'):
-                if item.is_file():
-                    st = item.stat()
-                    live_files.add((st.st_dev, st.st_ino))
-    now = time.time()
-    removed = []
-    freed_total = 0
-    for snapshot in sorted(snapshots.iterdir()):
-        if not snapshot.is_dir() or snapshot.is_symlink() or snapshot.resolve() in live:
-            continue
-        if now - snapshot.stat().st_mtime < grace:
+        try:
+            for name in LOCKS:
+                handle = (destination / name).open('a')
+                handles.append(handle)
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise SystemExit('A publication is in progress; try again later')
+        live = referenced(public)
+        live_files = set()
+        for snapshot in live:
+            if snapshot.is_dir():
+                for item in snapshot.rglob('*'):
+                    if item.is_file():
+                        st = item.stat()
+                        live_files.add((st.st_dev, st.st_ino))
+        now = time.time()
+        grace_kept = []
+        candidates = []
+        for snapshot in sorted(snapshots.iterdir()):
+            if not snapshot.is_dir() or snapshot.is_symlink() or snapshot.resolve() in live:
+                continue
+            if now - snapshot.stat().st_mtime < grace:
+                grace_kept.append(snapshot)
+            else:
+                candidates.append(snapshot)
+        accounted = set(live_files)
+        for snapshot in grace_kept:
             print(f'skip (newer than grace period): {snapshot.name}')
-            continue
-        freed = tree_stats(snapshot, set(live_files))
-        freed_total += freed
-        removed.append({'snapshot': snapshot.name, 'freed_bytes': freed})
-        print(f'{"remove" if apply else "would remove"}: {snapshot.name} '
-              f'({freed / 2**20:.1f} MiB unique)')
-        if apply:
-            shutil.rmtree(snapshot)
-    kept = sum(1 for s in live if s.parent == snapshots)
-    print(json.dumps({'applied': apply, 'removed': len(removed), 'kept_live': kept,
-                      'freed_bytes': freed_total}, indent=2))
+            for item in snapshot.rglob('*'):
+                if item.is_file() and not item.is_symlink():
+                    st = item.stat()
+                    accounted.add((st.st_dev, st.st_ino))
+        removed = []
+        freed_total = 0
+        for snapshot in candidates:
+            freed = tree_stats(snapshot, accounted)
+            freed_total += freed
+            removed.append({'snapshot': snapshot.name, 'freed_bytes': freed})
+            print(f'{"remove" if apply else "would remove"}: {snapshot.name} '
+                  f'({freed / 2**20:.1f} MiB unique)')
+            if apply:
+                shutil.rmtree(snapshot)
+        kept = sum(1 for s in live if s.parent == snapshots)
+        print(json.dumps({'applied': apply, 'removed': len(removed), 'kept_live': kept,
+                          'freed_bytes': freed_total}, indent=2))
+    finally:
+        for handle in handles:
+            handle.close()
 
 
 def main():

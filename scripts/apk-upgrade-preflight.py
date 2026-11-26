@@ -233,14 +233,18 @@ with tempfile.TemporaryDirectory(prefix='apk-release-check-') as folder:
 '''
 
 
-def remote(target, code, request=None):
+REMOTE_TIMEOUT = 60
+CAPTURE_TIMEOUT = 180
+
+
+def remote(target, code, request=None, *, timeout=REMOTE_TIMEOUT):
     if not re.fullmatch(r'[A-Za-z0-9_.@:-]+', target) or target.startswith('-'):
         raise ValueError('Invalid preflight SSH target')
     command = 'sudo -n python3 -c ' + shlex.quote(code)
     try:
         result = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8',
                                  target, command], input=json.dumps(request) if request else None,
-                                text=True, capture_output=True, timeout=60)
+                                text=True, capture_output=True, timeout=timeout)
     except subprocess.TimeoutExpired as error:
         raise ValueError('Router upgrade preflight timed out; release was not promoted') from error
     if result.returncode:
@@ -251,7 +255,7 @@ def remote(target, code, request=None):
 def capture(target):
     code = BASELINE.replace(' print(json.dumps(result))', ' # Combined baseline is emitted below.') + '\n' + ELF_BASELINE.replace('__ELF_SOURCE__', repr(
         (TREE / 'scripts/elf-abi.py').read_text())).replace('__ELF_POLICY__', repr(ELF.POLICY))
-    return remote(target, code)
+    return remote(target, code, timeout=CAPTURE_TIMEOUT)
 
 
 ELF_BASELINE = r'''
@@ -259,6 +263,12 @@ import stat
 namespace={'__name__':'remote_elf_inspection','__file__':'/nonexistent/scripts/elf-abi.py'}
 exec(__ELF_SOURCE__,namespace)
 namespace['POLICY']=__ELF_POLICY__
+canonical_fn=namespace['canonical']
+elf_fn=namespace['elf']
+lstat=os.lstat; readlink=os.readlink; dirname=os.path.dirname; join=os.path.join
+islnk=stat.S_ISLNK; isreg=stat.S_ISREG
+os_open=os.open; os_read=os.read; os_close=os.close
+open_flags=os.O_RDONLY|getattr(os,'O_NOFOLLOW',0)|getattr(os,'O_NONBLOCK',0)
 elf_records={}; identities=[]
 for record in result['installed'].split('\n\n'):
  name=None; version=None; folder=''; paths=[]; dependencies=[]; provides=[]
@@ -272,19 +282,29 @@ for record in result['installed'].split('\n\n'):
  if not name: continue
  inventory={'schema':1,'package':name,'version':version,'files':{},'links':{}}
  for path in paths:
-  p=pathlib.Path(path); canonical=namespace['canonical'](path)
   try:
-   before=p.lstat()
-   if stat.S_ISLNK(before.st_mode):
-    inventory['links'][canonical]=namespace['canonical'](os.path.join(os.path.dirname(path),os.readlink(p)))
-   elif stat.S_ISREG(before.st_mode):
-    item=namespace['elf'](p)
+   before=lstat(path)
+   mode=before.st_mode
+   if islnk(mode):
+    canonical=canonical_fn(path)
+    inventory['links'][canonical]=canonical_fn(join(dirname(path),readlink(path)))
+   elif isreg(mode):
+    if before.st_size<4: continue
+    fd=os_open(path,open_flags)
+    try:
+     magic=os_read(fd,4)
+    finally:
+     os_close(fd)
+    if magic!=b'\x7fELF': continue
+    item=elf_fn(path)
     if item:
-     after=p.lstat()
-     identity=lambda st:(st.st_dev,st.st_ino,st.st_size,st.st_mtime_ns,st.st_ctime_ns)
-     if identity(before)!=identity(after):raise RuntimeError('ELF changed during baseline scan: '+path)
+     after=lstat(path)
+     ident_before=(before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns,before.st_ctime_ns)
+     ident_after=(after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns,after.st_ctime_ns)
+     if ident_before!=ident_after:raise RuntimeError('ELF changed during baseline scan: '+path)
+     canonical=canonical_fn(path)
      inventory['files'][canonical]=item
-     identities.append((canonical,identity(after)))
+     identities.append((canonical,ident_after))
   except FileNotFoundError:
    continue
  elf_records[name]={'name':name,'version':version,'depends':dependencies,'provides':provides,'elf':inventory}

@@ -413,6 +413,132 @@ class ParallelBuildStagingTests(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertEqual(res.stdout.strip(), 'weechat=full libfoo=__default')
 
+    def test_stage_sqlite_migration_and_joint_crash_recovery(self):
+        import sqlite3
+
+        root = self.tmp / 'staging'
+        manifests = root / 'stamp/packages'
+        manifests.mkdir(parents=True)
+        (root / 'usr/bin').mkdir(parents=True)
+        (root / 'usr/bin/shared-tool').write_bytes(b'V1')
+        (root / 'usr/bin/other-tool').write_bytes(b'OTHER')
+        # Seed a legacy .owners.json to verify one-time migration to .owners.db.
+        legacy_index = {
+            'schema': 1,
+            'paths': {
+                'usr/bin/shared-tool': ['pkg-a', 'pkg-b'],
+                'usr/bin/other-tool': ['pkg-b'],
+            },
+            'owners': {
+                'pkg-a': ['usr/bin/shared-tool'],
+                'pkg-b': ['usr/bin/other-tool', 'usr/bin/shared-tool'],
+            },
+            'meta': {'pkg-a': {'package': 'pkg-a', 'base': 'pkg-a'}, 'pkg-b': {'package': 'pkg-b', 'base': 'pkg-b'}},
+        }
+        (manifests / '.owners.json').write_text(json.dumps(legacy_index))
+        lock = self.tmp / 'root.flock'
+
+        # Commit pkg-a with an extra file; should migrate .owners.json -> .owners.db.
+        src = self.tmp / 'src_a'
+        (src / 'usr/bin').mkdir(parents=True)
+        (src / 'usr/bin/shared-tool').write_bytes(b'V1')
+        (src / 'usr/bin/only-a').write_bytes(b'ONLY-A')
+        subprocess.run([
+            sys.executable, str(SCRIPTS / 'stage-package.py'),
+            '--root', str(root), '--source', str(src),
+            '--lock', str(lock), '--manifest', str(manifests / 'pkg-a.list'),
+            '--owner', 'pkg-a',
+        ], check=True)
+        self.assertTrue((manifests / '.owners.db').is_file())
+        self.assertFalse((manifests / '.owners.json').exists())
+
+        # Simulate a crash AFTER SQLite commit succeeded but BEFORE .stage-pending unlink.
+        stage_mod = load_module('stage_pkg_recovery', SCRIPTS / 'stage-package.py')
+        work = manifests / '.stage-post-db-crash'
+        (work / 'backup/usr/bin').mkdir(parents=True)
+        os.link(root / 'usr/bin/only-a', work / 'backup/usr/bin/only-a')
+        (root / 'usr/bin/only-a').unlink()
+        (root / 'usr/bin/only-a').write_bytes(b'CORRUPT-V2')
+        (root / 'usr/bin/new-v2').write_bytes(b'NEW-V2')
+        conn = sqlite3.connect(str(manifests / '.owners.db'))
+        with conn:
+            conn.execute("INSERT INTO ownership (path, owner_id) VALUES ('usr/bin/new-v2', 'pkg-a')")
+        conn.close()
+        (work / 'journal').write_text(json.dumps({
+            'fs': [['usr/bin/only-a', 'file'], ['usr/bin/new-v2', 'absent']],
+            'db_undo': {
+                'db': 'stamp/packages/.owners.db',
+                'delete_owners': ['pkg-a'],
+                'restore_owners': {'pkg-a': ['usr/bin/only-a', 'usr/bin/shared-tool']},
+                'restore_meta': {'pkg-a': json.dumps({'package': 'pkg-a', 'base': 'pkg-a'}, sort_keys=True)},
+            },
+        }))
+        (manifests / '.stage-pending').symlink_to(work.name)
+
+        # Recovery must revert BOTH the filesystem AND the SQLite ownership DB.
+        self.assertTrue(stage_mod.recover_if_pending(root, manifests))
+        self.assertFalse((manifests / '.stage-pending').is_symlink())
+        self.assertEqual((root / 'usr/bin/only-a').read_bytes(), b'ONLY-A')
+        self.assertFalse((root / 'usr/bin/new-v2').exists())
+        conn = sqlite3.connect(str(manifests / '.owners.db'))
+        rows = sorted(r[0] for r in conn.execute("SELECT path FROM ownership WHERE owner_id = 'pkg-a'"))
+        conn.close()
+        self.assertEqual(rows, ['usr/bin/only-a', 'usr/bin/shared-tool'])
+
+    def test_config_packages_stamp_ignores_kernel_sequence_but_rebuilds_preinit_timeout(self):
+        # Verify base-files declares CONFIG_TARGET_PREINIT_TIMEOUT in PKG_CONFIG_DEPENDS.
+        base_mk = (ROOT / 'package/base-files/Makefile').read_text()
+        self.assertIn('CONFIG_TARGET_PREINIT_TIMEOUT', base_mk.split('include $(INCLUDE_DIR)/package.mk', 1)[0])
+
+        # Extract the ACTUAL .config-packages rule from include/package-pack.mk (not a copy).
+        pack_mk = (ROOT / 'include/package-pack.mk').read_text()
+        marker = '$(TMP_DIR)/.config-packages:'
+        rule_block = pack_mk[pack_mk.index(marker):].split('\nendif', 1)[0]
+
+        # Wrap grep in PATH to count how many times the 391 KB .config is scanned.
+        shim_bin = self.tmp / 'shim_bin'
+        shim_bin.mkdir()
+        grep_log = self.tmp / 'grep.count'
+        real_grep = shutil.which('grep')
+        shim_grep = shim_bin / 'grep'
+        shim_grep.write_text(f'#!/bin/sh\necho x >> "{grep_log}"\nexec "{real_grep}" "$@"\n')
+        shim_grep.chmod(0o755)
+        env = {**os.environ, 'PATH': f'{shim_bin}:{os.environ["PATH"]}'}
+
+        cfg = self.tmp / '.config'
+        cfg.write_text('CONFIG_OPENWRT_KERNEL_SEQUENCE=87\nCONFIG_TARGET_PREINIT_TIMEOUT=4\n')
+        mk = (
+            f'TOPDIR := {self.tmp}\n'
+            f'TMP_DIR := {self.tmp}/tmp\n'
+            + rule_block + '\n'
+            '$(TMP_DIR)/pkg.installed: $(TMP_DIR)/.config-packages\n'
+            '\t@echo REBUILT >> $(TMP_DIR)/events\n'
+            '\t@touch $@\n'
+            'FORCE:\n'
+        )
+        run_mk = lambda: subprocess.run(['make', '-rRsf', '-', f'{self.tmp}/tmp/pkg.installed'],
+                                        cwd=self.tmp, input=mk, text=True, check=True, capture_output=True, env=env)
+        run_mk()
+        self.assertEqual((self.tmp / 'tmp/events').read_text().splitlines(), ['REBUILT'])
+        self.assertEqual(len(grep_log.read_text().splitlines()), 1)
+
+        # 1. Changing ONLY CONFIG_OPENWRT_KERNEL_SEQUENCE must NOT rebuild unrelated package,
+        #    and 3 consecutive make runs must only invoke grep ONCE (not 3 times).
+        time.sleep(0.02)
+        cfg.write_text('CONFIG_OPENWRT_KERNEL_SEQUENCE=88\nCONFIG_TARGET_PREINIT_TIMEOUT=4\n')
+        grep_log.unlink()
+        for _ in range(3):
+            run_mk()
+        self.assertEqual((self.tmp / 'tmp/events').read_text().splitlines(), ['REBUILT'])
+        self.assertEqual(len(grep_log.read_text().splitlines()), 1)
+
+        # 2. Changing CONFIG_TARGET_PREINIT_TIMEOUT MUST re-scan and rebuild.
+        time.sleep(0.02)
+        cfg.write_text('CONFIG_OPENWRT_KERNEL_SEQUENCE=88\nCONFIG_TARGET_PREINIT_TIMEOUT=6\n')
+        run_mk()
+        self.assertEqual((self.tmp / 'tmp/events').read_text().splitlines(), ['REBUILT', 'REBUILT'])
+        self.assertEqual(len(grep_log.read_text().splitlines()), 2)
+
 
 if __name__ == '__main__':
     unittest.main()
