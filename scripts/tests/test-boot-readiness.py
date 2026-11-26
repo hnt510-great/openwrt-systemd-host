@@ -142,33 +142,44 @@ print('u '+(os.environ.get('BUS_PID','2345') if sys.argv[-1]=='org.freedesktop.D
 class LegacyBusOwnership(Helpers):
     def setUp(self):
         super().setUp()
-        source = (ROOT / 'feeds/packages/utils/dbus/files/dbus.init').read_text()
-        self.init = self.root / 'dbus.init'
-        source = source.replace('/run/systemd/system', str(self.root / 'native'))
-        source = source.replace('/usr/lib/systemd/system/dbus.service', str(self.root / 'dbus.service'))
+        self.dbus_dir = ROOT / 'feeds/packages/utils/dbus'
+        source = (self.dbus_dir / 'files/dbus-native.init').read_text()
+        self.init = self.root / 'dbus-native.init'
         source = source.replace('/usr/bin/systemctl', str(self.bin / 'systemctl'))
         self.init.write_text(source)
-        (self.root / 'native').mkdir()
-        (self.root / 'dbus.service').touch()
         self.command('systemctl', "import sys\nprint('systemctl '+' '.join(sys.argv[1:]))\n")
 
     def invoke(self, action, offline=False):
         env = dict(self.env, IPKG_INSTROOT='/offline' if offline else '')
-        return subprocess.run(['sh', '-c', 'action=$1; . "$2"; echo traditional-path',
-                               'fixture', action, str(self.init)], env=env,
+        return subprocess.run(['sh', str(self.init), action], env=env,
                               capture_output=True, text=True, check=True).stdout.strip()
 
+    def test_recipe_selects_native_adapter_on_systemd(self):
+        recipe = (self.dbus_dir / 'Makefile').read_text()
+        self.assertIn(
+            '$(INSTALL_BIN) ./files/$(if $(CONFIG_OPENWRT_SYSTEMD),dbus-native.init,dbus.init) $(1)/etc/init.d/dbus',
+            recipe)
+
     def test_native_actions_delegate_without_traditional_daemon(self):
-        for action in ('boot', 'start', 'restart', 'reload'):
+        for action in ('start', 'restart', 'reload'):
             with self.subTest(action=action):
                 self.assertEqual(self.invoke(action), 'systemctl start dbus.service')
-        for action in ('stop', 'shutdown'):
-            self.assertEqual(self.invoke(action), '')
+        for action in ('boot', 'stop', 'shutdown', 'depends'):
+            with self.subTest(action=action):
+                self.assertEqual(self.invoke(action), '')
+        self.assertEqual(self.invoke('enabled'), 'systemctl is-enabled dbus.service')
+        self.assertEqual(self.invoke('running'), 'systemctl is-active dbus.service')
 
-    def test_recovery_and_offline_install_keep_traditional_path(self):
-        self.assertEqual(self.invoke('start', offline=True), 'traditional-path')
-        (self.root / 'native').rmdir()
-        self.assertEqual(self.invoke('start'), 'traditional-path')
+    def test_offline_install_routes_only_enablement_to_root(self):
+        self.assertEqual(self.invoke('enable', offline=True),
+                         'systemctl --root=/offline enable dbus.service')
+        self.assertEqual(self.invoke('disable', offline=True),
+                         'systemctl --root=/offline disable dbus.service')
+        self.assertEqual(self.invoke('enabled', offline=True),
+                         'systemctl --root=/offline is-enabled dbus.service')
+        for action in ('start', 'restart', 'reload', 'boot', 'stop'):
+            with self.subTest(action=action):
+                self.assertEqual(self.invoke(action, offline=True), '')
 
 
 if __name__ == '__main__':

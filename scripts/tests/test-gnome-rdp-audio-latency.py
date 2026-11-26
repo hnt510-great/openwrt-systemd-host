@@ -13,6 +13,8 @@ import subprocess
 import tempfile
 import unittest
 
+from package_recipe import recipe_version
+
 ROOT = Path(__file__).resolve().parents[2]
 
 PREFIX = r'''
@@ -147,14 +149,15 @@ def function(source, name):
 class AudioLatencyTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        archive = ROOT / 'dl/gnome-remote-desktop-51.0.tar.xz'
+        version = recipe_version(ROOT / 'package/custom/gnome-remote-desktop/Makefile')
+        archive = ROOT / f'dl/gnome-remote-desktop-{version}.tar.xz'
         if not archive.exists():
-            raise unittest.SkipTest('download gnome-remote-desktop first')
+            raise unittest.SkipTest(f'download gnome-remote-desktop {version} first')
         cls.temporary = tempfile.TemporaryDirectory(prefix='grd-audio-latency-')
         cls.addClassCleanup(cls.temporary.cleanup)
         work = Path(cls.temporary.name)
         subprocess.run(['tar', '-xf', str(archive), '-C', str(work)], check=True)
-        tree = work / 'gnome-remote-desktop-51.0'
+        tree = work / f'gnome-remote-desktop-{version}'
         for patch in sorted((ROOT / 'package/custom/gnome-remote-desktop/patches').glob('*.patch')):
             if patch.name.startswith('005-') and os.environ.get('GRD_AUDIO_PATCH'):
                 patch = Path(os.environ['GRD_AUDIO_PATCH']).resolve()

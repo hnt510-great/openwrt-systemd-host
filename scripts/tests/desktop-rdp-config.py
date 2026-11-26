@@ -35,19 +35,23 @@ class DesktopRdpConfiguration(unittest.TestCase):
                                         capture_output=True)
                 self.assertEqual(result.returncode == 0, valid)
 
-    def test_gnome_session_sanitizes_inherited_environment(self):
+    def test_gnome_session_sanitizes_inherited_environment_and_requires_keyring(self):
         import socket
         with tempfile.TemporaryDirectory() as directory:
             tmp = Path(directory)
             binary = tmp / 'bin'
             binary.mkdir()
             launch = binary / 'gnome-session'
+            recording = tmp / 'session.json'
             launch.write_text('#!/usr/bin/env python3\nimport json,os,sys\n'
-                              'print(json.dumps([sys.argv[1:],dict(os.environ)]))\n')
+                              'with open(os.environ["SESSION_OUTPUT"], "w") as output:\n'
+                              '    json.dump([sys.argv[1:], dict(os.environ)], output)\n')
             launch.chmod(0o755)
-            for name in ['systemctl', 'keyring']:
+            for name, body in [('systemctl', 'exit 0'),
+                               ('id', 'echo 1000'),
+                               ('keyring', 'exit "${KEYRING_FAILURE:-0}"')]:
                 path = binary / name
-                path.write_text('#!/bin/sh\nexit 0\n')
+                path.write_text('#!/bin/sh\n' + body + '\n')
                 path.chmod(0o755)
             # A real Unix socket satisfies the launcher readiness condition,
             # while all service operations are isolated by the PATH stubs.
@@ -74,18 +78,29 @@ class DesktopRdpConfiguration(unittest.TestCase):
             script = script.replace('/usr/libexec/desktop-user-setup', str(user_setup))
             path = tmp / 'session'
             path.write_text(script)
-            env = dict(os.environ, PATH=str(binary) + ':' + os.environ['PATH'],
-                       HOME=str(tmp), USER='alice', XDG_RUNTIME_DIR=str(tmp),
-                       WAYLAND_SOCKET='9999', GTK_IM_MODULE='legacy',
-                       GTK_IM_MODULE_FILE='/obsolete/cache', LIBSEAT_BACKEND='seatd')
-            result = subprocess.run(['sh', str(path)], env=env, capture_output=True,
-                                    text=True, check=True)
-            args, actual = json.loads(result.stdout)
-            self.assertEqual(args, ['--session=gnome'])
-            self.assertEqual(actual['XDG_CURRENT_DESKTOP'], 'GNOME')
-            self.assertEqual(actual['XDG_SESSION_TYPE'], 'wayland')
-            for name in ['WAYLAND_SOCKET', 'GTK_IM_MODULE', 'GTK_IM_MODULE_FILE', 'LIBSEAT_BACKEND']:
-                self.assertNotIn(name, actual)
+            base_env = dict(os.environ, PATH=str(binary) + ':' + os.environ['PATH'],
+                            HOME=str(tmp), USER='alice', XDG_RUNTIME_DIR=str(tmp),
+                            OPENWRT_DESKTOP_SESSION='gnome', SESSION_OUTPUT=str(recording))
+            for failure, module, cache in [('1', 'fcitx', 'old-module'),
+                                           ('0', 'fcitx', 'old-module'),
+                                           ('0', 'legacy', '/obsolete/cache')]:
+                with self.subTest(keyring_failure=failure, module=module):
+                    inherited = dict(WAYLAND_SOCKET='9999', GTK_IM_MODULE=module,
+                                     GTK_IM_MODULE_FILE=cache, LIBSEAT_BACKEND='seatd')
+                    recording.unlink(missing_ok=True)
+                    result = subprocess.run(['sh', str(path)],
+                                            env=dict(base_env, KEYRING_FAILURE=failure, **inherited),
+                                            capture_output=True, text=True)
+                    self.assertEqual(result.returncode == 0, failure == '0', result.stderr)
+                    if failure == '1':
+                        self.assertFalse(recording.exists(), 'GNOME started after keyring failure')
+                    else:
+                        args, actual = json.loads(recording.read_text())
+                        self.assertEqual(args, ['--session=gnome'])
+                        self.assertEqual(actual['XDG_CURRENT_DESKTOP'], 'GNOME')
+                        self.assertEqual(actual['XDG_SESSION_TYPE'], 'wayland')
+                        for name in inherited:
+                            self.assertNotIn(name, actual)
 
     def test_credential_password_stays_on_stdin(self):
         with tempfile.TemporaryDirectory() as directory:

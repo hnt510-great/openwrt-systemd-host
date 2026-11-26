@@ -24,6 +24,8 @@ class SourceVersionTests(unittest.TestCase):
         source = (TREE / 'include/package.mk').read_text()
         helpers = source[source.index('elf_rebuild_upstream ='):
                          source.index('find_library_dependency_names =')]
+        ledger = TREE / 'configs/apk-elf-rebuilds.mk'
+        entries = ledger.read_text().splitlines()
         for name, recipe, previous in (
                 ('ppp', 'package/network/services/ppp', '2.5.4-r5'),
                 ('ppp-mod-pppoe', 'package/network/services/ppp', '2.5.4-r4'),
@@ -46,21 +48,49 @@ class SourceVersionTests(unittest.TestCase):
                 fields = '\n'.join(line for line in
                                    (TREE / recipe / 'Makefile').read_text().splitlines()
                                    if line.startswith(('PKG_VERSION:=', 'PKG_RELEASE:=')))
-                # Exercise the real guard and mapping, for both the current
-                # recipe and a future upstream release increment.
-                for increment in (0, 1):
-                    version = self.make(
-                        'include ' + str(TREE / 'configs/apk-elf-rebuilds.mk') + '\n'
-                        + fields + '\n' + helpers + '\n'
-                        'VERSION:=$(PKG_VERSION)-r$(shell expr $(PKG_RELEASE) + '
-                        + str(increment) + ')\n'
-                        '$(call CheckElfRebuildVersion,' + name + ',$(VERSION))\n'
-                        'VERSION:=$(or $(ELF_REBUILD_' + name + '_$(VERSION)),$(VERSION))\n'
-                        'all:\n\t@echo "$(VERSION)"\n')
-                    order = subprocess.check_output([str(APK), 'version', '-t', previous, version],
-                                                    text=True).strip()
-                    self.assertEqual(order, '<', (name, previous, version))
-                    previous = version
+                (self.work / 'Makefile').write_text(
+                    f'include {ledger}\n{fields}\n{helpers}\n'
+                    'VERSION:=$(PKG_VERSION)-r$(PKG_RELEASE)\n'
+                    f'$(call CheckElfRebuildVersion,{name},$(VERSION))\n'
+                    f'VERSION:=$(or $(ELF_REBUILD_{name}_$(VERSION)),$(VERSION))\n'
+                    'all:\n\t@echo "$(VERSION)"\n')
+
+                def eval_release(*args):
+                    return subprocess.run(['make', '-s', *args], cwd=self.work,
+                                          capture_output=True, text=True)
+
+                current_res = eval_release()
+                self.assertEqual(current_res.returncode, 0, (name, current_res.stderr))
+                current = current_res.stdout.strip()
+                order = subprocess.check_output([str(APK), 'version', '-t', previous, current],
+                                                text=True).strip()
+                self.assertEqual(order, '<', (name, previous, current))
+
+                upstream, release = current.rsplit('-r', 1)
+                raw = dict(line.split(':=', 1) for line in fields.splitlines())
+                prefix = f'ELF_REBUILD_{name}_'
+                mappings = dict(line.removeprefix(prefix).split(':=', 1) for line in entries
+                                if line.startswith((prefix + upstream + '-r', prefix + upstream + ':=')))
+                # A mapped source may also be an output. Only output-only
+                # versions must be rejected as recipe inputs.
+                reserved = set(mappings.values()) - mappings.keys()
+                for version in sorted(reserved):
+                    with self.subTest(reserved=version):
+                        collision = eval_release('PKG_RELEASE=' + version.rsplit('-r', 1)[1])
+                        self.assertNotEqual(collision.returncode, 0, (name, version))
+                        self.assertIn(f'recipe version {version} is reserved', collision.stderr)
+
+                highest = max([int(release)] + [int(v.rsplit('-r', 1)[1]) for v in mappings.values()])
+                for candidate in sorted({int(raw['PKG_RELEASE']) + 1, highest + 1}):
+                    if f'{upstream}-r{candidate}' in reserved:
+                        continue  # Rejection was checked above.
+                    with self.subTest(next_release=candidate):
+                        next_res = eval_release(f'PKG_RELEASE={candidate}')
+                        self.assertEqual(next_res.returncode, 0, next_res.stderr)
+                        next_version = next_res.stdout.strip()
+                        order = subprocess.check_output(
+                            [str(APK), 'version', '-t', current, next_version], text=True).strip()
+                        self.assertEqual(order, '<', (name, current, next_version))
 
     def commit(self, timestamp):
         subprocess.run(['git', 'add', 'code.lua', 'po'], cwd=self.work, check=True,
