@@ -29,8 +29,8 @@ class PolicyTests(unittest.TestCase):
                        check=True, capture_output=True)
         self.pkg('linux-image-generation-one', '1-r1', 'usr/share/kernel-one', b'old image')
         self.pkg('linux-image-openwrt', '1-r1', 'usr/share/tracker', b'one', 'linux-image-generation-one=1-r1')
-        self.pkg('legacy-module', '1-r1', 'usr/lib/modules/legacy/driver.ko', b'legacy module')
-        self.pkg('legacy-headers', '1-r1', 'usr/src/linux-headers-legacy/Makefile', b'legacy headers')
+        self.pkg('legacy-module', '1-r1', 'usr/share/legacy-module', b'legacy module')
+        self.pkg('legacy-headers', '1-r1', 'usr/share/legacy-headers', b'legacy headers')
         self.index()
         self.apk('add', '--initdb', '--no-scripts', 'linux-image-openwrt', 'legacy-module', 'legacy-headers')
         subprocess.run(['sudo', '-n', 'chown', '-R', str(os.getuid()) + ':' + str(os.getgid()), str(self.root)], check=True)
@@ -56,7 +56,6 @@ int main(int argc, char **argv) {
         records = self.installed()
         package = records['linux-image-generation-one']
         (self.root / 'etc/openwrt-kernel/protected').write_text('linux-image-generation-one><' + package['C'] + '\n')
-        (self.root / 'etc/openwrt-kernel/legacy-release').write_text('legacy\n')
         self.pkg('linux-image-generation-two', '1-r1', 'usr/share/kernel-two', b'new image')
         self.pkg('linux-image-openwrt', '1-r2', 'usr/share/tracker', b'two', 'linux-image-generation-two=1-r1')
         self.pkg('legacy-module', '1-r2', 'usr/share/legacy-tracker', b'no module ownership')
@@ -104,13 +103,11 @@ int main(int argc, char **argv) {
                 result[data['P']] = data
         return result
 
-    def test_upgrade_retains_previous_image_and_legacy_module_bytes(self):
+    def test_upgrade_retains_previous_image(self):
         self.apk('upgrade')
         installed = self.installed()
         self.assertIn('linux-image-generation-one', installed)
         self.assertIn('linux-image-generation-two', installed)
-        self.assertEqual((self.root / 'usr/lib/modules/legacy/driver.ko').read_bytes(), b'legacy module')
-        self.assertEqual((self.root / 'usr/src/linux-headers-legacy/Makefile').read_bytes(), b'legacy headers')
         self.assertIn('apk-post 0 live 0', (self.root / 'run/policy-contract').read_text())
 
     def test_preflight_rejection_precedes_any_package_writes(self):
@@ -137,192 +134,12 @@ int main(int argc, char **argv) {
         self.pkg('preupgrade-probe', '1-r2', 'usr/share/preupgrade-probe', b'new tool')
         self.index()
 
-    def abi_generation(self, sequence, abi):
-        generation = abi.replace('~', '-owrt-') + '-g' + str(sequence)
-        image = 'linux-image-' + generation
-        module = 'kmod-abi-probe-' + generation
-        headers = 'kernel-dev-headers-' + generation
-        version = '1000.' + str(sequence) + '.6.18.55-r1'
-        if not (self.repo / ('kernel-' + abi + '.apk')).exists():
-            self.pkg('kernel', abi, 'usr/share/abi', abi.encode())
-        self.pkg(image, abi, 'usr/share/images/' + generation, b'kernel image')
-        self.pkg(module, version, 'usr/lib/modules/' + generation + '/probe.ko',
-                 b'matching module', image + '=' + abi)
-        self.pkg(headers, version, 'usr/src/linux-headers-' + generation + '/Makefile',
-                 b'matching headers', image + '=' + abi)
-        self.pkg('kmod-abi-probe', version, 'usr/share/probe-tracker', str(sequence).encode(),
-                 'kernel=' + abi + ' ' + module + '=' + version)
-        self.pkg('kernel-dev-headers', version, 'usr/share/abi-headers-tracker', str(sequence).encode(),
-                 'kernel=' + abi + ' ' + headers + '=' + version)
-        self.pkg('linux-image-openwrt', '1-r' + str(sequence), 'usr/share/tracker', str(sequence).encode(),
-                 'kernel=' + abi + ' ' + image + '=' + abi)
-        self.index()
-        return image, module, headers
-
-    def installed_abi_generation(self):
-        abi = '6.18.55~' + 'a' * 32 + '-r1'
-        payloads = self.abi_generation(10, abi)
+    def test_userspace_only_retains_kernel_identity_and_world(self):
         self.pkg('userspace-probe', '1-r1', 'usr/share/userspace-probe', b'old userspace')
         self.index()
-        self.apk('add', '--upgrade', 'linux-image-openwrt', 'kmod-abi-probe', 'kernel-dev-headers', 'userspace-probe')
-        self.pkg('userspace-probe', '1-r2', 'usr/share/userspace-probe', b'new userspace')
-        return abi, payloads
-
-    def test_same_abi_sequence_upgrade_keeps_kernel_modules_headers_and_updates_userspace(self):
-        abi, old = self.installed_abi_generation()
-        new = self.abi_generation(11, abi)
-        before = self.installed()
-        world = (self.root / 'etc/apk/world').read_bytes()
-        database = (self.root / 'lib/apk/db/installed').read_bytes()
-        result = self.apk('upgrade', '--simulate')
-        self.assertIn('Keeping installed kernel generation: ABI unchanged.', result.stdout + result.stderr)
-        self.assertEqual(database, (self.root / 'lib/apk/db/installed').read_bytes())
-        result = self.apk('upgrade')
-        self.assertIn('Keeping installed kernel generation: ABI unchanged.', result.stdout + result.stderr)
-        after = self.installed()
-        for name in ('kernel', 'linux-image-openwrt', 'kmod-abi-probe', 'kernel-dev-headers', *old):
-            self.assertEqual(before[name], after[name])
-        for name in new:
-            self.assertNotIn(name, after)
-        self.assertEqual(after['userspace-probe']['V'], '1-r2')
-        self.assertEqual(world, (self.root / 'etc/apk/world').read_bytes())
-        transaction = subprocess.check_output(
-            ['sudo', '-n', 'cat', str(self.root / 'run/openwrt-kernel-apk.txn')], text=True)
-        for line in transaction.splitlines():
-            old_name, old_version, new_name, new_version, reinstall = line.split('\t')
-            if old_name == 'kernel' or old_name.startswith(('linux-image-', 'kmod-', 'kernel-dev-headers')):
-                self.assertEqual((old_name, old_version, '0'), (new_name, new_version, reinstall))
-        # No permanent tracker pins may block the next real ABI transition,
-        # including one whose hash sorts below the installed hash.
-        next_abi = abi.replace('a' * 32, '0' * 32)
-        next_payloads = self.abi_generation(12, next_abi)
-        self.apk('upgrade')
-        after = self.installed()
-        self.assertEqual(after['kernel']['V'], next_abi)
-        self.assertEqual(after['linux-image-openwrt']['V'], '1-r12')
-        for name in next_payloads:
-            self.assertIn(name, after)
-
-    def test_explicit_same_abi_image_with_matching_generation_is_allowed(self):
-        abi, old = self.installed_abi_generation()
-        protected = self.root / 'etc/openwrt-kernel/protected'
-        records = self.installed()
-        protected.write_text(protected.read_text() + ''.join(
-            name + '><' + records[name]['C'] + '\n' for name in old))
-        new = self.abi_generation(11, abi)
-        version = '1000.11.6.18.55-r1'
-        self.apk('add', new[0] + '=' + abi, 'linux-image-openwrt=1-r11',
-                 'kmod-abi-probe=' + version, 'kernel-dev-headers=' + version)
-        after = self.installed()
-        for name in (*old, *new):
-            self.assertIn(name, after)
-        self.assertEqual(after['linux-image-openwrt']['V'], '1-r11')
-        self.assertEqual(after['kmod-abi-probe']['V'], version)
-        self.assertEqual(after['kernel-dev-headers']['V'], version)
-
-    def test_explicit_local_same_abi_image_preserves_protected_generation(self):
-        abi, old = self.installed_abi_generation()
-        protected = self.root / 'etc/openwrt-kernel/protected'
-        records = self.installed()
-        protected.write_text(protected.read_text() + ''.join(
-            name + '><' + records[name]['C'] + '\n' for name in old))
-        new = self.abi_generation(11, abi)
-        version = '1000.11.6.18.55-r1'
-        (self.root / 'var/cache/apk').mkdir(parents=True, exist_ok=True)
-        self.apk('--cache', '--cache-packages', 'add', str(self.repo / (new[0] + '-' + abi + '.apk')),
-                 'linux-image-openwrt=1-r11', 'kmod-abi-probe=' + version,
-                 'kernel-dev-headers=' + version)
-        for name in (*old, *new):
-            self.assertIn(name, self.installed())
-        self.assertEqual(self.installed()['linux-image-openwrt']['V'], '1-r11')
-
-    def test_old_retained_image_pin_does_not_enable_same_abi_upgrade(self):
-        abi, _ = self.installed_abi_generation()
-        retained = self.abi_generation(9, abi)
-        self.apk('add', retained[0] + '=' + abi)
-        new = self.abi_generation(11, abi)
-        self.apk('upgrade')
-        after = self.installed()
-        self.assertEqual(after['linux-image-openwrt']['V'], '1-r10')
-        for name in new:
-            self.assertNotIn(name, after)
-
-    def test_same_abi_targeted_upgrade_also_keeps_installed_generation(self):
-        abi, old = self.installed_abi_generation()
-        new = self.abi_generation(11, abi)
-        self.apk('upgrade', 'linux-image-openwrt')
-        self.assertEqual(self.installed()['linux-image-openwrt']['V'], '1-r10')
-        for name in old:
-            self.assertIn(name, self.installed())
-        for name in new:
-            self.assertNotIn(name, self.installed())
-
-    def test_same_abi_targeted_module_upgrade_keeps_installed_generation(self):
-        abi, _ = self.installed_abi_generation()
-        new = self.abi_generation(11, abi)
-        self.apk('upgrade', 'kmod-abi-probe')
-        self.assertEqual(self.installed()['kmod-abi-probe']['V'], '1000.10.6.18.55-r1')
-        for name in new:
-            self.assertNotIn(name, self.installed())
-
-    def test_new_module_cannot_introduce_same_abi_generation(self):
-        abi, _ = self.installed_abi_generation()
-        for sequence in (10, 11, 12):
-            image, _, _ = self.abi_generation(sequence, abi)
-            generation = image.removeprefix('linux-image-')
-            payload = 'kmod-new-probe-' + generation
-            version = '1000.' + str(sequence) + '.6.18.55-r1'
-            self.pkg(payload, version, 'usr/lib/modules/' + generation + '/new.ko',
-                     b'new driver', image + '=' + abi)
-            self.pkg('kmod-new-probe', version, 'usr/share/new-probe-tracker', str(sequence).encode(),
-                     'kernel=' + abi + ' ' + payload + '=' + version)
-        self.index()
-        before = (self.root / 'lib/apk/db/installed').read_bytes()
-        self.apk('add', 'kmod-new-probe', success=False)
-        self.assertEqual(before, (self.root / 'lib/apk/db/installed').read_bytes())
-        self.apk('add', 'kmod-new-probe=1000.10.6.18.55-r1')
-        after = self.installed()
-        self.assertEqual(after['linux-image-openwrt']['V'], '1-r10')
-        self.assertEqual(after['kmod-new-probe']['V'], '1000.10.6.18.55-r1')
-        self.assertFalse(any(name.startswith('linux-image-') and name.endswith(('-g11', '-g12'))
-                             for name in after))
-
-    def test_same_abi_policy_preserves_explicit_world_constraints(self):
-        abi, _ = self.installed_abi_generation()
-        self.abi_generation(11, abi)
-        world_path = self.root / 'etc/apk/world'
-        world = world_path.read_text().replace('linux-image-openwrt\n', 'linux-image-openwrt=1-r11\n')
-        subprocess.run(['sudo', '-n', 'tee', str(world_path)], input=world,
-                       text=True, capture_output=True, check=True)
-        database = (self.root / 'lib/apk/db/installed').read_bytes()
-        self.apk('upgrade', success=False)
-        self.assertEqual(database, (self.root / 'lib/apk/db/installed').read_bytes())
-        self.assertEqual(world_path.read_text(), world)
-
-    def obsolete_module_transition(self):
-        abi, _ = self.installed_abi_generation()
-        self.pkg('kmod-obsolete', '1-r1', 'usr/share/obsolete', b'old tracker', 'kernel=' + abi)
-        self.index()
-        self.apk('add', 'kmod-obsolete')
-        self.abi_generation(11, abi.replace('a' * 32, 'b' * 32))
+        self.apk('add', 'userspace-probe')
         self.pkg('userspace-probe', '1-r2', 'usr/share/userspace-probe', b'new userspace')
         self.index()
-        return abi
-
-    def test_missing_compatibility_blocks_full_upgrade_with_json_report(self):
-        self.obsolete_module_transition()
-        world = (self.root / 'etc/apk/world').read_bytes()
-        database = (self.root / 'lib/apk/db/installed').read_bytes()
-        plan = self.work / 'plan.json'
-        self.apk('upgrade', '--simulate', '--plan-json', str(plan), success=False)
-        report = json.loads(subprocess.check_output(['sudo', '-n', 'cat', str(plan)], text=True))
-        self.assertEqual(report['status'], 'blocked')
-        self.assertEqual(report['blockers'], ['unsatisfied-package-migration-or-dependency'])
-        self.assertEqual(database, (self.root / 'lib/apk/db/installed').read_bytes())
-        self.assertEqual(world, (self.root / 'etc/apk/world').read_bytes())
-
-    def test_userspace_only_retains_kernel_identity_and_world(self):
-        abi = self.obsolete_module_transition()
         before = self.installed()
         world = (self.root / 'etc/apk/world').read_bytes()
         plan = self.work / 'plan.json'
@@ -331,27 +148,18 @@ int main(int argc, char **argv) {
         self.assertEqual(report['schema'], 1)
         self.assertEqual(report['mode'], 'userspace-only')
         self.assertEqual(report['status'], 'passed')
-        self.assertEqual(report['kernel']['before']['abi'], abi)
-        self.assertEqual(report['kernel']['after']['abi'], abi)
+        self.assertEqual(report['kernel']['before']['image'], 'linux-image-generation-one')
+        self.assertEqual(report['kernel']['after']['image'], 'linux-image-generation-one')
         self.assertEqual(report['inputs']['world_sha256'], hashlib.sha256(world).hexdigest())
         self.assertEqual(report['indexes'][0]['sha256'],
                          hashlib.sha256((self.repo / 'packages.adb').read_bytes()).hexdigest())
         self.apk('upgrade', '--userspace-only')
         after = self.installed()
         self.assertEqual(after['userspace-probe']['V'], '1-r2')
-        for name in before:
-            if name == 'kernel' or name.startswith(('kmod-', 'linux-image-', 'kernel-dev-headers')):
-                self.assertEqual(before[name], after[name])
+        self.assertEqual(before['linux-image-openwrt'], after['linux-image-openwrt'])
+        self.assertEqual(before['linux-image-generation-one'], after['linux-image-generation-one'])
+        self.assertNotIn('linux-image-generation-two', after)
         self.assertEqual(world, (self.root / 'etc/apk/world').read_bytes())
-
-    def test_compatibility_tracker_allows_abi_transition(self):
-        self.obsolete_module_transition()
-        abi = '6.18.55~' + 'b' * 32 + '-r1'
-        self.pkg('kmod-obsolete', '1-r2', 'usr/share/obsolete', b'compatibility tracker', 'kernel=' + abi)
-        self.index()
-        self.apk('upgrade')
-        self.assertEqual(self.installed()['kernel']['V'], abi)
-        self.assertEqual(self.installed()['kmod-obsolete']['V'], '1-r2')
 
     def test_userspace_only_rejects_world_reset_and_targeted_upgrade(self):
         before = (self.root / 'etc/apk/world').read_bytes()
@@ -359,18 +167,9 @@ int main(int argc, char **argv) {
             self.apk('upgrade', '--userspace-only', *args, success=False)
         self.assertEqual(before, (self.root / 'etc/apk/world').read_bytes())
 
-    def test_explicit_kernel_version_pin_is_not_reset_by_full_upgrade_intent(self):
-        abi = self.obsolete_module_transition()
-        self.apk('add', 'kernel=' + abi)
-        world = (self.root / 'etc/apk/world').read_bytes()
-        self.apk('upgrade')
-        self.assertEqual(self.installed()['kernel']['V'], abi)
-        self.assertEqual(self.installed()['userspace-probe']['V'], '1-r2')
-        self.assertEqual(world, (self.root / 'etc/apk/world').read_bytes())
-
     def test_full_preflight_prevents_early_support_upgrade(self):
-        self.obsolete_module_transition()
         self.preupgrade_probe()
+        (self.root / 'etc/openwrt-kernel/reject').touch()
         before = (self.root / 'lib/apk/db/installed').read_bytes()
         result = self.chroot_apk('upgrade', '--preupgrade-depends', 'preupgrade-probe')
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -395,55 +194,34 @@ int main(int argc, char **argv) {
         self.assertEqual(before, (self.root / 'lib/apk/db/installed').read_bytes())
         self.assertEqual((self.root / 'usr/share/payload-probe').read_bytes(), b'old')
 
-    def test_preupgrade_defers_enrolled_image_until_complete_module_transaction(self):
-        # Migration enrolls a rolling image in world before it is installed.
-        # With the same config ABI, a minimal self-upgrade can add its image
-        # while retaining old logical modules, unlike the full upgrade.
-        self.apk('del', 'linux-image-openwrt')
-        self.pkg('kmod-probe', '1-r1', 'usr/share/kmod-probe', b'old module tracker')
-        self.index()
-        self.apk('add', 'kmod-probe')
-        self.preupgrade_probe()
-        self.pkg('kmod-probe-generation-two', '1-r1', 'usr/share/module-two', b'new module',
-                 'linux-image-generation-two=1-r1')
-        self.pkg('kmod-probe', '1-r2', 'usr/share/kmod-probe', b'new module tracker',
-                 'kmod-probe-generation-two=1-r1')
-        self.index()
-        subprocess.run(['sudo', '-n', 'tee', '-a', str(self.root / 'etc/apk/world')],
-                       input='linux-image-openwrt\n', text=True, capture_output=True, check=True)
-        before = (self.root / 'lib/apk/db/installed').read_bytes()
-        contract = self.root / 'run/policy-contract'
-        contract.unlink(missing_ok=True)
-        result = self.apk('upgrade', '--preupgrade-only', '--simulate',
-                          '--preupgrade-depends', 'preupgrade-probe')
-        self.assertIn('Deferring preupgrade', result.stdout + result.stderr)
-        self.assertIn('apk-pre 0 simulate 0', contract.read_text())
-        self.assertEqual(before, (self.root / 'lib/apk/db/installed').read_bytes())
-        self.assertFalse((self.root / 'usr/share/kernel-two').exists())
-        # Omit --root inside the chroot so ordinary upgrade really exercises
-        # its automatic preupgrade phase, rather than the offline-root path.
-        result = self.chroot_apk('upgrade', '--preupgrade-depends', 'preupgrade-probe')
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn('Deferring preupgrade', result.stdout + result.stderr)
-        self.assertIn('kmod-probe-generation-two', self.installed())
-        self.assertIn('linux-image-generation-one', self.installed())
-        self.assertIn('apk-post 0 live 0', contract.read_text())
-
     def test_support_only_preupgrade_keeps_normal_policy_checks(self):
         self.preupgrade_probe()
         contract = self.root / 'run/policy-contract'
         contract.unlink(missing_ok=True)
         result = self.apk('upgrade', '--preupgrade-only', '--preupgrade-depends', 'preupgrade-probe')
-        self.assertNotIn('Deferring preupgrade', result.stdout + result.stderr)
         self.assertEqual(self.installed()['preupgrade-probe']['V'], '1-r2')
         self.assertNotIn('linux-image-generation-two', self.installed())
         self.assertIn('apk-pre 0 live 0', contract.read_text())
+
+    def test_preupgrade_retains_protected_fallback_image(self):
+        self.apk('upgrade')
+        world = self.root / 'etc/apk/world'
+        subprocess.run(['sudo', '-n', 'chown', str(os.getuid()), str(world)], check=True)
+        world.write_text(''.join(line + '\n' for line in world.read_text().splitlines()
+                                 if not line.startswith('linux-image-generation-one')))
+        self.preupgrade_probe()
+        self.apk('upgrade', '--preupgrade-only', '--preupgrade-depends', 'preupgrade-probe')
+        installed = self.installed()
+        self.assertEqual(installed['preupgrade-probe']['V'], '1-r2')
+        self.assertIn('linux-image-generation-one', installed)
+        self.assertIn('linux-image-generation-two', installed)
+        self.assertNotIn('linux-image-generation-one', world.read_text())
 
     def test_protected_image_survives_explicit_delete(self):
         self.apk('del', 'linux-image-generation-one')
         self.assertIn('linux-image-generation-one', self.installed())
 
-    def test_delete_keeps_protected_orphan_generation(self):
+    def test_delete_keeps_protected_orphan_generation_without_world_leak(self):
         self.apk('upgrade')
         world = self.root / 'etc/apk/world'
         subprocess.run(['sudo', '-n', 'chown', str(os.getuid()), str(world)], check=True)
@@ -453,6 +231,7 @@ int main(int argc, char **argv) {
         self.apk('del', 'legacy-headers')
         self.assertNotIn('legacy-headers', self.installed())
         self.assertIn('linux-image-generation-one', self.installed())
+        self.assertNotIn('linux-image-generation-one', world.read_text())
         self.assertEqual((self.root / 'usr/share/kernel-one').read_bytes(), b'old image')
 
     def test_package_script_failure_reaches_activation_policy(self):

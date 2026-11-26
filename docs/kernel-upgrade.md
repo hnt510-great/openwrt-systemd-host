@@ -191,12 +191,12 @@ timeout still unwinds `pruning.json` and restores package protection pins.
 
 ## Migration from per-generation kernels
 
-Routers adopted with the previous model (`state.json` schema 1, kernels such as
-`…-owrt-<hash>-r1-g45`, per-module payloads `kmod-x-<generation>`) migrate in
-two steps. The installed kernelctl of that model cannot validate a kernel
-package, so it must be replaced first.
-
-1. **Support packages, no kernel change**:
+Routers adopted with the previous schema-1 model (`-owrt-<hash>-r1-gN`,
+per-module payloads) have migrated to schema-2 `linux-image-*` packages. Legacy
+schema-1 APK workarounds (`0102`, `0103`, `0105`, `legacy-release` purge bypass,
+and `kernel_full_upgrade_target`) have been retired from `package/system/apk/`;
+kernel generation reuse for unchanged builds is handled publisher-side by
+`scripts/kernel-reuse.py`.
 
    ```sh
    apk update

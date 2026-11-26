@@ -18,7 +18,7 @@ package data is synced before and after the database records it.
  #include <sys/stat.h>
  #include <unistd.h>
  #include "apk_defines.h"
-@@ -504,6 +506,71 @@ static int run_commit_hooks(struct apk_d
+@@ -391,6 +393,71 @@ static int run_commit_hooks(struct apk_d
  		NULL);
  }
  
@@ -90,7 +90,7 @@ package data is synced before and after the database records it.
  static void sync_if_needed(struct apk_database *db)
  {
  	struct apk_ctx *ac = db->ctx;
-@@ -724,11 +791,16 @@ int apk_solver_commit_changeset(struct a
+@@ -613,11 +680,16 @@ int apk_solver_commit_changeset(struct a
  		if (r > 0) apk_msg(out, "Proceeding with upgrade...");
  	}
  
@@ -109,7 +109,7 @@ package data is synced before and after the database records it.
  
  	/* Go through changes */
  	db->indent_level = 1;
-@@ -759,7 +831,9 @@ int apk_solver_commit_changeset(struct a
+@@ -648,7 +720,9 @@ int apk_solver_commit_changeset(struct a
  
  all_done:
  	apk_dependency_array_copy(&db->world, world);
@@ -119,7 +119,7 @@ package data is synced before and after the database records it.
  	run_commit_hooks(db, POST_COMMIT_HOOK);
  	if (kernel_policy(db, changeset, "apk-post", errors) < 0) errors++;
  
-@@ -796,6 +870,7 @@ all_done:
+@@ -685,6 +759,7 @@ all_done:
  				installed_packages);
  		}
  	}

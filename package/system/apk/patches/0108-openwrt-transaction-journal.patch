@@ -14,7 +14,7 @@ kernel policy. APK_OPENWRT_JOURNAL enables the journal for --root tests.
 ---
 --- a/doc/apk-fix.8.scd
 +++ b/doc/apk-fix.8.scd
-@@ -24,6 +24,14 @@
+@@ -24,6 +24,14 @@ following options:
  *--directory-permissions*
  	Reset all directory permissions.
  
@@ -31,17 +31,17 @@ kernel policy. APK_OPENWRT_JOURNAL enables the journal for --root tests.
  
 --- a/src/apk_context.h
 +++ b/src/apk_context.h
-@@ -74,6 +74,7 @@
+@@ -73,6 +73,7 @@ struct apk_ctx {
+ 	const char *repositories_file;
  	const char *openwrt_plan_json;
  	unsigned int openwrt_userspace_only;
- 	unsigned int openwrt_full_upgrade;
 +	unsigned int openwrt_resume;
  	const char *uvol;
  	const char *apknew_suffix;
  	apk_blob_t default_pkgname_spec;
 --- a/src/apk_solver.h
 +++ b/src/apk_solver.h
-@@ -61,3 +61,5 @@
+@@ -61,3 +61,5 @@ int apk_solver_plan(struct apk_database
  		    struct apk_dependency_array *world, struct apk_changeset *changeset);
  
  int apk_solver_verify_changeset(struct apk_database *db, struct apk_changeset *changeset);
@@ -49,7 +49,7 @@ kernel policy. APK_OPENWRT_JOURNAL enables the journal for --root tests.
 +int apk_solver_openwrt_resume(struct apk_database *db);
 --- a/src/app_fix.c
 +++ b/src/app_fix.c
-@@ -21,12 +21,14 @@
+@@ -21,12 +21,14 @@ struct fix_ctx {
  	unsigned short fix_depends : 1;
  	unsigned short fix_xattrs : 1;
  	unsigned short fix_directory_permissions : 1;
@@ -64,7 +64,7 @@ kernel policy. APK_OPENWRT_JOURNAL enables the journal for --root tests.
  	OPT(OPT_FIX_reinstall,			APK_OPT_SH("r") "reinstall") \
  	OPT(OPT_FIX_upgrade,			APK_OPT_SH("u") "upgrade") \
  	OPT(OPT_FIX_xattr,			APK_OPT_SH("x") "xattr")
-@@ -43,6 +45,10 @@
+@@ -43,6 +45,10 @@ static int fix_parse_option(void *pctx,
  	case OPT_FIX_directory_permissions:
  		ctx->fix_directory_permissions = 1;
  		break;
@@ -75,7 +75,7 @@ kernel policy. APK_OPENWRT_JOURNAL enables the journal for --root tests.
  	case OPT_FIX_reinstall:
  		ctx->solver_flags |= APK_SOLVERF_REINSTALL;
  		break;
-@@ -103,6 +109,13 @@
+@@ -103,6 +109,13 @@ static int fix_main(void *pctx, struct a
  	struct apk_installed_package *ipkg;
  
  	ctx->db = db;
@@ -116,8 +116,8 @@ kernel policy. APK_OPENWRT_JOURNAL enables the journal for --root tests.
  
  #ifdef __linux__
  static bool running_on_host(void)
-@@ -184,11 +192,12 @@
- 	return true;
+@@ -71,11 +79,12 @@ int apk_solver_kernel_retain(struct apk_
+ 	return result;
  }
  
 +static int kernel_policy_run(struct apk_database *db, const char *phase, int errors);
@@ -130,7 +130,7 @@ kernel policy. APK_OPENWRT_JOURNAL enables the journal for --root tests.
  	if (faccessat(db->root_fd, "etc/openwrt-kernel/protected", F_OK, 0) != 0) {
  		/* Offline image construction is allowed. A live adoption must happen
  		 * BEFORE any tracker can retire the original module ownership. */
-@@ -219,6 +228,13 @@
+@@ -106,6 +115,13 @@ static int kernel_policy(struct apk_data
  		if (close(fd)) failed = 1;
  		if (failed) return -1;
  	}
@@ -144,7 +144,7 @@ kernel policy. APK_OPENWRT_JOURNAL enables the journal for --root tests.
  	snprintf(status, sizeof status, "%d", errors);
  	snprintf(flags, sizeof flags, "%d", !!(db->ctx->flags & (APK_NO_SCRIPTS | APK_NO_COMMIT_HOOKS)));
  	char *argv[] = { "/usr/sbin/kernelctl", (char *)phase,
-@@ -712,6 +728,8 @@
+@@ -601,6 +617,8 @@ int apk_solver_commit_changeset(struct a
  	int r, errors = 0, pkg_diff = 0;
  
  	assert(world);
@@ -153,7 +153,7 @@ kernel policy. APK_OPENWRT_JOURNAL enables the journal for --root tests.
  	if (apk_db_check_world(db, world) != 0) {
  		apk_err(out, "Not committing changes due to missing repository tags.");
  		return -1;
-@@ -797,7 +815,8 @@
+@@ -686,7 +704,8 @@ int apk_solver_commit_changeset(struct a
  		return -1;
  	}
  
@@ -163,7 +163,7 @@ kernel policy. APK_OPENWRT_JOURNAL enables the journal for --root tests.
  		commit_guard_end(db);
  		return -1;
  	}
-@@ -832,10 +851,13 @@
+@@ -721,10 +740,13 @@ int apk_solver_commit_changeset(struct a
  all_done:
  	apk_dependency_array_copy(&db->world, world);
  	commit_barrier(db);
@@ -177,7 +177,7 @@ kernel policy. APK_OPENWRT_JOURNAL enables the journal for --root tests.
  
  	if (!db->performing_preupgrade) {
  		char buf2[32];
-@@ -1658,3 +1680,629 @@
+@@ -1477,3 +1499,629 @@ int apk_solver_commit(struct apk_databas
  	apk_change_array_free(&set.changes);
  	return r;
  }
