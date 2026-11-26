@@ -335,11 +335,25 @@ class KernelManager:
         directory = self.path('/usr/lib/openwrt-kernel') / name / 'firmware'
         return ' firmware_class.path=/usr/lib/openwrt-kernel/' + name + '/firmware' if directory.is_dir() else ''
 
+    @staticmethod
+    def grub_timeout(state, original):
+        configured = state.get('grub_timeout')
+        if configured is not None:
+            if isinstance(configured, bool) or not isinstance(configured, int) or configured < 0:
+                raise KernelError(f'Invalid grub_timeout in state: {configured!r}')
+            return configured
+        for line in original.splitlines():
+            match = re.match(r'^\s*set\s+timeout=(?:"(\d+)"|\'(\d+)\'|(\d+))\s*$', line)
+            if match:
+                return int(next(group for group in match.groups() if group is not None))
+        return 5
+
     def dispatcher(self, state):
         uuid = self.boot_mount()
         original = (self.boot / 'grub/grub.cfg.rescue').read_text()
         terminal = '\n'.join(line for line in original.splitlines()
                              if line.startswith(('serial ', 'terminal_input ', 'terminal_output ')))
+        timeout = self.grub_timeout(state, original)
         args = state['bootargs']
         firmware = self.firmware_argument(state, state['rescue'])
         # Direct rescue entries are parsed BEFORE any mutable kernel file. The
@@ -348,7 +362,7 @@ class KernelManager:
 set prefix=($root)/boot/grub
 set default=owrt-rescue
 set fallback=owrt-rescue
-set timeout=8
+set timeout={timeout}
 menuentry 'OpenWrt original kernel (rescue)' --id=owrt-rescue {{
  linux /boot/vmlinuz {args}{firmware} noinitrd
 }}

@@ -243,6 +243,19 @@ class RuntimeTests(unittest.TestCase):
             self.assertNotIn('openwrt.init=', menu)
             self.assertNotIn('-procd', menu)
 
+    def test_dispatcher_inherits_rescue_timeout_and_honors_state_override(self):
+        (self.root / 'boot/grub/grub.cfg').write_text(
+            'serial --unit=0\nset timeout="2"\nmenuentry \'OpenWrt\' {\n linux /boot/vmlinuz root=PARTUUID=abcd-02\n}\n')
+        self.adopt()
+        self.assertIn('\nset timeout=2\n', (self.root / 'boot/grub/grub.cfg').read_text())
+        state = self.manager.state()
+        state['grub_timeout'] = 0
+        self.manager.dispatcher(state)
+        self.assertIn('\nset timeout=0\n', (self.root / 'boot/grub/grub.cfg').read_text())
+        state['grub_timeout'] = 'bad'
+        with self.assertRaises(K.KernelError):
+            self.manager.dispatcher(state)
+
     # -- installing kernels ------------------------------------------------------
 
     def test_new_kernel_package_becomes_the_counted_default(self):
