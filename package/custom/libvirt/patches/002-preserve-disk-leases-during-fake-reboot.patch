@@ -12,7 +12,7 @@ Upstream report: https://gitlab.com/libvirt/libvirt/-/work_items/892
 ---
 --- a/src/qemu/qemu_process.c
 +++ b/src/qemu/qemu_process.c
-@@ -3451,8 +3451,12 @@ qemuProcessStartCPUs(virQEMUDriver *driver, virDomainObj *vm,
+@@ -3457,8 +3457,12 @@ qemuProcessStartCPUs(virQEMUDriver *driv
         return -1;
  
      VIR_DEBUG("Using lock state '%s'", NULLSTR(priv->lockState));

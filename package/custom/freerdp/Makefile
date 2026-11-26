@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=freerdp
 PKG_VERSION:=3.33.1
-PKG_RELEASE:=4
+PKG_RELEASE:=5
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://pub.freerdp.com/releases
 PKG_HASH:=4431bbf04d370545cfe2924b9d9f116b95c90c64ff156b2550bbaf82d34e7124

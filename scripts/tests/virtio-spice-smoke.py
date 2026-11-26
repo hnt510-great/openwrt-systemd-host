@@ -73,20 +73,6 @@ try:
     assert xml.find('devices/video/model').get('type') == 'vga'
     assert xml.find('devices/disk/target').get('bus') == 'sata'
     print('Explicit VNC/VGA/SATA configuration retained')
-
-    nodes = virtinst.DeviceGraphics.local_rendernodes(conn)
-    for node in nodes:
-        info = os.stat(node)
-        assert stat.S_ISCHR(info.st_mode)
-        assert stat.S_IMODE(info.st_mode) == 0o660
-        import grp
-        assert grp.getgrgid(info.st_gid).gr_name == 'render'
-    print('Local render nodes:', nodes)
-    with patch.object(conn, 'is_remote', return_value=True), patch('glob.glob') as scan:
-        assert virtinst.DeviceGraphics.local_rendernodes(conn) == []
-        scan.assert_not_called()
-    with patch('glob.glob', return_value=[]):
-        assert virtinst.DeviceGraphics.local_rendernodes(conn) == []
 finally:
     conn.close()
 print('virtio-spice runtime smoke checks passed')

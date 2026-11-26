@@ -170,8 +170,7 @@ before selecting VirtIO disk, NIC or video.
 
 To enable 3D, shut down the guest, select **Video → Virtio → 3D acceleration**,
 then **Display Spice → Listen type None → OpenGL** and choose an existing
-`/dev/dri/renderD*` node. Save both changes before starting. The local GPU list
-also discovers render nodes without a libvirt node-device daemon. A missing
+`/dev/dri/renderD*` node via libvirt's `virtnodedevd` udev enumeration. Save both changes before starting. A missing
 node, denied access or EGL initialization failure remains a visible startup
 error; the application does not silently disable acceleration.
 

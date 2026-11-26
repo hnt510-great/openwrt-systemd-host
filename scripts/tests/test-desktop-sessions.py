@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -563,6 +564,107 @@ class DesktopSessionPluginsTest(unittest.TestCase):
         stop_lines = systemctl_log.read_text().splitlines()
         self.assertTrue(any(l.startswith('--user stop ') and 'plasma-kwin_wayland.service' in l for l in stop_lines))
         self.assertTrue(any(l.startswith('--user unset-environment ') and 'WAYLAND_DISPLAY' in l and 'XDG_SESSION_ID' in l for l in stop_lines))
+
+    def test_krdp_dropin_breaks_plasma_workspace_ordering_cycle(self):
+        dropin_src = ROOT / 'package/custom/openwrt-desktop-plasma/files/krdp-openwrt.conf'
+        dropin_text = dropin_src.read_text()
+        self.assertIn('PartOf=graphical-session.target', dropin_text)
+        after_line = next(
+            (line for line in dropin_text.splitlines() if line.startswith('After=')),
+            '',
+        )
+        for dep in (
+            'plasma-workspace.target',
+            'graphical-session.target',
+            'xdg-desktop-portal.service',
+        ):
+            self.assertIn(dep, after_line)
+
+        if not shutil.which('systemd-analyze'):
+            self.skipTest('systemd-analyze not available')
+
+        root = self.path / 'systemd-root'
+        # systemd-analyze --root rejects --user; --system exercises the same unit graph and cycle detector.
+        unit_dir = root / 'usr/lib/systemd/system'
+        wants_dir = root / 'etc/systemd/system/plasma-workspace.target.wants'
+        dropin_dir = unit_dir / 'app-org.kde.krdpserver.service.d'
+        for d in (unit_dir, wants_dir, dropin_dir):
+            d.mkdir(parents=True, exist_ok=True)
+
+        for rel in (
+            'usr/bin/krdpserver',
+            'usr/libexec/xdg-desktop-portal',
+            'usr/lib/libexec/xdg-desktop-portal-kde',
+            'usr/libexec/desktop-krdp-wrapper',
+        ):
+            stub = root / rel
+            stub.parent.mkdir(parents=True, exist_ok=True)
+            stub.write_text('#!/bin/sh\nexit 0\n')
+            stub.chmod(0o755)
+
+        (unit_dir / 'basic.target').write_text('[Unit]\nDescription=Basic\n')
+        (unit_dir / 'plasma-core.target').write_text('[Unit]\nDescription=Plasma Core\n')
+        (unit_dir / 'graphical-session.target').write_text(
+            '[Unit]\nDescription=Current graphical user session\nRequires=basic.target\n'
+        )
+        (unit_dir / 'plasma-workspace.target').write_text(
+            '[Unit]\n'
+            'Description=KDE Plasma Workspace\n'
+            'Requires=plasma-core.target graphical-session.target\n'
+            'BindsTo=graphical-session.target\n'
+            'Before=graphical-session.target\n'
+        )
+        (unit_dir / 'xdg-desktop-portal.service').write_text(
+            '[Unit]\n'
+            'Description=Portal service\n'
+            'PartOf=graphical-session.target\n'
+            'Requisite=graphical-session.target\n'
+            'After=graphical-session.target\n'
+            '[Service]\n'
+            'ExecStart=/usr/libexec/xdg-desktop-portal\n'
+        )
+        (unit_dir / 'plasma-xdg-desktop-portal-kde.service').write_text(
+            '[Unit]\n'
+            'Description=Xdg Desktop Portal For KDE\n'
+            'PartOf=graphical-session.target\n'
+            'After=plasma-core.target\n'
+            '[Service]\n'
+            'ExecStart=/usr/lib/libexec/xdg-desktop-portal-kde\n'
+        )
+        krdp_unit = unit_dir / 'app-org.kde.krdpserver.service'
+        krdp_unit.write_text(
+            '[Unit]\n'
+            'Description=KRDP Server\n'
+            'After=plasma-xdg-desktop-portal-kde.service\n'
+            'After=plasma-core.target\n'
+            '[Service]\n'
+            'Type=exec\n'
+            'ExecStart=/usr/bin/krdpserver\n'
+            '[Install]\n'
+            'WantedBy=plasma-workspace.target\n'
+        )
+        (wants_dir / 'app-org.kde.krdpserver.service').symlink_to(
+            '/usr/lib/systemd/system/app-org.kde.krdpserver.service'
+        )
+        (dropin_dir / 'openwrt.conf').write_text(dropin_text)
+
+        res = subprocess.run(
+            [
+                'systemd-analyze',
+                '--system',
+                f'--root={root}',
+                'verify',
+                '--man=no',
+                'plasma-workspace.target',
+                'app-org.kde.krdpserver.service',
+            ],
+            capture_output=True,
+            text=True,
+        )
+        combined = res.stdout + res.stderr
+        self.assertEqual(res.returncode, 0, combined)
+        self.assertEqual(combined.strip(), '', combined)
+        self.assertNotIn('ordering cycle', combined.lower())
 
 
 if __name__ == '__main__':
