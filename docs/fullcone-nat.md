@@ -24,11 +24,10 @@ uci commit firewall
 fw4 reload
 ```
 
-`fw4 reload` logs `IPv4 brcm fullcone enabled for zone 'wan'` for each zone
-with `masq`, and the ruleset shows `meta nfproto ipv4 masquerade fullcone`
-in `srcnat_wan`. Disable with `fullcone='0'` (or delete the option) and
-reload. Changing the mode does not affect connections that are already
-tracked.
+`fw4 reload` enables fullcone rules and `nft list ruleset` shows
+`meta nfproto ipv4 masquerade fullcone` in `srcnat_wan`. Disable with
+`fullcone='0'` (or delete the option) and reload. Changing the mode does not
+affect connections that are already tracked.
 
 ## Installing on a router
 
@@ -53,8 +52,7 @@ and an old kernel ignores the `fullcone` attribute and masquerades normally.
 | --- | --- | --- |
 | `fullcone` | `0` | Ordinary masquerading (default). |
 | | `2` | Broadcom-style full cone: `masquerade fullcone` on IPv4; UDP gets full cone, TCP and other protocols are masqueraded as usual. |
-| | `1` | Out-of-tree `nft_fullcone` expression. **Not available in this tree**; fw4 probes it, logs `nft_try_fullcone failed, disable fullcone globally` and falls back to ordinary masquerading. |
-| `fullcone6` | `0`/`1` | IPv6 full cone through `nft_fullcone`. Not available; probed and disabled the same way. |
+| | `1` | Not supported (out-of-tree `nft_fullcone` is not carried); fw4 warns and falls back to ordinary masquerading (`0`). |
 
 ## How mode 2 works
 
@@ -116,11 +114,11 @@ and an old kernel ignores the `fullcone` attribute and masquerades normally.
 
 | Component | Change |
 | --- | --- |
-| Kernel | `hack-7.3/982-netfilter-add-bcm-fullcone-masquerade.patch` (ported to the refcounted 7.3 helper API; LEDE 982 + 985; adds `CONFIG_NF_NAT_MASQUERADE_FULLCONE`), `983-netfilter-nft_masq-add-fullcone-attribute.patch` (LEDE 983); recorded in `configs/mainline-kernel-patches.json` |
+| Kernel | `hack-7.3/982-netfilter-add-bcm-fullcone-masquerade.patch` (ported to the refcounted 7.3 helper API; LEDE 982 + 985; adds `CONFIG_NF_NAT_MASQUERADE_FULLCONE`), `983-netfilter-nft_masq-add-fullcone-attribute.patch` (LEDE 983) |
 | Kernel config | `CONFIG_NF_NAT_MASQUERADE_FULLCONE=y` in `target/linux/generic/config-7.3`; without it the code is not built and `masquerade fullcone` behaves like `masquerade` |
-| libnftnl | `001`, `002` (`1.3.2-r4`); 001 adapted to the 1.3.2 `set` callback |
-| nftables | `100`, `103`, `104` (`1.1.7-r4`); 100 and 103 rebased onto 1.1.7 |
-| firewall4 | `001`, `002`, `007` from LEDE (001/002 rebased, shipped disabled); `008` probes `fullcone6` so enabling it cannot break the ruleset load (introduced in `r2`; current `r3`) |
-| LuCI | `feeds/luci` commit `51551b1c9c` (`luci-app-firewall` `view/firewall/zones.js`: *Enable full cone NAT* checkbox, with zh_Hans/zh_Hant strings), mirrored as `patches/feeds/0029-luci-firewall-fullcone.patch` with baseline `configs/firewall-fullcone-feeds.json`; test `scripts/tests/test-luci-firewall-fullcone.js` |
+| libnftnl | `002` (`1.3.2-r6`) |
+| nftables | `103` (`1.1.7-r6`, rebased onto 1.1.7) |
+| firewall4 | `001-firewall4-add-brcm-fullcone-mode.patch` (`r4`, Broadcom `fullcone=2` only, shipped disabled) |
+| LuCI | `feeds/luci` commit `51551b1c9c` (`luci-app-firewall` `view/firewall/zones.js`: *Enable full cone NAT* checkbox, with zh_Hans/zh_Hant strings), mirrored in `patches/feeds/0057-luci-local-snapshot.patch` (`configs/feed-mirrors-snapshot.json`); test `scripts/tests/test-luci-firewall-fullcone.js` |
 
 See the [validation record](fullcone-nat-validation.md).

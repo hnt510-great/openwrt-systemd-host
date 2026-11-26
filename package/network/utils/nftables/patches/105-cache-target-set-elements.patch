@@ -12,7 +12,7 @@ Signed-off-by: coolsnowwolf <coolsnowwolf@gmail.com>
 
 --- a/include/cache.h
 +++ b/include/cache.h
-@@ -50,6 +50,7 @@
+@@ -50,6 +50,7 @@ struct nft_filter_obj {
  #define NFT_CACHE_HSIZE	8192
  
  struct nft_cache_filter {
@@ -22,7 +22,7 @@ Signed-off-by: coolsnowwolf <coolsnowwolf@gmail.com>
  		const char	*table;
 --- a/src/cache.c
 +++ b/src/cache.c
-@@ -533,6 +533,19 @@
+@@ -548,6 +548,19 @@ int nft_cache_evaluate(struct nft_ctx *n
  		}
  		batch_flags |= flags;
  	}
@@ -42,7 +42,7 @@ Signed-off-by: coolsnowwolf <coolsnowwolf@gmail.com>
  	*pflags = batch_flags;
  
  	return 0;
-@@ -1185,6 +1198,12 @@
+@@ -1199,6 +1212,12 @@ static int cache_init_objects(struct net
  			}
  		} else if (flags & NFT_CACHE_SETELEM_MAYBE) {
  			list_for_each_entry(set, &table->set_cache.list, cache.list) {
