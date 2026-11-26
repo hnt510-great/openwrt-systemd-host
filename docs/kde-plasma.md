@@ -24,8 +24,8 @@ This tree supports **KDE Plasma 6.8.3 (Wayland)** alongside GNOME 51 on x86_64/g
 
 ## Configuration Fragments
 
-- `configs/plasma-packages.config`: builds Plasma 6.8.3, KRdp, Dolphin, and integration APKs as `=m` without preinstalling Plasma into the default GNOME base image.
-- `configs/plasma.config`: selects Plasma packages as `=y` for Plasma-preinstalled images.
+- `configs/plasma-packages.config`: builds Plasma 6.8.3, KRdp, Dolphin, and integration APKs (including `luci-app-desktop=m`) as `=m` without preinstalling Plasma into the default GNOME base image, and enables the required Qt 6 OpenGL ES 2 (`CONFIG_BUILD_qt6base-gui_OPENGL_OPENGLES2=y`) and SQL (`CONFIG_BUILD_qt6base_SQL=y`) build flags so merging onto `configs/x86-64-systemd-desktop.config` selects all ten installer components.
+- `configs/plasma.config`: selects Plasma packages as `=y` (along with the required Qt 6 OpenGL ES 2 and SQL build flags) for Plasma-preinstalled images.
 - `configs/installer-components.json`: registers the optional `plasma` component (`default: false`) alongside `gnome` (`default: true`), with `depends_any: ["gnome", "plasma"]` for `audio`, `ime`, `rdp`, `sunshine`, `flatpak`, and `appimage` (and conditional `virt-manager` installation under `virtualization` when a desktop is selected).
 
 ## On-Device Provisioning & Usage

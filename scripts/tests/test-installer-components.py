@@ -553,6 +553,67 @@ class InstallerComponentsTests(unittest.TestCase):
         self.assertIn('+xdg-desktop-portal-gtk', fp_gnome)
         self.assertIn('+xdg-desktop-portal-gnome', fp_gnome)
 
+    def test_snapshot_kconfig_reconstruction_selects_all_ten_components(self):
+        conf = ROOT / 'scripts/config/conf'
+        if not conf.is_file():
+            self.skipTest('host Kconfig conf binary not built')
+        base = ROOT / 'configs/x86-64-systemd-desktop.config'
+        plasma_pkgs = ROOT / 'configs/plasma-packages.config'
+        plasma_full = ROOT / 'configs/plasma.config'
+        iso_frag = ROOT / 'configs/installer-iso.config'
+        with tempfile.TemporaryDirectory(prefix='test-kconfig-iso-') as td:
+            td = Path(td)
+            # 1. Documented 10-component ISO reconstruction path from desktop snapshot.
+            iso_cfg = td / 'iso.config'
+            merged = subprocess.check_output(
+                [str(ROOT / 'scripts/kconfig.pl'), '+', 'm+', str(base), str(plasma_pkgs), str(iso_frag)],
+                text=True,
+            )
+            iso_cfg.write_text(merged)
+            env = {**os.environ, 'KCONFIG_CONFIG': str(iso_cfg), 'TOPDIR': str(ROOT)}
+            subprocess.run(
+                [str(conf), f'--defconfig={iso_cfg}', 'Config.in'],
+                cwd=ROOT, env=env, check=True, capture_output=True, text=True,
+            )
+            resolved = iso_cfg.read_text()
+            self.assertIn('CONFIG_BUILD_qt6base-gui_OPENGL_OPENGLES2=y\n', resolved)
+            self.assertIn('CONFIG_BUILD_qt6base_SQL=y\n', resolved)
+            self.assertIn('CONFIG_PACKAGE_kwin=m\n', resolved)
+            self.assertIn('CONFIG_PACKAGE_krdp=m\n', resolved)
+            missing = []
+            for comp in CATALOG_CFG['components']:
+                pkgs = list(comp.get('packages', []))
+                for cond in comp.get('conditional_packages', []):
+                    pkgs.extend(cond.get('packages', []))
+                for pkg in pkgs:
+                    if f'CONFIG_PACKAGE_{pkg}=y\n' not in resolved and f'CONFIG_PACKAGE_{pkg}=m\n' not in resolved:
+                        missing.append((comp['id'], pkg))
+            self.assertEqual(missing, [], f'Missing installer component packages after Kconfig: {missing}')
+
+            # 2. Preinstalled Plasma fragment merged onto desktop snapshot.
+            full_cfg = td / 'plasma.config'
+            merged_full = subprocess.check_output(
+                [str(ROOT / 'scripts/kconfig.pl'), '+', str(base), str(plasma_full)],
+                text=True,
+            )
+            full_cfg.write_text(merged_full)
+            env_full = {**os.environ, 'KCONFIG_CONFIG': str(full_cfg), 'TOPDIR': str(ROOT)}
+            subprocess.run(
+                [str(conf), f'--defconfig={full_cfg}', 'Config.in'],
+                cwd=ROOT, env=env_full, check=True, capture_output=True, text=True,
+            )
+            resolved_full = full_cfg.read_text()
+            for sym in (
+                'CONFIG_BUILD_qt6base-gui_OPENGL_OPENGLES2=y',
+                'CONFIG_BUILD_qt6base_SQL=y',
+                'CONFIG_PACKAGE_openwrt-desktop-plasma=y',
+                'CONFIG_PACKAGE_openwrt-desktop-plasma-core=y',
+                'CONFIG_PACKAGE_openwrt-desktop-plasma-rdp=y',
+                'CONFIG_PACKAGE_kwin=y',
+                'CONFIG_PACKAGE_krdp=y',
+            ):
+                self.assertIn(sym + '\n', resolved_full)
+
 
 if __name__ == '__main__':
     unittest.main()
