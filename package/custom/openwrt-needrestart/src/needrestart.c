@@ -276,7 +276,8 @@ static char *command(uid_t uid, char *const argv[], int timeout)
 	    WEXITSTATUS(status)) {
 		kill(-pid, SIGKILL);
 		if (done <= 0)
-			waitpid(pid, &status, WNOHANG);
+			while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
+				;
 		free(output);
 		return NULL;
 	}
@@ -342,6 +343,7 @@ static void package_index(void)
 {
 	FILE *f = fopen(path("/lib/apk/db/installed"), "r");
 	char *line = NULL, name[256] = "", version[256] = "", dir[PATH_MAX] = "";
+	json_object *current_owner = NULL;
 	size_t cap = 0;
 	ssize_t n;
 
@@ -357,6 +359,10 @@ static void package_index(void)
 		}
 		line[strcspn(line, "\r\n")] = 0;
 		if (!*line) {
+			if (current_owner) {
+				json_object_put(current_owner);
+				current_owner = NULL;
+			}
 			name[0] = version[0] = dir[0] = 0;
 			continue;
 		}
@@ -364,9 +370,17 @@ static void package_index(void)
 			continue;
 		switch (line[0]) {
 		case 'P':
+			if (current_owner) {
+				json_object_put(current_owner);
+				current_owner = NULL;
+			}
 			snprintf(name, sizeof(name), "%s", line + 2);
 			break;
 		case 'V':
+			if (current_owner) {
+				json_object_put(current_owner);
+				current_owner = NULL;
+			}
 			snprintf(version, sizeof(version), "%s", line + 2);
 			break;
 		case 'F':
@@ -374,19 +388,22 @@ static void package_index(void)
 			break;
 		case 'R': {
 			char file[PATH_MAX];
-			json_object *owner;
 
 			if (!*name || snprintf(file, sizeof(file), "/%s%s%s", dir, *dir ? "/" : "",
 					       line + 2) >= (int)sizeof(file))
 				break;
-			owner = json_object_new_object();
-			string(owner, "name", name);
-			string(owner, "installed_version", version);
-			json_object_object_add(packages, file, owner);
+			if (!current_owner) {
+				current_owner = json_object_new_object();
+				string(current_owner, "name", name);
+				string(current_owner, "installed_version", version);
+			}
+			json_object_object_add(packages, file, json_object_get(current_owner));
 			break;
 		}
 		}
 	}
+	if (current_owner)
+		json_object_put(current_owner);
 	free(line);
 	fclose(f);
 }

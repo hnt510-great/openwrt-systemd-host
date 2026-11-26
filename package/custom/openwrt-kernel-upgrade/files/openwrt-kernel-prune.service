@@ -5,6 +5,6 @@ After=local-fs.target
 [Service]
 Type=oneshot
 ExecStart=/usr/sbin/kernelctl prune
-TimeoutStartSec=300
+TimeoutStartSec=600
 Restart=on-failure
 RestartSec=30

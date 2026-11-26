@@ -139,6 +139,10 @@ def sequence(release):
 
 class KernelManager:
 
+    COMMAND_TIMEOUT = 30
+    DEPMOD_COMMAND_TIMEOUT = 120
+    APK_COMMAND_TIMEOUT = 240
+
     def __init__(self, root='/', runner=None):
         self.root = Path(root).resolve()
         self.policy = self.path('/etc/openwrt-kernel')
@@ -148,12 +152,24 @@ class KernelManager:
     def path(self, name):
         return self.root / name.lstrip('/')
 
-    @staticmethod
-    def _run(args, **kwargs):
-        return subprocess.check_output(args, text=True, timeout=30, **kwargs).strip()
+    @classmethod
+    def command_timeout(cls, args):
+        if args and args[0] == 'apk':
+            return cls.APK_COMMAND_TIMEOUT
+        if args and args[0] == 'depmod':
+            return cls.DEPMOD_COMMAND_TIMEOUT
+        return cls.COMMAND_TIMEOUT
 
-    def command(self, *args):
-        return self.runner(list(args))
+    @classmethod
+    def _run(cls, args, **kwargs):
+        timeout = kwargs.pop('timeout', cls.command_timeout(args))
+        return subprocess.check_output(args, text=True, timeout=timeout, **kwargs).strip()
+
+    def command(self, *args, timeout=None):
+        argv = list(args)
+        if timeout is None or self.runner != self._run:
+            return self.runner(argv)
+        return self.runner(argv, timeout=timeout)
 
     # ---- state -----------------------------------------------------------
 

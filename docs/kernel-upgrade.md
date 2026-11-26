@@ -183,7 +183,11 @@ installed, it becomes the pending default and the current kernel becomes the
 fallback. The previous fallback is withdrawn immediately.
 `openwrt-kernel-prune.service` removes withdrawn kernels with APK and deletes
 their `/boot/kernels/<release>` directories. A kernel that failed its boots is
-pruned once it is no longer the fallback.
+pruned once it is no longer the fallback. `kernelctl` applies dedicated command
+timeouts (`apk` 240s, `depmod` 120s, fast probes 30s) aligned with
+`openwrt-kernel-prune.service`'s `TimeoutStartSec=600` so deleting large
+kernel/header packages under load does not terminate `apk` mid-transaction; any
+timeout still unwinds `pruning.json` and restores package protection pins.
 
 ## Migration from per-generation kernels
 
