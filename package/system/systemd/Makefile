@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=systemd
 PKG_VERSION:=262
-PKG_RELEASE:=15
+PKG_RELEASE:=17
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/systemd/systemd/tar.gz/refs/tags/v$(PKG_VERSION)?
 PKG_HASH:=6aa77506c0644aa67f940a48e3d3a7368601f787e4f249139516d353f107bcab
@@ -167,7 +167,7 @@ define Package/systemd-udev/install
 	# OpenWrt retains network naming, module and firmware policy.
 	# Generic device visibility is provided by the reviewed distribution subset.
 	for rule in 50-udev-default 60-drm 60-input-id 60-persistent-input 60-sensor \
-		60-serial 70-uaccess 71-seat 73-seat-late; do \
+		60-serial 70-uaccess 71-seat 73-seat-late 78-sound-card; do \
 		[ ! -f $(PKG_INSTALL_DIR)/usr/lib/udev/rules.d/$$$$rule.rules ] || \
 			$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/lib/udev/rules.d/$$$$rule.rules $(1)/usr/lib/udev/rules.d/; \
 	done
@@ -175,6 +175,16 @@ define Package/systemd-udev/install
 	$(INSTALL_DIR) $(1)/usr/lib/systemd/system/sysinit.target.wants
 	$(LN) ../systemd-udevd-kernel.socket $(1)/usr/lib/systemd/system/sysinit.target.wants/
 	$(LN) ../systemd-udevd-control.socket $(1)/usr/lib/systemd/system/sysinit.target.wants/
+endef
+
+define Package/systemd-udev/postinst
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+if [ -d /run/systemd/system ] && [ -x /usr/bin/udevadm ]; then
+	/usr/bin/udevadm control --reload-rules 2>/dev/null || :
+	/usr/bin/udevadm trigger --subsystem-match=sound --action=change 2>/dev/null || :
+fi
+exit 0
 endef
 
 define Package/libsystemd/install

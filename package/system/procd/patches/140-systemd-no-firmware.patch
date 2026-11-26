@@ -1,6 +1,6 @@
 --- a/system.c
 +++ b/system.c
-@@ -623,6 +623,7 @@
+@@ -623,6 +623,7 @@ static int proc_signal(struct ubus_conte
  	return 0;
  }
  
@@ -8,7 +8,7 @@
  __attribute__((format (printf, 2, 3)))
  static enum vjson_state vjson_error(char **b, const char *fmt, ...)
  {
-@@ -916,6 +917,7 @@
+@@ -916,6 +917,7 @@ static int sysupgrade(struct ubus_contex
  	return UBUS_STATUS_UNKNOWN_ERROR;
  }
  
@@ -16,7 +16,7 @@
  static void
  procd_subscribe_cb(struct ubus_context *ctx, struct ubus_object *obj)
  {
-@@ -929,8 +931,10 @@
+@@ -929,8 +931,10 @@ static const struct ubus_method system_m
  	UBUS_METHOD_NOARG("reboot", system_reboot),
  	UBUS_METHOD("watchdog", watchdog_set, watchdog_policy),
  	UBUS_METHOD("signal", proc_signal, signal_policy),
@@ -29,7 +29,7 @@
  static struct ubus_object_type system_object_type =
 --- a/procd.c
 +++ b/procd.c
-@@ -236,7 +236,14 @@
+@@ -236,7 +236,14 @@ int main(int argc, char **argv)
  	if (getpid() != 1)
  		procd_connect_ubus();
  	else
@@ -46,7 +46,7 @@
  
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -64,7 +64,12 @@
+@@ -64,7 +64,12 @@ IF(SELINUX)
    add_compile_definitions(WITH_SELINUX)
  ENDIF()
  
@@ -60,7 +60,7 @@
  
  ADD_EXECUTABLE(procd ${SOURCES})
  TARGET_LINK_LIBRARIES(procd ${LIBS} ${SYSTEMD_LIB})
-@@ -80,7 +85,7 @@
+@@ -80,7 +85,7 @@ INCLUDE_DIRECTORIES(${ubox_include_dir}
  IF(DISABLE_INIT)
  ADD_DEFINITIONS(-DDISABLE_INIT)
  ELSE()
@@ -79,35 +79,34 @@
  static void
  check_dbglvl(void)
  {
-@@ -90,22 +91,16 @@
+@@ -90,23 +91,17 @@ fail:
  	free(command);
  }
  
--static void
++#endif
++
+ static void
 -spawn_procd(struct uloop_process *proc, int ret)
--{
++finish_preinit(struct uloop_process *proc, int ret)
+ {
 -	char *wdt_fd = watchdog_fd();
 -	char *argv[] = { "/sbin/procd", NULL};
 -	char dbg[2];
 -
-+#endif
-+
-+static void
-+finish_preinit(struct uloop_process *proc, int ret)
-+{
  	if (plugd_proc.pid > 0)
  		kill(plugd_proc.pid, SIGKILL);
  
  	unsetenv("PREINIT");
  	unlink("/tmp/.preinit");
--
+ 
 -#ifndef OPENWRT_SYSTEMD
 -	check_sysupgrade();
 -#endif
- 
+-
  #ifdef OPENWRT_SYSTEMD
  	if (!ret && !access("/tmp/.failsafe", F_OK))
-@@ -134,7 +129,12 @@
+ 		return;
+@@ -134,7 +129,12 @@ spawn_procd(struct uloop_process *proc,
  	ERROR("systemd handoff failed; reboot and select OpenWrt failsafe\n");
  	for (;;)
  		pause();
@@ -121,7 +120,7 @@
  	DEBUG(2, "Exec to real procd now\n");
  	if (wdt_fd)
  		setenv("WDTFD", wdt_fd, 1);
-@@ -145,6 +145,7 @@
+@@ -145,6 +145,7 @@ spawn_procd(struct uloop_process *proc,
  	}
  
  	execvp(argv[0], argv);
@@ -129,7 +128,7 @@
  }
  
  static void
-@@ -184,7 +185,7 @@
+@@ -184,7 +185,7 @@ preinit(void)
  	else
  		close(fd);
  

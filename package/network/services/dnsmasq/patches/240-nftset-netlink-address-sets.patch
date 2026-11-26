@@ -254,7 +254,7 @@ Signed-off-by: coolsnowwolf <coolsnowwolf@gmail.com>
  static struct nft_ctx *ctx = NULL;
  static const char *cmd_add = "add element %s { %s }";
  static const char *cmd_del = "delete element %s { %s }";
-@@ -61,6 +296,9 @@
+@@ -61,6 +296,9 @@ int add_to_nftset(const char *setname, c
        setname += 2;
      }
    

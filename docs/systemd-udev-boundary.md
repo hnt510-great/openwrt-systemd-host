@@ -1,6 +1,6 @@
 # Device management boundary on native-systemd OpenWrt
 
-Since `systemd-udev` 262-r14 (current `262-r15`), the package installs a reviewed distribution subset of systemd v262's
+Since `systemd-udev` 262-r14 (current `262-r17`), the package installs upstream `78-sound-card.rules` (for `SOUND_INITIALIZED` on ALSA cards) alongside a reviewed distribution subset of systemd v262's
 `rules.d/99-systemd.rules.in`. It restores device units, including
 `dev-tpmrm0.device`, without transferring router policy to systemd.
 The installed file is `package/system/systemd/files/99-systemd.rules`.

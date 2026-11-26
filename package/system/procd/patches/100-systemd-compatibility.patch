@@ -5,7 +5,7 @@ Preserve preinit and use systemd as the service manager.
 ---
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -34,6 +34,12 @@
+@@ -34,6 +34,12 @@ FIND_LIBRARY(json_script NAMES json_scri
  FIND_LIBRARY(json NAMES json-c json)
  FIND_LIBRARY(udebug NAMES udebug)
  
@@ -18,7 +18,7 @@ Preserve preinit and use systemd as the service manager.
  SET(LIBS ${ubox} ${ubus} ${json} ${blobmsg_json} ${json_script} ${udebug})
  
  IF(DEBUG)
-@@ -53,7 +59,7 @@
+@@ -53,7 +59,7 @@ ENDIF()
  add_subdirectory(upgraded)
  
  ADD_EXECUTABLE(procd ${SOURCES})
@@ -56,7 +56,7 @@ Preserve preinit and use systemd as the service manager.
  
  unsigned int debug = 0;
  
-@@ -133,7 +134,8 @@
+@@ -133,7 +134,8 @@ main(int argc, char **argv)
  		exit(-1);
  	early();
  	cmdline();
@@ -76,7 +76,7 @@ Preserve preinit and use systemd as the service manager.
  
  static void
  early_dev(void)
-@@ -81,8 +82,13 @@
+@@ -81,8 +82,13 @@ early_mounts(void)
  		mount("sysfs", "/sys", "sysfs", MS_NODEV | MS_NOEXEC | MS_NOSUID | MS_RELATIME, NULL);
  		mount("efivars", "/sys/firmware/efi/efivars", "efivarfs", MS_NODEV | MS_NOEXEC | MS_NOSUID | MS_RELATIME, NULL);
  		mount("cgroup2", "/sys/fs/cgroup", "cgroup2",  MS_NODEV | MS_NOEXEC | MS_NOSUID | MS_RELATIME, "nsdelegate");
@@ -92,7 +92,7 @@ Preserve preinit and use systemd as the service manager.
  		mkdir("/dev/pts", 0755);
  		mount("devpts", "/dev/pts", "devpts", MS_NOEXEC | MS_NOSUID | MS_RELATIME, NULL);
  
-@@ -95,7 +101,13 @@
+@@ -95,7 +101,13 @@ early_mounts(void)
  	early_noafile();
  	mkdir("/tmp/shm", 01777);
  
@@ -118,7 +118,9 @@ Preserve preinit and use systemd as the service manager.
  
  static struct uloop_process preinit_proc;
  static struct uloop_process plugd_proc;
-@@ -102,6 +105,36 @@
+@@ -100,8 +103,38 @@ spawn_procd(struct uloop_process *proc,
+ 	unsetenv("PREINIT");
+ 	unlink("/tmp/.preinit");
  
 +#ifndef OPENWRT_SYSTEMD
  	check_sysupgrade();
@@ -157,7 +159,7 @@ Preserve preinit and use systemd as the service manager.
  		setenv("WDTFD", wdt_fd, 1);
 --- a/procd.h
 +++ b/procd.h
-@@ -31,6 +31,9 @@
+@@ -31,6 +31,9 @@ extern const char *init_d_path;
  extern const char *rc_d_path;
  
  extern const char *ubus_socket;
@@ -217,7 +219,7 @@ Preserve preinit and use systemd as the service manager.
  
  unsigned int debug;
  
-@@ -93,6 +134,10 @@
+@@ -93,6 +134,10 @@ static int usage(const char *prog)
  int main(int argc, char **argv)
  {
  	int ch;
@@ -228,7 +230,7 @@ Preserve preinit and use systemd as the service manager.
  	char *dbglvl = getenv("DBGLVL");
  	int ulog_channels = ULOG_KMSG;
  
-@@ -101,8 +146,15 @@
+@@ -101,8 +146,15 @@ int main(int argc, char **argv)
  		unsetenv("DBGLVL");
  	}
  
@@ -245,7 +247,7 @@ Preserve preinit and use systemd as the service manager.
  		case 'h':
  			return hotplug_run(optarg);
  		case 's':
-@@ -131,6 +183,14 @@
+@@ -131,6 +183,14 @@ int main(int argc, char **argv)
  	setsid();
  	uloop_init();
  	procd_signal();
@@ -262,7 +264,7 @@ Preserve preinit and use systemd as the service manager.
  		procd_connect_ubus();
 --- a/ubus.c
 +++ b/ubus.c
-@@ -85,6 +85,8 @@
+@@ -85,6 +85,8 @@ ubus_connect_cb(struct uloop_timeout *ti
  	reset_timeout();
  	ubus_add_uloop(ctx);
  	procd_state_ubus_connect();
@@ -273,7 +275,7 @@ Preserve preinit and use systemd as the service manager.
  void
 --- a/plug/coldplug.c
 +++ b/plug/coldplug.c
-@@ -32,7 +32,10 @@
+@@ -61,7 +61,10 @@ static void coldplug_complete(struct ulo
  {
  	P_DEBUG(4, "Coldplug complete\n");
  	hotplug_last_event(NULL);
@@ -285,7 +287,7 @@ Preserve preinit and use systemd as the service manager.
  }
  
  static void udevtrigger_complete(struct uloop_process *proc, int ret)
-@@ -46,7 +49,7 @@
+@@ -75,7 +78,7 @@ void procd_coldplug(void)
  	char *argv[] = { "udevtrigger", NULL };
  	unsigned int oldumask = umask(0);
  
@@ -294,7 +296,7 @@ Preserve preinit and use systemd as the service manager.
  		umount2("/dev/pts", MNT_DETACH);
  		umount2("/dev/", MNT_DETACH);
  		mount("tmpfs", "/dev", "tmpfs", MS_NOATIME | MS_NOEXEC | MS_NOSUID, "mode=0755,size=512K");
-@@ -55,7 +58,8 @@
+@@ -85,7 +88,8 @@ void procd_coldplug(void)
  		mount("devpts", "/dev/pts", "devpts", MS_NOATIME | MS_NOEXEC | MS_NOSUID, 0);
  	}
  
@@ -315,7 +317,7 @@ Preserve preinit and use systemd as the service manager.
  
  static struct blob_buf b;
  static int notify;
-@@ -443,6 +445,24 @@
+@@ -480,6 +482,24 @@ static int system_reboot(struct ubus_con
  			 struct ubus_request_data *req, const char *method,
  			 struct blob_attr *msg)
  {
@@ -340,7 +342,7 @@ Preserve preinit and use systemd as the service manager.
  	procd_shutdown(RB_AUTOBOOT);
  	return 0;
  }
-@@ -822,6 +842,11 @@
+@@ -859,6 +879,11 @@ static int sysupgrade(struct ubus_contex
  		return UBUS_STATUS_NOT_SUPPORTED;
  	}
  

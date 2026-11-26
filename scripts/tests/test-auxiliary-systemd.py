@@ -3,6 +3,7 @@
 import os
 import re
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -378,8 +379,46 @@ fi
         cron_unit = (CRON_FILES / 'cron.service').read_text()
         self.assertIn('Slice=auxiliary.slice', cron_unit)
         self.assertIn('After=openwrt-services.service', cron_unit)
+        self.assertIn('ConditionDirectoryNotEmpty=/etc/crontabs', cron_unit)
+        self.assertNotIn('ExecCondition=', cron_unit)
         self.assertIn('Also=cron-config.path', cron_unit)
         self.assertIn('StartLimitIntervalSec=0', (CRON_FILES / 'cron-reconfigure.service').read_text())
+
+        if shutil.which('systemd-analyze'):
+            sa_root = self.root / 'sa-root'
+            sys_dir = sa_root / 'usr/lib/systemd/system'
+            sys_dir.mkdir(parents=True, exist_ok=True)
+            (sa_root / 'etc/crontabs').mkdir(parents=True, exist_ok=True)
+            cron_exec = sa_root / 'usr/libexec/cron-systemd'
+            cron_exec.parent.mkdir(parents=True, exist_ok=True)
+            cron_exec.write_text('#!/bin/sh\nexit 0\n')
+            cron_exec.chmod(0o755)
+            for src, name in (
+                (CRON_FILES / 'cron.service', 'cron.service'),
+                (CRON_FILES / 'cron-reconfigure.service', 'cron-reconfigure.service'),
+                (CRON_FILES / 'cron-config.path', 'cron-config.path'),
+                (SLICE_FILE, 'auxiliary.slice'),
+            ):
+                (sys_dir / name).write_text(src.read_text())
+            (sys_dir / 'openwrt-services.service').write_text(
+                '[Unit]\nDescription=OpenWrt Services\n[Service]\nType=oneshot\nExecStart=/usr/libexec/cron-systemd\n'
+            )
+            (sys_dir / 'multi-user.target').write_text('[Unit]\nDescription=Multi-User\n')
+            res = subprocess.run(
+                [
+                    'systemd-analyze',
+                    '--system',
+                    f'--root={sa_root}',
+                    'verify',
+                    '--man=no',
+                    'cron.service',
+                    'cron-reconfigure.service',
+                    'cron-config.path',
+                ],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
 
         nlbwmon_unit = (NLBWMON_FILES / 'nlbwmon.service').read_text()
         self.assertIn('Slice=auxiliary.slice', nlbwmon_unit)
