@@ -111,12 +111,13 @@ executable matches the installed host binary and their owning user unit
 container. Their host code remains checked for stale libraries; an unverified
 helper retains incomplete coverage.
 
-Firefox ESR and Google Chrome children chrooted into `/proc/<pid>/fdinfo` are
-inspected through host paths only after verifying their host mount namespace,
-live same-user parent or zygote ancestor chain rooted at the host filesystem,
-and shared executable object. The browser sandbox stays enabled; findings belong
-to the owning application/session. Other private roots and unverified parents
-retain incomplete coverage.
+Non-root host application children (such as Firefox ESR, Google Chrome, and
+Chromium/Electron apps) chrooted into a vanished `/proc/<pid>/fdinfo` directory
+are inspected through host paths only after verifying their host mount
+namespace, live same-user parent or zygote ancestor chain rooted at the host
+filesystem, and shared executable object. The application sandbox stays enabled;
+findings belong to the owning application/session. Other private roots and
+unverified parents retain incomplete coverage.
 
 Native systemd services can chroot after loading their code; `rtkit-daemon`
 enters `/proc`. Their mappings are resolved from the root of the service's own

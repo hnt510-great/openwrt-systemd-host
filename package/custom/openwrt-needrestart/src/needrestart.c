@@ -912,33 +912,23 @@ static int different(int old, int current)
 	return result;
 }
 
-/* Firefox and Chrome children chroot into a vanished /proc/PID/fdinfo.
- * Host-path inspection requires the host mount namespace, a live same-user
- * parent chain rooted at the host filesystem, and the exact same executable
- * object. These checks also permit reporting an old, replaced browser
- * executable.
+/* Browser and Chromium/Electron children chroot into a vanished
+ * /proc/PID/fdinfo empty directory. Host-path inspection requires a non-root
+ * process in the host mount namespace, a live same-user parent chain rooted at
+ * the host filesystem, and the exact same executable object. These checks also
+ * permit reporting an old, replaced executable.
  */
 static bool sandbox_host_browser(pid_t pid, const char *exe, int root)
 {
-	static const char *const binaries[] = {
-	    "/usr/lib/firefox-esr/firefox-bin", "/opt/google/chrome/chrome", NULL};
 	struct stat child, parent, host, parent_root, ns, host_ns, parent_ns, a, b;
 	struct statfs fs;
 	char proc[96], target[PATH_MAX], parent_target[PATH_MAX], *data, *end;
 	pid_t current = pid, ppid, sandbox_pid;
 	uint64_t parent_start;
-	bool known = false;
 	int n = 0;
 	ssize_t len;
 
-	for (size_t i = 0; binaries[i]; i++) {
-		size_t m = strlen(binaries[i]);
-
-		if (!strncmp(exe, binaries[i], m) &&
-		    (!exe[m] || !strcmp(exe + m, " (deleted)")))
-			known = true;
-	}
-	if (!known)
+	if (*exe != '/')
 		return false;
 	if (fstatfs(root, &fs))
 		return false;
