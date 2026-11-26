@@ -1,0 +1,34 @@
+{
+  "packages": {
+    "url": "https://github.com/openwrt/packages.git",
+    "upstream": "origin/master",
+    "base": "a3cc8482f4037f118bc135cfca191c7cb6250aa6",
+    "commit": "4a077958b7565dbd77da3d66d31120e87ac26019",
+    "tree": "46c2e76653dbc7bcdf15c7d6a5b2234dafbfe093",
+    "patch": "patches/feeds/0056-packages-local-snapshot.patch"
+  },
+  "luci": {
+    "url": "https://github.com/openwrt/luci.git",
+    "upstream": "origin/master",
+    "base": "8d1aecd0216a02ad52c830e9a03c21da734bf630",
+    "commit": "b4b9e07cc571cd4c458610dad751a89e947d3241",
+    "tree": "251ac4be2f853f5db3183a766851a3a3527c5a15",
+    "patch": "patches/feeds/0057-luci-local-snapshot.patch"
+  },
+  "video": {
+    "url": "https://github.com/openwrt/video.git",
+    "upstream": "origin/master",
+    "base": "6a3b5fd6e963f41caa73ef4f691e156d467e2894",
+    "commit": "d86d1eb51bb71773a5e04dcb2e0d9c31d1cf7d31",
+    "tree": "b2078ca5e8131e4f922b512de51e2f80f3a47edf",
+    "patch": "patches/feeds/0058-video-local-snapshot.patch"
+  },
+  "taskplan": {
+    "url": "https://github.com/sirpdboy/luci-app-ddns-go.git",
+    "upstream": "origin/main",
+    "base": "7092e6de6ad9fe3f7d327f70468dfd19e00d6f0e",
+    "commit": "036806752781ab8e70e9bf1c5d25f82ac5de5269",
+    "tree": "642784735fcc2008082c632244fad0131d1ca7df",
+    "patch": "patches/feeds/0059-taskplan-local-snapshot.patch"
+  }
+}
