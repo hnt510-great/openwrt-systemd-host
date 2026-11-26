@@ -124,11 +124,33 @@ as historically done for Samba before `samba4` moved to native static units in
 udevd receives all kernel device events and creates and permissions the
 nodes. `/usr/lib/udev/rules.d/90-openwrt-hotplug.rules` forwards events whose
 subsystem has an `/etc/hotplug.d` directory (plus `usb-serial` and firmware
-requests) to `/usr/libexec/openwrt-udev-forward`. It calls procd's root-only
-`procd.udev` ubus object, and procd runs `/etc/hotplug-systemd.json`: the
-`hotplug-call` handlers in procd's serial queue, outside udev's worker, so
+requests) to `/usr/libexec/openwrt-udev-forward`. In native units mode
+(`procd` patch `150-systemd-udev-hotplug-queue.patch`), the forwarder checks
+`/run/openwrt-hotplug/receiver.cap` (version 1 + current `boot_id`):
+
+- **Queued mode (steady state)**: events are atomically committed to the
+  root-private directory `/run/openwrt-hotplug/pending/` (capped at 2,048 items
+  and 8 MiB with rate-limited overflow warnings and `(boot_id, SEQNUM)`
+  deduplication), so udev workers never block waiting on `procd` or `ubusd`.
+  `procd` attaches an `inotify` watch before scanning on connect and reconnect,
+  moves one record at a time into `inflight/` before emitting `ubus_notify` or
+  running `/etc/hotplug-systemd.json`, and retires it at the completion
+  boundary. If `procd` crashes mid-handler, the interrupted record moves to
+  `quarantine/` (never auto-replayed), deferring only subsequent events for the
+  same device while other devices continue. Inspect state with
+  `ubus call procd.udev queue_status` and resolve quarantined items explicitly
+  with `ubus call procd.udev queue_resolve '{"id":"...","action":"discard|retry"}'`.
+  Backlogged block events validate `DISKSEQ` (preserving `remove`), and expired
+  or stale firmware requests are skipped safely.
+- **Mixed-version legacy fallback**: if a newer `openwrt-udev-forward` runs
+  while an older `procd` without `receiver.cap` is still live during an online
+  upgrade, it falls back to `procd.udev event` until `procd` restarts.
+
+`hotplug-call` handlers run in procd's serial queue outside udev's worker, so
 long-lived helpers such as FUSE mounts survive. `DEVNAME` is passed without the
-`/dev/` prefix, as the kernel reports it.
+`/dev/` prefix, as the kernel reports it. Pure software/logic hotplug callers
+(`iface`, `dhcp`, `firewall`, `ntp`, direct `/sbin/hotplug-call`, and
+`ubus call hotplug.<subsys> call`) bypass udev and the queue.
 
 The `button-hotplug` module's synthetic button events carry no device path and
 are discarded by udev, so procd still reads those from the kernel and runs
@@ -138,15 +160,21 @@ On its first start in a boot, procd runs `udevadm trigger --type=devices
 --action=add --settle`, as its own `udevtrigger` coldplug did, and reports
 readiness afterwards (at most 45 seconds). A procd restart does not repeat it.
 
-Device permissions come from udev rules. The `hardware-support` packages ship
-`60-openwrt-{audio,video,input,printer}.rules` (and dvb, hidraw) beside their
-`hotplug.json.d` fragments: capture PCM nodes in `audio-capture`, sequencer and
-MIDI nodes in `midi`, V4L2 nodes classified by `v4l-id`. For `/dev/kvm` and the
-render, accel and kfd nodes udev's defaults (0666) apply, as they already did in
-native boot. `hotplug.json.d` `makedev` rules are not used in this mode; a
-package that needs a node permission must ship a udev rule. See
-[device management boundary](systemd-udev-boundary.md) for the reviewed
-`99-systemd.rules` subset installed by `systemd-udev`.
+Device permissions and local device policies follow a single-writer model:
+the `hardware-support` packages ship `60-openwrt-{audio,video,input,printer}.rules`
+(and dvb, hidraw) beside their `hotplug.json.d` fragments: capture PCM nodes in
+`audio-capture`, sequencer and MIDI nodes in `midi`, V4L2 nodes classified by
+`v4l-id`. For `/dev/kvm` and `/dev/dri/renderD*`, udev defaults (`0666`) apply
+unless `libvirt-daemon` is installed, in which case its
+`65-libvirt-devices.rules` tightens them directly in udev (`0660`, `kvm`/`render`).
+Desktop DRM autostart, audio user ACLs, and Sunshine `/dev/uinput` ACLs are
+driven by package-owned `80-openwrt-*.rules` and paired systemd `.path`/oneshot
+units (`openwrt-desktop-drm.path`, `openwrt-desktop-audio-acl.path`,
+`openwrt-sunshine-uinput.path`). `hotplug.json.d` `makedev` rules are not used
+in native mode; a package that needs a node permission must ship a udev rule,
+and `scripts/audit-hotplug-merge.py` guards upstream/feed merges against silent
+divergence. See [device management boundary](systemd-udev-boundary.md) and
+[udev/hotplug migration validation](systemd-udev-hotplug-migration-validation.md).
 
 ## Watchdog
 

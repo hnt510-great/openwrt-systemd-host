@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Update local custom recipes; downloading/building remains OpenWrt's job."""
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import fcntl
 import hashlib
@@ -12,6 +13,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 from urllib.parse import quote, unquote, urljoin, urlparse
 import xml.etree.ElementTree as ET
 
@@ -75,13 +77,38 @@ class Links(HTMLParser):
 
 
 class Fetcher:
-    """Bounded HTTPS requests, with cached metadata and streamed archives."""
+    """Bounded HTTPS requests, with thread-safe cached metadata and streamed archives."""
+    DEFAULT_WORKERS = 6
+    HOST_LIMITS = {'api.github.com': 2}
+    DEFAULT_HOST_LIMIT = 4
+
     def __init__(self):
         self.cache = {}
         self.tag_cache = {}
+        self._lock = threading.Lock()
+        self._url_locks = {}
+        self._tag_locks = {}
+        self._host_semaphores = {}
+
+    def _host_semaphore(self, host):
+        with self._lock:
+            sem = self._host_semaphores.get(host)
+            if sem is None:
+                sem = threading.BoundedSemaphore(self.HOST_LIMITS.get(host, self.DEFAULT_HOST_LIMIT))
+                self._host_semaphores[host] = sem
+            return sem
+
+    def _key_lock(self, table, key):
+        with self._lock:
+            lock = table.get(key)
+            if lock is None:
+                lock = threading.Lock()
+                table[key] = lock
+            return lock
 
     def request(self, url, output=None):
-        if urlparse(url).scheme != 'https':
+        parsed = urlparse(url)
+        if parsed.scheme != 'https':
             raise UpdateError('Expected an HTTPS upstream URL: ' + url)
         command = ['curl', '--fail', '--silent', '--show-error', '--location',
                    '--proto', '=https', '--proto-redir', '=https',
@@ -89,42 +116,51 @@ class Fetcher:
                    '--retry', '2', '--user-agent', 'openwrt-custom-package-updater']
         # Keep credentials off the command line, and restrict them to the API host.
         header_input = None
-        if urlparse(url).hostname == 'api.github.com':
+        if parsed.hostname == 'api.github.com':
             token = os.environ.get('GH_TOKEN') or os.environ.get('GITHUB_TOKEN')
             if token:
                 if '\n' in token or '\r' in token:
                     raise UpdateError('Invalid GitHub token environment value')
                 command += ['--header', '@-']
                 header_input = ('Authorization: Bearer ' + token + '\n').encode()
-        with tempfile.TemporaryDirectory(prefix='openwrt-custom-http-') as directory:
-            headers = Path(directory) / 'headers'
-            body = Path(directory) / 'body' if output is None else output
-            result = subprocess.run(command + ['--dump-header', str(headers), '--output', str(body),
-                                    '--write-out', '%{http_code}', url], input=header_input,
-                                    capture_output=True)
-            status = int(result.stdout) if result.stdout.strip().isdigit() else 0
-            if result.returncode:
-                response_headers = {}
-                if headers.exists():
-                    for line in headers.read_text(errors='replace').splitlines():
-                        if line.startswith('HTTP/'):
-                            response_headers = {}
-                        elif ':' in line:
-                            key, value = line.split(':', 1)
-                            response_headers[key.lower()] = value.strip()
-                reason = result.stderr.decode(errors='replace').strip()
-                if (urlparse(url).hostname == 'api.github.com' and status in (403, 429) and
-                        response_headers.get('x-ratelimit-remaining') == '0'):
-                    reset = response_headers.get('x-ratelimit-reset', '')
-                    retry = datetime.fromtimestamp(int(reset), timezone.utc).isoformat() if reset.isdigit() else 'the quota resets'
-                    reason = 'GitHub API rate limit exhausted; retry after ' + retry + ' or supply GH_TOKEN/GITHUB_TOKEN'
-                raise FetchError('Fetch failed for ' + url + ': ' + reason, status)
-            return body.read_bytes() if output is None else b''
+        with self._host_semaphore(parsed.hostname or ''):
+            with tempfile.TemporaryDirectory(prefix='openwrt-custom-http-') as directory:
+                headers = Path(directory) / 'headers'
+                body = Path(directory) / 'body' if output is None else output
+                result = subprocess.run(command + ['--dump-header', str(headers), '--output', str(body),
+                                        '--write-out', '%{http_code}', url], input=header_input,
+                                        capture_output=True)
+                status = int(result.stdout) if result.stdout.strip().isdigit() else 0
+                if result.returncode:
+                    response_headers = {}
+                    if headers.exists():
+                        for line in headers.read_text(errors='replace').splitlines():
+                            if line.startswith('HTTP/'):
+                                response_headers = {}
+                            elif ':' in line:
+                                key, value = line.split(':', 1)
+                                response_headers[key.lower()] = value.strip()
+                    reason = result.stderr.decode(errors='replace').strip()
+                    if (parsed.hostname == 'api.github.com' and status in (403, 429) and
+                            response_headers.get('x-ratelimit-remaining') == '0'):
+                        reset = response_headers.get('x-ratelimit-reset', '')
+                        retry = datetime.fromtimestamp(int(reset), timezone.utc).isoformat() if reset.isdigit() else 'the quota resets'
+                        reason = 'GitHub API rate limit exhausted; retry after ' + retry + ' or supply GH_TOKEN/GITHUB_TOKEN'
+                    raise FetchError('Fetch failed for ' + url + ': ' + reason, status)
+                return body.read_bytes() if output is None else b''
 
     def get(self, url):
-        if url not in self.cache:
-            self.cache[url] = self.request(url)
-        return self.cache[url]
+        with self._lock:
+            if url in self.cache:
+                return self.cache[url]
+        with self._key_lock(self._url_locks, url):
+            with self._lock:
+                if url in self.cache:
+                    return self.cache[url]
+            value = self.request(url)
+            with self._lock:
+                self.cache[url] = value
+            return value
 
     def json(self, url):
         return json.loads(self.get(url))
@@ -132,18 +168,24 @@ class Fetcher:
     def download(self, url, output):
         self.request(url, output)
 
-
     def git_tags(self, project):
         if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', project):
             raise UpdateError('Invalid GitHub project name')
-        if project not in self.tag_cache:
+        with self._lock:
+            if project in self.tag_cache:
+                return self.tag_cache[project]
+        with self._key_lock(self._tag_locks, project):
+            with self._lock:
+                if project in self.tag_cache:
+                    return self.tag_cache[project]
             url = 'https://github.com/' + project + '.git'
-            try:
-                result = subprocess.run(['git', 'ls-remote', '--tags', '--refs', url],
-                                        env=dict(os.environ, GIT_TERMINAL_PROMPT='0'),
-                                        capture_output=True, text=True, timeout=120)
-            except subprocess.TimeoutExpired as error:
-                raise UpdateError('Timed out listing upstream tags: ' + url) from error
+            with self._host_semaphore('github.com'):
+                try:
+                    result = subprocess.run(['git', 'ls-remote', '--tags', '--refs', url],
+                                            env=dict(os.environ, GIT_TERMINAL_PROMPT='0'),
+                                            capture_output=True, text=True, timeout=120)
+                except subprocess.TimeoutExpired as error:
+                    raise UpdateError('Timed out listing upstream tags: ' + url) from error
             if result.returncode:
                 raise UpdateError('Cannot list upstream tags for ' + url + ': ' + result.stderr.strip())
             tags = []
@@ -152,8 +194,9 @@ class Fetcher:
                 if not match:
                     raise UpdateError('Unexpected Git tag advertisement from ' + url)
                 tags.append({'name': match[2], 'object': match[1]})
-            self.tag_cache[project] = tags
-        return self.tag_cache[project]
+            with self._lock:
+                self.tag_cache[project] = tags
+            return tags
 
 
 def paged(fetcher, url):
@@ -473,14 +516,16 @@ def validate_regex(pattern, label, errors, require_version=False):
 
 
 class Updater:
-    def __init__(self, root, entries, fetcher=None, update=False, record=None, feed_groups=None):
+    def __init__(self, root, entries, fetcher=None, update=False, record=None, feed_groups=None, workers=None):
         self.root = root.resolve()
         self.entries = entries
         self.feed_groups = feed_groups or {}
         self.fetcher = fetcher or Fetcher()
         self.update = update
         self.record = record
+        self.workers = (Fetcher.DEFAULT_WORKERS if isinstance(self.fetcher, Fetcher) else 1) if workers is None else max(1, int(workers))
         self.followed_inputs = {}
+        self._report_lock = threading.Lock()
         self.report = {'schema': 1, 'mode': 'update' if update else 'check',
                        'status': 'running', 'packages': {}}
 
@@ -712,16 +757,17 @@ class Updater:
             if committed.returncode or committed.stdout != path.read_bytes():
                 raise UpdateError('Untracked or locally modified recipe: ' + relative)
 
-    def sync_linked_sources(self, name, entry, text, planned, row, version_changed):
+    def sync_linked_sources(self, name, entry, text, planned, row, version_changed, followed_inputs=None):
         linked_list = entry.get('linked_sources', [])
         if not linked_list:
             return text, False
+        inputs = self.followed_inputs if followed_inputs is None else followed_inputs
         changed = False
         updates = {}
         for linked in linked_list:
             path = self.root / linked['recipe']
-            self.followed_inputs[path] = path.read_text()
-            source_text = planned.get(path, self.followed_inputs[path])
+            inputs[path] = path.read_text()
+            source_text = planned.get(path, inputs[path])
             source_fields = fields(source_text, {'PKG_VERSION', 'PKG_HASH'}, allow_default=True)
             new_ver = source_fields['PKG_VERSION']
             new_hash = valid_hash(source_fields['PKG_HASH'])
@@ -739,14 +785,16 @@ class Updater:
             row['linked_updates'] = updates
         return text, changed
 
-    def discover(self, name, planned):
+    def discover(self, name, planned, followed_inputs=None):
         entry = self.entries[name]
+        inputs = self.followed_inputs if followed_inputs is None else followed_inputs
         text = self.recipe(name).read_text()
         metadata = fields(text, {'PKG_VERSION', 'PKG_RELEASE'} if entry['provider'] == 'git-checkout' else None)
         row = {'old_version': metadata.get('PKG_VERSION'), 'provider': entry['provider']}
         if entry.get('rebuild_dependents'):
             row['rebuild_dependents'] = list(entry['rebuild_dependents'])
-        self.report['packages'][name] = row
+        with self._report_lock:
+            self.report['packages'][name] = row
         if entry['provider'] == 'git-checkout':
             self.update_checkout(name, entry, row)
             return None
@@ -764,8 +812,8 @@ class Updater:
             raise UpdateError('Expected a literal PKG_RELEASE in ' + name)
         if entry['provider'] == 'follow':
             path = self.root / entry['recipe']
-            self.followed_inputs[path] = path.read_text()
-            followed_text = planned.get(path, self.followed_inputs[path])
+            inputs[path] = path.read_text()
+            followed_text = planned.get(path, inputs[path])
             followed_names = {'PKG_VERSION', 'PKG_HASH'} if entry.get('same_source') else {'PKG_VERSION'}
             followed = fields(followed_text, followed_names, allow_default=True)
             version = followed['PKG_VERSION']
@@ -845,7 +893,7 @@ class Updater:
             if digest and digest != metadata['PKG_HASH']:
                 raise UpdateError('Same-version source digest changed; review ' + name + ' manually')
             if fields(proposed).get('PKG_SOURCE_URL') == metadata.get('PKG_SOURCE_URL'):
-                linked_text, linked_changed = self.sync_linked_sources(name, entry, text, planned, row, False)
+                linked_text, linked_changed = self.sync_linked_sources(name, entry, text, planned, row, False, inputs)
                 if not linked_changed:
                     row['status'] = 'review' if row.get('review_version') else 'current'
                     return None
@@ -857,7 +905,7 @@ class Updater:
             digest = metadata['PKG_HASH']
         row['status'] = 'available'
         proposed = self.companion_assets(name, entry, meta, proposed, row)
-        proposed, _ = self.sync_linked_sources(name, entry, proposed, planned, row, True)
+        proposed, _ = self.sync_linked_sources(name, entry, proposed, planned, row, True, inputs)
         if not self.update:
             return proposed
         self.assert_clean([self.recipe(name)])
@@ -875,7 +923,7 @@ class Updater:
         updated = rewrite_recipe(text, version, digest, entry.get('source_url'), meta.get('source_version'))
         for variable in entry.get('companion_assets', {}):
             updated = rewrite_variable(updated, variable, variable_value(proposed, variable))
-        updated, _ = self.sync_linked_sources(name, entry, updated, planned, row, True)
+        updated, _ = self.sync_linked_sources(name, entry, updated, planned, row, True, inputs)
         return updated
 
     def companion_assets(self, name, entry, meta, text, row):
@@ -1255,60 +1303,144 @@ class Updater:
             parts.append(f'({row["error"]})')
         return ' '.join(parts)
 
+    def _prefetch_catalogs(self, plan):
+        """Warm read-only upstream catalogs concurrently before sequential --update."""
+        targets = []
+        for kind, _, members in plan:
+            if kind != 'custom':
+                continue
+            for name in members:
+                entry = self.entries[name]
+                if entry['provider'] in ('local', 'follow', 'git-checkout'):
+                    continue
+                targets.append((name, entry))
+        if len(targets) <= 1 or self.workers <= 1:
+            return
+
+        def warm(item):
+            name, entry = item
+            try:
+                current = fields(self.recipe(name).read_text()).get('PKG_VERSION')
+                if current:
+                    catalog(entry, self.fetcher, current=current)
+            except Exception:
+                # Let the deterministic main loop surface any upstream error.
+                pass
+
+        with ThreadPoolExecutor(max_workers=self.workers) as pool:
+            list(pool.map(warm, targets))
+
+    def _run_custom_group_check(self, group_key, members):
+        followed_inputs = {}
+        changes = {}
+        group_label = group_key if len(members) > 1 else None
+        group_failures = []
+        for name in members:
+            try:
+                updated = self.discover(name, changes, followed_inputs)
+                with self._report_lock:
+                    if group_label:
+                        self.report['packages'][name]['group'] = group_label
+                if updated is not None:
+                    changes[self.recipe(name)] = updated
+            except Exception as error:
+                with self._report_lock:
+                    self.report['packages'].setdefault(name, {}).update(status='failed', error=str(error))
+                    if group_label:
+                        self.report['packages'][name]['group'] = group_label
+                    for remaining in members[members.index(name) + 1:]:
+                        self.report['packages'].setdefault(remaining, {}).update(
+                            status='failed', error=f'Blocked by group member {name}: {error}')
+                        if group_label:
+                            self.report['packages'][remaining]['group'] = group_label
+                group_failures.append((name, str(error)))
+                break
+        return group_label, group_failures
+
     def execute(self, selected=()):
         self.validate_registry()
         failures = []
+        plan = self.groups(selected)
         try:
-            for kind, group_key, members in self.groups(selected):
-                if kind == 'feed_group':
-                    all_members = [*sorted(self.feed_groups[group_key]['feed_modules']), *members]
-                    try:
-                        self.execute_feed_group(group_key, members)
-                    except Exception as error:
+            if not self.update and self.workers > 1 and sum(1 for k, _, _ in plan if k == 'custom') > 1:
+                with ThreadPoolExecutor(max_workers=self.workers) as pool:
+                    futures = {
+                        idx: pool.submit(self._run_custom_group_check, group_key, members)
+                        for idx, (kind, group_key, members) in enumerate(plan)
+                        if kind == 'custom'
+                    }
+                    for idx, (kind, group_key, members) in enumerate(plan):
+                        if kind == 'feed_group':
+                            all_members = [*sorted(self.feed_groups[group_key]['feed_modules']), *members]
+                            try:
+                                self.execute_feed_group(group_key, members)
+                            except Exception as error:
+                                for mod_name in all_members:
+                                    self.report['packages'].setdefault(mod_name, {'group': group_key}).update(
+                                        status='failed', error=str(error))
+                                failures.append((group_key, str(error)))
+                            for mod_name in all_members:
+                                row = self.report['packages'][mod_name]
+                                print(self.format_status_line(mod_name, row, group_key), flush=True)
+                            continue
+                        group_label, group_failures = futures[idx].result()
+                        failures.extend(group_failures)
+                        for name in members:
+                            row = self.report['packages'][name]
+                            print(self.format_status_line(name, row, group_label), flush=True)
+            else:
+                if self.update and self.workers > 1:
+                    self._prefetch_catalogs(plan)
+                for kind, group_key, members in plan:
+                    if kind == 'feed_group':
+                        all_members = [*sorted(self.feed_groups[group_key]['feed_modules']), *members]
+                        try:
+                            self.execute_feed_group(group_key, members)
+                        except Exception as error:
+                            for mod_name in all_members:
+                                self.report['packages'].setdefault(mod_name, {'group': group_key}).update(
+                                    status='failed', error=str(error))
+                            if self.update:
+                                raise
+                            failures.append((group_key, str(error)))
                         for mod_name in all_members:
-                            self.report['packages'].setdefault(mod_name, {'group': group_key}).update(
-                                status='failed', error=str(error))
-                        if self.update:
-                            raise
-                        failures.append((group_key, str(error)))
-                    for mod_name in all_members:
-                        row = self.report['packages'][mod_name]
-                        print(self.format_status_line(mod_name, row, group_key), flush=True)
-                    continue
+                            row = self.report['packages'][mod_name]
+                            print(self.format_status_line(mod_name, row, group_key), flush=True)
+                        continue
 
-                self.followed_inputs = {}
-                originals = {self.recipe(n): self.recipe(n).read_text() for n in members}
-                changes = {}
-                group_label = group_key if len(members) > 1 else None
-                group_failed = False
-                for name in members:
-                    try:
-                        updated = self.discover(name, changes)
-                        if group_label:
-                            self.report['packages'][name]['group'] = group_label
-                        if updated is not None:
-                            changes[self.recipe(name)] = updated
-                    except Exception as error:
-                        self.report['packages'].setdefault(name, {}).update(status='failed', error=str(error))
-                        if group_label:
-                            self.report['packages'][name]['group'] = group_label
-                        if self.update:
-                            raise
-                        failures.append((name, str(error)))
-                        group_failed = True
-                        for remaining in members[members.index(name) + 1:]:
-                            self.report['packages'].setdefault(remaining, {}).update(
-                                status='failed', error=f'Blocked by group member {name}: {error}')
+                    self.followed_inputs = {}
+                    originals = {self.recipe(n): self.recipe(n).read_text() for n in members}
+                    changes = {}
+                    group_label = group_key if len(members) > 1 else None
+                    group_failed = False
+                    for name in members:
+                        try:
+                            updated = self.discover(name, changes, self.followed_inputs)
                             if group_label:
-                                self.report['packages'][remaining]['group'] = group_label
-                        break
-                if self.update and changes and not group_failed:
-                    self.apply(changes, originals)
-                    for path in changes:
-                        self.report['packages'][path.parent.name]['status'] = 'updated'
-                for name in members:
-                    row = self.report['packages'][name]
-                    print(self.format_status_line(name, row, group_label), flush=True)
+                                self.report['packages'][name]['group'] = group_label
+                            if updated is not None:
+                                changes[self.recipe(name)] = updated
+                        except Exception as error:
+                            self.report['packages'].setdefault(name, {}).update(status='failed', error=str(error))
+                            if group_label:
+                                self.report['packages'][name]['group'] = group_label
+                            if self.update:
+                                raise
+                            failures.append((name, str(error)))
+                            group_failed = True
+                            for remaining in members[members.index(name) + 1:]:
+                                self.report['packages'].setdefault(remaining, {}).update(
+                                    status='failed', error=f'Blocked by group member {name}: {error}')
+                                if group_label:
+                                    self.report['packages'][remaining]['group'] = group_label
+                            break
+                    if self.update and changes and not group_failed:
+                        self.apply(changes, originals)
+                        for path in changes:
+                            self.report['packages'][path.parent.name]['status'] = 'updated'
+                    for name in members:
+                        row = self.report['packages'][name]
+                        print(self.format_status_line(name, row, group_label), flush=True)
             if failures:
                 self.report.update(status='failed', failures=[{'target': t, 'error': e} for t, e in failures])
                 print(f'Custom check finished with {len(failures)} failure(s):', file=sys.stderr)
@@ -1329,6 +1461,7 @@ def main():
     mode.add_argument('--check', action='store_true', help='Read-only check (default); exit 1 for updates/review')
     mode.add_argument('--update', action='store_true', help='Update recipes, without building or publishing')
     parser.add_argument('--package', action='append', default=[], help='Restrict to a package and its linked group')
+    parser.add_argument('--jobs', type=int, default=None, help='Bounded concurrent upstream checks (default: 6)')
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1])
     args = parser.parse_args()
     root = args.root.resolve()
@@ -1339,7 +1472,7 @@ def main():
             raise UpdateError('Unsupported custom registry schema')
         feed_groups = registry.get('feed_groups', {})
         if not args.update:
-            return Updater(root, registry['packages'], feed_groups=feed_groups).execute(args.package)
+            return Updater(root, registry['packages'], feed_groups=feed_groups, workers=args.jobs).execute(args.package)
         gitdir = subprocess.check_output(['git', '-C', str(root), 'rev-parse', '--absolute-git-dir'], text=True).strip()
         with (Path(gitdir) / 'custom-package-updates.lock').open('a') as lock:
             try:
@@ -1352,7 +1485,8 @@ def main():
             stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ')
             record = root / 'logs/custom-package-updates' / stamp
             record.mkdir(parents=True)
-            updater = Updater(root, registry['packages'], update=True, record=record, feed_groups=feed_groups)
+            updater = Updater(root, registry['packages'], update=True, record=record,
+                              feed_groups=feed_groups, workers=args.jobs)
             try:
                 return updater.execute(args.package)
             finally:

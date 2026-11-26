@@ -1,0 +1,1891 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -42,9 +42,9 @@ IF(OPENWRT_SYSTEMD)
+   ADD_EXECUTABLE(openwrt-cgroup scope-helper.c $<TARGET_OBJECTS:systemd-cgroup>)
+   TARGET_LINK_LIBRARIES(openwrt-cgroup ${systemd})
+   INSTALL(TARGETS openwrt-cgroup RUNTIME DESTINATION ${CMAKE_INSTALL_LIBEXECDIR})
+-  SET(SOURCES ${SOURCES} $<TARGET_OBJECTS:systemd-cgroup> service/unit.c)
+-  ADD_EXECUTABLE(openwrt-udev-forward udev-forward.c)
+-  TARGET_LINK_LIBRARIES(openwrt-udev-forward ${ubox} ${ubus})
++  SET(SOURCES ${SOURCES} $<TARGET_OBJECTS:systemd-cgroup> service/unit.c hotplug-queue.c plug/hotplug-consumer.c)
++  ADD_EXECUTABLE(openwrt-udev-forward udev-forward.c hotplug-queue.c)
++  TARGET_LINK_LIBRARIES(openwrt-udev-forward ${ubox} ${ubus} ${json})
+   INSTALL(TARGETS openwrt-udev-forward RUNTIME DESTINATION ${CMAKE_INSTALL_LIBEXECDIR})
+ ENDIF()
+ 
+--- a/hotplug-dispatch.c
++++ b/hotplug-dispatch.c
+@@ -481,12 +481,20 @@ static int udev_event(struct ubus_contex
+ 	if (!tb[UDEV_EVENT_ENV])
+ 		return UBUS_STATUS_INVALID_ARGUMENT;
+ 
++#ifdef OPENWRT_SYSTEMD
++	if (hotplug_queue_enqueue_legacy(tb[UDEV_EVENT_ENV]) == 0)
++		return UBUS_STATUS_OK;
++#endif
+ 	hotplug_inject(tb[UDEV_EVENT_ENV]);
+ 	return UBUS_STATUS_OK;
+ }
+ 
+ static const struct ubus_method udev_methods[] = {
+ 	UBUS_METHOD("event", udev_event, udev_event_policy),
++#ifdef OPENWRT_SYSTEMD
++	UBUS_METHOD_NOARG("queue_status", hotplug_queue_ubus_status),
++	UBUS_METHOD("queue_resolve", hotplug_queue_ubus_resolve, hotplug_queue_resolve_policy),
++#endif
+ };
+ 
+ static struct ubus_object_type udev_object_type =
+@@ -514,4 +522,8 @@ void ubus_init_hotplug(struct ubus_conte
+ 			      IN_CREATE | IN_MOVED_TO | IN_DELETE |
+ 			      IN_MOVED_FROM | IN_ONLYDIR) == -1)
+ 		printf("failed to initialize inotify handler for %s\n", HOTPLUG_BASEDIR);
++#ifdef OPENWRT_SYSTEMD
++	if (procd_units)
++		hotplug_queue_ubus_ready();
++#endif
+ }
+--- /dev/null
++++ b/hotplug-queue.c
+@@ -0,0 +1,745 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#define _GNU_SOURCE
++#include <dirent.h>
++#include <errno.h>
++#include <fcntl.h>
++#include <inttypes.h>
++#include <limits.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/file.h>
++#include <sys/stat.h>
++#include <syslog.h>
++#include <time.h>
++#include <unistd.h>
++
++#include <json-c/json.h>
++
++#include "hotplug-queue.h"
++
++struct hq_seen_entry {
++	char boot_id[40];
++	char seqnum[24];
++};
++
++struct hq_seen_ring {
++	uint32_t magic;
++	uint32_t head;
++	struct hq_seen_entry entries[HOTPLUG_SEEN_RING_SIZE];
++};
++
++#define HQ_SEEN_MAGIC 0x48515331U /* "HQS1" */
++
++static int write_all(int fd, const void *buf, size_t len)
++{
++	const char *p = buf;
++
++	while (len > 0) {
++		ssize_t n = write(fd, p, len);
++
++		if (n < 0) {
++			if (errno == EINTR)
++				continue;
++			return -1;
++		}
++		p += (size_t)n;
++		len -= (size_t)n;
++	}
++	return 0;
++}
++
++static int write_file_atomic(const char *base_dir, const char *dest_path,
++			     const void *data, size_t len, mode_t mode)
++{
++	static unsigned int tmp_seq;
++	char tmp_path[PATH_MAX];
++	int fd;
++
++	if (snprintf(tmp_path, sizeof(tmp_path), "%s/tmp/.w-%ld-%" PRIu64 "-%u.tmp",
++		     base_dir, (long)getpid(), hotplug_queue_mono_ms(), ++tmp_seq) >= (int)sizeof(tmp_path))
++		return -1;
++
++	fd = open(tmp_path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, mode);
++	if (fd < 0)
++		return -1;
++
++	if (write_all(fd, data, len) < 0) {
++		close(fd);
++		unlink(tmp_path);
++		return -1;
++	}
++	if (close(fd) < 0) {
++		unlink(tmp_path);
++		return -1;
++	}
++	if (rename(tmp_path, dest_path) < 0) {
++		unlink(tmp_path);
++		return -1;
++	}
++	return 0;
++}
++
++static int ensure_private_dir(const char *path)
++{
++	struct stat st;
++
++	if (mkdir(path, 0700) < 0 && errno != EEXIST)
++		return -1;
++	if (lstat(path, &st) < 0)
++		return -1;
++	if (!S_ISDIR(st.st_mode))
++		return -1;
++	if (geteuid() == 0 && st.st_uid != 0)
++		return -1;
++	if ((st.st_mode & 07777) != 0700)
++		chmod(path, 0700);
++	return 0;
++}
++
++int hotplug_queue_read_boot_id(char *buf, size_t len)
++{
++	int fd;
++	ssize_t n;
++
++	if (!buf || len < 2)
++		return -1;
++
++	fd = open("/proc/sys/kernel/random/boot_id", O_RDONLY | O_CLOEXEC);
++	if (fd < 0)
++		return -1;
++	n = read(fd, buf, len - 1);
++	close(fd);
++	if (n <= 0)
++		return -1;
++	buf[n] = '\0';
++	while (n > 0 && (buf[n - 1] == '\n' || buf[n - 1] == '\r' || buf[n - 1] == ' '))
++		buf[--n] = '\0';
++	return n > 0 ? 0 : -1;
++}
++
++uint64_t hotplug_queue_mono_ms(void)
++{
++	struct timespec ts;
++
++	if (clock_gettime(CLOCK_MONOTONIC, &ts) < 0)
++		return 0;
++	return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)(ts.tv_nsec / 1000000L);
++}
++
++int hotplug_queue_init_dirs(const char *base_dir)
++{
++	static const char * const subdirs[] = {
++		"tmp", "pending", "inflight", "quarantine", "corrupt"
++	};
++	char path[PATH_MAX];
++	size_t i;
++
++	if (ensure_private_dir(base_dir) < 0)
++		return -1;
++
++	for (i = 0; i < sizeof(subdirs) / sizeof(subdirs[0]); i++) {
++		if (snprintf(path, sizeof(path), "%s/%s", base_dir, subdirs[i]) >= (int)sizeof(path))
++			return -1;
++		if (ensure_private_dir(path) < 0)
++			return -1;
++	}
++	return 0;
++}
++
++int hotplug_queue_write_cap(const char *base_dir, pid_t pid)
++{
++	char boot_id[64];
++	char content[256];
++	char cap_path[PATH_MAX];
++	int len;
++
++	if (hotplug_queue_read_boot_id(boot_id, sizeof(boot_id)) < 0)
++		return -1;
++
++	len = snprintf(content, sizeof(content),
++		       "version=1\nboot_id=%s\npid=%ld\n",
++		       boot_id, (long)pid);
++	if (len <= 0 || len >= (int)sizeof(content))
++		return -1;
++	if (snprintf(cap_path, sizeof(cap_path), "%s/receiver.cap", base_dir) >= (int)sizeof(cap_path))
++		return -1;
++
++	return write_file_atomic(base_dir, cap_path, content, (size_t)len, 0600);
++}
++
++bool hotplug_queue_receiver_active(const char *base_dir)
++{
++	struct stat st;
++	char cap_path[PATH_MAX];
++	char boot_id[64];
++	char buf[256];
++	char expected[96];
++	int fd;
++	ssize_t n;
++
++	if (lstat(base_dir, &st) < 0 || !S_ISDIR(st.st_mode))
++		return false;
++	if (geteuid() == 0 && st.st_uid != 0)
++		return false;
++
++	if (snprintf(cap_path, sizeof(cap_path), "%s/receiver.cap", base_dir) >= (int)sizeof(cap_path))
++		return false;
++	if (lstat(cap_path, &st) < 0 || !S_ISREG(st.st_mode))
++		return false;
++	if (geteuid() == 0 && st.st_uid != 0)
++		return false;
++
++	if (hotplug_queue_read_boot_id(boot_id, sizeof(boot_id)) < 0)
++		return false;
++
++	fd = open(cap_path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
++	if (fd < 0)
++		return false;
++	n = read(fd, buf, sizeof(buf) - 1);
++	close(fd);
++	if (n <= 0)
++		return false;
++	buf[n] = '\0';
++
++	if (!strstr(buf, "version=1\n"))
++		return false;
++	if (snprintf(expected, sizeof(expected), "boot_id=%s\n", boot_id) >= (int)sizeof(expected))
++		return false;
++	return strstr(buf, expected) != NULL;
++}
++
++int hotplug_queue_lock(const char *base_dir)
++{
++	char lock_path[PATH_MAX];
++	int fd;
++
++	if (snprintf(lock_path, sizeof(lock_path), "%s/.enqueue.lock", base_dir) >= (int)sizeof(lock_path))
++		return -1;
++	fd = open(lock_path, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
++	if (fd < 0)
++		return -1;
++	while (flock(fd, LOCK_EX) < 0) {
++		if (errno != EINTR) {
++			close(fd);
++			return -1;
++		}
++	}
++	return fd;
++}
++
++void hotplug_queue_unlock(int lock_fd)
++{
++	if (lock_fd >= 0) {
++		flock(lock_fd, LOCK_UN);
++		close(lock_fd);
++	}
++}
++
++int hotplug_queue_read_stats(const char *base_dir, struct hotplug_queue_stats *st)
++{
++	char path[PATH_MAX];
++	FILE *f;
++	char line[128];
++
++	memset(st, 0, sizeof(*st));
++	if (snprintf(path, sizeof(path), "%s/.stats", base_dir) >= (int)sizeof(path))
++		return -1;
++	f = fopen(path, "re");
++	if (!f)
++		return errno == ENOENT ? 0 : -1;
++
++	while (fgets(line, sizeof(line), f)) {
++		uint64_t val = 0;
++
++		if (sscanf(line, "next_seq=%" SCNu64, &val) == 1)
++			st->next_seq = val;
++		else if (sscanf(line, "dispatched=%" SCNu64, &val) == 1)
++			st->dispatched = val;
++		else if (sscanf(line, "quarantined_total=%" SCNu64, &val) == 1)
++			st->quarantined_total = val;
++		else if (sscanf(line, "expired=%" SCNu64, &val) == 1)
++			st->expired = val;
++		else if (sscanf(line, "overflow=%" SCNu64, &val) == 1)
++			st->overflow = val;
++		else if (sscanf(line, "corrupt=%" SCNu64, &val) == 1)
++			st->corrupt = val;
++		else if (sscanf(line, "deduped=%" SCNu64, &val) == 1)
++			st->deduped = val;
++		else if (sscanf(line, "last_overflow_log_ms=%" SCNu64, &val) == 1)
++			st->last_overflow_log_ms = val;
++	}
++	fclose(f);
++	return 0;
++}
++
++int hotplug_queue_write_stats(const char *base_dir, const struct hotplug_queue_stats *st)
++{
++	char path[PATH_MAX];
++	char buf[512];
++	int len;
++
++	if (snprintf(path, sizeof(path), "%s/.stats", base_dir) >= (int)sizeof(path))
++		return -1;
++	len = snprintf(buf, sizeof(buf),
++		       "next_seq=%" PRIu64 "\n"
++		       "dispatched=%" PRIu64 "\n"
++		       "quarantined_total=%" PRIu64 "\n"
++		       "expired=%" PRIu64 "\n"
++		       "overflow=%" PRIu64 "\n"
++		       "corrupt=%" PRIu64 "\n"
++		       "deduped=%" PRIu64 "\n"
++		       "last_overflow_log_ms=%" PRIu64 "\n",
++		       st->next_seq, st->dispatched, st->quarantined_total,
++		       st->expired, st->overflow, st->corrupt, st->deduped,
++		       st->last_overflow_log_ms);
++	if (len <= 0 || len >= (int)sizeof(buf))
++		return -1;
++	return write_file_atomic(base_dir, path, buf, (size_t)len, 0600);
++}
++
++static bool has_json_suffix(const char *name)
++{
++	size_t len = strlen(name);
++
++	return len > 5 && strcmp(name + len - 5, ".json") == 0;
++}
++
++int hotplug_queue_count_dir(const char *dir_path, size_t *count_out, size_t *bytes_out)
++{
++	DIR *dir;
++	struct dirent *de;
++	size_t count = 0, bytes = 0;
++
++	dir = opendir(dir_path);
++	if (!dir)
++		return -1;
++
++	while ((de = readdir(dir))) {
++		struct stat st;
++
++		if (de->d_name[0] == '.' || !has_json_suffix(de->d_name))
++			continue;
++		if (fstatat(dirfd(dir), de->d_name, &st, AT_SYMLINK_NOFOLLOW) < 0)
++			continue;
++		if (!S_ISREG(st.st_mode))
++			continue;
++		count++;
++		if (st.st_size > 0)
++			bytes += (size_t)st.st_size;
++	}
++	closedir(dir);
++
++	if (count_out)
++		*count_out = count;
++	if (bytes_out)
++		*bytes_out = bytes;
++	return 0;
++}
++
++static int filter_json_dirent(const struct dirent *de)
++{
++	return de->d_name[0] != '.' && has_json_suffix(de->d_name);
++}
++
++int hotplug_queue_prune_dir(const char *dir_path, size_t max_items, size_t max_bytes)
++{
++	struct dirent **list = NULL;
++	int n, i;
++	size_t total_items = 0, total_bytes = 0;
++	size_t *sizes = NULL;
++	char full[PATH_MAX];
++
++	n = scandir(dir_path, &list, filter_json_dirent, alphasort);
++	if (n <= 0) {
++		free(list);
++		return 0;
++	}
++
++	sizes = calloc((size_t)n, sizeof(*sizes));
++	if (!sizes) {
++		for (i = 0; i < n; i++)
++			free(list[i]);
++		free(list);
++		return -1;
++	}
++
++	for (i = 0; i < n; i++) {
++		struct stat st;
++
++		if (snprintf(full, sizeof(full), "%s/%s", dir_path, list[i]->d_name) < (int)sizeof(full) &&
++		    lstat(full, &st) == 0 && S_ISREG(st.st_mode)) {
++			total_items++;
++			if (st.st_size > 0) {
++				sizes[i] = (size_t)st.st_size;
++				total_bytes += sizes[i];
++			}
++		}
++	}
++
++	for (i = 0; i < n && (total_items > max_items || total_bytes > max_bytes); i++) {
++		if (snprintf(full, sizeof(full), "%s/%s", dir_path, list[i]->d_name) < (int)sizeof(full)) {
++			if (unlink(full) == 0) {
++				if (total_items > 0)
++					total_items--;
++				if (total_bytes >= sizes[i])
++					total_bytes -= sizes[i];
++				else
++					total_bytes = 0;
++			}
++		}
++	}
++
++	free(sizes);
++	for (i = 0; i < n; i++)
++		free(list[i]);
++	free(list);
++	return 0;
++}
++
++static int seen_ring_check_and_add(const char *base_dir, const char *boot_id, const char *seqnum)
++{
++	char path[PATH_MAX];
++	struct hq_seen_ring *ring;
++	int fd;
++	ssize_t n;
++	uint32_t i;
++	bool found = false;
++
++	if (!boot_id || !*boot_id || !seqnum || !*seqnum)
++		return 0;
++	if (snprintf(path, sizeof(path), "%s/.seen-seq", base_dir) >= (int)sizeof(path))
++		return -1;
++
++	ring = calloc(1, sizeof(*ring));
++	if (!ring)
++		return -1;
++
++	fd = open(path, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
++	if (fd < 0) {
++		free(ring);
++		return -1;
++	}
++
++	n = read(fd, ring, sizeof(*ring));
++	if (n != (ssize_t)sizeof(*ring) || ring->magic != HQ_SEEN_MAGIC) {
++		memset(ring, 0, sizeof(*ring));
++		ring->magic = HQ_SEEN_MAGIC;
++		ring->head = 0;
++	} else {
++		for (i = 0; i < HOTPLUG_SEEN_RING_SIZE; i++) {
++			if (!ring->entries[i].seqnum[0])
++				continue;
++			if (strcmp(ring->entries[i].seqnum, seqnum) == 0 &&
++			    strcmp(ring->entries[i].boot_id, boot_id) == 0) {
++				found = true;
++				break;
++			}
++		}
++	}
++
++	if (!found) {
++		uint32_t idx = ring->head % HOTPLUG_SEEN_RING_SIZE;
++
++		snprintf(ring->entries[idx].boot_id, sizeof(ring->entries[idx].boot_id), "%s", boot_id);
++		snprintf(ring->entries[idx].seqnum, sizeof(ring->entries[idx].seqnum), "%s", seqnum);
++		ring->head = (idx + 1) % HOTPLUG_SEEN_RING_SIZE;
++		if (lseek(fd, 0, SEEK_SET) == 0)
++			(void)write_all(fd, ring, sizeof(*ring));
++	}
++
++	close(fd);
++	free(ring);
++	return found ? 1 : 0;
++}
++
++static int read_sysfs_line(const char *path, char *buf, size_t len)
++{
++	int fd;
++	ssize_t n;
++
++	fd = open(path, O_RDONLY | O_CLOEXEC);
++	if (fd < 0)
++		return -1;
++	n = read(fd, buf, len - 1);
++	close(fd);
++	if (n <= 0)
++		return -1;
++	buf[n] = '\0';
++	while (n > 0 && (buf[n - 1] == '\n' || buf[n - 1] == '\r' || buf[n - 1] == ' '))
++		buf[--n] = '\0';
++	return n > 0 ? 0 : -1;
++}
++
++static enum hotplug_enqueue_rc enqueue_json_env(const char *base_dir,
++						struct json_object *env_obj,
++						char *id_out,
++						size_t id_out_len)
++{
++	struct json_object *rec = NULL, *tmp_obj = NULL;
++	const char *subsystem = NULL, *devpath = NULL, *devname = NULL;
++	const char *seqnum = NULL, *firmware = NULL, *diskseq = NULL, *timeout_s = NULL;
++	char boot_id[64] = "";
++	char device_key[PATH_MAX];
++	char diskseq_buf[64] = "";
++	char pending_dir[PATH_MAX], dest_path[PATH_MAX];
++	char id_buf[32];
++	uint64_t now_ms = hotplug_queue_mono_ms();
++	uint64_t now_real = (uint64_t)time(NULL);
++	uint64_t fw_ttl_s = HOTPLUG_FW_DEFAULT_TTL_S;
++	uint64_t fw_dev = 0, fw_ino = 0;
++	const char *json_str;
++	size_t json_len, cur_items = 0, cur_bytes = 0;
++	struct hotplug_queue_stats st;
++	int lock_fd = -1;
++	enum hotplug_enqueue_rc rc = HQ_ENQ_ERR;
++
++	if (hotplug_queue_read_boot_id(boot_id, sizeof(boot_id)) < 0)
++		snprintf(boot_id, sizeof(boot_id), "unknown");
++
++	if (json_object_object_get_ex(env_obj, "SUBSYSTEM", &tmp_obj))
++		subsystem = json_object_get_string(tmp_obj);
++	if (json_object_object_get_ex(env_obj, "DEVPATH", &tmp_obj))
++		devpath = json_object_get_string(tmp_obj);
++	if (json_object_object_get_ex(env_obj, "DEVNAME", &tmp_obj))
++		devname = json_object_get_string(tmp_obj);
++	if (json_object_object_get_ex(env_obj, "SEQNUM", &tmp_obj))
++		seqnum = json_object_get_string(tmp_obj);
++	if (json_object_object_get_ex(env_obj, "FIRMWARE", &tmp_obj))
++		firmware = json_object_get_string(tmp_obj);
++	if (json_object_object_get_ex(env_obj, "DISKSEQ", &tmp_obj))
++		diskseq = json_object_get_string(tmp_obj);
++	if (json_object_object_get_ex(env_obj, "TIMEOUT", &tmp_obj))
++		timeout_s = json_object_get_string(tmp_obj);
++
++	if (devpath && *devpath)
++		snprintf(device_key, sizeof(device_key), "%s", devpath);
++	else if (subsystem && *subsystem && devname && *devname)
++		snprintf(device_key, sizeof(device_key), "%s:%s", subsystem, devname);
++	else if (subsystem && *subsystem)
++		snprintf(device_key, sizeof(device_key), "%s", subsystem);
++	else
++		snprintf(device_key, sizeof(device_key), "unknown");
++
++	if ((!diskseq || !*diskseq) && subsystem && strcmp(subsystem, "block") == 0 &&
++	    devpath && *devpath && strstr(devpath, "..") == NULL) {
++		char sys_ds[PATH_MAX];
++
++		if (snprintf(sys_ds, sizeof(sys_ds), "/sys/%s/diskseq", devpath) < (int)sizeof(sys_ds) &&
++		    read_sysfs_line(sys_ds, diskseq_buf, sizeof(diskseq_buf)) == 0)
++			diskseq = diskseq_buf;
++	}
++
++	if (firmware && *firmware) {
++		if (timeout_s && *timeout_s) {
++			unsigned long parsed = strtoul(timeout_s, NULL, 10);
++
++			if (parsed >= 1 && parsed <= 300)
++				fw_ttl_s = parsed;
++		}
++		if (devpath && *devpath && strstr(devpath, "..") == NULL) {
++			char sys_fw[PATH_MAX];
++			struct stat fst;
++
++			if (snprintf(sys_fw, sizeof(sys_fw), "/sys/%s/loading", devpath) < (int)sizeof(sys_fw) &&
++			    stat(sys_fw, &fst) == 0) {
++				fw_dev = (uint64_t)fst.st_dev;
++				fw_ino = (uint64_t)fst.st_ino;
++			} else if (snprintf(sys_fw, sizeof(sys_fw), "/sys/%s", devpath) < (int)sizeof(sys_fw) &&
++				   stat(sys_fw, &fst) == 0) {
++				fw_dev = (uint64_t)fst.st_dev;
++				fw_ino = (uint64_t)fst.st_ino;
++			}
++		}
++	}
++
++	lock_fd = hotplug_queue_lock(base_dir);
++	if (lock_fd < 0)
++		return HQ_ENQ_ERR;
++
++	if (hotplug_queue_read_stats(base_dir, &st) < 0)
++		goto out;
++
++	if (seqnum && *seqnum) {
++		int seen = seen_ring_check_and_add(base_dir, boot_id, seqnum);
++
++		if (seen > 0) {
++			st.deduped++;
++			hotplug_queue_write_stats(base_dir, &st);
++			rc = HQ_ENQ_DEDUP;
++			goto out;
++		}
++	}
++
++	rec = json_object_new_object();
++	if (!rec)
++		goto out;
++
++	st.next_seq++;
++	snprintf(id_buf, sizeof(id_buf), "%016" PRIu64, st.next_seq);
++
++	json_object_object_add(rec, "version", json_object_new_int(1));
++	json_object_object_add(rec, "id", json_object_new_string(id_buf));
++	json_object_object_add(rec, "seq", json_object_new_int64((int64_t)st.next_seq));
++	json_object_object_add(rec, "boot_id", json_object_new_string(boot_id));
++	if (seqnum && *seqnum)
++		json_object_object_add(rec, "kernel_seqnum", json_object_new_string(seqnum));
++	json_object_object_add(rec, "enqueued_mono_ms", json_object_new_int64((int64_t)now_ms));
++	json_object_object_add(rec, "enqueued_real_s", json_object_new_int64((int64_t)now_real));
++	json_object_object_add(rec, "device_key", json_object_new_string(device_key));
++	if (diskseq && *diskseq)
++		json_object_object_add(rec, "diskseq", json_object_new_string(diskseq));
++	if (firmware && *firmware) {
++		json_object_object_add(rec, "fw_ttl_s", json_object_new_int64((int64_t)fw_ttl_s));
++		json_object_object_add(rec, "fw_sysfs_dev", json_object_new_int64((int64_t)fw_dev));
++		json_object_object_add(rec, "fw_sysfs_ino", json_object_new_int64((int64_t)fw_ino));
++	}
++	json_object_object_add(rec, "stage", json_object_new_string("pending"));
++	json_object_get(env_obj);
++	json_object_object_add(rec, "env", env_obj);
++
++	json_str = json_object_to_json_string_ext(rec, JSON_C_TO_STRING_PLAIN);
++	if (!json_str)
++		goto out;
++	json_len = strlen(json_str);
++	if (json_len > HOTPLUG_RECORD_MAX_BYTES)
++		goto out;
++
++	if (snprintf(pending_dir, sizeof(pending_dir), "%s/pending", base_dir) >= (int)sizeof(pending_dir))
++		goto out;
++	if (hotplug_queue_count_dir(pending_dir, &cur_items, &cur_bytes) < 0)
++		goto out;
++
++	if (cur_items >= HOTPLUG_QUEUE_MAX_ITEMS ||
++	    cur_bytes + json_len > HOTPLUG_QUEUE_MAX_BYTES) {
++		st.next_seq--;
++		st.overflow++;
++		if (st.last_overflow_log_ms == 0 ||
++		    now_ms - st.last_overflow_log_ms >= HOTPLUG_OVERFLOW_LOG_MS) {
++			st.last_overflow_log_ms = now_ms;
++			syslog(LOG_WARNING,
++			       "openwrt-hotplug queue full (items=%zu bytes=%zu overflow=%" PRIu64 "); rejecting %s",
++			       cur_items, cur_bytes, st.overflow, device_key);
++			fprintf(stderr,
++				"openwrt-udev-forward: hotplug queue full (items=%zu bytes=%zu); rejecting %s\n",
++				cur_items, cur_bytes, device_key);
++		}
++		hotplug_queue_write_stats(base_dir, &st);
++		rc = HQ_ENQ_OVERFLOW;
++		goto out;
++	}
++
++	if (snprintf(dest_path, sizeof(dest_path), "%s/pending/%s.json", base_dir, id_buf) >= (int)sizeof(dest_path))
++		goto out;
++	if (write_file_atomic(base_dir, dest_path, json_str, json_len, 0600) < 0)
++		goto out;
++
++	hotplug_queue_write_stats(base_dir, &st);
++	if (id_out && id_out_len > 0)
++		snprintf(id_out, id_out_len, "%s", id_buf);
++	rc = HQ_ENQ_OK;
++
++out:
++	if (rec)
++		json_object_put(rec);
++	hotplug_queue_unlock(lock_fd);
++	return rc;
++}
++
++enum hotplug_enqueue_rc hotplug_queue_enqueue_envp(const char *base_dir,
++						   char * const *envp,
++						   char *id_out,
++						   size_t id_out_len)
++{
++	struct json_object *env_obj;
++	char * const *e;
++	size_t approx = 0;
++	enum hotplug_enqueue_rc rc;
++
++	env_obj = json_object_new_object();
++	if (!env_obj)
++		return HQ_ENQ_ERR;
++
++	for (e = envp; e && *e; e++) {
++		const char *sep = strchr(*e, '=');
++		size_t klen, vlen;
++		char key[256];
++
++		if (!sep || sep == *e)
++			continue;
++		klen = (size_t)(sep - *e);
++		if (klen >= sizeof(key))
++			continue;
++		vlen = strlen(sep + 1);
++		if (vlen > HOTPLUG_VAL_MAX_BYTES)
++			vlen = HOTPLUG_VAL_MAX_BYTES;
++		if (approx + klen + vlen + 8 > HOTPLUG_RECORD_MAX_BYTES - 2048)
++			break;
++		memcpy(key, *e, klen);
++		key[klen] = '\0';
++		json_object_object_add(env_obj, key, json_object_new_string_len(sep + 1, (int)vlen));
++		approx += klen + vlen + 8;
++	}
++
++	rc = enqueue_json_env(base_dir, env_obj, id_out, id_out_len);
++	json_object_put(env_obj);
++	return rc;
++}
++
++enum hotplug_enqueue_rc hotplug_queue_enqueue_blob(const char *base_dir,
++						   struct blob_attr *env_table,
++						   char *id_out,
++						   size_t id_out_len)
++{
++	struct json_object *env_obj;
++	struct blob_attr *cur;
++	int rem;
++	size_t approx = 0;
++	enum hotplug_enqueue_rc rc;
++
++	env_obj = json_object_new_object();
++	if (!env_obj)
++		return HQ_ENQ_ERR;
++
++	blobmsg_for_each_attr(cur, env_table, rem) {
++		const char *k, *v;
++		size_t klen, vlen;
++
++		if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING)
++			continue;
++		k = blobmsg_name(cur);
++		v = blobmsg_get_string(cur);
++		if (!k || !*k || !v)
++			continue;
++		klen = strlen(k);
++		vlen = strlen(v);
++		if (klen >= 256)
++			continue;
++		if (vlen > HOTPLUG_VAL_MAX_BYTES)
++			vlen = HOTPLUG_VAL_MAX_BYTES;
++		if (approx + klen + vlen + 8 > HOTPLUG_RECORD_MAX_BYTES - 2048)
++			break;
++		json_object_object_add(env_obj, k, json_object_new_string_len(v, (int)vlen));
++		approx += klen + vlen + 8;
++	}
++
++	rc = enqueue_json_env(base_dir, env_obj, id_out, id_out_len);
++	json_object_put(env_obj);
++	return rc;
++}
++
++bool hotplug_queue_valid_id(const char *id)
++{
++	const char *p;
++
++	if (!id || !*id || strlen(id) > 64)
++		return false;
++	for (p = id; *p; p++) {
++		if (!((*p >= '0' && *p <= '9') ||
++		      (*p >= 'a' && *p <= 'z') ||
++		      (*p >= 'A' && *p <= 'Z') ||
++		      *p == '_' || *p == '-'))
++			return false;
++	}
++	return true;
++}
+--- /dev/null
++++ b/hotplug-queue.h
+@@ -0,0 +1,67 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#ifndef __PROCD_HOTPLUG_QUEUE_H
++#define __PROCD_HOTPLUG_QUEUE_H
++
++#include <stdbool.h>
++#include <stddef.h>
++#include <stdint.h>
++#include <sys/types.h>
++
++#include <libubox/blobmsg.h>
++
++#ifndef HOTPLUG_QUEUE_DIR
++#define HOTPLUG_QUEUE_DIR "/run/openwrt-hotplug"
++#endif
++
++#define HOTPLUG_QUEUE_MAX_ITEMS		2048
++#define HOTPLUG_QUEUE_MAX_BYTES		(8 * 1024 * 1024)
++#define HOTPLUG_QUARANTINE_MAX_ITEMS	256
++#define HOTPLUG_QUARANTINE_MAX_BYTES	(2 * 1024 * 1024)
++#define HOTPLUG_CORRUPT_MAX_ITEMS	64
++#define HOTPLUG_CORRUPT_MAX_BYTES	(512 * 1024)
++#define HOTPLUG_RECORD_MAX_BYTES	(64 * 1024)
++#define HOTPLUG_VAL_MAX_BYTES		4096
++#define HOTPLUG_SEEN_RING_SIZE		4096
++#define HOTPLUG_FW_DEFAULT_TTL_S	60
++#define HOTPLUG_OVERFLOW_LOG_MS		5000
++
++struct hotplug_queue_stats {
++	uint64_t next_seq;
++	uint64_t dispatched;
++	uint64_t quarantined_total;
++	uint64_t expired;
++	uint64_t overflow;
++	uint64_t corrupt;
++	uint64_t deduped;
++	uint64_t last_overflow_log_ms;
++};
++
++enum hotplug_enqueue_rc {
++	HQ_ENQ_OK = 0,
++	HQ_ENQ_DEDUP = 1,
++	HQ_ENQ_OVERFLOW = 2,
++	HQ_ENQ_ERR = -1,
++};
++
++int hotplug_queue_read_boot_id(char *buf, size_t len);
++uint64_t hotplug_queue_mono_ms(void);
++int hotplug_queue_init_dirs(const char *base_dir);
++int hotplug_queue_write_cap(const char *base_dir, pid_t pid);
++bool hotplug_queue_receiver_active(const char *base_dir);
++int hotplug_queue_lock(const char *base_dir);
++void hotplug_queue_unlock(int lock_fd);
++int hotplug_queue_read_stats(const char *base_dir, struct hotplug_queue_stats *st);
++int hotplug_queue_write_stats(const char *base_dir, const struct hotplug_queue_stats *st);
++int hotplug_queue_count_dir(const char *dir_path, size_t *count_out, size_t *bytes_out);
++int hotplug_queue_prune_dir(const char *dir_path, size_t max_items, size_t max_bytes);
++enum hotplug_enqueue_rc hotplug_queue_enqueue_envp(const char *base_dir,
++						   char * const *envp,
++						   char *id_out,
++						   size_t id_out_len);
++enum hotplug_enqueue_rc hotplug_queue_enqueue_blob(const char *base_dir,
++						   struct blob_attr *env_table,
++						   char *id_out,
++						   size_t id_out_len);
++bool hotplug_queue_valid_id(const char *id);
++
++#endif
+--- /dev/null
++++ b/plug/hotplug-consumer.c
+@@ -0,0 +1,782 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#define _GNU_SOURCE
++#include <dirent.h>
++#include <errno.h>
++#include <fcntl.h>
++#include <inttypes.h>
++#include <limits.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/inotify.h>
++#include <sys/stat.h>
++#include <unistd.h>
++
++#include <json-c/json.h>
++#include <libubox/blobmsg.h>
++#include <libubox/uloop.h>
++#include <libubus.h>
++
++#include "../procd.h"
++#include "../utils/utils.h"
++#include "../hotplug-queue.h"
++#include "hotplug.h"
++
++struct hq_quarantine_key {
++	char *device_key;
++};
++
++static struct inotify_watch pending_watch;
++static int pending_wd = -1;
++static struct uloop_timeout scan_timer;
++static bool queue_initialized;
++static bool queue_ubus_online;
++static bool queue_stopping;
++static char active_id[64];
++static char active_inflight_path[PATH_MAX];
++static struct blob_buf dispatch_buf;
++static struct blob_buf status_buf;
++
++static bool is_json_entry(const char *name)
++{
++	size_t len = strlen(name);
++
++	return name[0] != '.' && len > 5 && strcmp(name + len - 5, ".json") == 0;
++}
++
++static int filter_json(const struct dirent *de)
++{
++	return is_json_entry(de->d_name);
++}
++
++static int write_json_atomic_locked(const char *dest_path, struct json_object *obj)
++{
++	static unsigned int tmp_seq;
++	const char *str = json_object_to_json_string_ext(obj, JSON_C_TO_STRING_PLAIN);
++	char tmp_path[PATH_MAX];
++	int fd;
++	size_t len, off = 0;
++
++	if (!str)
++		return -1;
++	len = strlen(str);
++	if (snprintf(tmp_path, sizeof(tmp_path), "%s/tmp/.c-%ld-%" PRIu64 "-%u.tmp",
++		     HOTPLUG_QUEUE_DIR, (long)getpid(), hotplug_queue_mono_ms(), ++tmp_seq) >= (int)sizeof(tmp_path))
++		return -1;
++	fd = open(tmp_path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
++	if (fd < 0)
++		return -1;
++	while (off < len) {
++		ssize_t n = write(fd, str + off, len - off);
++
++		if (n < 0) {
++			if (errno == EINTR)
++				continue;
++			close(fd);
++			unlink(tmp_path);
++			return -1;
++		}
++		off += (size_t)n;
++	}
++	if (close(fd) < 0 || rename(tmp_path, dest_path) < 0) {
++		unlink(tmp_path);
++		return -1;
++	}
++	return 0;
++}
++
++static struct json_object *load_record_file(const char *path)
++{
++	struct stat st;
++	struct json_object *obj, *env;
++
++	if (lstat(path, &st) < 0 || !S_ISREG(st.st_mode) || st.st_size <= 0 ||
++	    st.st_size > HOTPLUG_RECORD_MAX_BYTES)
++		return NULL;
++	obj = json_object_from_file(path);
++	if (!obj || !json_object_is_type(obj, json_type_object)) {
++		if (obj)
++			json_object_put(obj);
++		return NULL;
++	}
++	if (!json_object_object_get_ex(obj, "env", &env) ||
++	    !json_object_is_type(env, json_type_object)) {
++		json_object_put(obj);
++		return NULL;
++	}
++	return obj;
++}
++
++static const char *json_get_str(struct json_object *obj, const char *key)
++{
++	struct json_object *v = NULL;
++
++	if (!json_object_object_get_ex(obj, key, &v) || !json_object_is_type(v, json_type_string))
++		return NULL;
++	return json_object_get_string(v);
++}
++
++static uint64_t json_get_u64(struct json_object *obj, const char *key)
++{
++	struct json_object *v = NULL;
++	int64_t val;
++
++	if (!json_object_object_get_ex(obj, key, &v))
++		return 0;
++	val = json_object_get_int64(v);
++	return val > 0 ? (uint64_t)val : 0;
++}
++
++static int read_sysfs_str(const char *path, char *buf, size_t len)
++{
++	int fd;
++	ssize_t n;
++
++	fd = open(path, O_RDONLY | O_CLOEXEC);
++	if (fd < 0)
++		return -1;
++	n = read(fd, buf, len - 1);
++	close(fd);
++	if (n <= 0)
++		return -1;
++	buf[n] = '\0';
++	while (n > 0 && (buf[n - 1] == '\n' || buf[n - 1] == '\r' || buf[n - 1] == ' '))
++		buf[--n] = '\0';
++	return n > 0 ? 0 : -1;
++}
++
++static void move_to_corrupt_locked(const char *src_path, const char *name, const char *reason)
++{
++	char corrupt_dir[PATH_MAX], dst_path[PATH_MAX];
++	struct hotplug_queue_stats st;
++
++	snprintf(corrupt_dir, sizeof(corrupt_dir), "%s/corrupt", HOTPLUG_QUEUE_DIR);
++	snprintf(dst_path, sizeof(dst_path), "%s/%s", corrupt_dir, name);
++	if (rename(src_path, dst_path) < 0)
++		unlink(src_path);
++	hotplug_queue_prune_dir(corrupt_dir, HOTPLUG_CORRUPT_MAX_ITEMS, HOTPLUG_CORRUPT_MAX_BYTES);
++	if (hotplug_queue_read_stats(HOTPLUG_QUEUE_DIR, &st) == 0) {
++		st.corrupt++;
++		hotplug_queue_write_stats(HOTPLUG_QUEUE_DIR, &st);
++	}
++	ERROR("hotplug-queue: moved corrupt record %s to corrupt/ (%s)\n", name, reason);
++}
++
++static void recover_inflight_on_start(void)
++{
++	char inflight_dir[PATH_MAX], quarantine_dir[PATH_MAX];
++	struct dirent **list = NULL;
++	int n, i, lock_fd;
++
++	snprintf(inflight_dir, sizeof(inflight_dir), "%s/inflight", HOTPLUG_QUEUE_DIR);
++	snprintf(quarantine_dir, sizeof(quarantine_dir), "%s/quarantine", HOTPLUG_QUEUE_DIR);
++
++	lock_fd = hotplug_queue_lock(HOTPLUG_QUEUE_DIR);
++	if (lock_fd < 0)
++		return;
++
++	n = scandir(inflight_dir, &list, filter_json, alphasort);
++	for (i = 0; i < n; i++) {
++		char src[PATH_MAX], dst[PATH_MAX];
++		struct json_object *rec;
++		struct hotplug_queue_stats st;
++		const char *stage, *devkey;
++
++		snprintf(src, sizeof(src), "%s/%s", inflight_dir, list[i]->d_name);
++		snprintf(dst, sizeof(dst), "%s/%s", quarantine_dir, list[i]->d_name);
++
++		rec = load_record_file(src);
++		if (!rec) {
++			move_to_corrupt_locked(src, list[i]->d_name, "unreadable_inflight");
++			free(list[i]);
++			continue;
++		}
++
++		stage = json_get_str(rec, "stage");
++		devkey = json_get_str(rec, "device_key");
++		json_object_object_add(rec, "last_stage",
++				       json_object_new_string(stage ? stage : "inflight"));
++		json_object_object_add(rec, "stage", json_object_new_string("quarantined"));
++		json_object_object_add(rec, "reason", json_object_new_string("procd_crash_inflight"));
++		json_object_object_add(rec, "quarantined_mono_ms",
++				       json_object_new_int64((int64_t)hotplug_queue_mono_ms()));
++
++		if (rename(src, dst) == 0)
++			write_json_atomic_locked(dst, rec);
++		else if (write_json_atomic_locked(dst, rec) == 0)
++			unlink(src);
++
++		hotplug_queue_prune_dir(quarantine_dir, HOTPLUG_QUARANTINE_MAX_ITEMS,
++					HOTPLUG_QUARANTINE_MAX_BYTES);
++
++		if (hotplug_queue_read_stats(HOTPLUG_QUEUE_DIR, &st) == 0) {
++			st.quarantined_total++;
++			hotplug_queue_write_stats(HOTPLUG_QUEUE_DIR, &st);
++		}
++
++		ERROR("hotplug-queue: quarantined interrupted record %s (device=%s last_stage=%s); manual resolution required\n",
++		      list[i]->d_name, devkey ? devkey : "unknown", stage ? stage : "inflight");
++
++		json_object_put(rec);
++		free(list[i]);
++	}
++	free(list);
++	hotplug_queue_unlock(lock_fd);
++}
++
++static size_t collect_quarantine_keys(struct hq_quarantine_key **out)
++{
++	char qdir[PATH_MAX];
++	struct dirent **list = NULL;
++	struct hq_quarantine_key *keys = NULL;
++	size_t count = 0;
++	int n, i;
++
++	*out = NULL;
++	snprintf(qdir, sizeof(qdir), "%s/quarantine", HOTPLUG_QUEUE_DIR);
++	n = scandir(qdir, &list, filter_json, alphasort);
++	if (n <= 0) {
++		free(list);
++		return 0;
++	}
++
++	keys = calloc((size_t)n, sizeof(*keys));
++	if (!keys) {
++		for (i = 0; i < n; i++)
++			free(list[i]);
++		free(list);
++		return 0;
++	}
++
++	for (i = 0; i < n; i++) {
++		char path[PATH_MAX];
++		struct json_object *rec;
++		const char *dk;
++
++		snprintf(path, sizeof(path), "%s/%s", qdir, list[i]->d_name);
++		rec = load_record_file(path);
++		if (rec) {
++			dk = json_get_str(rec, "device_key");
++			if (dk && *dk)
++				keys[count++].device_key = strdup(dk);
++			json_object_put(rec);
++		}
++		free(list[i]);
++	}
++	free(list);
++	*out = keys;
++	return count;
++}
++
++static void free_quarantine_keys(struct hq_quarantine_key *keys, size_t count)
++{
++	size_t i;
++
++	for (i = 0; i < count; i++)
++		free(keys[i].device_key);
++	free(keys);
++}
++
++static bool device_is_quarantined(const char *devkey, struct hq_quarantine_key *keys, size_t count)
++{
++	size_t i;
++
++	if (!devkey || !*devkey)
++		return false;
++	for (i = 0; i < count; i++) {
++		if (keys[i].device_key && strcmp(keys[i].device_key, devkey) == 0)
++			return true;
++	}
++	return false;
++}
++
++static bool record_is_stale_or_expired(struct json_object *rec, struct json_object *env,
++				       char *reason_out, size_t reason_len)
++{
++	const char *subsys = json_get_str(env, "SUBSYSTEM");
++	const char *action = json_get_str(env, "ACTION");
++	const char *devpath = json_get_str(env, "DEVPATH");
++	const char *firmware = json_get_str(env, "FIRMWARE");
++	const char *diskseq = json_get_str(rec, "diskseq");
++	uint64_t now_ms = hotplug_queue_mono_ms();
++
++	/* Block device reuse check: never expire remove events for vanished devices. */
++	if (subsys && strcmp(subsys, "block") == 0 &&
++	    (!action || strcmp(action, "remove") != 0) &&
++	    devpath && *devpath && strstr(devpath, "..") == NULL &&
++	    diskseq && *diskseq) {
++		char sys_ds[PATH_MAX], cur_ds[64];
++
++		if (snprintf(sys_ds, sizeof(sys_ds), "/sys/%s/diskseq", devpath) < (int)sizeof(sys_ds)) {
++			if (read_sysfs_str(sys_ds, cur_ds, sizeof(cur_ds)) < 0) {
++				snprintf(reason_out, reason_len,
++					 "block device vanished before dispatch (devpath=%s diskseq=%s)",
++					 devpath, diskseq);
++				return true;
++			}
++			if (strcmp(cur_ds, diskseq) != 0) {
++				snprintf(reason_out, reason_len,
++					 "block diskseq changed (devpath=%s recorded=%s current=%s)",
++					 devpath, diskseq, cur_ds);
++				return true;
++			}
++		}
++	}
++
++	/* Firmware check: verify TTL and sysfs instance identity before loading data. */
++	if (firmware && *firmware) {
++		uint64_t enq_ms = json_get_u64(rec, "enqueued_mono_ms");
++		uint64_t ttl_s = json_get_u64(rec, "fw_ttl_s");
++		uint64_t rec_dev = json_get_u64(rec, "fw_sysfs_dev");
++		uint64_t rec_ino = json_get_u64(rec, "fw_sysfs_ino");
++
++		if (ttl_s == 0)
++			ttl_s = HOTPLUG_FW_DEFAULT_TTL_S;
++		if (enq_ms > 0 && now_ms > enq_ms && (now_ms - enq_ms) > ttl_s * 1000ULL) {
++			snprintf(reason_out, reason_len,
++				 "firmware request expired (fw=%s age_ms=%" PRIu64 " ttl_s=%" PRIu64 ")",
++				 firmware, now_ms - enq_ms, ttl_s);
++			return true;
++		}
++		if (!devpath || !*devpath || strstr(devpath, "..") != NULL) {
++			snprintf(reason_out, reason_len,
++				 "firmware request missing valid devpath (fw=%s)", firmware);
++			return true;
++		}
++		if (rec_ino != 0) {
++			char sys_fw[PATH_MAX];
++			struct stat st;
++			bool matched = false;
++
++			if (snprintf(sys_fw, sizeof(sys_fw), "/sys/%s/loading", devpath) < (int)sizeof(sys_fw) &&
++			    stat(sys_fw, &st) == 0 &&
++			    (uint64_t)st.st_dev == rec_dev && (uint64_t)st.st_ino == rec_ino) {
++				matched = true;
++			} else if (snprintf(sys_fw, sizeof(sys_fw), "/sys/%s", devpath) < (int)sizeof(sys_fw) &&
++				   stat(sys_fw, &st) == 0 &&
++				   (uint64_t)st.st_dev == rec_dev && (uint64_t)st.st_ino == rec_ino) {
++				matched = true;
++			}
++			if (!matched) {
++				snprintf(reason_out, reason_len,
++					 "firmware sysfs instance gone or replaced (fw=%s devpath=%s)",
++					 firmware, devpath);
++				return true;
++			}
++		} else {
++			char sys_fw[PATH_MAX];
++			struct stat st;
++
++			if (snprintf(sys_fw, sizeof(sys_fw), "/sys/%s/loading", devpath) >= (int)sizeof(sys_fw) ||
++			    stat(sys_fw, &st) < 0) {
++				snprintf(reason_out, reason_len,
++					 "firmware sysfs loading node absent (fw=%s devpath=%s)",
++					 firmware, devpath);
++				return true;
++			}
++		}
++	}
++
++	return false;
++}
++
++static void on_record_complete(int failed)
++{
++	int lock_fd;
++	struct hotplug_queue_stats st;
++
++	if (!active_id[0])
++		return;
++
++	if (failed)
++		ERROR("hotplug-queue: record %s completed with helper/fork failure\n", active_id);
++
++	lock_fd = hotplug_queue_lock(HOTPLUG_QUEUE_DIR);
++	if (active_inflight_path[0])
++		unlink(active_inflight_path);
++	if (lock_fd >= 0) {
++		if (hotplug_queue_read_stats(HOTPLUG_QUEUE_DIR, &st) == 0) {
++			st.dispatched++;
++			hotplug_queue_write_stats(HOTPLUG_QUEUE_DIR, &st);
++		}
++		hotplug_queue_unlock(lock_fd);
++	}
++
++	active_id[0] = '\0';
++	active_inflight_path[0] = '\0';
++	hotplug_queue_kick();
++}
++
++static void scan_and_dispatch(struct uloop_timeout *t)
++{
++	char pending_dir[PATH_MAX];
++	struct dirent **list = NULL;
++	struct hq_quarantine_key *qkeys = NULL;
++	size_t qcount;
++	int n, i;
++
++	if (!queue_initialized || !queue_ubus_online || queue_stopping)
++		return;
++	if (active_id[0] != '\0' || hotplug_exec_busy())
++		return;
++
++	snprintf(pending_dir, sizeof(pending_dir), "%s/pending", HOTPLUG_QUEUE_DIR);
++	n = scandir(pending_dir, &list, filter_json, alphasort);
++	if (n <= 0) {
++		free(list);
++		return;
++	}
++
++	qcount = collect_quarantine_keys(&qkeys);
++
++	for (i = 0; i < n; i++) {
++		char src[PATH_MAX], dst[PATH_MAX], reason[256];
++		struct json_object *rec = NULL, *env = NULL;
++		const char *devkey, *id;
++		int lock_fd;
++
++		snprintf(src, sizeof(src), "%s/%s", pending_dir, list[i]->d_name);
++
++		lock_fd = hotplug_queue_lock(HOTPLUG_QUEUE_DIR);
++		if (lock_fd < 0)
++			continue;
++
++		rec = load_record_file(src);
++		if (!rec) {
++			move_to_corrupt_locked(src, list[i]->d_name, "invalid_pending_json");
++			hotplug_queue_unlock(lock_fd);
++			continue;
++		}
++
++		json_object_object_get_ex(rec, "env", &env);
++		devkey = json_get_str(rec, "device_key");
++		if (device_is_quarantined(devkey, qkeys, qcount)) {
++			json_object_put(rec);
++			hotplug_queue_unlock(lock_fd);
++			continue;
++		}
++
++		if (record_is_stale_or_expired(rec, env, reason, sizeof(reason))) {
++			struct hotplug_queue_stats st;
++
++			unlink(src);
++			if (hotplug_queue_read_stats(HOTPLUG_QUEUE_DIR, &st) == 0) {
++				st.expired++;
++				hotplug_queue_write_stats(HOTPLUG_QUEUE_DIR, &st);
++			}
++			ERROR("hotplug-queue: skipping expired record %s: %s\n",
++			      list[i]->d_name, reason);
++			json_object_put(rec);
++			hotplug_queue_unlock(lock_fd);
++			continue;
++		}
++
++		/* Atomically claim to inflight/ BEFORE any side-effecting notify or exec. */
++		snprintf(dst, sizeof(dst), "%s/inflight/%s", HOTPLUG_QUEUE_DIR, list[i]->d_name);
++		if (rename(src, dst) < 0) {
++			json_object_put(rec);
++			hotplug_queue_unlock(lock_fd);
++			continue;
++		}
++
++		json_object_object_add(rec, "stage", json_object_new_string("executing"));
++		json_object_object_add(rec, "started_mono_ms",
++				       json_object_new_int64((int64_t)hotplug_queue_mono_ms()));
++		write_json_atomic_locked(dst, rec);
++		hotplug_queue_unlock(lock_fd);
++
++		id = json_get_str(rec, "id");
++		snprintf(active_id, sizeof(active_id), "%s", id ? id : list[i]->d_name);
++		snprintf(active_inflight_path, sizeof(active_inflight_path), "%s", dst);
++
++		blob_buf_init(&dispatch_buf, 0);
++		{
++			json_object_object_foreach(env, k, v) {
++				if (k && *k && v && json_object_is_type(v, json_type_string))
++					blobmsg_add_string(&dispatch_buf, k, json_object_get_string(v));
++			}
++		}
++
++		json_object_put(rec);
++		hotplug_inject_with_done(dispatch_buf.head, on_record_complete);
++		break;
++	}
++
++	free_quarantine_keys(qkeys, qcount);
++	for (i = 0; i < n; i++)
++		free(list[i]);
++	free(list);
++}
++
++static void pending_dir_event(struct inotify_watch *w, struct inotify_event *ev)
++{
++	if (ev->mask & IN_IGNORED) {
++		pending_wd = -1;
++		return;
++	}
++	hotplug_queue_kick();
++}
++
++void hotplug_queue_kick(void)
++{
++	if (!queue_initialized || !queue_ubus_online || queue_stopping)
++		return;
++	uloop_timeout_set(&scan_timer, 0);
++}
++
++void hotplug_queue_init(void)
++{
++	if (hotplug_queue_init_dirs(HOTPLUG_QUEUE_DIR) < 0) {
++		ERROR("hotplug-queue: failed to initialize %s: %m\n", HOTPLUG_QUEUE_DIR);
++		return;
++	}
++	if (hotplug_queue_write_cap(HOTPLUG_QUEUE_DIR, getpid()) < 0) {
++		ERROR("hotplug-queue: failed to write receiver capability: %m\n");
++		return;
++	}
++
++	scan_timer.cb = scan_and_dispatch;
++	queue_initialized = true;
++	queue_stopping = false;
++	recover_inflight_on_start();
++}
++
++void hotplug_queue_ubus_ready(void)
++{
++	char pending_dir[PATH_MAX];
++
++	if (!queue_initialized)
++		return;
++
++	/* Attach watch BEFORE scanning backlog to cover the write-before-wakeup window. */
++	snprintf(pending_dir, sizeof(pending_dir), "%s/pending", HOTPLUG_QUEUE_DIR);
++	if (pending_wd == -1) {
++		if (inotify_watch_open(&pending_watch, pending_dir_event) == 0) {
++			pending_wd = inotify_watch_add(&pending_watch, pending_dir,
++						       IN_MOVED_TO | IN_CREATE | IN_ONLYDIR);
++		}
++		if (pending_wd == -1)
++			ERROR("hotplug-queue: failed to watch %s: %m\n", pending_dir);
++	}
++
++	queue_ubus_online = true;
++	hotplug_queue_kick();
++}
++
++void hotplug_queue_ubus_disconnected(void)
++{
++	queue_ubus_online = false;
++}
++
++void hotplug_queue_shutdown(void)
++{
++	queue_stopping = true;
++	uloop_timeout_cancel(&scan_timer);
++}
++
++int hotplug_queue_enqueue_legacy(struct blob_attr *env_table)
++{
++	enum hotplug_enqueue_rc rc;
++
++	if (!queue_initialized)
++		return -1;
++	rc = hotplug_queue_enqueue_blob(HOTPLUG_QUEUE_DIR, env_table, NULL, 0);
++	if (rc == HQ_ENQ_OK)
++		hotplug_queue_kick();
++	return (rc == HQ_ENQ_OK || rc == HQ_ENQ_DEDUP) ? 0 : -1;
++}
++
++int hotplug_queue_ubus_status(struct ubus_context *ctx, struct ubus_object *obj,
++			      struct ubus_request_data *req, const char *method,
++			      struct blob_attr *msg)
++{
++	char pending_dir[PATH_MAX], inflight_dir[PATH_MAX];
++	char quarantine_dir[PATH_MAX], corrupt_dir[PATH_MAX];
++	struct hotplug_queue_stats st;
++	struct hq_quarantine_key *qkeys = NULL;
++	size_t qkey_count = 0;
++	size_t pending_items = 0, pending_bytes = 0;
++	size_t inflight_items = 0, quarantine_items = 0, quarantine_bytes = 0;
++	size_t corrupt_items = 0, corrupt_bytes = 0;
++	size_t deferred_items = 0;
++	uint64_t oldest_age_ms = 0, now_ms = hotplug_queue_mono_ms();
++	struct dirent **list = NULL;
++	int n, i;
++	void *arr;
++
++	snprintf(pending_dir, sizeof(pending_dir), "%s/pending", HOTPLUG_QUEUE_DIR);
++	snprintf(inflight_dir, sizeof(inflight_dir), "%s/inflight", HOTPLUG_QUEUE_DIR);
++	snprintf(quarantine_dir, sizeof(quarantine_dir), "%s/quarantine", HOTPLUG_QUEUE_DIR);
++	snprintf(corrupt_dir, sizeof(corrupt_dir), "%s/corrupt", HOTPLUG_QUEUE_DIR);
++
++	hotplug_queue_read_stats(HOTPLUG_QUEUE_DIR, &st);
++	hotplug_queue_count_dir(pending_dir, &pending_items, &pending_bytes);
++	hotplug_queue_count_dir(inflight_dir, &inflight_items, NULL);
++	hotplug_queue_count_dir(quarantine_dir, &quarantine_items, &quarantine_bytes);
++	hotplug_queue_count_dir(corrupt_dir, &corrupt_items, &corrupt_bytes);
++
++	qkey_count = collect_quarantine_keys(&qkeys);
++
++	/* Compute oldest pending age and deferred count. */
++	n = scandir(pending_dir, &list, filter_json, alphasort);
++	for (i = 0; i < n; i++) {
++		char path[PATH_MAX];
++		struct json_object *rec;
++
++		snprintf(path, sizeof(path), "%s/%s", pending_dir, list[i]->d_name);
++		rec = load_record_file(path);
++		if (rec) {
++			uint64_t enq_ms = json_get_u64(rec, "enqueued_mono_ms");
++			const char *dk = json_get_str(rec, "device_key");
++
++			if (enq_ms > 0 && now_ms >= enq_ms) {
++				uint64_t age = now_ms - enq_ms;
++
++				if (age > oldest_age_ms)
++					oldest_age_ms = age;
++			}
++			if (device_is_quarantined(dk, qkeys, qkey_count))
++				deferred_items++;
++			json_object_put(rec);
++		}
++		free(list[i]);
++	}
++	free(list);
++
++	blob_buf_init(&status_buf, 0);
++	blobmsg_add_u32(&status_buf, "protocol_version", 1);
++	blobmsg_add_string(&status_buf, "mode", queue_initialized ? "queued" : "legacy");
++	blobmsg_add_u32(&status_buf, "pending", (uint32_t)pending_items);
++	blobmsg_add_u64(&status_buf, "pending_bytes", (uint64_t)pending_bytes);
++	blobmsg_add_u64(&status_buf, "oldest_pending_ms", oldest_age_ms);
++	blobmsg_add_u32(&status_buf, "inflight", (uint32_t)inflight_items);
++	blobmsg_add_u32(&status_buf, "deferred", (uint32_t)deferred_items);
++	blobmsg_add_u64(&status_buf, "dispatched", st.dispatched);
++	blobmsg_add_u32(&status_buf, "quarantined", (uint32_t)quarantine_items);
++	blobmsg_add_u64(&status_buf, "quarantined_bytes", (uint64_t)quarantine_bytes);
++	blobmsg_add_u64(&status_buf, "quarantined_total", st.quarantined_total);
++	blobmsg_add_u64(&status_buf, "expired", st.expired);
++	blobmsg_add_u64(&status_buf, "overflow", st.overflow);
++	blobmsg_add_u32(&status_buf, "corrupt", (uint32_t)corrupt_items);
++	blobmsg_add_u64(&status_buf, "corrupt_bytes", (uint64_t)corrupt_bytes);
++	blobmsg_add_u64(&status_buf, "corrupt_total", st.corrupt);
++	blobmsg_add_u64(&status_buf, "deduped", st.deduped);
++	blobmsg_add_u32(&status_buf, "max_items", HOTPLUG_QUEUE_MAX_ITEMS);
++	blobmsg_add_u64(&status_buf, "max_bytes", HOTPLUG_QUEUE_MAX_BYTES);
++
++	arr = blobmsg_open_array(&status_buf, "quarantine_records");
++	n = scandir(quarantine_dir, &list, filter_json, alphasort);
++	for (i = 0; i < n; i++) {
++		char path[PATH_MAX];
++		struct json_object *rec;
++
++		snprintf(path, sizeof(path), "%s/%s", quarantine_dir, list[i]->d_name);
++		rec = load_record_file(path);
++		if (rec) {
++			void *tbl = blobmsg_open_table(&status_buf, NULL);
++			const char *id = json_get_str(rec, "id");
++			const char *dk = json_get_str(rec, "device_key");
++			const char *stage = json_get_str(rec, "last_stage");
++			const char *reason = json_get_str(rec, "reason");
++			struct json_object *env = NULL;
++
++			blobmsg_add_string(&status_buf, "id", id ? id : list[i]->d_name);
++			if (dk)
++				blobmsg_add_string(&status_buf, "device_key", dk);
++			if (stage)
++				blobmsg_add_string(&status_buf, "last_stage", stage);
++			if (reason)
++				blobmsg_add_string(&status_buf, "reason", reason);
++			if (json_object_object_get_ex(rec, "env", &env)) {
++				const char *sub = json_get_str(env, "SUBSYSTEM");
++				const char *act = json_get_str(env, "ACTION");
++
++				if (sub)
++					blobmsg_add_string(&status_buf, "subsystem", sub);
++				if (act)
++					blobmsg_add_string(&status_buf, "action", act);
++			}
++			blobmsg_close_table(&status_buf, tbl);
++			json_object_put(rec);
++		}
++		free(list[i]);
++	}
++	free(list);
++	blobmsg_close_array(&status_buf, arr);
++
++	free_quarantine_keys(qkeys, qkey_count);
++	ubus_send_reply(ctx, req, status_buf.head);
++	return UBUS_STATUS_OK;
++}
++
++enum {
++	RESOLVE_ID,
++	RESOLVE_ACTION,
++	__RESOLVE_MAX
++};
++
++const struct blobmsg_policy hotplug_queue_resolve_policy[__RESOLVE_MAX] = {
++	[RESOLVE_ID] = { .name = "id", .type = BLOBMSG_TYPE_STRING },
++	[RESOLVE_ACTION] = { .name = "action", .type = BLOBMSG_TYPE_STRING },
++};
++
++int hotplug_queue_ubus_resolve(struct ubus_context *ctx, struct ubus_object *obj,
++			       struct ubus_request_data *req, const char *method,
++			       struct blob_attr *msg)
++{
++	struct blob_attr *tb[__RESOLVE_MAX];
++	const char *id, *action;
++	char qpath[PATH_MAX], ppath[PATH_MAX];
++	struct stat st;
++	int lock_fd, rc = UBUS_STATUS_OK;
++
++	blobmsg_parse(hotplug_queue_resolve_policy, __RESOLVE_MAX, tb,
++		      blobmsg_data(msg), blobmsg_data_len(msg));
++	if (!tb[RESOLVE_ID] || !tb[RESOLVE_ACTION])
++		return UBUS_STATUS_INVALID_ARGUMENT;
++
++	id = blobmsg_get_string(tb[RESOLVE_ID]);
++	action = blobmsg_get_string(tb[RESOLVE_ACTION]);
++	if (!hotplug_queue_valid_id(id))
++		return UBUS_STATUS_INVALID_ARGUMENT;
++	if (strcmp(action, "discard") != 0 && strcmp(action, "retry") != 0)
++		return UBUS_STATUS_INVALID_ARGUMENT;
++
++	snprintf(qpath, sizeof(qpath), "%s/quarantine/%s.json", HOTPLUG_QUEUE_DIR, id);
++	snprintf(ppath, sizeof(ppath), "%s/pending/%s.json", HOTPLUG_QUEUE_DIR, id);
++
++	lock_fd = hotplug_queue_lock(HOTPLUG_QUEUE_DIR);
++	if (lock_fd < 0)
++		return UBUS_STATUS_UNKNOWN_ERROR;
++
++	if (lstat(qpath, &st) < 0 || !S_ISREG(st.st_mode)) {
++		rc = UBUS_STATUS_NOT_FOUND;
++		goto out;
++	}
++
++	if (strcmp(action, "discard") == 0) {
++		if (unlink(qpath) < 0)
++			rc = UBUS_STATUS_UNKNOWN_ERROR;
++	} else {
++		struct json_object *rec = load_record_file(qpath);
++
++		if (!rec) {
++			rc = UBUS_STATUS_PARSE_ERROR;
++			goto out;
++		}
++		json_object_object_add(rec, "stage", json_object_new_string("pending"));
++		json_object_object_del(rec, "reason");
++		json_object_object_del(rec, "last_stage");
++		if (write_json_atomic_locked(ppath, rec) == 0)
++			unlink(qpath);
++		else
++			rc = UBUS_STATUS_UNKNOWN_ERROR;
++		json_object_put(rec);
++	}
++
++out:
++	hotplug_queue_unlock(lock_fd);
++	if (rc == UBUS_STATUS_OK)
++		hotplug_queue_kick();
++	return rc;
++}
+--- a/plug/hotplug.c
++++ b/plug/hotplug.c
+@@ -91,6 +91,27 @@ static struct blob_buf script;
+ static struct cmd_queue *current;
+ /* Units mode: udev owns device nodes and forwards its events to procd. */
+ static bool hotplug_external;
++static void (*inject_done_cb)(int failed);
++static int inject_failed;
++
++static void maybe_finish_inject(void)
++{
++	void (*cb)(int failed);
++	int failed;
++
++	if (!inject_done_cb || queue_proc.pending || !list_empty(&cmd_queue))
++		return;
++	cb = inject_done_cb;
++	failed = inject_failed;
++	inject_done_cb = NULL;
++	inject_failed = 0;
++	cb(failed);
++}
++
++bool hotplug_exec_busy(void)
++{
++	return queue_proc.pending || !list_empty(&cmd_queue) || inject_done_cb != NULL;
++}
+ 
+ static void hotplug_handler(struct uloop_fd *u, unsigned int ev);
+ static struct uloop_fd hotplug_fd = {
+@@ -448,7 +469,9 @@ static void queue_next(void)
+ 	else
+ 		free(c);
+ 	if (queue_proc.pid <= 0) {
++		inject_failed = 1;
+ 		queue_next();
++		maybe_finish_inject();
+ 		return;
+ 	}
+ 
+@@ -467,6 +490,7 @@ static void queue_proc_cb(struct uloop_p
+ 		current = NULL;
+ 	}
+ 	queue_next();
++	maybe_finish_inject();
+ }
+ 
+ static void queue_add(struct cmd_handler *h, struct blob_attr *msg, struct blob_attr *data)
+@@ -479,8 +503,10 @@ static void queue_add(struct cmd_handler
+ 		&_data, blob_pad_len(data),
+ 		NULL);
+ 
+-	if (!c)
++	if (!c) {
++		inject_failed = 1;
+ 		return;
++	}
+ 
+ 	c->msg = _msg;
+ 	c->data = _data;
+@@ -838,17 +864,26 @@ void hotplug_units(char *rules)
+ {
+ 	hotplug_external = true;
+ 	hotplug(rules);
++#ifdef OPENWRT_SYSTEMD
++	hotplug_queue_init();
++#endif
+ }
+ 
+ /* Run the rules for an event udev has finished processing. */
+-void hotplug_inject(struct blob_attr *env)
++void hotplug_inject_with_done(struct blob_attr *env, void (*done)(int failed))
+ {
+ 	struct blob_attr *cur;
+ 	const char *value;
+ 	int rem;
+ 
+-	if (!hotplug_external || !rule_file)
++	if (!hotplug_external || !rule_file) {
++		if (done)
++			done(0);
+ 		return;
++	}
++
++	inject_done_cb = done;
++	inject_failed = 0;
+ 
+ 	blob_buf_init(&b, 0);
+ 	blobmsg_for_each_attr(cur, env, rem) {
+@@ -863,6 +898,12 @@ void hotplug_inject(struct blob_attr *en
+ 	hotplug_ubus_event(b.head);
+ 	hotplug_handler_debug(b.head);
+ 	json_script_run(&jctx, rule_file, b.head);
++	maybe_finish_inject();
++}
++
++void hotplug_inject(struct blob_attr *env)
++{
++	hotplug_inject_with_done(env, NULL);
+ }
+ 
+ int hotplug_run(char *rules)
+--- a/plug/hotplug.h
++++ b/plug/hotplug.h
+@@ -23,10 +23,31 @@ struct blob_attr;
+ void hotplug(char *rules);
+ void hotplug_units(char *rules);
+ void hotplug_inject(struct blob_attr *env);
++void hotplug_inject_with_done(struct blob_attr *env, void (*done)(int failed));
++bool hotplug_exec_busy(void);
+ int hotplug_run(char *rules);
+ void hotplug_shutdown(void);
+ void hotplug_last_event(uloop_timeout_handler handler);
+ void procd_coldplug(void);
++#ifdef OPENWRT_SYSTEMD
++struct ubus_context;
++struct ubus_object;
++struct ubus_request_data;
++struct blobmsg_policy;
++extern const struct blobmsg_policy hotplug_queue_resolve_policy[2];
++void hotplug_queue_init(void);
++void hotplug_queue_ubus_ready(void);
++void hotplug_queue_ubus_disconnected(void);
++void hotplug_queue_kick(void);
++void hotplug_queue_shutdown(void);
++int hotplug_queue_enqueue_legacy(struct blob_attr *env_table);
++int hotplug_queue_ubus_status(struct ubus_context *ctx, struct ubus_object *obj,
++			      struct ubus_request_data *req, const char *method,
++			      struct blob_attr *msg);
++int hotplug_queue_ubus_resolve(struct ubus_context *ctx, struct ubus_object *obj,
++			       struct ubus_request_data *req, const char *method,
++			       struct blob_attr *msg);
++#endif
+ #else
+ static inline void hotplug(char *rules)
+ {
+@@ -40,6 +61,17 @@ static inline void hotplug_inject(struct
+ {
+ }
+ 
++static inline void hotplug_inject_with_done(struct blob_attr *env, void (*done)(int failed))
++{
++	if (done)
++		done(0);
++}
++
++static inline bool hotplug_exec_busy(void)
++{
++	return false;
++}
++
+ static inline int hotplug_run(char *rules)
+ {
+ 	return 0;
+--- a/procd.c
++++ b/procd.c
+@@ -87,6 +87,8 @@ static void systemd_stop(struct uloop_si
+ 	procd_systemd_stopping = true;
+ 	sd_notify(0, "STOPPING=1");
+ 	service_stop_all();
++	if (procd_units)
++		hotplug_queue_shutdown();
+ 	hotplug_shutdown();
+ 	if (!procd_units) {
+ 		watchdog_set_magicclose(true);
+--- a/ubus.c
++++ b/ubus.c
+@@ -18,6 +18,7 @@
+ #include <signal.h>
+ 
+ #include "procd.h"
++#include "plug/hotplug.h"
+ 
+ const char *ubus_socket = NULL;
+ static struct ubus_context *ctx;
+@@ -49,6 +50,10 @@ ubus_reconnect_cb(struct uloop_timeout *
+ {
+ 	if (!ubus_reconnect(ctx, ubus_socket)) {
+ 		ubus_add_uloop(ctx);
++#ifdef OPENWRT_SYSTEMD
++		if (procd_units)
++			hotplug_queue_ubus_ready();
++#endif
+ 		return;
+ 	}
+ 
+@@ -58,6 +63,10 @@ ubus_reconnect_cb(struct uloop_timeout *
+ static void
+ ubus_disconnect_cb(struct ubus_context *ctx)
+ {
++#ifdef OPENWRT_SYSTEMD
++	if (procd_units)
++		hotplug_queue_ubus_disconnected();
++#endif
+ 	ubus_timer.cb = ubus_reconnect_cb;
+ 	reset_timeout();
+ 	timeout_retry();
+--- a/udev-forward.c
++++ b/udev-forward.c
+@@ -1,9 +1,13 @@
+ // SPDX-License-Identifier: GPL-2.0-only
+ /*
+  * udev RUN helper: hand a processed device event to procd, which runs the
+- * OpenWrt /etc/hotplug.d handlers in its own serial queue. Long-lived
+- * helpers therefore survive the udev worker. Without ubus or a procd in
+- * units mode there is nothing to notify, which is not an error.
++ * OpenWrt /etc/hotplug.d handlers in its own serial queue.
++ *
++ * When a queue-capable procd receiver is active for this boot (indicated by
++ * /run/openwrt-hotplug/receiver.cap matching the current boot_id), enqueue
++ * directly into the bounded root-private queue so both online and temporarily
++ * disconnected states follow a single production path. Otherwise fall back to
++ * legacy procd.udev ubus injection for mixed-version online upgrades.
+  */
+ #define _GNU_SOURCE
+ #include <stdio.h>
+@@ -14,6 +18,8 @@
+ #include <libubox/blobmsg.h>
+ #include <libubus.h>
+ 
++#include "hotplug-queue.h"
++
+ #define FORWARD_TIMEOUT 5000
+ 
+ int main(int argc, char **argv)
+@@ -25,6 +31,15 @@ int main(int argc, char **argv)
+ 	void *t;
+ 	int ret;
+ 
++	if (hotplug_queue_receiver_active(HOTPLUG_QUEUE_DIR)) {
++		enum hotplug_enqueue_rc rc;
++
++		rc = hotplug_queue_enqueue_envp(HOTPLUG_QUEUE_DIR, environ, NULL, 0);
++		if (rc == HQ_ENQ_ERR)
++			fprintf(stderr, "openwrt-udev-forward: failed to enqueue hotplug event\n");
++		return 0;
++	}
++
+ 	ctx = ubus_connect(NULL);
+ 	if (!ctx)
+ 		return 0;

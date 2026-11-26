@@ -614,5 +614,43 @@ class RunningServiceRevertTest(unittest.TestCase):
         self.assertEqual(self.running('network'), BROKEN)
         self.assertEqual(self.events(), [])
 
+    def test_sha256_repo_and_newline_filename_roundtrip(self):
+        # 1. Git SHA-256 object-format repository must not report false drift.
+        with tempfile.TemporaryDirectory(prefix='uci-sha256-') as td:
+            root = Path(td)
+            (root / 'etc/config').mkdir(parents=True)
+            (root / 'etc/config/network').write_text(LAN)
+            repo = root / 'etc/uci-history/repo'
+            repo.parent.mkdir(parents=True, mode=0o700)
+            subprocess.run(['git', 'init', '--bare', '-q', '--object-format=sha256', str(repo)], check=True)
+            h = H.History(root)
+            try:
+                self.assertEqual(h.object_format, 'sha256')
+                first = h.snapshot('cli', 'test', 'sha256 init')
+                self.assertTrue(first['changed'])
+                self.assertFalse(h.status()['drift'])
+                self.assertFalse(h.snapshot('cli', 'test', 'noop')['changed'])
+                files = h.files_at('HEAD')
+                self.assertEqual(files['etc/config/network']['data'].decode(), LAN)
+            finally:
+                h.lock.close()
+
+        # 2. Managed filenames containing newlines must snapshot and read back cleanly.
+        with tempfile.TemporaryDirectory(prefix='uci-newline-') as td:
+            root = Path(td)
+            (root / 'etc/config').mkdir(parents=True)
+            (root / 'etc/config/network').write_text(LAN)
+            odd = root / 'etc/config' / 'line1\nline2'
+            odd.write_text('config odd\n\toption k "v"\n')
+            h = H.History(root)
+            try:
+                res = h.snapshot('cli', 'test', 'newline name')
+                self.assertTrue(res['changed'])
+                self.assertFalse(h.status()['drift'])
+                files = h.files_at('HEAD')
+                self.assertEqual(files['etc/config/line1\nline2']['data'], b'config odd\n\toption k "v"\n')
+            finally:
+                h.lock.close()
+
 if __name__ == '__main__':
     unittest.main()

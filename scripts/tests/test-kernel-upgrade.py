@@ -243,6 +243,19 @@ class RuntimeTests(unittest.TestCase):
             self.assertNotIn('openwrt.init=', menu)
             self.assertNotIn('-procd', menu)
 
+    def test_dispatcher_inherits_rescue_timeout_and_honors_state_override(self):
+        (self.root / 'boot/grub/grub.cfg').write_text(
+            'serial --unit=0\nset timeout="2"\nmenuentry \'OpenWrt\' {\n linux /boot/vmlinuz root=PARTUUID=abcd-02\n}\n')
+        self.adopt()
+        self.assertIn('\nset timeout=2\n', (self.root / 'boot/grub/grub.cfg').read_text())
+        state = self.manager.state()
+        state['grub_timeout'] = 0
+        self.manager.dispatcher(state)
+        self.assertIn('\nset timeout=0\n', (self.root / 'boot/grub/grub.cfg').read_text())
+        state['grub_timeout'] = 'bad'
+        with self.assertRaises(K.KernelError):
+            self.manager.dispatcher(state)
+
     # -- installing kernels ------------------------------------------------------
 
     def test_new_kernel_package_becomes_the_counted_default(self):
@@ -733,6 +746,46 @@ class RuntimeTests(unittest.TestCase):
     def test_release_sequence_orders_both_naming_schemes(self):
         self.assertEqual(K.sequence(release(46)), 46)
         self.assertEqual(K.sequence(GEN), 45)
+
+    def test_prune_and_remove_timeout_restore_protection_and_clear_plan(self):
+        # Adopt kernel 1, install and bless kernel 2, install kernel 3 -> kernel 1 is rescue,
+        # kernel 2 is fallback, kernel 3 is default; add kernel 4 and bless so kernel 2 becomes prunable.
+        self.adopt()
+        k2 = self.install(2)
+        self.boot(k2)
+        k3 = self.install(3)
+        self.boot(k3)
+        k4 = self.install(4)
+        self.boot(k4)
+        self.assertIn(k2, self.manager.prunable(self.manager.state()))
+
+        # 1. Simulate TimeoutExpired during prune()'s apk del: plan must be removed,
+        #    protection must be restored, and k2 must remain in state until actually removed.
+        orig_run = self.run_command
+        def timeout_on_apk(args):
+            if args and args[0] == 'apk' and 'del' in args:
+                raise subprocess.TimeoutExpired(args, K.KernelManager.APK_COMMAND_TIMEOUT)
+            return orig_run(args)
+        self.manager.runner = timeout_on_apk
+        with self.assertRaises(subprocess.TimeoutExpired):
+            self.manager.prune()
+        self.assertFalse((self.manager.policy / 'pruning.json').exists())
+        self.assertIn(k2, self.manager.state()['kernels'])
+        self.assertIn('linux-image-' + k2, (self.manager.policy / 'protected').read_text())
+
+        # 2. Simulate TimeoutExpired during manual remove() + finish_remove() unwind.
+        packages = self.manager.remove(k2)
+        self.assertTrue((self.manager.policy / 'pruning.json').exists())
+        self.assertNotIn('linux-image-' + k2, (self.manager.policy / 'protected').read_text())
+        success = False
+        try:
+            with self.assertRaises(subprocess.TimeoutExpired):
+                self.manager.command('apk', 'del', *packages)
+        finally:
+            self.manager.finish_remove(k2, success)
+        self.assertFalse((self.manager.policy / 'pruning.json').exists())
+        self.assertIn(k2, self.manager.state()['kernels'])
+        self.assertIn('linux-image-' + k2, (self.manager.policy / 'protected').read_text())
         self.assertEqual(K.sequence('legacy-6.18.55'), 0)
 
 
@@ -804,6 +857,27 @@ class ChannelTests(unittest.TestCase):
                     for version in ('1-r7', '1-r8', '1-r9', '1-r10')}
         retained, _ = F.retained_packages(packages, {}, {}, APK)
         self.assertEqual(set(retained), {'grub2-1-r8.apk', 'grub2-1-r9.apk', 'grub2-1-r10.apk'})
+
+    def test_kernelctl_command_timeout_policy_and_prune_timeout_recovery(self):
+        self.assertEqual(K.KernelManager.command_timeout(['uname', '-r']), 30)
+        self.assertEqual(K.KernelManager.command_timeout(['depmod', '-a', '7.3.6-1-openwrt']), 120)
+        self.assertEqual(K.KernelManager.command_timeout(['apk', '--wait', '10', '--no-network', 'del', 'x']), 240)
+        self.assertEqual(K.KernelManager.command_timeout(['apk', 'del', 'x']), 240)
+        unit = (TREE / 'package/custom/openwrt-kernel-upgrade/files/openwrt-kernel-prune.service').read_text()
+        timeout_line = next(l for l in unit.splitlines() if l.startswith('TimeoutStartSec='))
+        self.assertGreater(int(timeout_line.split('=', 1)[1]), K.KernelManager.APK_COMMAND_TIMEOUT)
+
+        recorded = []
+        with patch.object(K.subprocess, 'check_output', side_effect=lambda args, **kw: (recorded.append((args, kw.get('timeout'))), 'ok')[1]):
+            mgr = K.KernelManager()
+            mgr.command('uname', '-r')
+            mgr.command('depmod', '-a', '7.3.6-1-openwrt')
+            mgr.command('apk', '--wait', '10', '--no-network', 'del', 'linux-image-7.3.6-1-openwrt')
+        self.assertEqual(recorded, [
+            (['uname', '-r'], 30),
+            (['depmod', '-a', '7.3.6-1-openwrt'], 120),
+            (['apk', '--wait', '10', '--no-network', 'del', 'linux-image-7.3.6-1-openwrt'], 240),
+        ])
 
 
 if __name__ == '__main__':

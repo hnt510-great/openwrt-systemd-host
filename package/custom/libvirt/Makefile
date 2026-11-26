@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=libvirt
 PKG_VERSION:=12.9.0
-PKG_RELEASE:=3
+PKG_RELEASE:=5
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=https://download.libvirt.org/
 PKG_HASH:=dcf579d8a949f4cbf56820529d48f200382a48ea12855ffded7c16a189353cd7
@@ -156,14 +156,41 @@ define Package/libvirt-daemon/install
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/virt-host-validate $(1)/usr/bin/
 	$(INSTALL_BIN) ./files/libvirt-openwrt-prepare ./files/libvirt-openwrt-guests ./files/libvirt-pipewire-access $(1)/usr/libexec/
 	$(INSTALL_DATA) ./files/libvirt-pipewire-access@.path $(1)/usr/lib/systemd/system/
-	$(INSTALL_DIR) $(1)/etc/hotplug.d/drm
-	$(INSTALL_BIN) ./files/libvirt-render.hotplug $(1)/etc/hotplug.d/drm/zz-libvirt-render
+	$(INSTALL_DIR) $(1)/usr/lib/udev/rules.d
+	$(INSTALL_DATA) ./files/65-libvirt-devices.rules $(1)/usr/lib/udev/rules.d/
 	$(LN) /usr/lib/systemd/system/virtqemud.service $(1)/etc/systemd/system/multi-user.target.wants/
 	$(LN) /usr/lib/systemd/system/libvirt-openwrt-guests.service $(1)/etc/systemd/system/multi-user.target.wants/
 	$(INSTALL_DIR) $(1)/usr/share/libvirt/examples
 	$(INSTALL_DATA) ./files/openwrt*.xml $(1)/usr/share/libvirt/examples/
 	$(INSTALL_DIR) $(1)/usr/lib/upgrade/keep.d
 	$(INSTALL_DATA) ./files/libvirt.keep $(1)/usr/lib/upgrade/keep.d/libvirt
+endef
+
+define Package/libvirt-daemon/postinst
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+if [ -e /etc/hotplug.d/drm/zz-libvirt-render ]; then
+	logger -t libvirt-daemon "Notice: locally modified /etc/hotplug.d/drm/zz-libvirt-render retained; DRM render permissions are now managed by /usr/lib/udev/rules.d/65-libvirt-devices.rules"
+fi
+if [ -d /run/systemd/system ] && [ -x /usr/bin/udevadm ]; then
+	/usr/bin/udevadm control --reload-rules 2>/dev/null || :
+	/usr/bin/udevadm trigger --action=add --subsystem-match=misc --sysname-match=kvm 2>/dev/null || :
+	/usr/bin/udevadm trigger --action=add --subsystem-match=drm --sysname-match='renderD*' 2>/dev/null || :
+	/usr/bin/udevadm settle --timeout=10 2>/dev/null || :
+fi
+exit 0
+endef
+
+define Package/libvirt-daemon/postrm
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+if [ -d /run/systemd/system ] && [ -x /usr/bin/udevadm ]; then
+	/usr/bin/udevadm control --reload-rules 2>/dev/null || :
+	/usr/bin/udevadm trigger --action=add --subsystem-match=misc --sysname-match=kvm 2>/dev/null || :
+	/usr/bin/udevadm trigger --action=add --subsystem-match=drm --sysname-match='renderD*' 2>/dev/null || :
+	/usr/bin/udevadm settle --timeout=10 2>/dev/null || :
+fi
+exit 0
 endef
 
 $(eval $(call BuildPackage,libvirt))

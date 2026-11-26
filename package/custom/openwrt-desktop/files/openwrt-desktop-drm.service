@@ -1,0 +1,7 @@
+[Unit]
+Description=Reconcile OpenWrt desktop auto-start after DRM events
+After=openwrt-services.service openwrt-desktop-coldplug.service systemd-logind.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/desktop-drm-reconcile

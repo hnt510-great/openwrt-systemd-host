@@ -2,6 +2,17 @@
 set -eu
 [ "$(id -u)" = 0 ] || exit 1
 . /usr/libexec/desktop-common.sh
+
+run_dir=/run/openwrt-desktop-audio
+umask 077
+[ ! -L "$run_dir" ] || exit 1
+mkdir -p "$run_dir"
+chown 0:0 "$run_dir"
+chmod 0700 "$run_dir"
+
+exec 9>"$run_dir/lock"
+flock 9
+
 uid=
 if [ "$(uci -q get desktop.main.audio_enabled || :)" = 1 ]; then
 	user=$(uci -q get desktop.main.audio_user || :)
@@ -10,18 +21,44 @@ if [ "$(uci -q get desktop.main.audio_enabled || :)" = 1 ]; then
 		uid=$DESKTOP_USER_UID
 	fi
 fi
+
 previous=
-state=/run/desktop-audio-acl-uid
-[ ! -f "$state" ] || previous=$(cat "$state")
+state="$run_dir/acl-uid"
+legacy_state=/run/desktop-audio-acl-uid
+if [ -f "$state" ] && [ ! -L "$state" ]; then
+	previous=$(cat "$state")
+elif [ -f "$legacy_state" ] && [ ! -L "$legacy_state" ]; then
+	previous=$(cat "$legacy_state")
+fi
 case "$previous" in *[!0-9]*) previous= ;; esac
+
 # Logind/user managers may predate group enrollment. Per-UID ACLs avoid restarting
 # them and disrupting unrelated SSH sessions or rootless containers.
+rc=0
 for node in /dev/snd/controlC* /dev/snd/pcmC* /dev/snd/hwC* /dev/snd/timer; do
 	[ -c "$node" ] && [ ! -L "$node" ] || continue
 	if [ -n "$previous" ] && [ "$previous" != "$uid" ]; then
-		setfacl -x "u:$previous" "$node"
+		if ! setfacl -x "u:$previous" "$node" 2>/dev/null; then
+			[ ! -e "$node" ] || {
+				logger -t openwrt-desktop-audio "Failed to clear audio ACL for uid $previous on $node"
+				rc=1
+			}
+		fi
 	fi
-	[ -z "$uid" ] || setfacl -m "u:$uid:rw" "$node"
+	if [ -n "$uid" ]; then
+		if ! setfacl -m "u:$uid:rw" "$node" 2>/dev/null; then
+			[ ! -e "$node" ] || {
+				logger -t openwrt-desktop-audio "Failed to set audio ACL for uid $uid on $node"
+				rc=1
+			}
+		fi
+	fi
 done
-umask 077
-printf '%s\n' "$uid" > "$state"
+
+if [ "$rc" = 0 ]; then
+	tmp=$(mktemp "$run_dir/.acl-uid.XXXXXX")
+	printf '%s\n' "$uid" > "$tmp"
+	mv -f "$tmp" "$state"
+	rm -f "$legacy_state"
+fi
+exit "$rc"

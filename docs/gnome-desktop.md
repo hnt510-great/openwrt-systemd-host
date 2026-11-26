@@ -132,7 +132,11 @@ on the device with `fc-list :charset=23f5 family`.
 Full systemd libudev and udevd provide device tags for logind seats. The udev
 package installs device-identification, seat and access rules, not networking
 renaming, firmware or module-loading rules. udevd is the only receiver of
-device events; it forwards events with `/etc/hotplug.d` handlers to procd (see
+device events; `80-openwrt-desktop.rules` notifies `openwrt-desktop-drm.path` /
+`openwrt-desktop-drm.service` to run `/etc/init.d/desktop autostart` (serialized
+with `desktop-ctl` and `desktop.init` under `/var/lock/procd_desktop.lock` so
+DRM events never clear an operator `manual-stop`), while OpenWrt compatibility
+events are queued through `/run/openwrt-hotplug/` to procd (see
 [systemd supervision](systemd-native-supervision.md)). netifd, firewall and
 router service configuration are unchanged. A coldplug unit identifies
 DRM/input/audio devices before starting the desktop. PCI GPUs with an already

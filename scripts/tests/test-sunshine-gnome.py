@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Test explicit capture selection and safe compositor startup configuration."""
+"""Test explicit Sunshine capture selection without fallback to unsupported modes."""
 import json
 import os
 from pathlib import Path
@@ -49,54 +49,6 @@ class Capture(unittest.TestCase):
                     args = json.loads(result.stdout)
                     self.assertIn('capture=' + (mode or 'portal'), args)
                     self.assertIn('bind_address=192.0.2.1', args)
-
-
-    def test_gnome_handoff_cleans_environment_and_requires_keyring(self):
-        import socket
-        bus = socket.socket(socket.AF_UNIX)
-        self.addCleanup(bus.close)
-        bus.bind(str(self.path / 'bus'))
-        keyring = self.tool('keyring', 'exit "${KEYRING_FAILURE:-0}"')
-        output = self.path / 'session.json'
-        recorder = self.tool('gnome-session',
-                             "/usr/bin/python3 -c 'import json,os,sys; "
-                             'json.dump([sys.argv[1:],dict(os.environ)],'
-                             'open(os.environ["SESSION_OUTPUT"],"w"))\' "$@"')
-        sessions_dir = self.path / 'sessions.d'
-        sessions_dir.mkdir(exist_ok=True)
-        (sessions_dir / 'gnome').write_text(
-            (ROOT / 'package/custom/openwrt-desktop/files/sessions.d/gnome').read_text()
-            .replace('/usr/bin/gnome-session', str(recorder))
-            .replace('/usr/libexec/desktop-keyring-unlock', str(keyring)))
-        common = self.path / 'desktop-common.sh'
-        common.write_text(
-            (ROOT / 'package/custom/openwrt-desktop/files/desktop-common.sh').read_text()
-            .replace('DESKTOP_SESSIONS_DIR=/usr/libexec/openwrt-desktop/sessions.d',
-                     f'DESKTOP_SESSIONS_DIR={sessions_dir}')
-            .replace('DESKTOP_SESSION_REQUIRE_ROOT=1', 'DESKTOP_SESSION_REQUIRE_ROOT=0'))
-        user_setup = self.tool('user-setup', ':')
-        source = (ROOT / 'package/custom/openwrt-desktop/files/desktop-session').read_text()
-        source = source.replace('/usr/libexec/desktop-common.sh', str(common))
-        source = source.replace('/usr/libexec/desktop-user-setup', str(user_setup))
-        script = self.path / 'desktop-session'
-        script.write_text(source)
-        inherited = dict(WAYLAND_SOCKET='9999', GTK_IM_MODULE='fcitx',
-                         GTK_IM_MODULE_FILE='old-module', LIBSEAT_BACKEND='seatd')
-        for failure in ['1', '0']:
-            with self.subTest(keyring_failure=failure):
-                result = subprocess.run(['sh', str(script)], capture_output=True, text=True,
-                                        env=dict(self.env, **inherited, KEYRING_FAILURE=failure,
-                                                 SESSION_OUTPUT=str(output)))
-                self.assertEqual(result.returncode == 0, failure == '0', result.stderr)
-                if failure == '1':
-                    self.assertFalse(output.exists())
-                else:
-                    arguments, environment = json.loads(output.read_text())
-                    self.assertEqual(arguments, ['--session=gnome'])
-                    self.assertEqual(environment['XDG_CURRENT_DESKTOP'], 'GNOME')
-                    self.assertEqual(environment['XDG_SESSION_TYPE'], 'wayland')
-                    for name in inherited:
-                        self.assertNotIn(name, environment)
 
 
 if __name__ == '__main__':

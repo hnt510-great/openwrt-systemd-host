@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openwrt-desktop-plasma
 PKG_VERSION:=1
-PKG_RELEASE:=6
+PKG_RELEASE:=8
 PKG_CONFIG_DEPENDS:=CONFIG_OPENWRT_SYSTEMD
 PKG_LICENSE:=MIT
 
@@ -23,7 +23,8 @@ define Package/openwrt-desktop-plasma-core
 	+qt6quick-qml-mod-qtlabs-folderlistmodel +qt6quick-qml-mod-qtlabs-animation \
 	+qt6quick-qml-mod-qtlabs-sharedimage \
 	+xwayland +wl-clipboard +dejavu-fonts-ttf-DejaVuSans \
-	+noto-sans-symbols2 +dejavu-fonts-ttf-DejaVuSansMono
+	+noto-sans-symbols2 +dejavu-fonts-ttf-DejaVuSansMono \
+	+noto-fonts-color-emoji
 endef
 
 define Package/openwrt-desktop-plasma-core/description

@@ -1,0 +1,80 @@
+{
+  "schema": 1,
+  "dispositions": {
+    "udev_equivalent": "已有 udev 等价物",
+    "compat_bridge": "兼容层执行",
+    "not_applicable": "本目标不适用"
+  },
+  "json_files": {
+    "package/system/procd/files/hotplug.json": {
+      "disposition": "compat_bridge",
+      "sha256": "ce5390d269a4cfd460b0e47307d6a35d188c06b5fb605461105d792fe9b84fb3",
+      "reason": "Stock non-systemd hotplug rules; native systemd uses hotplug-systemd.json via udev forwarder + bounded queue for compat scripts, button and firmware, while devtmpfs/udev own device nodes."
+    },
+    "package/system/procd/files/hotplug-preinit.json": {
+      "disposition": "not_applicable",
+      "sha256": "3d282a401d2408b657212f952884d9309b0922472770df55e2fb203079a4ad52",
+      "reason": "Preinit/failsafe hotplug path before systemd handoff; kept verbatim for preinit/failsafe."
+    },
+    "package/system/procd/files/hotplug-systemd.json": {
+      "disposition": "compat_bridge",
+      "sha256": "f23caed59028effc96df3483e3ecb9479155066e032220881d0fac56eccf23be",
+      "reason": "Native systemd compat bridge rules: dispatches /etc/hotplug.d scripts, synthetic buttons, usb-serial->tty mapping and firmware loading."
+    },
+    "package/system/hardware-support/files/20-audio.json": {
+      "disposition": "udev_equivalent",
+      "sha256": "e39623997d5f93431c0ceaf230d91e86c5df5d22e95ccdfa98714b15518a9065",
+      "reason": "Covered on native systemd by package/system/hardware-support/files/udev/60-openwrt-audio.rules (audio, midi, audio-capture 0660)."
+    },
+    "package/system/hardware-support/files/30-video.json": {
+      "disposition": "udev_equivalent",
+      "sha256": "5203998349d07d43fb490e831e20268c6fde5b4c475c105eff6d7d2ead83e5a6",
+      "reason": "Covered on native systemd by package/system/hardware-support/files/udev/60-openwrt-video.rules (drm non-renderD*, media, v4l-id video/video-capture, dma_heap)."
+    },
+    "package/system/hardware-support/files/35-accel.json": {
+      "disposition": "udev_equivalent",
+      "sha256": "4aab2c53859831da9e92b100f33b38bf28a21ad7d9f1e7584d004ed9be6c34ba",
+      "reason": "Covered on native systemd by systemd 50-udev-default.rules (renderD*/kfd/accel group render 0666) and libvirt-daemon 65-libvirt-devices.rules (renderD* 0660 when installed)."
+    },
+    "package/system/hardware-support/files/40-input.json": {
+      "disposition": "udev_equivalent",
+      "sha256": "60b0b46ff1109edc94ee907e99ac779a2af038c861e238f574fb190b86c9a564",
+      "reason": "Covered on native systemd by package/system/hardware-support/files/udev/60-openwrt-input.rules and systemd 50-udev-default.rules / 70-uaccess.rules."
+    },
+    "package/system/hardware-support/files/45-dvb.json": {
+      "disposition": "not_applicable",
+      "sha256": "5eec3dae8031f2daac09bdd935d5947adcec6dc3964f765eb860ef04ed69bebb",
+      "reason": "DVB hardware support package is unselected on x86/64 desktop/router profiles; add 60-openwrt-dvb.rules if dvb-support is ever enabled."
+    },
+    "package/system/hardware-support/files/50-kvm.json": {
+      "disposition": "udev_equivalent",
+      "sha256": "d109eeb053741aef25888cb5deb4faaf46cf809ed12e2edb90c68ce0b18dc7b8",
+      "reason": "Covered on native systemd by systemd 50-udev-default.rules (kvm 0666 static_node=kvm) and libvirt-daemon 65-libvirt-devices.rules (kvm 0660 static_node=kvm when installed)."
+    },
+    "package/system/hardware-support/files/55-printer.json": {
+      "disposition": "udev_equivalent",
+      "sha256": "0af10e8ca1f367a12d9479205c22596e12991b0aef9f198307b1cc8f4b1f70fe",
+      "reason": "Covered on native systemd by package/system/hardware-support/files/udev/60-openwrt-printer.rules (lp 0660)."
+    },
+    "package/system/hardware-support/files/60-hidraw.json": {
+      "disposition": "not_applicable",
+      "sha256": "15071f1e423929593743a2413130454eee4d0b22f5f4bb89a1b9f594a9da13d9",
+      "reason": "hidraw-support is unselected on x86/64 desktop/router profiles; add 60-openwrt-hidraw.rules if hidraw-support is enabled."
+    },
+    "package/custom/openwrt-appimage/files/appimage-fuse.json": {
+      "disposition": "udev_equivalent",
+      "sha256": "3c2261457fdc2d188ed1419ba1a7a37f86627b4f55e07d8975cf57a98d5d9b15",
+      "reason": "Covered on native systemd by package/custom/openwrt-appimage/files/99-appimage-fuse.rules (/dev/fuse 0666)."
+    },
+    "package/custom/openwrt-flatpak/files/flatpak-fuse.json": {
+      "disposition": "udev_equivalent",
+      "sha256": "3c2261457fdc2d188ed1419ba1a7a37f86627b4f55e07d8975cf57a98d5d9b15",
+      "reason": "Covered on native systemd by package/custom/openwrt-flatpak/files/99-flatpak-fuse.rules (/dev/fuse 0666)."
+    },
+    "package/custom/sunshine/files/sunshine-uinput.json": {
+      "disposition": "udev_equivalent",
+      "sha256": "f5004fbe92faea4beeb883464f1a37baca21ee3c977b5c66af5f52d5822aa515",
+      "reason": "devtmpfs creates /dev/uinput 0600 root:root; Sunshine uinput ACL is reconciled via 80-openwrt-sunshine.rules -> openwrt-sunshine-uinput.path/service."
+    }
+  }
+}

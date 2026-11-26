@@ -155,28 +155,42 @@ class DesktopSessionPluginsTest(unittest.TestCase):
         self.assertFalse((self.run_dir / 'active.env').exists())
         self.assertTrue((self.run_dir / 'manual-stop').exists())
 
-        # DRM hotplug must respect manual-stop even when desktop.main.enabled=1
+        # DRM hotplug delegates to locked `autostart` (skipping when udev already handled it)
         hotplug_calls = self.path / 'hotplug.log'
         fake_init = self.tool('fake-desktop-init', f'printf "%s\\n" "$*" >> "{hotplug_calls}"')
         self.tool('uci', 'case "$*" in *desktop.main.enabled*) echo 1;; *desktop.main.user*) echo alice;; *desktop.main.session*) echo gnome;; *) exit 1;; esac')
         hotplug = self.path / '95-desktop'
         hotplug.write_text(
             (FILES / 'desktop.hotplug').read_text()
-            .replace('/run/openwrt-desktop', str(self.run_dir))
             .replace('/etc/init.d/desktop', str(fake_init)))
-        res = subprocess.run(['sh', str(hotplug)], env=dict(self.env, ACTION='change'), capture_output=True, text=True)
+        res = subprocess.run(['sh', str(hotplug)], env=dict(self.env, ACTION='change', OPENWRT_UDEV_HANDLED_DESKTOP='1'), capture_output=True, text=True)
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertFalse(hotplug_calls.exists())
+        res = subprocess.run(['sh', str(hotplug)], env=dict(self.env, ACTION='change'), capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(hotplug_calls.read_text().strip(), 'autostart')
 
-        # Starting again clears manual-stop so subsequent DRM hotplug works
+        # Locked autostart inside desktop.init must respect manual-stop and never clear it
+        (self.path / 'systemd-run.args').unlink(missing_ok=True)
+        res = subprocess.run(['sh', str(harness), str(init_file), 'start_service'],
+                             env=dict(self.env, TARGET_SESSION='dummy', DESKTOP_AUTOSTART='1'),
+                             capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertFalse((self.path / 'systemd-run.args').exists())
+        self.assertTrue((self.run_dir / 'manual-stop').exists())
+
+        # Explicit start clears manual-stop so subsequent autostart works
         res = subprocess.run(['sh', str(harness), str(init_file), 'start_service'],
                              env=dict(self.env, TARGET_SESSION='dummy'),
                              capture_output=True, text=True)
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertFalse((self.run_dir / 'manual-stop').exists())
-        res = subprocess.run(['sh', str(hotplug)], env=dict(self.env, ACTION='add'), capture_output=True, text=True)
+        (self.path / 'systemd-run.args').unlink(missing_ok=True)
+        res = subprocess.run(['sh', str(harness), str(init_file), 'start_service'],
+                             env=dict(self.env, TARGET_SESSION='dummy', DESKTOP_AUTOSTART='1'),
+                             capture_output=True, text=True)
         self.assertEqual(res.returncode, 0, res.stderr)
-        self.assertEqual(hotplug_calls.read_text().strip(), 'start')
+        self.assertTrue((self.path / 'systemd-run.args').exists())
 
         # Verify desktop-session clears KDE_FULL_SESSION / MUTTER_DEBUG_KMS_SCHEDULING_PRIORITY
         # collected across all plugins in sessions.d/

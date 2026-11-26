@@ -118,6 +118,8 @@ userspace and kernel snapshots before changing either active pointer. It then:
    the simulations. Standalone `preflight()` callers keep their own
    post-simulation rescan unless they pass `recheck=False` and perform this
    promotion check themselves.
+
+Remote baseline/simulation probes use a 60-second SSH timeout (`REMOTE_TIMEOUT`), while full installed-file ELF scans (`capture()`) use a 180-second timeout (`CAPTURE_TIMEOUT`) to tolerate cold-cache scans across >100k installed files and pre-filter non-ELF regular files via `os.lstat` and a 4-byte `\x7fELF` magic check before running full ELF inspection. In `scripts/publish-lan-apk-feeds.py`, `kmod-*` channel classification uses batched `apk adbdump` (`dump_indexes()`), and same-version rebuild conflicts are rejected before full ucode/ELF validation (successful publications still run all ABI checks).
    Each promotion also rechecks its own view at the commit boundary.
    A production dry run discards its own prepared snapshots. Formal publication
    writes a private receipt, exposes userspace first, then the kernel channel.

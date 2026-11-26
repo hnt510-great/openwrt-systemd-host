@@ -1,0 +1,11 @@
+[Unit]
+Description=Watch ALSA sound events for OpenWrt desktop audio ACLs
+
+[Path]
+PathExists=/run/openwrt-desktop-audio/pending
+Unit=openwrt-desktop-audio-acl.service
+TriggerLimitIntervalSec=10s
+TriggerLimitBurst=200
+
+[Install]
+WantedBy=multi-user.target

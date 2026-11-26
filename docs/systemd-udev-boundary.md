@@ -7,6 +7,10 @@ The installed file is `package/system/systemd/files/99-systemd.rules`.
 Keep it explicit and review upstream changes on systemd upgrades; do not copy
 upstream rules wholesale or silently filter them with installation-time sed.
 
+The [udev and hotplug migration plan](systemd-udev-hotplug-migration-plan.md) and
+[migration validation record](systemd-udev-hotplug-migration-validation.md)
+record the ownership changes, disconnect buffering and acceptance results.
+
 ## Ownership and event flow
 
 - netifd owns network naming/configuration, addresses, routes and device network
@@ -14,12 +18,31 @@ upstream rules wholesale or silently filter them with installation-time sed.
 - fstools owns early root/overlay and UCI mount policy; block/blockd handle later
   mount and autofs decisions. A block tag does not request a data-volume mount.
 - systemd owns service lifecycle, dependency graphs and generic device state.
-- devtmpfs creates base nodes; udev applies properties, permissions and seats.
+- devtmpfs creates base nodes; udev applies properties, permissions, symlinks
+  and seats. Each managed device object has a single writer:
+  - `libvirt-daemon` ships `65-libvirt-devices.rules` (`root:kvm 0660` with
+    `static_node=kvm`, `root:render 0660` for `renderD*`), leaving udev's
+    `0666` default intact when the daemon is not installed.
+  - `virtio-console-helper` omits `00-virtio-ports` on `CONFIG_OPENWRT_SYSTEMD`
+    builds so udev is the sole owner of `/dev/virtio-ports/<name>` symlinks
+    while `qemu-ga`'s `10-qemu-ga` hook remains under `/etc/hotplug.d/virtio-ports/`.
+  - `openwrt-desktop-base`, `openwrt-desktop-audio`, and `sunshine` ship
+    `80-openwrt-*.rules` that write root-private `/run` markers and trigger
+    paired systemd `.path`/oneshot reconcilers (`openwrt-desktop-drm.path`,
+    `openwrt-desktop-audio-acl.path`, `openwrt-sunshine-uinput.path`), leaving
+    their legacy `/etc/hotplug.d/` hooks as thin compatibility adapters that
+    skip duplicate submission when `OPENWRT_UDEV_HANDLED_*=1`.
 - procd retains ubus/UCI, init scripts, and hotplug handlers. In units
   mode it ignores ordinary raw device events and receives selected processed
   events through `90-openwrt-hotplug.rules` -> `openwrt-udev-forward` ->
-  `procd.udev` -> `hotplug-systemd.json` -> `/etc/hotplug.d/`. Synthetic button
-  events remain direct. Non-systemd targets retain ordinary `hotplug.json`.
+  root-private bounded queue `/run/openwrt-hotplug/` (2,048 items / 8 MiB,
+  `(boot_id, SEQNUM)` dedup, `receiver.cap` two-step mixed-version fallback to
+  legacy `procd.udev event`, inflight crash quarantine with per-device
+  deferral, and `procd.udev` `queue_status`/`queue_resolve`) ->
+  `hotplug-systemd.json` -> `/etc/hotplug.d/`. Synthetic button events remain
+  direct. Pure software/logic hotplug calls (`iface`, `dhcp`, `firewall`,
+  `ntp`, direct `hotplug-call`, `ubus call hotplug.<subsys> call`) bypass udev
+  and the queue. Non-systemd targets retain ordinary `hotplug.json`.
 
 The forwarder normalizes DEVNAME; hotplug-call derives DEVICENAME from DEVPATH.
 netifd independently listens to rtnetlink and network uevents. These listeners
@@ -74,7 +97,7 @@ Handlers must tolerate repeats. Tags do not themselves emit extra kernel events,
 but RUN commands execute again; v262 device.c also has WANT reconciliation for
 already-known devices. Do not assume repeated add can never submit a start job.
 Keep `openwrt-desktop-base`'s bounded TPM probe (introduced in desktop r34,
-current r42): this change deliberately does not restore its former hard-coded
+current r46): this change deliberately does not restore its former hard-coded
 `Requires=dev-tpmrm0.device` dependency. Router startup must not acquire
 desktop/TPM dependencies. Logind seats, GNOME/Plasma desktop discovery and
 libvirt nodedev enumeration continue through their existing paths; libvirt does
@@ -82,8 +105,12 @@ not acquire network/interface driver ownership.
 
 ## Validation and rollout
 
-Run `python3 scripts/tests/test-systemd-udev-boundary.py`, relevant procd/desktop
-regressions, the systemd package build, and inspect packaged/final-rootfs rules.
+Run `python3 scripts/tests/test-systemd-udev-boundary.py`,
+`python3 scripts/tests/test-udev-hotplug-migration.py`,
+`python3 scripts/audit-hotplug-merge.py` (verifying content-hash classifications
+in `configs/hotplug-merge-classifications.json` on upstream/feed merges),
+relevant procd/desktop regressions, the systemd package build, and inspect
+packaged/final-rootfs rules.
 Use an isolated QEMU router/client pair with persisted swtpm state to check device
 activation, credential decryption across cold boot, delayed TPM appearance and
 absence, plus DHCP/DNS, routing/NAT and management access. Exercise spare devices

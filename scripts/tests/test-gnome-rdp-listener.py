@@ -6,18 +6,21 @@ import subprocess
 import tempfile
 import unittest
 
+from package_recipe import recipe_version
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
 class RdpListenerTest(unittest.TestCase):
     def test_listener_rejects_wildcards_and_never_negotiates_another_port(self):
-        archive = ROOT / 'dl/gnome-remote-desktop-51.0.tar.xz'
+        version = recipe_version(ROOT / 'package/custom/gnome-remote-desktop/Makefile')
+        archive = ROOT / f'dl/gnome-remote-desktop-{version}.tar.xz'
         if not archive.exists():
-            self.skipTest('run make download for gnome-remote-desktop first')
+            self.skipTest(f'run make download for gnome-remote-desktop {version} first')
         with tempfile.TemporaryDirectory(prefix='gnome-rdp-listener-') as directory:
             work = Path(directory)
             subprocess.run(['tar', '-xf', str(archive), '-C', str(work)], check=True)
-            source = work / 'gnome-remote-desktop-51.0'
+            source = work / f'gnome-remote-desktop-{version}'
             patch = ROOT / 'package/custom/gnome-remote-desktop/patches/001-bind-only-configured-lan.patch'
             subprocess.run(['patch', '-p1', '--fuzz=0', '-i', str(patch)],
                            cwd=source, check=True, capture_output=True)

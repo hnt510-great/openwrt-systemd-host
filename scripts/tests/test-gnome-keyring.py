@@ -12,8 +12,12 @@ import time
 import unittest
 from urllib.parse import unquote
 
+from package_recipe import recipe_version
+
 ROOT = Path(__file__).resolve().parents[2]
-DAEMON = ROOT / 'build_dir/target-x86_64_glibc/gnome-keyring-51.1/ipkg-install/usr/bin/gnome-keyring-daemon'
+DAEMON = (ROOT / 'build_dir/target-x86_64_glibc'
+          / f"gnome-keyring-{recipe_version(ROOT / 'package/custom/gnome-keyring/Makefile')}"
+          / 'ipkg-install/usr/bin/gnome-keyring-daemon')
 HELPER = ROOT / 'package/custom/openwrt-desktop/files/desktop-keyring-unlock'
 RUNNER = ROOT / 'scripts/gi-target-runner'
 

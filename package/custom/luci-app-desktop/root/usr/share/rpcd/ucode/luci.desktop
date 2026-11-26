@@ -76,5 +76,10 @@ return { 'luci.desktop': {
 		call: function() {
 			return run([ 'sync-boot' ]);
 		}
+	},
+	sync_sunshine: {
+		call: function() {
+			return run([ 'sync-sunshine' ]);
+		}
 	}
 } };

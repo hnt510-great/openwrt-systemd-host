@@ -540,9 +540,9 @@ class NeedrestartTests(unittest.TestCase):
         child.joinpath('root').symlink_to(root)
         self.assertFalse(self.scan(2)['complete'])
 
-    def chrome_sandbox(self, changed=False):
-        binary = 'opt/google/chrome/chrome'
-        scope = '/user.slice/user-1000.slice/user@1000.service/app.slice/app-gnome-google\\x2dchrome-200.scope'
+    def chrome_sandbox(self, changed=False, binary='opt/google/chrome/chrome',
+                       scope='/user.slice/user-1000.slice/user@1000.service/app.slice/app-gnome-google\\x2dchrome-200.scope',
+                       unit='app-gnome-google\\x2dchrome-200.scope', user=False):
         current, old, renderer = self.process(pid=123, file=binary, deleted=False,
                                               changed=changed, cgroup=scope)
         _, _, zygote2 = self.process(pid=124, file=binary, deleted=False,
@@ -570,7 +570,8 @@ class NeedrestartTests(unittest.TestCase):
         for proc in (renderer, zygote2, zygote1, browser):
             (proc / 'ns').mkdir()
             os.link(marker, proc / 'ns/mnt')
-        self.json('ownership.json', {str(pid): {'unit': 'app-gnome-google\\x2dchrome-200.scope'}
+        owner = {'unit': unit, 'user': True} if user else {'unit': unit}
+        self.json('ownership.json', {str(pid): owner
                                      for pid in (123, 124, 125, 126)})
         return current, old, renderer, zygote2, zygote1, browser
 
@@ -579,6 +580,47 @@ class NeedrestartTests(unittest.TestCase):
         r = self.scan()
         self.assertEqual(r['warnings'], [])
         self.assertEqual(r['services'], [])
+
+    def test_electron_zygote_proc_chroot_is_host_application(self):
+        self.chrome_sandbox(
+            binary='usr/lib/electron-app/ElectronApp',
+            scope='/user.slice/user-1000.slice/user@1000.service/app.slice/app-electron@1.service',
+            unit='app-electron@1.service',
+            user=True,
+        )
+        r = self.scan()
+        self.assertEqual(r['warnings'], [])
+        self.assertEqual(r['services'], [])
+
+    def test_electron_zygote_proc_chroot_retains_stale_library_advice(self):
+        _, _, renderer, _, _, _ = self.chrome_sandbox(
+            binary='usr/lib/electron-app/ElectronApp',
+            scope='/user.slice/user-1000.slice/user@1000.service/app.slice/app-electron@1.service',
+            unit='app-electron@1.service',
+            user=True,
+        )
+        self.write('usr/lib/electron.so', b'\x7fELFnew-library')
+        old = self.write('old-electron.so', b'\x7fELFold-library')
+        self.write('proc/123/maps', '1000-2000 r-xp 00000000 00:01 999 /usr/lib/electron.so\n')
+        (renderer / 'map_files/1000-2000').unlink()
+        (renderer / 'map_files/1000-2000').symlink_to(old)
+        s = self.scan()['services'][0]
+        self.assertEqual(s['kind'], 'user-service')
+        self.assertEqual(s['processes'][0]['files'][0]['path'], '/usr/lib/electron.so')
+
+    def test_electron_zygote_replaced_executable_still_detected(self):
+        _, _, renderer, _, _, _ = self.chrome_sandbox(
+            changed=True,
+            binary='usr/lib/electron-app/ElectronApp',
+            scope='/user.slice/user-1000.slice/user@1000.service/app.slice/app-electron@1.service',
+            unit='app-electron@1.service',
+            user=True,
+        )
+        renderer.joinpath('exe').unlink()
+        renderer.joinpath('exe').symlink_to('/usr/lib/electron-app/ElectronApp (deleted)')
+        s = self.scan()['services'][0]
+        self.assertEqual(s['kind'], 'user-service')
+        self.assertEqual(s['processes'][0]['files'][0]['reason'], 'replaced')
 
     def test_chrome_zygote_proc_chroot_retains_stale_library_advice(self):
         _, _, renderer, _, _, _ = self.chrome_sandbox()

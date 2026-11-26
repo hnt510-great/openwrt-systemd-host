@@ -29,11 +29,7 @@ x86/64 正式目标自动启用 glibc、APK 和 systemd。原生 failsafe 使用
 `passwall_packages`/`passwall_luci` 使用 `Openwrt-Passwall` 上游，`taskplan`
 使用 `sirpdboy/luci-app-ddns-go`，不指向本地 GitLab。带本地提交的 feed 分支跟踪
 `origin/<branch>` 并领先于上游；上游更新后 `./scripts/feeds update` 中的
-`git pull --ff-only` 会失败，需要在该 feed 仓库内手动合并。`packages`、`video`、`luci`
-和 `taskplan` 的本地提交镜像在 `patches/feeds/`（已编号至 `0052-video-qt6-11-plasma.patch`，
-配合各 `configs/*-feeds.json` 清单）；`telephony` 和 Passwall 的本地提交目前只保存在
-各自的 feed 仓库中。签名密钥 `private-key.pem`/`public-key.pem` 不在仓库中，需要从现有
-构建机单独复制。
+`git pull --ff-only` 会失败，需要在该 feed 仓库内手动合并。`packages`、`video`、`luci` 和 `taskplan` 的本地提交镜像在 `patches/feeds/`（历史增量补丁及按当前 `origin/<branch>` 导出的可独立重放累积快照 `0056`–`0059-*-local-snapshot.patch`，清单见 `configs/feed-mirrors-snapshot.json`，可用 `python3 scripts/audit-feed-mirrors.py` 在临时索引中逐字节校验重放树与各 feed `HEAD^{tree}` 一致）；`telephony` 和 Passwall 的本地提交目前只保存在各自的 feed 仓库中。签名密钥 `private-key.pem`/`public-key.pem` 不在仓库中，需要从现有构建机单独复制。
 
 `scripts/feeds` 在 feed 地址改变时会删除并重新克隆该 feed；已有工作区更换
 `feeds.conf.default` 地址前，应先把新地址写入 `feeds/<name>.tmp/location`，

@@ -120,6 +120,12 @@ def firewall():
                     a=line.split();rows.append({'peer':eventid('wg',a[0]),'values':a[1:]})
                 wg[name][field]=rows
     return {'rules':rules,'conntrack':N.parse_conntrack({n:read('/proc/sys/net/netfilter/nf_conntrack_'+n) for n in ['count','max','acct']}),'conntrack_stats':N.parse_conntrack_stats(read('/proc/net/stat/nf_conntrack')),'wireguard':wg,'nlbwmon':command(['/usr/sbin/nlbw','-c','json','-g','family,mac,ip'],structured=True),'coverage':'Counters cover observed paths; nlbwmon conns are cumulative, not active connections. Proxy/offload/notrack paths may be missing.'}
+_UCI_PARSER=None
+def _uci_parser():
+    global _UCI_PARSER
+    if _UCI_PARSER is None:
+        _UCI_PARSER=runpy.run_path('/usr/sbin/uci-history')['parse_uci']
+    return _UCI_PARSER
 def changes(since):
     # Fixed repository; read-only plumbing, no History constructor or index writes.
     raw=command(['git','--git-dir=/etc/uci-history/repo','log','refs/heads/history','--since=@'+str(int(since)),'-100','--format=%H%x00%ct%x00%B%x00']) or ''
@@ -127,7 +133,9 @@ def changes(since):
     for i in range(0,len(a)-2,3):
         meta=dict(l.split(': ',1) for l in a[i+2].splitlines() if ': ' in l)
         rows.append({'event_id':a[i].strip(),'event_time':N.iso(int(a[i+1])),'revision':meta.get('Revision'),'source':meta.get('Source'),'configs':meta.get('Configs','').split(),'diff_available':True})
-    parser=runpy.run_path('/usr/sbin/uci-history')['parse_uci']
+    if not rows:
+        return {'revisions':rows,'coverage':'Existing UCI history with allowlisted semantic diff; non-UCI changes not tracked.'}
+    parser=_uci_parser()
     allowed={'network':{'proto','device','ifname','ipaddr','netmask','gateway','mtu','metric','ip6assign','ip6hint'},'dhcp':{'port','cachesize','logqueries','noresolv','interface','ra','dhcpv6'},'firewall':{'enabled','input','output','forward','masq','flow_offloading'}}
     for row in rows:
         oid=row['event_id'];row['changes']=[]
@@ -209,11 +217,16 @@ def connections(text=None,scopes=None):
     if text is None:text=read('/proc/net/nf_conntrack')
     if text is None:raise RuntimeError('conntrack_unavailable')
     own,lan=scopes or address_scopes()
+    side_cache={}
     def side(addr):
+        cached=side_cache.get(addr)
+        if cached is not None:return cached
         ip=ipaddress.ip_address(addr)
-        if ip.is_loopback:return 'loopback'
-        if ip in own:return 'router'
-        return 'lan' if any(ip in net for net in lan) else 'remote'
+        if ip.is_loopback:res='loopback'
+        elif ip in own:res='router'
+        else:res='lan' if any(ip in net for net in lan) else 'remote'
+        side_cache[addr]=res
+        return res
     groups,lines,skipped={},0,collections.Counter()
     for line in text.splitlines():
         lines+=1
@@ -274,7 +287,7 @@ def conn_receive():
     except FileNotFoundError:pass
     with socket.socket(socket.AF_UNIX,socket.SOCK_DGRAM) as sock:
         sock.setsockopt(socket.SOL_SOCKET,socket.SO_PASSCRED,1)
-        sock.bind(path);os.chmod(path,0o666)
+        sock.bind(path);os.chmod(path,0o600)
         while True:
             try:
                 raw,ancillary,flags,addr=sock.recvmsg(4096,socket.CMSG_SPACE(12))
@@ -333,10 +346,17 @@ def dns_receive():
     except FileNotFoundError:pass
     with socket.socket(socket.AF_UNIX,socket.SOCK_DGRAM) as sock:
         sock.setsockopt(socket.SOL_SOCKET,socket.SO_PASSCRED,1)
-        sock.bind(path);os.chmod(path,0o666)
-        allowed_uids={0}
-        try:allowed_uids.add(pwd.getpwnam('dnsmasq').pw_uid)
+        sock.bind(path)
+        allowed_uids={0};dnsmasq_gid=None
+        try:
+            pw=pwd.getpwnam('dnsmasq')
+            allowed_uids.add(pw.pw_uid)
+            dnsmasq_gid=pw.pw_gid
         except KeyError:pass
+        if dnsmasq_gid is not None and os.geteuid()==0:
+            os.chown(path,0,dnsmasq_gid);os.chmod(path,0o660)
+        else:
+            os.chmod(path,0o600)
         while True:
             try:
                 raw,ancillary,flags,addr=sock.recvmsg(4096,socket.CMSG_SPACE(12))

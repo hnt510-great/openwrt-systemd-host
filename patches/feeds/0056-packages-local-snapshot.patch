@@ -1,0 +1,5145 @@
+diff --git a/devel/bison/Makefile b/devel/bison/Makefile
+index f68b43443..c155a7d98 100644
+--- a/devel/bison/Makefile
++++ b/devel/bison/Makefile
+@@ -6,7 +6,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=bison
+ PKG_VERSION:=3.8.2
+-PKG_RELEASE:=1
++PKG_RELEASE:=3
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=@GNU/$(PKG_NAME)
+@@ -26,6 +26,7 @@ define Package/bison
+   CATEGORY:=Development
+   TITLE:=bison
+   URL:=https://www.gnu.org/software/bison/
++  DEPENDS:=+m4
+ endef
+ 
+ define Package/bison/description
+@@ -34,11 +35,19 @@ endef
+ 
+ CONFIGURE_ARGS += --enable-threads=posix --disable-nls
+ 
++define Build/Configure
++	$(call Build/Configure/Default)
++	# Configure uses host m4 for checks; the installed binary needs target m4.
++	$(SED) 's|^#define M4 .*|#define M4 "/usr/bin/m4"|' $(PKG_BUILD_DIR)/lib/config.h
++endef
++
+ define Package/bison/install
+ 	$(INSTALL_DIR) $(1)/usr/bin/
+ 	$(CP) \
+ 		$(PKG_INSTALL_DIR)/usr/bin/bison \
+ 		$(1)/usr/bin/
++	$(INSTALL_DIR) $(1)/usr/share/bison
++	$(CP) $(PKG_INSTALL_DIR)/usr/share/bison/* $(1)/usr/share/bison/
+ endef
+ 
+ $(eval $(call BuildPackage,bison))
+diff --git a/devel/gcc/Makefile b/devel/gcc/Makefile
+index 44516b60d..adc2daf75 100644
+--- a/devel/gcc/Makefile
++++ b/devel/gcc/Makefile
+@@ -24,7 +24,7 @@ PKG_NAME:=gcc
+ GCC_VERSION:=$(call qstrip,$(CONFIG_GCC_VERSION))
+ PKG_VERSION:=$(firstword $(subst +, ,$(GCC_VERSION)))
+ GCC_MAJOR_VERSION:=$(word 1,$(subst ., ,$(PKG_VERSION)))
+-PKG_RELEASE:=7
++PKG_RELEASE:=15
+ GCC_DIR:=$(PKG_NAME)-$(PKG_VERSION)
+ 
+ PKG_SOURCE_URL:=@GNU/gcc/gcc-$(PKG_VERSION)
+@@ -159,6 +159,7 @@ define Build/Configure
+ 			--with-bugurl=$(BUGURL) \
+ 			--with-pkgversion="$(PKGVERSION)" \
+ 			--enable-shared \
++			$(if $(CONFIG_LIBC_USE_GLIBC),--enable-default-pie) \
+ 			$(if $(CONFIG_LIBC_USE_GLIBC),--enable,--disable)-__cxa_atexit \
+ 			--with-default-libstdcxx-abi=gcc4-compatible \
+ 			--enable-target-optspace \
+@@ -216,6 +217,11 @@ define Package/gcc/install
+ 	ln -s $(REAL_GNU_TARGET_NAME)-gcc $(1)/usr/bin/cc
+ 	ln -s $(REAL_GNU_TARGET_NAME)-gcc $(1)/usr/bin/$(REAL_GNU_TARGET_NAME)-gcc-$(PKG_VERSION)
+ 	cp -ar $(PKG_INSTALL_DIR)/usr/lib/gcc $(1)/usr/lib
++	# Cross-building native GCC can miss the target libc limits.h probe.
++	# Restore GCC's standard wrapper so limits.h also exports libc/POSIX limits.
++	cat $(PKG_BUILD_DIR)/gcc/limitx.h $(PKG_BUILD_DIR)/gcc/glimits.h \
++		$(PKG_BUILD_DIR)/gcc/limity.h > \
++		$(1)/usr/lib/gcc/$(REAL_GNU_TARGET_NAME)/$(PKG_VERSION)/include/limits.h
+ 	cp -ar $(TOOLCHAIN_ROOT_DIR)/include $(1)/usr
+ 	cp -a $(TOOLCHAIN_ROOT_DIR)/lib/*.{o,so*} $(1)/usr/lib/$(PKG_NAME)/$(REAL_GNU_TARGET_NAME)/$(PKG_VERSION)
+ 	cp -a $(TOOLCHAIN_ROOT_DIR)/lib/*nonshared*.a  $(1)/usr/lib/$(PKG_NAME)/$(REAL_GNU_TARGET_NAME)/$(PKG_VERSION)
+diff --git a/devel/m4/Makefile b/devel/m4/Makefile
+index f0fb0919d..0613e37fc 100644
+--- a/devel/m4/Makefile
++++ b/devel/m4/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=m4
+ PKG_VERSION:=1.4.19
+-PKG_RELEASE:=1
++PKG_RELEASE:=4
+ 
+ PKG_SOURCE_URL:=@GNU/m4
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+@@ -22,6 +22,8 @@ PKG_CPE_ID:=cpe:/a:gnu:m4
+ 
+ PKG_INSTALL:=1
+ 
++TARGET_CFLAGS += -std=gnu17
++
+ include $(INCLUDE_DIR)/package.mk
+ 
+ define Package/m4
+diff --git a/lang/lua/lua5.4/Makefile b/lang/lua/lua5.4/Makefile
+index 072d37d05..c71276cec 100644
+--- a/lang/lua/lua5.4/Makefile
++++ b/lang/lua/lua5.4/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=lua
+ PKG_VERSION:=5.4.7
+-PKG_RELEASE:=3
++PKG_RELEASE:=4
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
+ PKG_SOURCE_URL:=https://www.lua.org/ftp/ \
+diff --git a/lang/lua/lua5.4/patches/020-shared_liblua.patch b/lang/lua/lua5.4/patches/020-shared_liblua.patch
+index 615cda1da..7ed097e96 100644
+--- a/lang/lua/lua5.4/patches/020-shared_liblua.patch
++++ b/lang/lua/lua5.4/patches/020-shared_liblua.patch
+@@ -97,7 +97,7 @@
+ -$(LUA_T): $(LUA_O) $(LUA_A)
+ -	$(CC) -o $@ $(LDFLAGS) $(LUA_O) $(LUA_A) $(LIBS)
+ +$(LUA_SO): $(CORE_O) $(LIB_O)
+-+	$(CC) -o $@ -Wl,-Bsymbolic-functions -shared -Wl,-soname="$@" $?
+++	$(CC) $(LDFLAGS) -o $@ -Wl,-Bsymbolic-functions -shared -Wl,-soname="$@" $(CORE_O) $(LIB_O) $(LIBS)
+ +	ln -fs $@ liblua$V.so.0.0
+ +	ln -fs $@ liblua$V.so.0
+ +	ln -fs $@ liblua$V.so
+diff --git a/lang/perl/Makefile b/lang/perl/Makefile
+index c7abfd4bc..cd5f2e4e3 100644
+--- a/lang/perl/Makefile
++++ b/lang/perl/Makefile
+@@ -81,6 +81,13 @@ endef
+ 
+ define Host/Install
+ 	( cd $(HOST_BUILD_DIR); ./miniperl installperl )
++	# Remove obsolete optional core archives left by an earlier host configuration.
++	for module in DB_File GDBM_File NDBM_File ODBM_File; do \
++		if [ ! -f $(HOST_BUILD_DIR)/lib/auto/$$$$module/$$$$module.a ]; then \
++			find $(HOST_PERL_PREFIX)/lib/perl5/$(PKG_VERSION) \
++				-path "*/auto/$$$$module" -type d -prune -exec rm -rf {} +; \
++		fi; \
++	done
+ 	$(INSTALL_DIR) $(HOST_PERL_PREFIX)/bin/
+ 	$(CP) $(HOST_BUILD_DIR)/generate_uudmap $(HOST_PERL_PREFIX)/bin/
+ 	
+diff --git a/lang/perl/perlmod.mk b/lang/perl/perlmod.mk
+index 50cb92314..d96f5c53f 100644
+--- a/lang/perl/perlmod.mk
++++ b/lang/perl/perlmod.mk
+@@ -37,10 +37,11 @@ PERLMOD_TESTSDIR:=/usr/share/perl/perlmod-tests
+ 
+ FLOCK:=$(STAGING_DIR_HOST)/bin/flock
+ 
++# Static host Perl extensions can contain non-PIC objects; disable compiler-default PIE for this executable.
+ define perlmod/host/relink
+ 	rm -f $(1)/Makefile.aperl
+ 	($(FLOCK) -w 900 9 || { echo perlmod/host/relink: failed to acquire lock; exit 1; }; \
+-	    $(MAKE) -C $(1) perl && \
++	    $(MAKE) -C $(1) perl MAP_LINKCMD="$(HOSTCC) -no-pie $(HOST_LDFLAGS)" && \
+ 	    $(INSTALL_BIN) $(1)/perl $(PERL_CMD) && \
+ 	    $(INSTALL_BIN) $(1)/perl $(STAGING_DIR_HOSTPKG)/usr/bin/perl \
+ 	) 9> $(TMP_DIR)/.perlmod-perl.flock
+diff --git a/lang/python/python-docutils/Makefile b/lang/python/python-docutils/Makefile
+index fc908499b..8d084b885 100644
+--- a/lang/python/python-docutils/Makefile
++++ b/lang/python/python-docutils/Makefile
+@@ -12,8 +12,16 @@ PKG_LICENSE:=Public-Domain BSD-2-Clause Python-2.0.1 GPL-3.0-or-later
+ PKG_LICENSE_FILES:=COPYING.txt licenses/BSD-2-Clause.txt licenses/python-2-1-1.txt licenses/gpl-3-0.txt
+ 
+ include ../pypi.mk
++HOST_BUILD_DEPENDS:= \
++	python3/host \
++	python-build/host \
++	python-installer/host \
++	python-flit-core/host
++
+ include $(INCLUDE_DIR)/package.mk
++include $(INCLUDE_DIR)/host-build.mk
+ include ../python3-package.mk
++include ../python3-host-build.mk
+ 
+ define Package/python3-docutils
+   SUBMENU:=Python
+@@ -34,3 +42,5 @@ endef
+ $(eval $(call Py3Package,python3-docutils))
+ $(eval $(call BuildPackage,python3-docutils))
+ $(eval $(call BuildPackage,python3-docutils-src))
++
++$(eval $(call HostBuild))
+diff --git a/lang/python/python-vcs-versioning/Makefile b/lang/python/python-vcs-versioning/Makefile
+index dddf01927..76fdc42ec 100644
+--- a/lang/python/python-vcs-versioning/Makefile
++++ b/lang/python/python-vcs-versioning/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=python-vcs-versioning
+ PKG_VERSION:=2.6.0
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PYPI_NAME:=vcs-versioning
+ PYPI_SOURCE_NAME:=vcs_versioning
+@@ -23,7 +23,7 @@ PKG_HOST_ONLY:=1
+ HOST_BUILD_DEPENDS:= \
+ 	python3/host \
+ 	python-build/host \
+-	python-hatchling/host \
++	python-setuptools/host \
+ 	python-installer/host \
+ 	python-packaging/host \
+ 	python-typing-extensions/host
+diff --git a/lang/python/python3/Makefile b/lang/python/python3/Makefile
+index 258a5685a..f88b862c9 100644
+--- a/lang/python/python3/Makefile
++++ b/lang/python/python3/Makefile
+@@ -227,7 +227,7 @@ define Build/InstallDev
+ 		$(PKG_INSTALL_DIR)/usr/bin/python$(PYTHON3_VERSION)-config \
+ 		$(2)/bin/
+ 	$(SED) \
+-		's|^prefix_real=.*$$$$|prefix_real="$(PYTHON3_DIR)"|' \
++		'/^prefix_real=/,/^}/c\prefix_real="$(PYTHON3_DIR)"' \
+ 		$(2)/bin/python$(PYTHON3_VERSION)-config
+ endef
+ 
+diff --git a/libs/avahi/Makefile b/libs/avahi/Makefile
+index 8274ddf9e..c8e551606 100644
+--- a/libs/avahi/Makefile
++++ b/libs/avahi/Makefile
+@@ -7,7 +7,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=avahi
+ PKG_VERSION:=0.9_rc5
+-PKG_RELEASE:=1
++PKG_RELEASE:=8
+ 
+ PKG_SOURCE:=$(PKG_NAME)-0.9-rc5.tar.gz
+ PKG_SOURCE_URL:=https://codeload.github.com/avahi/avahi/tar.gz/v0.9-rc5?
+@@ -25,6 +25,8 @@ PKG_BUILD_PARALLEL:=1
+ 
+ include $(INCLUDE_DIR)/package.mk
+ 
++PKG_CONFIG_DEPENDS:=CONFIG_OPENWRT_SYSTEMD CONFIG_PACKAGE_libavahi-glib
++
+ define Package/avahi/Default
+   SECTION:=net
+   CATEGORY:=Network
+@@ -223,6 +225,22 @@ $(call Package/avahi/Default/description)
+  For more information please see the avahi documentation.
+ endef
+ 
++define Package/libavahi-glib
++  $(call Package/avahi/Default)
++  SECTION:=libs
++  CATEGORY:=Libraries
++  VARIANT:=dbus
++  DEPENDS:=+libavahi-dbus-support +glib2
++  TITLE+= (libavahi-glib library)
++  CONFLICTS:=libavahi-nodbus-support
++endef
++
++define Package/libavahi-glib/description
++$(call Package/avahi/Default/description)
++ .
++ This package adds the libavahi-glib library for GLib mainloop integration.
++endef
++
+ define Package/avahi-utils
+   $(call Package/avahi/Default)
+   SUBMENU:=IP Addresses and Names
+@@ -246,7 +264,6 @@ TARGET_CFLAGS += $(FPIC) -DGETTEXT_PACKAGE
+ CONFIGURE_ARGS += \
+ 	--enable-shared \
+ 	--enable-static \
+-	--disable-glib \
+ 	--disable-gobject \
+ 	--disable-introspection \
+ 	--disable-qt3 \
+@@ -287,10 +304,12 @@ CONFIGURE_ARGS += \
+ 
+ ifeq ($(BUILD_VARIANT),dbus)
+ CONFIGURE_ARGS += \
+-	--enable-dbus
++	--enable-dbus \
++	$(if $(CONFIG_PACKAGE_libavahi-glib),--enable-glib,--disable-glib)
+ else
+ CONFIGURE_ARGS += \
+-	--disable-dbus
++	--disable-dbus \
++	--disable-glib
+ endif
+ 
+ CONFIGURE_VARS+= \
+@@ -324,6 +343,11 @@ define Package/libavahi-client/install
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libavahi-client.so.* $(1)/usr/lib/
+ endef
+ 
++define Package/libavahi-glib/install
++	$(INSTALL_DIR) $(1)/usr/lib
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libavahi-glib.so.* $(1)/usr/lib/
++endef
++
+ define Package/avahi-utils/install
+ 	$(INSTALL_DIR) $(1)/usr/bin
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/* $(1)/usr/bin/
+@@ -347,9 +371,30 @@ define Package/avahi-daemon/install
+ 	# to place custom service files
+ 	$(INSTALL_DIR) $(1)/etc/avahi/services
+ 	$(INSTALL_DIR) $(1)/etc/init.d
+-	$(INSTALL_BIN) ./files/avahi-daemon.init $(1)/etc/init.d/avahi-daemon
++	$(INSTALL_BIN) ./files/$(if $(CONFIG_OPENWRT_SYSTEMD),avahi-daemon-native.init,avahi-daemon.init) $(1)/etc/init.d/avahi-daemon
++	$(if $(CONFIG_OPENWRT_SYSTEMD),$(call Package/avahi-daemon/install-systemd,$(1)))
++endef
++
++define Package/avahi-daemon/install-systemd
++	$(INSTALL_DIR) $(1)/usr/lib/systemd/system $(1)/usr/libexec
++	$(INSTALL_DATA) $(if $(filter nodbus,$(BUILD_VARIANT)),./files/avahi-daemon-nodbus.service,./files/avahi-daemon.service) \
++		$(1)/usr/lib/systemd/system/avahi-daemon.service
++	$(INSTALL_BIN) ./files/avahi-daemon-systemd ./files/avahi-daemon-package $(1)/usr/libexec/
+ endef
+ 
++define Package/avahi-dbus-daemon/postinst
++#!/bin/sh
++[ ! -x "$${IPKG_INSTROOT}/usr/libexec/avahi-daemon-package" ] || "$${IPKG_INSTROOT}/usr/libexec/avahi-daemon-package" postinst
++endef
++
++define Package/avahi-dbus-daemon/prerm
++#!/bin/sh
++[ ! -x "$${IPKG_INSTROOT}/usr/libexec/avahi-daemon-package" ] || "$${IPKG_INSTROOT}/usr/libexec/avahi-daemon-package" prerm
++endef
++
++Package/avahi-nodbus-daemon/postinst=$(Package/avahi-dbus-daemon/postinst)
++Package/avahi-nodbus-daemon/prerm=$(Package/avahi-dbus-daemon/prerm)
++
+ Package/avahi-dbus-daemon/install=$(Package/avahi-daemon/install)
+ Package/avahi-nodbus-daemon/install=$(Package/avahi-daemon/install)
+ 
+@@ -371,6 +416,7 @@ define Package/avahi-dnsconfd/install
+ endef
+ 
+ $(eval $(call BuildPackage,libavahi-client))
++$(eval $(call BuildPackage,libavahi-glib))
+ $(eval $(call BuildPackage,avahi-utils))
+ $(eval $(call BuildPackage,libavahi-dbus-support))
+ $(eval $(call BuildPackage,libavahi-nodbus-support))
+diff --git a/libs/avahi/files/avahi-daemon-native.init b/libs/avahi/files/avahi-daemon-native.init
+new file mode 100644
+index 000000000..e933d8bda
+--- /dev/null
++++ b/libs/avahi/files/avahi-daemon-native.init
+@@ -0,0 +1,13 @@
++#!/bin/sh
++# OpenWrt native service adapter
++case "$1" in
++	boot|shutdown|depends) exit 0 ;;
++esac
++if [ -n "${IPKG_INSTROOT:-}" ]; then
++	case "$1" in
++		enabled) exec systemctl --root="$IPKG_INSTROOT" is-enabled avahi-daemon.service ;;
++		enable|disable) exec systemctl --root="$IPKG_INSTROOT" "$1" avahi-daemon.service ;;
++		*) exit 0 ;;
++	esac
++fi
++exec /usr/libexec/avahi-daemon-systemd "$@"
+diff --git a/libs/avahi/files/avahi-daemon-nodbus.service b/libs/avahi/files/avahi-daemon-nodbus.service
+new file mode 100644
+index 000000000..56392f6f5
+--- /dev/null
++++ b/libs/avahi/files/avahi-daemon-nodbus.service
+@@ -0,0 +1,20 @@
++[Unit]
++Description=Avahi mDNS/DNS-SD Stack
++After=network-online.target
++Wants=network-online.target
++Before=samba4.service
++StartLimitIntervalSec=60
++StartLimitBurst=5
++
++[Service]
++Type=simple
++Slice=nas.slice
++ExecStart=/usr/sbin/avahi-daemon -s
++ExecReload=/bin/kill -HUP $MAINPID
++Restart=on-failure
++RestartSec=5s
++KillMode=control-group
++TimeoutStopSec=30s
++
++[Install]
++WantedBy=multi-user.target
+diff --git a/libs/avahi/files/avahi-daemon-package b/libs/avahi/files/avahi-daemon-package
+new file mode 100644
+index 000000000..955c23af0
+--- /dev/null
++++ b/libs/avahi/files/avahi-daemon-package
+@@ -0,0 +1,40 @@
++#!/bin/sh
++set -eu
++
++root=${IPKG_INSTROOT:-}
++case "${1:-}" in
++postinst)
++	if [ -n "$root" ]; then
++		if [ "${PKG_UPGRADE:-0}" != 1 ]; then
++			if [ "$(readlink "$root/etc/systemd/system/avahi-daemon.service" 2>/dev/null || :)" != /dev/null ]; then
++				wants=$root/etc/systemd/system/multi-user.target.wants
++				mkdir -p "$wants"
++				if [ ! -e "$wants/avahi-daemon.service" ] && [ ! -L "$wants/avahi-daemon.service" ]; then
++					ln -s /usr/lib/systemd/system/avahi-daemon.service "$wants/avahi-daemon.service"
++				fi
++			fi
++		fi
++		exit 0
++	fi
++	[ -d /run/systemd/system ] || exit 0
++	systemctl daemon-reload
++	for mask in /etc/systemd/system/avahi-daemon.service /run/systemd/system/avahi-daemon.service; do
++		[ "$(readlink "$mask" 2>/dev/null || :)" != /dev/null ] || exit 0
++	done
++	if [ "${PKG_UPGRADE:-0}" != 1 ]; then
++		systemctl enable avahi-daemon.service
++		systemctl --no-block start avahi-daemon.service
++	else
++		systemctl try-restart avahi-daemon.service
++	fi
++	;;
++prerm)
++	[ -z "$root" ] && [ -d /run/systemd/system ] || exit 0
++	[ "${PKG_UPGRADE:-0}" != 1 ] || exit 0
++	systemctl stop avahi-daemon.service
++	systemctl disable avahi-daemon.service
++	;;
++*)
++	exit 2
++	;;
++esac
+diff --git a/libs/avahi/files/avahi-daemon-systemd b/libs/avahi/files/avahi-daemon-systemd
+new file mode 100644
+index 000000000..819df1851
+--- /dev/null
++++ b/libs/avahi/files/avahi-daemon-systemd
+@@ -0,0 +1,17 @@
++#!/bin/sh
++# Native lifecycle adapter; systemd supervises avahi-daemon.
++
++case "$1" in
++start|stop|restart|reload|status|enable|disable)
++	exec systemctl "$1" avahi-daemon.service
++	;;
++running)
++	exec systemctl is-active --quiet avahi-daemon.service
++	;;
++enabled)
++	exec systemctl is-enabled --quiet avahi-daemon.service
++	;;
++*)
++	exit 2
++	;;
++esac
+diff --git a/libs/avahi/files/avahi-daemon.init b/libs/avahi/files/avahi-daemon.init
+index f580a31d8..dc872f912 100644
+--- a/libs/avahi/files/avahi-daemon.init
++++ b/libs/avahi/files/avahi-daemon.init
+@@ -2,6 +2,7 @@
+ # Copyright (C) 2006 OpenWrt.org
+ START=61
+ 
++
+ USE_PROCD=1
+ PROG=avahi-daemon
+ 
+diff --git a/libs/avahi/files/avahi-daemon.service b/libs/avahi/files/avahi-daemon.service
+new file mode 100644
+index 000000000..d357b8c7c
+--- /dev/null
++++ b/libs/avahi/files/avahi-daemon.service
+@@ -0,0 +1,22 @@
++[Unit]
++Description=Avahi mDNS/DNS-SD Stack
++Requires=dbus.socket
++After=dbus.service network-online.target
++Wants=network-online.target
++Before=samba4.service
++StartLimitIntervalSec=60
++StartLimitBurst=5
++
++[Service]
++Type=dbus
++BusName=org.freedesktop.Avahi
++Slice=nas.slice
++ExecStart=/usr/sbin/avahi-daemon -s
++ExecReload=/bin/kill -HUP $MAINPID
++Restart=on-failure
++RestartSec=5s
++KillMode=control-group
++TimeoutStopSec=30s
++
++[Install]
++WantedBy=multi-user.target
+diff --git a/libs/boost/Makefile b/libs/boost/Makefile
+index 8957e0fa5..654fefcd5 100644
+--- a/libs/boost/Makefile
++++ b/libs/boost/Makefile
+@@ -13,7 +13,7 @@ include $(TOPDIR)/rules.mk
+ PKG_NAME:=boost
+ PKG_VERSION:=1.92.0
+ PKG_SOURCE_VERSION:=1_92_0
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PKG_SOURCE:=$(PKG_NAME)_$(PKG_SOURCE_VERSION).tar.bz2
+ PKG_SOURCE_URL:=https://archives.boost.io/release/$(PKG_VERSION)/source @SF/$(PKG_NAME)/$(PKG_NAME)/$(PKG_VERSION)
+@@ -77,7 +77,7 @@ define Package/boost/description
+    - type_erasure
+    - url
+    - wave
+-  
++
+   There are many more header-only libraries supported by Boost.
+   See more at https://www.boost.org/libraries/1.92.0/grid/
+ endef
+@@ -317,7 +317,7 @@ define DefineBoostLibrary
+ endef
+ 
+ $(eval $(call DefineBoostLibrary,atomic))
+-$(eval $(call DefineBoostLibrary,charconv,,,,$(if $(filter i386 x86_64 powerpc powerpc64,$(ARCH)),libquadmath)))
++$(eval $(call DefineBoostLibrary,charconv,,+TARGET_x86:libquadmath))
+ $(eval $(call DefineBoostLibrary,chrono))
+ $(eval $(call DefineBoostLibrary,cobalt,container context date_time,,,libopenssl))
+ $(eval $(call DefineBoostLibrary,container))
+diff --git a/libs/glib2/Makefile b/libs/glib2/Makefile
+index f10f74223..4a37f6315 100644
+--- a/libs/glib2/Makefile
++++ b/libs/glib2/Makefile
+@@ -8,12 +8,12 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=glib2
+-PKG_VERSION:=2.88.1
+-PKG_RELEASE:=1
++PKG_VERSION:=2.90.1
++PKG_RELEASE:=2
+ 
+ PKG_SOURCE:=glib-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=@GNOME/glib/$(basename $(PKG_VERSION))
+-PKG_HASH:=51ab804c56f6eab3e5045c774d1290ac5e4c923d4f9a3d8e33123bee45c1840e
++PKG_HASH:=93c941aa17d5eb1d53fe838365f29a8b4e539c222a256d974ec8f30fc413e396
+ 
+ PKG_MAINTAINER:=Peter Wagner <tripolar@gmx.at>
+ PKG_LICENSE:=LGPL-2.1-or-later
+@@ -69,6 +69,12 @@ $(call Package/glib2/default)
+   DEPENDS:=+glib2-core +glib2-gobject +glib2-gmodule +zlib +libffi
+ endef
+ 
++define Package/libgirepository2
++$(call Package/glib2/default)
++  TITLE:=GLib introspection runtime library
++  DEPENDS:=+glib2-gio
++endef
++
+ define Package/glib2
+ $(call Package/glib2/default)
+   TITLE:=Full GLib 2.0 library
+@@ -125,7 +131,11 @@ COMP_ARGS+=-Druntime_dir=/var/run
+ # default feature=auto see meson_options.txt
+ COMP_ARGS+=-Dlibelf=disabled
+ 
+-MESON_HOST_ARGS += $(COMP_ARGS) -Dxattr=false -Dnls=disabled
++# PyGObject and Blueprint must share one GObject/GIRepository instance with
++# libraries opened through typelibs. A statically linked Python extension
++# otherwise creates a second type registry when GIRepository is imported.
++MESON_HOST_ARGS += $(COMP_ARGS) -Dxattr=false -Dnls=disabled -Ddefault_library=both
++HOST_LDFLAGS += -Wl,-rpath,$(STAGING_DIR_HOSTPKG)/lib
+ MESON_ARGS += $(COMP_ARGS) -Dxattr=true -Db_lto=true -Dnls=$(if $(CONFIG_BUILD_NLS),en,dis)abled
+ 
+ define Build/InstallDev
+@@ -204,6 +214,13 @@ define Package/glib2-gio/install
+ 	$(INSTALL_DIR) $(1)/usr/lib
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libgio-2.0.so* \
+ 		$(1)/usr/lib
++	$(INSTALL_DIR) $(1)/usr/libexec
++	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/libexec/gio-launch-desktop $(1)/usr/libexec/
++endef
++
++define Package/libgirepository2/install
++	$(INSTALL_DIR) $(1)/usr/lib
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libgirepository-2.0.so* $(1)/usr/lib/
+ endef
+ 
+ define Package/glib2/install
+@@ -217,3 +234,19 @@ $(eval $(call BuildPackage,glib2-gthread))
+ $(eval $(call BuildPackage,glib2-gobject))
+ $(eval $(call BuildPackage,glib2-gio))
+ $(eval $(call BuildPackage,glib2))
++
++$(eval $(call BuildPackage,libgirepository2))
++
++define Package/glib2-utils
++$(call Package/glib2/default)
++  TITLE:=GLib runtime settings and cache utilities
++  DEPENDS:=+glib2
++endef
++
++define Package/glib2-utils/install
++	$(INSTALL_DIR) $(1)/usr/bin $(1)/usr/libexec $(1)/etc/uci-defaults
++	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/glib-compile-schemas $(PKG_INSTALL_DIR)/usr/bin/gio-querymodules $(PKG_INSTALL_DIR)/usr/bin/gsettings $(1)/usr/bin/
++	$(INSTALL_BIN) ./files/glib2-cache-update $(1)/usr/libexec/
++	$(INSTALL_BIN) ./files/glib2-cache-update $(1)/etc/uci-defaults/95-glib2-cache
++endef
++$(eval $(call BuildPackage,glib2-utils))
+diff --git a/libs/glib2/files/glib2-cache-update b/libs/glib2/files/glib2-cache-update
+new file mode 100755
+index 000000000..543883d16
+--- /dev/null
++++ b/libs/glib2/files/glib2-cache-update
+@@ -0,0 +1,15 @@
++#!/bin/sh
++set -eu
++[ ! -d /usr/share/glib-2.0/schemas ] || glib-compile-schemas /usr/share/glib-2.0/schemas
++[ ! -d /usr/lib/gio/modules ] || gio-querymodules /usr/lib/gio/modules
++if [ -x /usr/lib/gdk-pixbuf-query-loaders ] &&
++   [ -d /usr/lib/gdk-pixbuf-2.0/2.10.0/loaders ]; then
++	/usr/lib/gdk-pixbuf-query-loaders --update-cache
++fi
++if command -v gtk-query-immodules-3.0 >/dev/null 2>&1; then
++	gtk-query-immodules-3.0 --update-cache
++fi
++for modules in /usr/lib/gtk-4.0/*/immodules; do
++	[ ! -d "$modules" ] || gio-querymodules "$modules"
++done
++exit 0
+diff --git a/libs/gnutls/Makefile b/libs/gnutls/Makefile
+index d6674ca38..b0e3c2342 100644
+--- a/libs/gnutls/Makefile
++++ b/libs/gnutls/Makefile
+@@ -181,7 +181,7 @@ CONFIGURE_ARGS += --disable-ocsp
+ endif
+ 
+ ifneq ($(CONFIG_GNUTLS_TPM),y)
+-CONFIGURE_ARGS += --without-tpm
++CONFIGURE_ARGS += --without-tpm --without-tpm2
+ endif
+ 
+ ifeq ($(CONFIG_GNUTLS_CRYPTODEV),y)
+diff --git a/libs/icu/Makefile b/libs/icu/Makefile
+index 6498d30d4..d22ed594e 100644
+--- a/libs/icu/Makefile
++++ b/libs/icu/Makefile
+@@ -131,6 +131,8 @@ define Build/InstallDev
+ 	$(INSTALL_DIR) $(2)/bin
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/include/* $(1)/usr/include/
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/* $(1)/usr/lib/
++	$(INSTALL_DIR) $(1)/usr/share/icu/$(PKG_VERSION)
++	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/icu/$(PKG_VERSION)/icudt*.dat $(1)/usr/share/icu/$(PKG_VERSION)/
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/icu-config $(1)/usr/bin/
+ 	$(SED) 's,^\(prefix\|execprefix\)=.*,\1=$(STAGING_DIR)/usr,g' $(1)/usr/bin/icu-config
+ 	$(LN) $(STAGING_DIR)/usr/bin/icu-config $(2)/bin/
+diff --git a/libs/json-glib/Makefile b/libs/json-glib/Makefile
+index b9125b92b..98ce48b35 100644
+--- a/libs/json-glib/Makefile
++++ b/libs/json-glib/Makefile
+@@ -7,7 +7,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=json-glib
+ PKG_VERSION:=1.10.8
+-PKG_RELEASE:=1
++PKG_RELEASE:=4
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=@GNOME/json-glib/$(basename $(PKG_VERSION))
+@@ -24,6 +24,13 @@ OPENWRT_VERBOSE:=c
+ include $(INCLUDE_DIR)/package.mk
+ include $(INCLUDE_DIR)/nls.mk
+ include $(INCLUDE_DIR)/meson.mk
++PKG_CONFIG_DEPENDS+=CONFIG_PACKAGE_gtk4
++# Metadata scans ignore .config, so declare the GIR build deps conditionally.
++PKG_BUILD_DEPENDS += PACKAGE_gtk4:gobject-introspection/host PACKAGE_gtk4:gobject-introspection PACKAGE_gtk4:glib2-gir
++ifneq ($(CONFIG_PACKAGE_gtk4),)
++include $(INCLUDE_DIR)/gobject-introspection.mk
++PKG_BUILD_DEPENDS+=glib2-gir
++endif
+ 
+ define Package/json-glib
+   SECTION:=libs
+@@ -42,7 +49,7 @@ endef
+ 
+ MESON_ARGS += \
+ 	-Dgtk_doc=disabled \
+-	-Dintrospection=disabled \
++	-Dintrospection=$(if $(CONFIG_PACKAGE_gtk4),enabled,disabled) \
+ 	-Dtests=false
+ 
+ define Build/Prepare
+@@ -65,12 +72,21 @@ define Build/InstallDev
+ 	$(INSTALL_DIR) $(1)/usr/lib/pkgconfig
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/json-glib-1.0.pc \
+ 					$(1)/usr/lib/pkgconfig
++ifneq ($(CONFIG_PACKAGE_gtk4),)
++	$(INSTALL_DIR) $(1)/usr/share/gir-1.0 $(1)/usr/lib/girepository-1.0
++	$(CP) $(PKG_INSTALL_DIR)/usr/share/gir-1.0/. $(1)/usr/share/gir-1.0/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0/. $(1)/usr/lib/girepository-1.0/
++endif
+ endef
+ 
+ define Package/json-glib/install
+ 	$(INSTALL_DIR) $(1)/usr/lib
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libjson-glib-1.0.so.$(ABI_VERSION)* \
+ 						$(1)/usr/lib
++ifneq ($(CONFIG_PACKAGE_gtk4),)
++	$(INSTALL_DIR) $(1)/usr/lib/girepository-1.0
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0/. $(1)/usr/lib/girepository-1.0/
++endif
+ endef
+ 
+ $(eval $(call BuildPackage,json-glib))
+diff --git a/libs/libdrm/Makefile b/libs/libdrm/Makefile
+index 243156567..503cc203d 100644
+--- a/libs/libdrm/Makefile
++++ b/libs/libdrm/Makefile
+@@ -7,7 +7,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=libdrm
+ PKG_VERSION:=2.4.133
+-PKG_RELEASE:=2
++PKG_RELEASE:=3
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://dri.freedesktop.org/libdrm
+@@ -35,7 +35,7 @@ define Package/libdrm/Default
+   SUBMENU:=Video
+   TITLE:=libdrm
+   URL:=https://dri.freedesktop.org/
+-  DEPENDS:=video-support
++  DEPENDS:=+video-support
+ endef
+ 
+ define Package/libdrm/description/Default
+diff --git a/libs/libgudev/Makefile b/libs/libgudev/Makefile
+index 0e0b00bd9..00d519c1c 100644
+--- a/libs/libgudev/Makefile
++++ b/libs/libgudev/Makefile
+@@ -2,7 +2,8 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=libgudev
+ PKG_VERSION:=238
+-PKG_RELEASE:=1
++PKG_RELEASE:=4
++PKG_CONFIG_DEPENDS:=CONFIG_PACKAGE_gtk4
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=@GNOME/$(PKG_NAME)/$(PKG_VERSION)
+@@ -18,6 +19,13 @@ include $(INCLUDE_DIR)/package.mk
+ include $(INCLUDE_DIR)/meson.mk
+ include $(INCLUDE_DIR)/nls.mk
+ 
++# Metadata scans ignore .config, so declare the GIR build deps conditionally.
++PKG_BUILD_DEPENDS += PACKAGE_gtk4:gobject-introspection/host PACKAGE_gtk4:gobject-introspection PACKAGE_gtk4:glib2-gir
++ifneq ($(CONFIG_PACKAGE_gtk4),)
++PKG_BUILD_DEPENDS+=glib2-gir
++include $(INCLUDE_DIR)/gobject-introspection.mk
++endif
++
+ define Package/libgudev
+   SECTION:=libs
+   CATEGORY:=Libraries
+@@ -34,7 +42,7 @@ endef
+ 
+ MESON_ARGS += \
+ 	-Dtests=disabled \
+-	-Dintrospection=disabled \
++	-Dintrospection=$(if $(CONFIG_PACKAGE_gtk4),enabled,disabled) \
+ 	-Dvapi=disabled \
+ 	-Dgtk_doc=false
+ 
+@@ -45,11 +53,15 @@ define Build/InstallDev
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/*.so* $(1)/usr/lib
+ 	$(INSTALL_DIR) $(1)/usr/lib/pkgconfig
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/*.pc $(1)/usr/lib/pkgconfig
++	$(if $(CONFIG_PACKAGE_gtk4),$(INSTALL_DIR) $(1)/usr/share/gir-1.0 $(1)/usr/lib/girepository-1.0)
++	$(if $(CONFIG_PACKAGE_gtk4),$(CP) $(PKG_INSTALL_DIR)/usr/share/gir-1.0/. $(1)/usr/share/gir-1.0/)
++	$(if $(CONFIG_PACKAGE_gtk4),$(CP) $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0/. $(1)/usr/lib/girepository-1.0/)
+ endef
+ 
+ define Package/libgudev/install
+ 	$(INSTALL_DIR) $(1)/usr/lib
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/*.so* $(1)/usr/lib
++	$(if $(CONFIG_PACKAGE_gtk4),$(CP) $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0 $(1)/usr/lib/)
+ endef
+ 
+ $(eval $(call BuildPackage,libgudev))
+diff --git a/libs/libical/Makefile b/libs/libical/Makefile
+index 01efdc320..e9597d1f9 100644
+--- a/libs/libical/Makefile
++++ b/libs/libical/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=libical
+ PKG_VERSION:=3.0.20
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
+ PKG_HASH:=e73de92f5a6ce84c1b00306446b290a2b08cdf0a80988eca0a2c9d5c3510b4c2
+@@ -21,6 +21,10 @@ PKG_LICENSE_FILES:=COPYING
+ PKG_CPE_ID:=cpe:/a:libical_project:libical
+ 
+ CMAKE_INSTALL:=1
++PKG_CONFIG_DEPENDS:=CONFIG_PACKAGE_libical-glib
++ifneq ($(CONFIG_PACKAGE_libical-glib),)
++PKG_BUILD_DEPENDS:=glib2/host glib2-gir gobject-introspection/host gobject-introspection libxml2
++endif
+ 
+ include $(INCLUDE_DIR)/package.mk
+ include $(INCLUDE_DIR)/cmake.mk
+@@ -41,7 +45,23 @@ define Package/libical/description
+  Libical implements RFC2445, RFC2446 and some of RFC2447.
+ endef
+ 
+-CMAKE_OPTIONS += -DWITH_CXX_BINDINGS=false -DICAL_BUILD_DOCS=false -DICAL_GLIB=false
++CMAKE_OPTIONS += -DWITH_CXX_BINDINGS=false -DICAL_BUILD_DOCS=false -DICAL_GLIB=$(if $(CONFIG_PACKAGE_libical-glib),true,false) \
++	-DGOBJECT_INTROSPECTION=$(if $(CONFIG_PACKAGE_libical-glib),true,false) \
++	-DICAL_GLIB_VAPI=false -DLIBICAL_BUILD_TESTING=false \
++	-DCMAKE_CROSSCOMPILING_EMULATOR=$(TOPDIR)/scripts/gi-target-runner
++
++define Package/libical-glib
++  SECTION:=libs
++  CATEGORY:=Libraries
++  TITLE:=GObject bindings and introspection for libical
++  DEPENDS:=@TARGET_x86_64 @USE_GLIBC +libical +glib2-gir
++endef
++
++define Package/libical-glib/install
++	$(INSTALL_DIR) $(1)/usr/lib/girepository-1.0
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libical-glib.so.* $(1)/usr/lib/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0/*.typelib $(1)/usr/lib/girepository-1.0/
++endef
+ 
+ define Package/libical/install
+ 	$(INSTALL_DIR) $(1)/usr/lib
+@@ -49,3 +69,5 @@ define Package/libical/install
+ endef
+ 
+ $(eval $(call BuildPackage,libical))
++
++$(eval $(call BuildPackage,libical-glib))
+diff --git a/libs/libical/patches/002-native-gnome-introspection.patch b/libs/libical/patches/002-native-gnome-introspection.patch
+new file mode 100644
+index 000000000..a6787732b
+--- /dev/null
++++ b/libs/libical/patches/002-native-gnome-introspection.patch
+@@ -0,0 +1,43 @@
++Subject: Use the configured executable emulator for source generation
++
++The x86_64 glibc build runs target generators with an isolated matching
++loader. CMake prefixes the target command with CMAKE_CROSSCOMPILING_EMULATOR.
++Also avoid literal shell quotes in the scanner compiler environment.
++
++--- a/src/libical-glib/CMakeLists.txt
+++++ b/src/libical-glib/CMakeLists.txt
++@@ -72,17 +72,7 @@
++   list(APPEND xml_files ${xml_file_fullpath})
++ endforeach()
++ 
++-if(CMAKE_CROSSCOMPILING)
++-  # import native ical-glib-src-generator when cross-compiling
++-  set(IMPORT_ICAL_GLIB_SRC_GENERATOR "ICAL_GLIB_SRC_GENERATOR-NOTFOUND"
++-    CACHE FILEPATH
++-    "Path to exported ical-glib-src-generator target from native build"
++-  )
++-  include(${IMPORT_ICAL_GLIB_SRC_GENERATOR})
++-  set(ical-glib-src-generator_EXE native-ical-glib-src-generator)
++-else()
++-  set(ical-glib-src-generator_EXE ical-glib-src-generator)
++-endif()
+++set(ical-glib-src-generator_EXE ical-glib-src-generator)
++ 
++ list(
++   APPEND
++--- a/cmake/modules/GObjectIntrospectionMacros.cmake
+++++ b/cmake/modules/GObjectIntrospectionMacros.cmake
++@@ -50,7 +50,7 @@
++     set(_gir_libtool "--no-libtool")
++ 
++     add_custom_command(
++-      COMMAND ${CMAKE_COMMAND} -E env "CC='${CMAKE_C_COMPILER}'"
+++      COMMAND ${CMAKE_COMMAND} -E env "CC=${CMAKE_C_COMPILER}"
++               ${GObjectIntrospection_SCANNER}
++               ${GObjectIntrospection_SCANNER_ARGS}
++               --namespace=${_gir_namespace}
++--- a/src/libical-glib/CMakeLists.txt
+++++ b/src/libical-glib/CMakeLists.txt
++@@ -174,1 +174,1 @@
++-  set(ICalGLib_${LIB_VERSION}_gir_SCANNERFLAGS "--warn-all")
+++  set(ICalGLib_${LIB_VERSION}_gir_SCANNERFLAGS "--warn-all" "--extra-library=ical")
+diff --git a/libs/libinput/Makefile b/libs/libinput/Makefile
+index 4b346e219..ca42dc4cd 100644
+--- a/libs/libinput/Makefile
++++ b/libs/libinput/Makefile
+@@ -6,7 +6,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=libinput
+ PKG_VERSION:=1.31.3
+-PKG_RELEASE:=2
++PKG_RELEASE:=5
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
+ PKG_SOURCE_URL:=https://gitlab.freedesktop.org/$(PKG_NAME)/$(PKG_NAME)/-/archive/$(PKG_VERSION)
+diff --git a/libs/libpam/Makefile b/libs/libpam/Makefile
+index 63ffcca1c..9a7b49885 100644
+--- a/libs/libpam/Makefile
++++ b/libs/libpam/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=libpam
+ PKG_VERSION:=1.7.1
+-PKG_RELEASE:=5
++PKG_RELEASE:=7
+ 
+ PKG_SOURCE:=Linux-PAM-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://github.com/linux-pam/linux-pam/releases/download/v$(PKG_VERSION)
+@@ -40,12 +40,15 @@ define Package/libpam/description
+ 	The Linux-PAM Pluggable Authentication Modules.
+ endef
+ 
++# systemd depends on libpam; do not auto-detect logind from staging.
+ MESON_ARGS += \
+ 	-Dpamlocking=true \
+ 	-Daudit=disabled \
+ 	-Ddocs=disabled \
+ 	-Deconf=disabled \
++	-Delogind=disabled \
+ 	-Dlckpwdf=false \
++	-Dlogind=disabled \
+ 	-Dnis=disabled \
+ 	-Dselinux=disabled \
+ 	-Dmailspool=disabled \
+@@ -69,6 +72,7 @@ define Package/libpam/install
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/security/*.so* $(1)/usr/lib/security/
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/security/pam_filter/* $(1)/usr/lib/security/pam_filter/
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/* $(1)/usr/sbin/
++	chmod 4755 $(1)/usr/sbin/unix_chkpwd
+ 	$(INSTALL_DIR) $(1)/usr/lib/pkgconfig
+ 	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/*.pc $(1)/usr/lib/pkgconfig/
+ endef
+diff --git a/libs/libsoup3/Makefile b/libs/libsoup3/Makefile
+index 554630a20..715ff89a4 100644
+--- a/libs/libsoup3/Makefile
++++ b/libs/libsoup3/Makefile
+@@ -7,7 +7,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=libsoup3
+ PKG_VERSION:=3.7.1
+-PKG_RELEASE:=2
++PKG_RELEASE:=7
+ 
+ PKG_SOURCE:=libsoup-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=@GNOME/libsoup/$(basename $(PKG_VERSION))
+@@ -24,6 +24,13 @@ PKG_BUILD_DEPENDS:=glib2/host
+ include $(INCLUDE_DIR)/package.mk
+ include $(INCLUDE_DIR)/nls.mk
+ include $(INCLUDE_DIR)/meson.mk
++PKG_CONFIG_DEPENDS+=CONFIG_PACKAGE_gtk4
++# Metadata scans ignore .config, so declare the GIR build deps conditionally.
++PKG_BUILD_DEPENDS += PACKAGE_gtk4:gobject-introspection/host PACKAGE_gtk4:gobject-introspection PACKAGE_gtk4:glib2-gir
++ifneq ($(CONFIG_PACKAGE_gtk4),)
++include $(INCLUDE_DIR)/gobject-introspection.mk
++PKG_BUILD_DEPENDS+=glib2-gir
++endif
+ 
+ define Package/libsoup3
+   SECTION:=libs
+@@ -49,7 +56,7 @@ MESON_ARGS += \
+ 	-Dbrotli=disabled \
+ 	-Dzstd=$(if $(CONFIG_LIBSOUP3_ZSTD),enabled,disabled) \
+ 	-Dtls_check=false \
+-	-Dintrospection=disabled \
++	-Dintrospection=$(if $(CONFIG_PACKAGE_gtk4),enabled,disabled) \
+ 	-Dvapi=disabled \
+ 	-Dtests=false \
+ 	-Dinstalled_tests=false \
+@@ -73,6 +80,11 @@ define Build/InstallDev
+ 	$(INSTALL_DATA) \
+ 		$(PKG_INSTALL_DIR)/usr/include/libsoup-3.0/libsoup/*.h \
+ 		$(1)/usr/include/libsoup-3.0/libsoup/
++ifneq ($(CONFIG_PACKAGE_gtk4),)
++	$(INSTALL_DIR) $(1)/usr/share/gir-1.0 $(1)/usr/lib/girepository-1.0
++	$(CP) $(PKG_INSTALL_DIR)/usr/share/gir-1.0/. $(1)/usr/share/gir-1.0/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0/. $(1)/usr/lib/girepository-1.0/
++endif
+ endef
+ 
+ define Package/libsoup3/install
+@@ -80,6 +92,10 @@ define Package/libsoup3/install
+ 	$(CP) \
+ 		$(PKG_INSTALL_DIR)/usr/lib/libsoup-3.0.* \
+ 		$(1)/usr/lib/
++ifneq ($(CONFIG_PACKAGE_gtk4),)
++	$(INSTALL_DIR) $(1)/usr/lib/girepository-1.0
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0/. $(1)/usr/lib/girepository-1.0/
++endif
+ endef
+ 
+ $(eval $(call BuildPackage,libsoup3))
+diff --git a/libs/libwacom/Makefile b/libs/libwacom/Makefile
+index 2095a0f57..9e9e27bd9 100644
+--- a/libs/libwacom/Makefile
++++ b/libs/libwacom/Makefile
+@@ -6,7 +6,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=libwacom
+ PKG_VERSION:=2.19.1
+-PKG_RELEASE:=1
++PKG_RELEASE:=4
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://github.com/linuxwacom/$(PKG_NAME)/releases/download/$(PKG_NAME)-$(PKG_VERSION)/
+diff --git a/libs/libwebsockets/Makefile b/libs/libwebsockets/Makefile
+index e338de7d5..f956252d3 100644
+--- a/libs/libwebsockets/Makefile
++++ b/libs/libwebsockets/Makefile
+@@ -53,7 +53,7 @@ define Package/libwebsockets/Default
+   SECTION:=libs
+   CATEGORY:=Libraries
+   TITLE:=libwebsockets
+-  ABI_VERSION:=23
++  # Unversioned libwebsockets-evlib_{uloop,uv}.so plugins prevent parallel ABI co-installation.
+   DEPENDS:=+zlib +libcap +libubox
+   URL:=https://libwebsockets.org
+   MAINTAINER:=Karl Palsson <karlp@etactica.com>
+diff --git a/libs/nlohmannjson/Makefile b/libs/nlohmannjson/Makefile
+index b2bbf5f24..e2ee622ff 100644
+--- a/libs/nlohmannjson/Makefile
++++ b/libs/nlohmannjson/Makefile
+@@ -6,7 +6,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=nlohmannjson
+ PKG_VERSION:=3.11.2
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).zip
+ PKG_SOURCE_URL:=https://codeload.github.com/nlohmann/json/zip/v$(PKG_VERSION)?
+@@ -37,6 +37,8 @@ define Build/InstallDev
+ 	$(INSTALL_DIR) $(1)/usr/include/nlohmann
+ 	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/include/nlohmann/json.hpp $(1)/usr/include/nlohmann
+ 	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/include/nlohmann/json_fwd.hpp $(1)/usr/include/nlohmann
++	$(INSTALL_DIR) $(1)/usr/lib/cmake/nlohmann_json
++	$(INSTALL_DATA) ./files/*.cmake $(1)/usr/lib/cmake/nlohmann_json/
+ 	$(INSTALL_DIR) $(1)/usr/lib/pkgconfig
+ 	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/nlohmann_json.pc $(1)/usr/lib/pkgconfig
+ endef
+diff --git a/libs/nlohmannjson/files/nlohmann_jsonConfig.cmake b/libs/nlohmannjson/files/nlohmann_jsonConfig.cmake
+new file mode 100644
+index 000000000..3e2a4ff1e
+--- /dev/null
++++ b/libs/nlohmannjson/files/nlohmann_jsonConfig.cmake
+@@ -0,0 +1,8 @@
++# Relocatable SDK target for the single-header Meson installation.
++if(NOT TARGET nlohmann_json::nlohmann_json)
++  get_filename_component(_nlohmann_prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
++  add_library(nlohmann_json::nlohmann_json INTERFACE IMPORTED GLOBAL)
++  set_target_properties(nlohmann_json::nlohmann_json PROPERTIES
++    INTERFACE_INCLUDE_DIRECTORIES "${_nlohmann_prefix}/include")
++  unset(_nlohmann_prefix)
++endif()
+diff --git a/libs/nlohmannjson/files/nlohmann_jsonConfigVersion.cmake b/libs/nlohmannjson/files/nlohmann_jsonConfigVersion.cmake
+new file mode 100644
+index 000000000..379cb707f
+--- /dev/null
++++ b/libs/nlohmannjson/files/nlohmann_jsonConfigVersion.cmake
+@@ -0,0 +1,8 @@
++set(PACKAGE_VERSION "3.11.2")
++set(PACKAGE_VERSION_COMPATIBLE FALSE)
++if(NOT PACKAGE_VERSION VERSION_LESS PACKAGE_FIND_VERSION AND PACKAGE_FIND_VERSION_MAJOR EQUAL 3)
++  set(PACKAGE_VERSION_COMPATIBLE TRUE)
++endif()
++if(PACKAGE_FIND_VERSION STREQUAL PACKAGE_VERSION)
++  set(PACKAGE_VERSION_EXACT TRUE)
++endif()
+diff --git a/libs/spice-protocol/Makefile b/libs/spice-protocol/Makefile
+index 213de0d06..77511fca2 100644
+--- a/libs/spice-protocol/Makefile
++++ b/libs/spice-protocol/Makefile
+@@ -8,11 +8,11 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=spice-protocol
+-PKG_VERSION:=0.14.4
++PKG_VERSION:=0.14.5
+ PKG_RELEASE:=1
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://www.spice-space.org/download/releases
+-PKG_HASH:=04ffba610d9fd441cfc47dfaa135d70096e60b1046d2119d8db2f8ea0d17d912
++PKG_HASH:=baf58449f6e89d19f475899ad5fb9196fdc46c03cc53233f4e39cf2978f9cff7
+ PKG_LICENSE:=BSD-3-Clause
+ PKG_LICENSE_FILES:=COPYING
+ PKG_MAINTAINER:=Yousong Zhou <yszhou4tech@gmail.com>
+diff --git a/multimedia/ffmpeg/Config.in b/multimedia/ffmpeg/Config.in
+index df23300ee..74bbf06ef 100644
+--- a/multimedia/ffmpeg/Config.in
++++ b/multimedia/ffmpeg/Config.in
+@@ -72,11 +72,13 @@ config FFMPEG_V4L2_REQUEST
+ 	  Stateless V4L2 hardware decoding (cedrus, hantro, rkvdec, ...)
+ 	  exporting DRM_PRIME frames. Requires libdrm and libudev.
+ 
+-# VA-API support is prepared but disabled until a libva package exists in
+-# the feeds; uncomment (and the DEPENDS line in the Makefile) once it does.
+-#config FFMPEG_VAAPI
+-#	bool "VA-API hardware acceleration"
+-#	default n
++config FFMPEG_VAAPI
++	bool "VA-API hardware acceleration"
++	select FFMPEG_LIBDRM
++	default n
++	help
++	  Enable VA-API through libva's DRM backend. A hardware-specific VA-API
++	  driver and access to a DRM render node are required at runtime.
+ 
+ comment "Transport layer security"
+ 
+diff --git a/multimedia/ffmpeg/Makefile b/multimedia/ffmpeg/Makefile
+index 7d63ae6f3..c8fe287ae 100644
+--- a/multimedia/ffmpeg/Makefile
++++ b/multimedia/ffmpeg/Makefile
+@@ -300,6 +300,7 @@ $(call Package/libffmpeg/Default)
+ 	+FFMPEG_BZLIB:libbz2 \
+ 	+FFMPEG_LZMA:liblzma \
+ 	+FFMPEG_LIBDRM:libdrm \
++	+FFMPEG_VAAPI:libva \
+ 	+FFMPEG_V4L2_REQUEST:libdrm \
+ 	+FFMPEG_V4L2_REQUEST:libudev \
+ 	+FFMPEG_LIBV4L2:libv4l \
+@@ -316,9 +317,7 @@ $(call Package/libffmpeg/Default)
+ 	+FFMPEG_SHINE:shine \
+ 	+FFMPEG_LIBX264:libx264 \
+ 	+FFMPEG_FDK_AAC:fdk-aac
+-  # prepared, disabled until the libva / dav1d packages exist in the feeds
+-  # (the matching options in Config.in are commented out as well):
+-  #	+FFMPEG_VAAPI:libva
++  # Prepared, disabled until libdav1d exists in the feeds:
+   #	+FFMPEG_LIBDAV1D:libdav1d
+   VARIANT:=default
+   # transitional aliases for packages still depending on the now gone ones
+@@ -509,10 +508,7 @@ ifeq ($(BUILD_VARIANT),default)
+   # option. Kodi requires it.
+   # v4l2-request/libudev: options from patches/120-v4l2-request-*.patch, see
+   # the common block above.
+-  # vaapi/libdav1d: literal --disable until the libva / dav1d packages exist
+-  # in the feeds; then restore $(call FFMPEG_OPT,FFMPEG_VAAPI,vaapi),
+-  # $(call FFMPEG_OPT,FFMPEG_LIBDAV1D,libdav1d) and, for manual component
+-  # selection, --enable-hwaccel=*_vaapi / --enable-decoder=libdav1d.
++  # libdav1d remains disabled until its package exists in the feeds.
+   FFMPEG_CONFIGURE+= \
+ 	$(call FFMPEG_OPT,FFMPEG_GPL,gpl) \
+ 	$(call FFMPEG_OPT,FFMPEG_GPL,postproc) \
+@@ -524,7 +520,7 @@ ifeq ($(BUILD_VARIANT),default)
+ 	$(call FFMPEG_OPT,FFMPEG_V4L2_M2M,v4l2-m2m) \
+ 	$(call FFMPEG_OPT,FFMPEG_V4L2_REQUEST,v4l2-request) \
+ 	$(call FFMPEG_OPT,FFMPEG_V4L2_REQUEST,libudev) \
+-	--disable-vaapi \
++	$(call FFMPEG_OPT,FFMPEG_VAAPI,vaapi) \
+ 	$(call FFMPEG_OPT,FFMPEG_LIBV4L2,libv4l2) \
+ 	$(call FFMPEG_OPT,FFMPEG_TLS_GNUTLS,gnutls) \
+ 	$(call FFMPEG_OPT,FFMPEG_TLS_OPENSSL,openssl) \
+@@ -572,6 +568,7 @@ ifeq ($(BUILD_VARIANT),default)
+ 		$(if $(CONFIG_FFMPEG_TLS_NONE),,--enable-protocol=tls --enable-protocol=https) \
+ 		$(if $(CONFIG_FFMPEG_V4L2_M2M),--enable-decoder=*_v4l2m2m --enable-encoder=*_v4l2m2m) \
+ 		$(if $(CONFIG_FFMPEG_V4L2_REQUEST),--enable-hwaccel=*_v4l2request) \
++		$(if $(CONFIG_FFMPEG_VAAPI),--enable-hwaccel=*_vaapi) \
+ 		$(if $(CONFIG_FFMPEG_LIBOPUS),--enable-decoder=libopus --enable-encoder=libopus) \
+ 		$(if $(CONFIG_FFMPEG_LIBVORBIS),--enable-encoder=libvorbis) \
+ 		$(if $(CONFIG_FFMPEG_LIBVPX),--enable-decoder=libvpx_vp8 --enable-decoder=libvpx_vp9 --enable-encoder=libvpx_vp8 --enable-encoder=libvpx_vp9) \
+@@ -637,6 +634,11 @@ define Build/InstallDev/Default
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/lib*.{a,so*} $(1)/usr/lib/
+ 	$(INSTALL_DIR) $(1)/usr/lib/pkgconfig
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/*.pc $(1)/usr/lib/pkgconfig/
++	# Sunshine's CBS adapter must use headers matching this exact target archive.
++	$(INSTALL_DIR) $(1)/usr/include/ffmpeg-private
++	(cd $(PKG_BUILD_DIR); find libavcodec libavutil -type f -name '*.h' | \
++		$(TAR) -cf - -T -) | $(TAR) -xf - -C $(1)/usr/include/ffmpeg-private
++	$(CP) $(PKG_BUILD_DIR)/config.h $(1)/usr/include/ffmpeg-private/
+ endef
+ 
+ # Both variants stage into the same directory; libffmpeg takes precedence,
+diff --git a/multimedia/gst1-plugins-base/Makefile b/multimedia/gst1-plugins-base/Makefile
+index 05a04549c..09f3bfd82 100644
+--- a/multimedia/gst1-plugins-base/Makefile
++++ b/multimedia/gst1-plugins-base/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=gst1-plugins-base
+ PKG_VERSION:=1.28.7
+-PKG_RELEASE:=4
++PKG_RELEASE:=7
+ 
+ PKG_SOURCE:=gst-plugins-base-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://gstreamer.freedesktop.org/src/gst-plugins-base
+diff --git a/multimedia/gst1-plugins-good/Makefile b/multimedia/gst1-plugins-good/Makefile
+index 3a1ba21c7..37a5ae7c6 100644
+--- a/multimedia/gst1-plugins-good/Makefile
++++ b/multimedia/gst1-plugins-good/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=gst1-plugins-good
+ PKG_VERSION:=1.28.7
+-PKG_RELEASE:=3
++PKG_RELEASE:=6
+ 
+ PKG_SOURCE:=gst-plugins-good-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://gstreamer.freedesktop.org/src/gst-plugins-good/
+@@ -27,8 +27,10 @@ include $(INCLUDE_DIR)/nls.mk
+ include $(INCLUDE_DIR)/meson.mk
+ 
+ PKG_CONFIG_DEPENDS:= \
++	CONFIG_PACKAGE_gst1-mod-id3demux \
+ 	CONFIG_PACKAGE_gst1-mod-lame \
+-	CONFIG_PACKAGE_gst1-mod-mpg123
++	CONFIG_PACKAGE_gst1-mod-mpg123 \
++	CONFIG_PACKAGE_gst1-mod-pulse
+ 
+ GST_GOOD_MODULES:=
+ 
+@@ -214,7 +216,7 @@ define GstBuildPlugin
+   define Package/gst1-mod-$(1)/install
+ 	$(INSTALL_DIR) $$(1)/usr/lib/gstreamer-$(GST_VERSION)
+ 	( cd $(PKG_INSTALL_DIR); $(CP) \
+-		./usr/lib/gstreamer-$(GST_VERSION)/libgst$(1).so* \
++		./usr/lib/gstreamer-$(GST_VERSION)/libgst$(if $(filter pulse,$(1)),pulseaudio,$(1)).so* \
+ 		$$(1)/usr/lib/gstreamer-$(GST_VERSION)/ \
+ 	)
+   endef
+@@ -282,7 +284,7 @@ $(eval $(call GstBuildPlugin,navigationtest,navigationtest support,video,,))
+ $(eval $(call GstBuildPlugin,oss4,OSS 4 audio support,audio tag,,))
+ $(eval $(call GstBuildPlugin,ossaudio,OSS audio support,audio,,))
+ $(eval $(call GstBuildPlugin,png,png support,video,,+libpng))
+-#$(eval $(call GstBuildPlugin,pulse,pulse support,audio pbutils tag video,,+pulseaudio))
++$(eval $(call GstBuildPlugin,pulse,PulseAudio protocol support,audio pbutils tag video,,+libpulse))
+ $(eval $(call GstBuildPlugin,shout2,shout2 support,audio,,+libshout))
+ $(eval $(call GstBuildPlugin,soup,soup input,audio tag,,+libsoup3))
+ $(eval $(call GstBuildPlugin,speex,speex support,audio tag,,+libspeex))
+diff --git a/multimedia/gstreamer1/Makefile b/multimedia/gstreamer1/Makefile
+index 138357fa9..d20af05b6 100644
+--- a/multimedia/gstreamer1/Makefile
++++ b/multimedia/gstreamer1/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=gstreamer1
+ PKG_VERSION:=1.28.7
+-PKG_RELEASE:=2
++PKG_RELEASE:=6
+ 
+ PKG_SOURCE:=gstreamer-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://gstreamer.freedesktop.org/src/gstreamer
+@@ -28,6 +28,17 @@ include $(INCLUDE_DIR)/package.mk
+ include $(INCLUDE_DIR)/nls.mk
+ include $(INCLUDE_DIR)/meson.mk
+ 
++PKG_CONFIG_DEPENDS += CONFIG_PACKAGE_spice-gtk
++# The introspection include below is conditional, but the package scan runs with
++# DUMP=1, which does not load .config. Declare the build dependencies here with
++# the metadata condition syntax so the target package installs
++# gobject-introspection-1.0.pc and GLib's GIR metadata into staging before this
++# package configures.
++PKG_BUILD_DEPENDS += PACKAGE_spice-gtk:gobject-introspection/host PACKAGE_spice-gtk:gobject-introspection PACKAGE_spice-gtk:glib2-gir
++ifneq ($(CONFIG_PACKAGE_spice-gtk),)
++include $(INCLUDE_DIR)/gobject-introspection.mk
++endif
++
+ define Package/gstreamer1/Default
+   CATEGORY:=Multimedia
+   SECTION:=multimedia
+@@ -133,7 +144,7 @@ MESON_ARGS += \
+ 	-Dexamples=disabled \
+ 	-Dbenchmarks=disabled \
+ 	-Dtools=enabled \
+-	-Dintrospection=disabled \
++	-Dintrospection=$(if $(CONFIG_PACKAGE_spice-gtk),en,dis)abled \
+ 	-Dnls=enabled \
+ 	-Dgobject-cast-checks=disabled \
+ 	-Dglib-asserts=disabled \
+@@ -161,6 +172,7 @@ define Build/InstallDev
+ 		./usr/lib/pkgconfig/gstreamer*-$(GST_VERSION).pc \
+ 		$(1)/usr/lib/pkgconfig/ \
+ 	)
++	$(call Build/InstallDev/GIR,$(1))
+ 	$(INSTALL_DIR) $(2)/share/aclocal
+ 	( cd $(PKG_INSTALL_DIR); $(CP) \
+ 		./usr/share/aclocal/* \
+@@ -168,6 +180,14 @@ define Build/InstallDev
+ 	)
+ endef
+ 
++ifneq ($(CONFIG_PACKAGE_spice-gtk),)
++define Build/InstallDev/GIR
++	$(INSTALL_DIR) $(1)/usr/share/gir-1.0 $(1)/usr/lib/girepository-1.0
++	$(CP) $(PKG_INSTALL_DIR)/usr/share/gir-1.0/*.gir $(1)/usr/share/gir-1.0/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0/*.typelib $(1)/usr/lib/girepository-1.0/
++endef
++endif
++
+ define Package/gstreamer1/install
+   true
+ endef
+@@ -187,6 +207,8 @@ define Package/gstreamer1-utils/install
+ endef
+ 
+ define Package/libgstreamer1/install
++	$(if $(CONFIG_PACKAGE_spice-gtk),$(INSTALL_DIR) $(1)/usr/lib/girepository-1.0)
++	$(if $(CONFIG_PACKAGE_spice-gtk),$(CP) $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0/Gst-1.0.typelib $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0/GstBase-1.0.typelib $(1)/usr/lib/girepository-1.0/)
+ 	$(INSTALL_DIR) $(1)/usr/lib
+ 	( cd $(PKG_INSTALL_DIR); $(CP) \
+ 		./usr/lib/libgstbase-$(GST_VERSION).so.* \
+@@ -198,8 +220,9 @@ define Package/libgstreamer1/install
+ 		./usr/lib/gstreamer-$(GST_VERSION)/libgst*.so \
+ 		$(1)/usr/lib/gstreamer-$(GST_VERSION)/ \
+ 	)
++	$(INSTALL_DIR) $(1)/usr/libexec/gstreamer-$(GST_VERSION)
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/libexec/gstreamer-$(GST_VERSION)/gst-plugin-scanner \
+-		       $(1)/usr/lib/gstreamer-$(GST_VERSION)
++		       $(1)/usr/libexec/gstreamer-$(GST_VERSION)
+ endef
+ 
+ 
+diff --git a/net/curl/Makefile b/net/curl/Makefile
+index ae63fd72d..d08191796 100644
+--- a/net/curl/Makefile
++++ b/net/curl/Makefile
+@@ -10,7 +10,7 @@ include $(INCLUDE_DIR)/nls.mk
+ 
+ PKG_NAME:=curl
+ PKG_VERSION:=8.23.0
+-PKG_RELEASE:=2
++PKG_RELEASE:=4
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://github.com/curl/curl/releases/download/curl-$(subst .,_,$(PKG_VERSION))/ \
+diff --git a/net/krb5/Makefile b/net/krb5/Makefile
+index 6a9a361e2..a3e158e77 100644
+--- a/net/krb5/Makefile
++++ b/net/krb5/Makefile
+@@ -63,6 +63,14 @@ define Package/krb5-client
+ 	TITLE:=Kerberos 5 Client
+ endef
+ 
++define Package/krb5-dev
++	SECTION:=devel
++	CATEGORY:=Development
++	SUBMENU:=Libraries
++	TITLE:=Kerberos 5 headers and native build metadata
++	DEPENDS:=+krb5-libs +libcomerr-dev
++endef
++
+ define Package/krb5/description
+   Kerberos is a network authentication protocol.
+   It is designed to provide strong authentication for client/server applications by using secret-key cryptography.
+@@ -70,6 +78,9 @@ endef
+ 
+ CONFIGURE_PATH = ./src
+ 
++# Upstream warning-as-error policy breaks native GCC 14 builds.
++MAKE_FLAGS += WARN_CFLAGS=
++
+ CONFIGURE_VARS += \
+ 	cross_compiling=yes \
+ 	krb5_cv_attr_constructor_destructor=yes,yes \
+@@ -129,6 +140,16 @@ define Package/krb5-client/install
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/krb5-send-pr $(1)/usr/sbin
+ endef
+ 
++define Package/krb5-dev/install
++	$(INSTALL_DIR) $(1)/usr/include $(1)/usr/lib/pkgconfig $(1)/usr/bin
++	$(CP) $(PKG_INSTALL_DIR)/usr/include/. $(1)/usr/include/
++	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/*.pc $(1)/usr/lib/pkgconfig/
++	# Use the original target script; staging's copy contains cross paths.
++	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/krb5-config $(1)/usr/bin/
++	$(SED) 's,$(STAGING_DIR),,g;s,-[IL]$(TOOLCHAIN_DIR)/usr/lib,,g;s,-[IL]$(TOOLCHAIN_DIR)/lib,,g' $(1)/usr/lib/pkgconfig/*.pc $(1)/usr/bin/krb5-config
++	! grep -r -F '$(TOPDIR)/' $(1)/usr/lib/pkgconfig $(1)/usr/bin/krb5-config
++endef
++
+ # Removed some server-side software to reduce package size. This should be
+ # put in a separate package if needed.
+ define Package/krb5-server/install
+@@ -156,3 +177,4 @@ $(eval $(call BuildPackage,krb5-libs))
+ $(eval $(call BuildPackage,krb5-server))
+ $(eval $(call BuildPackage,krb5-server-extras))
+ $(eval $(call BuildPackage,krb5-client))
++$(eval $(call BuildPackage,krb5-dev))
+diff --git a/net/net-tools/Makefile b/net/net-tools/Makefile
+index b28b7899c..35b45676d 100644
+--- a/net/net-tools/Makefile
++++ b/net/net-tools/Makefile
+@@ -10,7 +10,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=net-tools
+ PKG_VERSION:=2.10
+-PKG_RELEASE:=2
++PKG_RELEASE:=5
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://sourceforge.net/projects/net-tools/files/
+@@ -69,9 +69,26 @@ define Package/net-tools-route/description
+ 	functionality of the net-tools variant (e.g. AF_X25).
+ endef
+ 
++define Package/net-tools-ifconfig
++  SECTION:=net
++  CATEGORY:=Network
++  TITLE:=net-tools - ifconfig utility
++  URL:=https://net-tools.sourceforge.io/
++  ALTERNATIVES:=300:/sbin/ifconfig:/usr/libexec/net-tools-ifconfig
++endef
++
++define Package/net-tools-ifconfig/install
++	$(INSTALL_DIR) $(1)/usr/libexec
++	$(INSTALL_BIN) $(PKG_BUILD_DIR)/ifconfig $(1)/usr/libexec/net-tools-ifconfig
++endef
++
+ define Build/Configure
+ 	# Failed configure.sh leaves stub config.h around.
+ 	rm -f $(PKG_BUILD_DIR)/config.h
++	# Linux 7.3 removed the ROSE UAPI header; drop ROSE support without it.
++	[ -f "$(TOOLCHAIN_DIR)/include/linux/rose.h" ] || \
++		$(SED) 's/^\(bool .* HAVE_\(AF\|HW\)ROSE\) y$$$$/\1 n/' \
++			$(PKG_BUILD_DIR)/config.in
+ 	( cd $(PKG_BUILD_DIR); yes $$$$'\n' | ./configure.sh config.in )
+ endef
+ 
+@@ -91,5 +108,6 @@ define Package/net-tools-route/install
+ endef
+ 
+ $(eval $(call BuildPackage,mii-tool))
++$(eval $(call BuildPackage,net-tools-ifconfig))
+ $(eval $(call BuildPackage,net-tools-netstat))
+ $(eval $(call BuildPackage,net-tools-route))
+diff --git a/net/nginx-util/Makefile b/net/nginx-util/Makefile
+index bcf91de1e..7f490af11 100644
+--- a/net/nginx-util/Makefile
++++ b/net/nginx-util/Makefile
+@@ -2,7 +2,8 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=nginx-util
+ PKG_VERSION:=1.7
+-PKG_RELEASE:=3
++# r4 is already allocated by the local APK migration ledger.
++PKG_RELEASE:=7
+ PKG_MAINTAINER:=Peter Stadler <peter.stadler@student.uibk.ac.at>
+ 
+ include $(INCLUDE_DIR)/package.mk
+diff --git a/net/nlbwmon/Makefile b/net/nlbwmon/Makefile
+index bcc17bfe3..68301ed36 100644
+--- a/net/nlbwmon/Makefile
++++ b/net/nlbwmon/Makefile
+@@ -1,7 +1,7 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=nlbwmon
+-PKG_RELEASE:=2
++PKG_RELEASE:=8
+ 
+ PKG_SOURCE_PROTO:=git
+ PKG_SOURCE_URL:=https://github.com/jow-/nlbwmon.git
+@@ -18,6 +18,8 @@ PKG_LICENSE_FILES:=COPYING
+ include $(INCLUDE_DIR)/package.mk
+ include $(INCLUDE_DIR)/cmake.mk
+ 
++PKG_CONFIG_DEPENDS:=CONFIG_OPENWRT_SYSTEMD
++
+ CMAKE_OPTIONS += -DLIBNL_LIBRARY_TINY=ON
+ TARGET_CFLAGS += -I$(STAGING_DIR)/usr/include/libnl-tiny
+ 
+@@ -34,12 +36,31 @@ define Package/nlbwmon/install
+ 	$(LN) nlbwmon $(1)/usr/sbin/nlbw
+ 	$(INSTALL_DIR) $(1)/usr/share/nlbwmon
+ 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/protocols.txt $(1)/usr/share/nlbwmon/protocols
+-	$(INSTALL_DIR) $(1)/etc/init.d
+-	$(INSTALL_BIN) ./files/nlbwmon.init $(1)/etc/init.d/nlbwmon
++	$(INSTALL_DIR) $(1)/usr/libexec $(1)/etc/init.d
++	$(INSTALL_DATA) ./files/nlbwmon-config.sh $(1)/usr/libexec/nlbwmon-config.sh
++	$(INSTALL_BIN) ./files/$(if $(CONFIG_OPENWRT_SYSTEMD),nlbwmon-native.init,nlbwmon.init) $(1)/etc/init.d/nlbwmon
+ 	$(INSTALL_DIR) $(1)/etc/config
+ 	$(INSTALL_CONF) ./files/nlbwmon.config $(1)/etc/config/nlbwmon
+ 	$(INSTALL_DIR) $(1)/etc/hotplug.d/iface
+ 	$(INSTALL_BIN) ./files/nlbwmon.hotplug $(1)/etc/hotplug.d/iface/30-nlbwmon
++	$(if $(CONFIG_OPENWRT_SYSTEMD),$(call Package/nlbwmon/install-systemd,$(1)))
++endef
++
++define Package/nlbwmon/install-systemd
++	$(INSTALL_DIR) $(1)/usr/lib/systemd/system $(1)/usr/libexec
++	$(INSTALL_DATA) ./files/nlbwmon.service ./files/nlbwmon-config.path \
++		./files/nlbwmon-reconfigure.service $(1)/usr/lib/systemd/system/
++	$(INSTALL_BIN) ./files/nlbwmon-systemd ./files/nlbwmon-package $(1)/usr/libexec/
++endef
++
++define Package/nlbwmon/postinst
++#!/bin/sh
++[ ! -x "$${IPKG_INSTROOT}/usr/libexec/nlbwmon-package" ] || "$${IPKG_INSTROOT}/usr/libexec/nlbwmon-package" postinst
++endef
++
++define Package/nlbwmon/prerm
++#!/bin/sh
++[ ! -x "$${IPKG_INSTROOT}/usr/libexec/nlbwmon-package" ] || "$${IPKG_INSTROOT}/usr/libexec/nlbwmon-package" prerm
+ endef
+ 
+ define Package/nlbwmon/conffiles
+diff --git a/net/nlbwmon/files/nlbwmon-config.path b/net/nlbwmon/files/nlbwmon-config.path
+new file mode 100644
+index 000000000..5a6e34c24
+--- /dev/null
++++ b/net/nlbwmon/files/nlbwmon-config.path
+@@ -0,0 +1,11 @@
++[Unit]
++Description=Watch nlbwmon configuration inputs
++
++[Path]
++PathChanged=/etc/config/nlbwmon
++PathChanged=/etc/config/dhcp
++PathChanged=/etc/config/system
++Unit=nlbwmon-reconfigure.service
++
++[Install]
++WantedBy=multi-user.target
+diff --git a/net/nlbwmon/files/nlbwmon-config.sh b/net/nlbwmon/files/nlbwmon-config.sh
+new file mode 100644
+index 000000000..c298d6380
+--- /dev/null
++++ b/net/nlbwmon/files/nlbwmon-config.sh
+@@ -0,0 +1,114 @@
++#!/bin/sh
++# Shared configuration parser for nlbwmon.
++
++nlbwmon_append() {
++	NLBWMON_ARGS="$NLBWMON_ARGS $*"
++}
++
++nlbwmon_add_subnet() {
++	local network="$1"
++	local range ranges
++
++	case "$network" in
++		*.*|*:*)
++			nlbwmon_append -s "$network"
++		;;
++		*)
++			if network_get_subnets ranges "$network"; then
++				for range in $ranges; do
++					nlbwmon_append -s "$range"
++				done
++			fi
++
++			if network_get_subnets6 ranges "$network"; then
++				for range in $ranges; do
++					nlbwmon_append -s "$range"
++				done
++			fi
++		;;
++	esac
++}
++
++nlbwmon_add_option() {
++	local cfg="$1"
++	local flag="$2"
++	local option="$3"
++	local default="$4"
++	local value
++
++	config_get value "$cfg" "$option" "$default"
++	[ -n "$value" ] && nlbwmon_append "$flag" "$value"
++}
++
++nlbwmon_add_bool() {
++	local cfg="$1"
++	local flag="$2"
++	local option="$3"
++	local default="$4"
++	local value
++
++	config_get_bool value "$cfg" "$option" "$default"
++	[ "$value" -eq 1 ] && nlbwmon_append "$flag"
++}
++
++nlbwmon_parse_section() {
++	local cfg="$1"
++	local dir
++
++	config_get dir "$cfg" database_directory /var/lib/nlbwmon
++
++	mkdir -p "$dir"
++	nlbwmon_append -o "$dir"
++
++	nlbwmon_add_option "$cfg" -b netlink_buffer_size 524288
++	nlbwmon_add_option "$cfg" -i commit_interval 24h
++	nlbwmon_add_option "$cfg" -r refresh_interval 30s
++	nlbwmon_add_option "$cfg" -p protocol_database /usr/share/nlbwmon/protocols
++	nlbwmon_add_option "$cfg" -G database_generations 10
++	nlbwmon_add_option "$cfg" -I database_interval 1
++	nlbwmon_add_option "$cfg" -L database_limit 10000
++
++	nlbwmon_add_bool "$cfg" -P database_prealloc 0
++	nlbwmon_add_bool "$cfg" -Z database_compress 1
++
++	config_list_foreach "$cfg" local_network nlbwmon_add_subnet
++}
++
++nlbwmon_resolve_args() {
++	. /lib/functions.sh
++	. /lib/functions/network.sh
++	NLBWMON_ARGS=""
++	config_load nlbwmon
++	config_foreach nlbwmon_parse_section nlbwmon
++}
++
++nlbwmon_match_network() {
++	case "$1" in
++		*.*|*:*) ;;
++		"$requested_interface") interface_selected=1 ;;
++	esac
++}
++
++nlbwmon_match_section() {
++	config_list_foreach "$1" local_network nlbwmon_match_network
++}
++
++nlbwmon_match_dhcp() {
++	local interface ignore
++	config_get interface "$1" interface
++	config_get_bool ignore "$1" ignore 0
++	[ "$ignore" -eq 0 ] && [ "$interface" = "$requested_interface" ] && interface_selected=1
++}
++
++nlbwmon_interface_selected() {
++	requested_interface="$1"
++	interface_selected=0
++	. /lib/functions.sh
++	config_load nlbwmon
++	config_foreach nlbwmon_match_section nlbwmon
++	if [ "$interface_selected" -ne 1 ]; then
++		config_load dhcp
++		config_foreach nlbwmon_match_dhcp dhcp
++	fi
++	[ "$interface_selected" -eq 1 ]
++}
+diff --git a/net/nlbwmon/files/nlbwmon-native.init b/net/nlbwmon/files/nlbwmon-native.init
+new file mode 100644
+index 000000000..519bbd3bd
+--- /dev/null
++++ b/net/nlbwmon/files/nlbwmon-native.init
+@@ -0,0 +1,13 @@
++#!/bin/sh
++# OpenWrt native service adapter
++case "$1" in
++	boot|shutdown|depends) exit 0 ;;
++esac
++if [ -n "${IPKG_INSTROOT:-}" ]; then
++	case "$1" in
++		enabled) exec systemctl --root="$IPKG_INSTROOT" is-enabled nlbwmon.service ;;
++		enable|disable) exec systemctl --root="$IPKG_INSTROOT" "$1" nlbwmon.service ;;
++		*) exit 0 ;;
++	esac
++fi
++exec /usr/libexec/nlbwmon-systemd "$@"
+diff --git a/net/nlbwmon/files/nlbwmon-package b/net/nlbwmon/files/nlbwmon-package
+new file mode 100644
+index 000000000..0a81270eb
+--- /dev/null
++++ b/net/nlbwmon/files/nlbwmon-package
+@@ -0,0 +1,43 @@
++#!/bin/sh
++set -eu
++
++root=${IPKG_INSTROOT:-}
++case "${1:-}" in
++postinst)
++	if [ -n "$root" ]; then
++		if [ "${PKG_UPGRADE:-0}" != 1 ]; then
++			if [ "$(readlink "$root/etc/systemd/system/nlbwmon.service" 2>/dev/null || :)" != /dev/null ]; then
++				wants=$root/etc/systemd/system/multi-user.target.wants
++				mkdir -p "$wants"
++				if [ ! -e "$wants/nlbwmon.service" ] && [ ! -L "$wants/nlbwmon.service" ]; then
++					ln -s /usr/lib/systemd/system/nlbwmon.service "$wants/nlbwmon.service"
++				fi
++				if [ ! -e "$wants/nlbwmon-config.path" ] && [ ! -L "$wants/nlbwmon-config.path" ]; then
++					ln -s /usr/lib/systemd/system/nlbwmon-config.path "$wants/nlbwmon-config.path"
++				fi
++			fi
++		fi
++		exit 0
++	fi
++	[ -d /run/systemd/system ] || exit 0
++	systemctl daemon-reload
++	for mask in /etc/systemd/system/nlbwmon.service /run/systemd/system/nlbwmon.service; do
++		[ "$(readlink "$mask" 2>/dev/null || :)" != /dev/null ] || exit 0
++	done
++	if [ "${PKG_UPGRADE:-0}" != 1 ]; then
++		systemctl enable nlbwmon.service nlbwmon-config.path
++		systemctl --no-block start nlbwmon.service
++	else
++		systemctl try-restart nlbwmon.service
++	fi
++	;;
++prerm)
++	[ -z "$root" ] && [ -d /run/systemd/system ] || exit 0
++	[ "${PKG_UPGRADE:-0}" != 1 ] || exit 0
++	systemctl stop nlbwmon-config.path nlbwmon-reconfigure.service nlbwmon.service
++	systemctl disable nlbwmon.service nlbwmon-config.path
++	;;
++*)
++	exit 2
++	;;
++esac
+diff --git a/net/nlbwmon/files/nlbwmon-reconfigure.service b/net/nlbwmon/files/nlbwmon-reconfigure.service
+new file mode 100644
+index 000000000..3e1231ec5
+--- /dev/null
++++ b/net/nlbwmon/files/nlbwmon-reconfigure.service
+@@ -0,0 +1,10 @@
++[Unit]
++Description=Apply changed nlbwmon configuration
++After=network-online.target
++# File edits must not permanently disable the path watcher.
++StartLimitIntervalSec=0
++
++[Service]
++Type=oneshot
++Slice=auxiliary.slice
++ExecStart=/usr/libexec/nlbwmon-systemd reconcile
+diff --git a/net/nlbwmon/files/nlbwmon-systemd b/net/nlbwmon/files/nlbwmon-systemd
+new file mode 100644
+index 000000000..60d37090f
+--- /dev/null
++++ b/net/nlbwmon/files/nlbwmon-systemd
+@@ -0,0 +1,34 @@
++#!/bin/sh
++# Native lifecycle adapter and foreground exec; systemd supervises nlbwmon.
++. /usr/libexec/nlbwmon-config.sh
++
++case "$1" in
++run)
++	nlbwmon_resolve_args
++	# shellcheck disable=SC2086
++	exec /usr/sbin/nlbwmon $NLBWMON_ARGS
++	;;
++interface)
++	nlbwmon_interface_selected "$2"
++	;;
++start|stop|restart|status)
++	exec systemctl "$1" nlbwmon.service
++	;;
++reload|reconcile)
++	systemctl is-active --quiet nlbwmon.service || exit 0
++	systemctl reset-failed nlbwmon.service || exit 1
++	exec systemctl --no-block restart nlbwmon.service
++	;;
++running)
++	exec systemctl is-active --quiet nlbwmon.service
++	;;
++enable|disable)
++	exec systemctl "$1" nlbwmon.service nlbwmon-config.path
++	;;
++enabled)
++	exec systemctl is-enabled --quiet nlbwmon.service
++	;;
++*)
++	exit 2
++	;;
++esac
+diff --git a/net/nlbwmon/files/nlbwmon.hotplug b/net/nlbwmon/files/nlbwmon.hotplug
+index bd486820f..427104dca 100644
+--- a/net/nlbwmon/files/nlbwmon.hotplug
++++ b/net/nlbwmon/files/nlbwmon.hotplug
+@@ -1,9 +1,19 @@
+ #!/bin/sh
+ 
++if [ -d /run/systemd/system ] && [ -f /usr/lib/systemd/system/nlbwmon.service ]; then
++	case "$ACTION" in
++		ifup|ifupdate)
++			systemctl is-active --quiet nlbwmon.service || exit 0
++			/usr/libexec/nlbwmon-systemd interface "$INTERFACE" || exit 0
++			systemctl --no-block start nlbwmon-reconfigure.service
++			;;
++	esac
++	exit 0
++fi
++
+ [ -n "$DEVICE" ] || exit 0
+ 
+ [ "$ACTION" = ifup ] && /etc/init.d/nlbwmon enabled && {
+ 	/etc/init.d/nlbwmon reload
+ 	logger -t nlbwmon "Reloading nlbwmon due to $ACTION of $INTERFACE ($DEVICE)"
+ }
+-
+diff --git a/net/nlbwmon/files/nlbwmon.init b/net/nlbwmon/files/nlbwmon.init
+index c12b83864..58c2c6028 100755
+--- a/net/nlbwmon/files/nlbwmon.init
++++ b/net/nlbwmon/files/nlbwmon.init
+@@ -2,91 +2,21 @@
+ 
+ START=60
+ 
++
+ USE_PROCD=1
+ NAME=nlbwmon
+ PROG=/usr/sbin/nlbwmon
+ NICEPRIO=19
+-
+-add_subnet() {
+-	local network="$1"
+-	local range ranges
+-
+-	case "$network" in
+-		*.*|*:*)
+-			procd_append_param command '-s' "$network"
+-		;;
+-		*)
+-			if network_get_subnets ranges "$network"; then
+-				for range in $ranges; do
+-					procd_append_param command '-s' "$range"
+-				done
+-			fi
+-
+-			if network_get_subnets6 ranges "$network"; then
+-				for range in $ranges; do
+-					procd_append_param command '-s' "$range"
+-				done
+-			fi
+-		;;
+-	esac
+-}
+-
+-add_option() {
+-	local cfg="$1"
+-	local flag="$2"
+-	local option="$3"
+-	local default="$4"
+-	local value
+-
+-	config_get value "$cfg" "$option" "$default"
+-	[ -n "$value" ] && procd_append_param command "$flag" "$value"
+-}
+-
+-add_bool() {
+-	local cfg="$1"
+-	local flag="$2"
+-	local option="$3"
+-	local default="$4"
+-	local value
+-
+-	config_get_bool value "$cfg" "$option" "$default"
+-	[ $value -eq 1 ] && procd_append_param command "$flag"
+-}
+-
+-parse_config() {
+-	. /lib/functions/network.sh
+-
+-	local cfg="$1"
+-	local dir
+-
+-	config_get dir "$cfg" database_directory /var/lib/nlbwmon
+-
+-	mkdir -p "$dir"
+-	procd_append_param command -o "$dir"
+-
+-	add_option "$cfg" -b netlink_buffer_size 524288
+-	add_option "$cfg" -i commit_interval 24h
+-	add_option "$cfg" -r refresh_interval 30s
+-	add_option "$cfg" -p protocol_database /usr/share/nlbwmon/protocols
+-	add_option "$cfg" -G database_generations 10
+-	add_option "$cfg" -I database_interval 1
+-	add_option "$cfg" -L database_limit 10000
+-
+-	add_bool "$cfg" -P database_prealloc 0
+-	add_bool "$cfg" -Z database_compress 1
+-
+-	config_list_foreach "$cfg" local_network add_subnet
+-}
++. "$IPKG_INSTROOT/usr/libexec/nlbwmon-config.sh"
+ 
+ start_service() {
++	nlbwmon_resolve_args
++
+ 	procd_open_instance
+ 	procd_set_param stderr 1
+-	procd_set_param command "$PROG"
++	# shellcheck disable=SC2086
++	procd_set_param command "$PROG" $NLBWMON_ARGS
+ 	procd_set_param nice "$NICEPRIO"
+-
+-	config_load nlbwmon
+-	config_foreach parse_config nlbwmon
+-
+ 	procd_close_instance
+ }
+ 
+@@ -105,4 +35,3 @@ service_triggers() {
+ 	config_load dhcp
+ 	config_foreach add_interface_trigger dhcp
+ }
+-
+diff --git a/net/nlbwmon/files/nlbwmon.service b/net/nlbwmon/files/nlbwmon.service
+new file mode 100644
+index 000000000..b9beaf603
+--- /dev/null
++++ b/net/nlbwmon/files/nlbwmon.service
+@@ -0,0 +1,20 @@
++[Unit]
++Description=OpenWrt Traffic Usage Monitor
++After=network-online.target
++Wants=network-online.target
++StartLimitIntervalSec=60
++StartLimitBurst=5
++
++[Service]
++Type=simple
++Slice=auxiliary.slice
++Nice=19
++ExecStart=/usr/libexec/nlbwmon-systemd run
++Restart=on-failure
++RestartSec=5s
++KillMode=control-group
++TimeoutStopSec=30s
++
++[Install]
++WantedBy=multi-user.target
++Also=nlbwmon-config.path
+diff --git a/net/nmap/patches/110-ncat-recv-only-single-listener.patch b/net/nmap/patches/110-ncat-recv-only-single-listener.patch
+new file mode 100644
+index 000000000..e3219384d
+--- /dev/null
++++ b/net/nmap/patches/110-ncat-recv-only-single-listener.patch
+@@ -0,0 +1,18 @@
++From: OpenWrt developers
++Subject: ncat: keep a single receive-only listener in the event loop
++
++With --recv-only stdin is not added to client_fdlist. A listener bound to
++one explicit address therefore has only one descriptor and must not be
++mistaken for an idle stdin-only list before its first connection arrives.
++
++--- a/ncat/ncat_listen.c
+++++ b/ncat/ncat_listen.c
++@@ -409,7 +409,7 @@ int ncat_listen()
++ 
++     init_fdlist(&broadcast_fdlist, o.conn_limit);
++ 
++-    while (!breakloop && (client_fdlist.nfds > 1 || get_conn_count() > 0)) {
+++    while (!breakloop && (client_fdlist.nfds > (o.recvonly ? 0 : 1) || get_conn_count() > 0)) {
++         long usec_wait = -1;
++         tvp = NULL;
++         /* We pass these temporary descriptor sets to fselect, since fselect
+diff --git a/net/openssh/Makefile b/net/openssh/Makefile
+index 4118f2de7..a4fee6d02 100644
+--- a/net/openssh/Makefile
++++ b/net/openssh/Makefile
+@@ -10,7 +10,8 @@ include $(TOPDIR)/rules.mk
+ PKG_NAME:=openssh
+ PKG_REALVERSION:=10.6p2
+ PKG_VERSION:=10.6_p2
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
++PKG_CONFIG_DEPENDS:=CONFIG_OPENWRT_SYSTEMD
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_REALVERSION).tar.gz
+ PKG_SOURCE_URL:=https://cdn.openbsd.org/pub/OpenBSD/OpenSSH/portable/ \
+@@ -227,6 +228,7 @@ endef
+ define Package/openssh-client-utils/install
+ 	$(INSTALL_DIR) $(1)/usr/bin
+ 	$(INSTALL_BIN) $(foreach bin,add agent keyscan keysign,$(PKG_BUILD_DIR)/ssh-$(bin)) $(1)/usr/bin/
++	$(INSTALL_BIN) $(PKG_BUILD_DIR)/contrib/ssh-copy-id $(1)/usr/bin/
+ endef
+ 
+ define Package/openssh-keygen/install
+@@ -239,12 +241,18 @@ define Package/openssh-sk-helper/install
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/lib/ssh-sk-helper $(1)/usr/lib/
+ endef
+ 
++define Package/openssh-server/install-systemd
++	$(INSTALL_DIR) $(1)/usr/lib/systemd/system $(1)/usr/libexec
++	$(INSTALL_DATA) ./files/sshd.service $(1)/usr/lib/systemd/system/
++	$(INSTALL_BIN) ./files/sshd-prepare ./files/sshd-systemd $(1)/usr/libexec/
++endef
++
+ define Package/openssh-server/install
+ 	install -d -m0755 $(1)/etc/ssh $(1)/etc/ssh/sshd_config.d
+ 	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/etc/ssh/sshd_config $(1)/etc/ssh/
+ 	sed -r -i 's,^#(HostKey /etc/ssh/ssh_host_(rsa|ed25519|mldsa44_ed25519)_key)$$$$,\1,' $(1)/etc/ssh/sshd_config
+ 	$(INSTALL_DIR) $(1)/etc/init.d
+-	$(INSTALL_BIN) ./files/sshd.init $(1)/etc/init.d/sshd
++	$(INSTALL_BIN) ./files/$(if $(CONFIG_OPENWRT_SYSTEMD),sshd-native.init,sshd.init) $(1)/etc/init.d/sshd
+ 	$(INSTALL_DIR) $(1)/lib/preinit
+ 	$(INSTALL_BIN) ./files/sshd.failsafe $(1)/lib/preinit/99_10_failsafe_sshd
+ 	$(INSTALL_DIR) $(1)/usr/sbin
+@@ -252,14 +260,33 @@ define Package/openssh-server/install
+ 	$(INSTALL_DIR) $(1)/usr/lib
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/lib/sshd-auth $(1)/usr/lib/
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/lib/sshd-session $(1)/usr/lib/
++	$(if $(CONFIG_OPENWRT_SYSTEMD),$(call Package/openssh-server/install-systemd,$(1)))
++endef
++
++define Package/openssh-server/postinst
++#!/bin/sh
++if [ -x "$${IPKG_INSTROOT}/usr/libexec/sshd-systemd" ]; then
++	"$${IPKG_INSTROOT}/usr/libexec/sshd-systemd" postinst
++fi
+ endef
+ 
++define Package/openssh-server/prerm
++#!/bin/sh
++if [ -x "$${IPKG_INSTROOT}/usr/libexec/sshd-systemd" ]; then
++	"$${IPKG_INSTROOT}/usr/libexec/sshd-systemd" prerm
++fi
++endef
++
++Package/openssh-server-pam/postinst = $(Package/openssh-server/postinst)
++Package/openssh-server-pam/prerm = $(Package/openssh-server/prerm)
++
+ define Package/openssh-server-pam/install
+ 	$(call Package/openssh-server/install,$(1))
+ 	sed -i 's,#PasswordAuthentication yes,PasswordAuthentication no,g' $(1)/etc/ssh/sshd_config
+ 	sed -i 's,#UsePAM no,UsePAM yes,g' $(1)/etc/ssh/sshd_config
+ 	$(INSTALL_DIR) $(1)/etc/pam.d
+ 	$(INSTALL_DATA) ./files/sshd.pam $(1)/etc/pam.d/sshd
++	$(if $(CONFIG_OPENWRT_SYSTEMD),$(SED) '/^session.*include.*common-session/a session optional pam_systemd.so' $(1)/etc/pam.d/sshd)
+ 	$(INSTALL_DIR) $(1)/etc/security
+ 	$(INSTALL_DATA) ./files/sshd.pam-access $(1)/etc/security/access-sshd-local.conf
+ endef
+diff --git a/net/openssh/files/sshd-native.init b/net/openssh/files/sshd-native.init
+new file mode 100644
+index 000000000..e3df841ce
+--- /dev/null
++++ b/net/openssh/files/sshd-native.init
+@@ -0,0 +1,17 @@
++#!/bin/sh
++# OpenWrt native service adapter
++case "$1" in
++	boot|shutdown|depends) exit 0 ;;
++esac
++if [ -n "${IPKG_INSTROOT:-}" ]; then
++	case "$1" in
++		enabled) exec systemctl --root="$IPKG_INSTROOT" is-enabled sshd.service ;;
++		enable|disable) exec systemctl --root="$IPKG_INSTROOT" "$1" sshd.service ;;
++		*) exit 0 ;;
++	esac
++fi
++case "$1" in
++	enabled) set -- is-enabled ;;
++	running) set -- is-active ;;
++esac
++exec /usr/bin/systemctl "$1" sshd.service
+diff --git a/net/openssh/files/sshd-prepare b/net/openssh/files/sshd-prepare
+new file mode 100755
+index 000000000..966704264
+--- /dev/null
++++ b/net/openssh/files/sshd-prepare
+@@ -0,0 +1,17 @@
++#!/bin/sh
++set -eu
++
++umask 077
++mkdir -p /etc/ssh /var/empty
++chown root:root /var/empty
++chmod 0700 /var/empty
++
++for type in rsa ed25519; do
++	key=/etc/ssh/ssh_host_${type}_key
++	if [ -e "$key" ] || [ -L "$key" ]; then
++		# Never replace an existing host identity, including an invalid key.
++		/usr/bin/ssh-keygen -y -P '' -f "$key" >/dev/null || exit 1
++	else
++		/usr/bin/ssh-keygen -q -N '' -t "$type" -f "$key"
++	fi
++done
+diff --git a/net/openssh/files/sshd-systemd b/net/openssh/files/sshd-systemd
+new file mode 100755
+index 000000000..a00b5acff
+--- /dev/null
++++ b/net/openssh/files/sshd-systemd
+@@ -0,0 +1,38 @@
++#!/bin/sh
++# Package lifecycle only; never transfers a running listener out of procd.
++set -eu
++
++root=${IPKG_INSTROOT:-}
++case "${1:-}" in
++postinst)
++	if [ -n "$root" ]; then
++		# Offline image assembly must not contact the host's service manager.
++		[ "${PKG_UPGRADE:-0}" != 1 ] || exit 0
++		[ "$(readlink "$root/etc/systemd/system/sshd.service" 2>/dev/null || :)" != /dev/null ] || exit 0
++		wants=$root/etc/systemd/system/multi-user.target.wants
++		mkdir -p "$wants"
++		if [ ! -e "$wants/sshd.service" ] && [ ! -L "$wants/sshd.service" ]; then
++			ln -s /usr/lib/systemd/system/sshd.service "$wants/sshd.service"
++		fi
++		exit 0
++	fi
++	[ -d /run/systemd/system ] || exit 0
++	systemctl daemon-reload
++	for mask in /etc/systemd/system/sshd.service /run/systemd/system/sshd.service; do
++		[ "$(readlink "$mask" 2>/dev/null || :)" != /dev/null ] || exit 0
++	done
++	# try-restart preserves inactive/disabled units and cannot start a second owner.
++	if [ "${PKG_UPGRADE:-0}" != 1 ] &&
++	   [ "$(readlink /etc/systemd/system/sshd.service 2>/dev/null || :)" != /dev/null ]; then
++		systemctl enable sshd.service
++	fi
++	systemctl try-restart sshd.service
++	;;
++prerm)
++	[ -z "$root" ] && [ -d /run/systemd/system ] || exit 0
++	[ "${PKG_UPGRADE:-0}" != 1 ] || exit 0
++	systemctl stop sshd.service
++	systemctl disable sshd.service
++	;;
++*) exit 2 ;;
++esac
+diff --git a/net/openssh/files/sshd.init b/net/openssh/files/sshd.init
+index 1dc4374bc..334723d8b 100644
+--- a/net/openssh/files/sshd.init
++++ b/net/openssh/files/sshd.init
+@@ -4,6 +4,7 @@
+ START=50
+ STOP=50
+ 
++
+ USE_PROCD=1
+ PROG=/usr/sbin/sshd
+ 
+diff --git a/net/openssh/files/sshd.service b/net/openssh/files/sshd.service
+new file mode 100644
+index 000000000..b277b4331
+--- /dev/null
++++ b/net/openssh/files/sshd.service
+@@ -0,0 +1,21 @@
++[Unit]
++Description=OpenSSH server
++After=openwrt-services.service systemd-user-sessions.service
++StartLimitIntervalSec=60
++StartLimitBurst=5
++
++[Service]
++Type=notify-reload
++ExecStartPre=/usr/libexec/sshd-prepare
++ExecStartPre=/usr/sbin/sshd -t
++ExecStart=/usr/sbin/sshd -D
++ExecReload=/usr/sbin/sshd -t
++Restart=on-failure
++RestartSec=5s
++# Existing connections survive listener stop/restart. PAM/logind owns sessions.
++KillMode=process
++TimeoutStartSec=90
++TimeoutStopSec=30
++
++[Install]
++WantedBy=multi-user.target
+diff --git a/net/samba4/Makefile b/net/samba4/Makefile
+index 492bf7ad9..3eee13138 100644
+--- a/net/samba4/Makefile
++++ b/net/samba4/Makefile
+@@ -3,7 +3,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=samba
+ PKG_VERSION:=4.24.5
+-PKG_RELEASE:=2
++PKG_RELEASE:=14
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
+ PKG_SOURCE_URL:= \
+@@ -24,6 +24,7 @@ HOST_BUILD_DEPENDS:=python3/host rpcsvc-proto/host perl/host perl-parse-yapp/hos
+ PKG_BUILD_DEPENDS:=samba4/host libtasn1/host perl/host
+ 
+ PKG_CONFIG_DEPENDS:= \
++	CONFIG_OPENWRT_SYSTEMD \
+ 	CONFIG_SAMBA4_SERVER_NETBIOS \
+ 	CONFIG_SAMBA4_SERVER_AVAHI \
+ 	CONFIG_SAMBA4_SERVER_QUOTAS \
+@@ -423,6 +424,15 @@ endef
+ define Build/Install
+ endef
+ 
++define Build/InstallDev
++	$(INSTALL_DIR) $(1)/usr/include $(1)/usr/lib/pkgconfig
++	$(CP) $(PKG_INSTALL_DIR)/usr/include/samba-4.0 $(1)/usr/include/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/*.so* $(1)/usr/lib/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/samba $(1)/usr/lib/
++	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/*.pc $(1)/usr/lib/pkgconfig/
++	$(SED) 's|-Wl,-rpath,/usr/lib ||g' $(1)/usr/lib/pkgconfig/*.pc
++endef
++
+ define Package/samba4-libs/install
+ 	$(INSTALL_DIR) $(1)/usr/lib
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/*.so* $(1)/usr/lib/
+@@ -475,7 +485,27 @@ endif
+ 	$(INSTALL_DIR) $(1)/etc/config $(1)/etc/samba $(1)/etc/init.d
+ 	$(INSTALL_CONF) ./files/samba.config $(1)/etc/config/samba4
+ 	$(INSTALL_DATA) ./files/smb.conf.template $(1)/etc/samba
+-	$(INSTALL_BIN) ./files/samba.init $(1)/etc/init.d/samba4
++	$(INSTALL_BIN) ./files/$(if $(CONFIG_OPENWRT_SYSTEMD),samba4-native.init,samba.init) $(1)/etc/init.d/samba4
++	$(INSTALL_DIR) $(1)/usr/libexec
++	$(INSTALL_DATA) ./files/samba-config.sh $(1)/usr/libexec/samba4-config.sh
++	$(if $(CONFIG_OPENWRT_SYSTEMD),$(call Package/samba4-server/install-systemd,$(1)))
++endef
++
++define Package/samba4-server/install-systemd
++	$(INSTALL_DIR) $(1)/usr/lib/systemd/system $(1)/usr/libexec $(1)/etc/hotplug.d/iface
++	$(INSTALL_DATA) ./files/*.service ./files/*.path ./files/nas.slice $(1)/usr/lib/systemd/system/
++	$(INSTALL_BIN) ./files/samba4-systemd ./files/samba4-package $(1)/usr/libexec/
++	$(INSTALL_DATA) ./files/samba4.hotplug $(1)/etc/hotplug.d/iface/60-samba4
++endef
++
++define Package/samba4-server/postinst
++#!/bin/sh
++[ ! -x "$${IPKG_INSTROOT}/usr/libexec/samba4-package" ] || "$${IPKG_INSTROOT}/usr/libexec/samba4-package" postinst
++endef
++
++define Package/samba4-server/prerm
++#!/bin/sh
++[ ! -x "$${IPKG_INSTROOT}/usr/libexec/samba4-package" ] || "$${IPKG_INSTROOT}/usr/libexec/samba4-package" prerm
+ endef
+ 
+ define Package/samba4-server/conffiles
+diff --git a/net/samba4/files/nas.slice b/net/samba4/files/nas.slice
+new file mode 100644
+index 000000000..60a6c6f81
+--- /dev/null
++++ b/net/samba4/files/nas.slice
+@@ -0,0 +1,5 @@
++[Unit]
++Description=File sharing services
++
++[Slice]
++CPUWeight=100
+diff --git a/net/samba4/files/samba-config.sh b/net/samba4/files/samba-config.sh
+new file mode 100644
+index 000000000..de30097bf
+--- /dev/null
++++ b/net/samba4/files/samba-config.sh
+@@ -0,0 +1,169 @@
++SAMBA_IFACE=""
++
++config_get_sane() {
++	config_get "$@"
++	set -- "$(echo "$1" | tr -d '<>[]{};%?=#\n')"
++}
++
++smb_header() {
++	config_get_sane SAMBA_IFACE "$1" interface "lan"
++
++	# resolve interfaces
++	interfaces=$(
++		. /lib/functions/network.sh
++
++		for net in $SAMBA_IFACE; do
++			network_is_up "$net" || continue
++			network_get_device device "$net"
++			printf "%s " "${device:-$net}"
++		done
++	)
++
++	# we dont use netbios anymore as default and wsd/avahi is dns based
++	hostname="$(sed 's/\..*//' /proc/sys/kernel/hostname | tr -d '{};%?=#\n')"
++
++	config_get_sane workgroup "$1" workgroup "WORKGROUP"
++	config_get_sane description "$1" description "Samba on OpenWrt"
++	config_get_sane charset "$1" charset "UTF-8"
++
++	config_get_bool MACOS "$1" macos 0
++	config_get_bool DISABLE_NETBIOS "$1" disable_netbios 0
++	config_get_bool DISABLE_AD_DC "$1" disable_ad_dc 0
++	config_get_bool DISABLE_WINBIND "$1" disable_winbind 0
++	config_get_bool DISABLE_ASYNC_IO "$1" disable_async_io 0
++	config_get_bool ALLOW_LEGACY_PROTOCOLS "$1" allow_legacy_protocols 0
++	config_get_bool ENABLE_EXTRA_TUNING "$1" enable_extra_tuning 0
++
++	mkdir -p /var/etc
++	sed -e "s#|NAME|#$hostname#g" \
++	    -e "s#|WORKGROUP|#$workgroup#g" \
++	    -e "s#|DESCRIPTION|#$description#g" \
++	    -e "s#|INTERFACES|#$interfaces#g" \
++	    -e "s#|CHARSET|#$charset#g" \
++	    /etc/samba/smb.conf.template > "${SAMBA_CONFIG_OUTPUT:-/var/etc/smb.conf}"
++
++	{
++		printf "\n######### Dynamic written config options #########\n"
++
++		# extra tuning options by community feedback (kinda try&error)
++		if [ "$ENABLE_EXTRA_TUNING" -eq 1 ]; then
++			socket_opt="$(grep -i 'socket options' /etc/samba/smb.conf.template | awk -F'=' '{print $2}' | tr -d '\n')"
++			[ -n "$socket_opt" ] && printf "\tsocket options =%s SO_KEEPALIVE\n" "$socket_opt" # add keepalive, maybe larger buffer? SO_RCVBUF=65536 SO_SNDBUF=65536
++
++			printf "\tmax xmit = 131072\n" # increase smb1 transmit size
++			printf "\tmin receivefile size = 131072\n" # allows zero-copy writes via fs
++			printf "\tfake oplocks = Yes\n" # may corrupt files for simultanous writes to the same files by multiple clients, but might also see big speed boost
++			printf "\tuse sendfile = Yes\n" # enable sendfile?
++		fi
++
++		if [ "$DISABLE_NETBIOS" -eq 1 ] || [ ! -x /usr/sbin/nmbd ]; then
++			printf "\tdisable netbios = yes\n"
++			# note: samba opens port 139 even if netbios is disabled via option above, so adjust listening ports
++			printf "\tsmb ports = 445\n"
++		fi
++
++		if [ "$DISABLE_ASYNC_IO" -eq 1 ]; then
++			printf "\taio read size = 0\n"
++			printf "\taio write size = 0\n"
++		fi
++
++		if [ "$ALLOW_LEGACY_PROTOCOLS" -eq 1 ]; then
++			logger -p daemon.info -t 'samba4-server' "Legacy Protocols allowed, don't use this option for secure environments!"
++			printf "\tserver min protocol = NT1\n"
++			printf "\tlanman auth = yes\n"
++			printf "\tntlm auth = ntlmv1-permitted\n"
++		fi
++	} >> "${SAMBA_CONFIG_OUTPUT:-/var/etc/smb.conf}"
++
++	[ -e /etc/samba/smb.conf ] || ln -nsf /var/etc/smb.conf /etc/samba/smb.conf
++
++	if [ ! -L /etc/samba/smb.conf ]; then
++		logger -p daemon.warn -t 'samba4-server' "Local custom /etc/samba/smb.conf file detected, all luci/config settings are ignored!"
++	fi
++}
++
++smb_add_share() {
++	config_get_sane name "$1" name
++	config_get_sane path "$1" path
++	config_get_sane users "$1" users
++	config_get_sane create_mask "$1" create_mask
++	config_get_sane dir_mask "$1" dir_mask
++	config_get_sane browseable "$1" browseable
++	config_get_sane read_only "$1" read_only
++	config_get_sane writeable "$1" writeable
++	config_get_sane guest_ok "$1" guest_ok
++	config_get_sane guest_only "$1" guest_only
++	config_get_sane inherit_owner "$1" inherit_owner
++	config_get_sane vfs_objects "$1" vfs_objects
++	config_get_bool timemachine "$1" timemachine 0
++	config_get_sane timemachine_maxsize "$1" timemachine_maxsize
++	config_get_bool force_root "$1" force_root 0
++	config_get_sane write_list "$1" write_list
++	config_get_sane read_list "$1" read_list
++
++	[ -z "$name" ] || [ -z "$path" ] && return
++
++	{
++		printf "\n[$name]\n\tpath = %s\n" "$path"
++
++		if [ "$force_root" -eq 1 ]; then
++			printf "\tforce user = root\n"
++			printf "\tforce group = root\n"
++		fi
++		[ -n "$users" ] && printf "\tvalid users = %s\n" "$users"
++
++		[ -n "$create_mask" ] && printf "\tcreate mask = %s\n" "$create_mask"
++		[ -n "$dir_mask" ] && printf "\tdirectory mask = %s\n" "$dir_mask"
++
++		[ -n "$browseable" ] && printf "\tbrowseable = %s\n" "$browseable"
++		[ -n "$read_only" ] && printf "\tread only = %s\n" "$read_only"
++		[ -n "$writeable" ] && printf "\twriteable = %s\n" "$writeable"
++		[ -n "$guest_ok" ] && printf "\tguest ok = %s\n" "$guest_ok"
++		[ -n "$guest_only" ] && printf "\tguest only = %s\n" "$guest_only"
++		[ -n "$inherit_owner" ] && printf "\tinherit owner = %s\n" "$inherit_owner"
++
++		[ -n "$write_list" ] && printf "\twrite list = %s\n" "$write_list"
++		[ -n "$read_list" ] && printf "\tread list = %s\n" "$read_list"
++
++		if [ "$MACOS" -eq 1 ]; then
++			vfs_objects="catia fruit streams_xattr $vfs_objects"
++			printf "\tfruit:encoding = native\n"
++			printf "\tfruit:metadata = stream\n"
++			printf "\tfruit:veto_appledouble = no\n"
++			# avoid mixed shares order for aapl
++			if [ "$timemachine" -eq 1 ]; then
++				printf "\tfruit:time machine = yes\n"
++				[ -n "$timemachine_maxsize" ] && printf "\tfruit:time machine max size = %sG\n" "${timemachine_maxsize}"
++			fi
++		fi
++
++		# always enable io_uring if we can ("should" fail silently via samba module load if no kernel support)
++		if [ "$DISABLE_ASYNC_IO" -ne 1 ] && [ -e /usr/lib/samba/vfs/io_uring.so ] ; then
++			logger -p daemon.info -t 'samba4-server' "io_uring module found, enabling VFS io_uring. (also needs Kernel 5.4+ Support)"
++			# make sure its last in list
++			if [ -n "$vfs_objects" ]; then
++				vfs_objects="$vfs_objects io_uring"
++			else
++				vfs_objects="io_uring"
++			fi
++		fi
++
++		[ -n "$vfs_objects" ] && printf "\tvfs objects = %s\n" "$vfs_objects"
++	} >> "${SAMBA_CONFIG_OUTPUT:-/var/etc/smb.conf}"
++}
++
++init_config() {
++	# Create samba dirs
++	[ -d /var/lib/samba ] || mkdir -m 755 -p /var/lib/samba
++	[ -d /var/cache/samba ] || mkdir -m 755 -p /var/cache/samba
++	[ -d /var/lock ] || mkdir -m 755 -p /var/lock
++	[ -d /var/run/samba ] || mkdir -p /var/run/samba
++	[ -d /var/log/samba ] || mkdir -p /var/log/samba
++	chmod 0755 /var/lock
++	chmod 0755 /var/lib/samba
++	chmod 0755 /var/cache/samba
++
++	config_load samba4
++	config_foreach smb_header samba
++	config_foreach smb_add_share sambashare
++}
+diff --git a/net/samba4/files/samba.init b/net/samba4/files/samba.init
+index 468ba553a..2ac3c4251 100644
+--- a/net/samba4/files/samba.init
++++ b/net/samba4/files/samba.init
+@@ -2,177 +2,10 @@
+ 
+ START=98
+ STOP=05
+-USE_PROCD=1
+-
+-SAMBA_IFACE=""
+-
+-config_get_sane() {
+-	config_get "$@"
+-	set -- "$(echo "$1" | tr -d '<>[]{};%?=#\n')"
+-}
+-
+-smb_header() {
+-	config_get_sane SAMBA_IFACE "$1" interface "lan"
+-
+-	# resolve interfaces
+-	interfaces=$(
+-		. /lib/functions/network.sh
+-
+-		for net in $SAMBA_IFACE; do
+-			network_is_up "$net" || continue
+-			network_get_device device "$net"
+-			printf "%s " "${device:-$net}"
+-		done
+-	)
+-
+-	# we dont use netbios anymore as default and wsd/avahi is dns based
+-	hostname="$(sed 's/\..*//' /proc/sys/kernel/hostname | tr -d '{};%?=#\n')"
+-
+-	config_get_sane workgroup "$1" workgroup "WORKGROUP"
+-	config_get_sane description "$1" description "Samba on OpenWrt"
+-	config_get_sane charset "$1" charset "UTF-8"
+-
+-	config_get_bool MACOS "$1" macos 0
+-	config_get_bool DISABLE_NETBIOS "$1" disable_netbios 0
+-	config_get_bool DISABLE_AD_DC "$1" disable_ad_dc 0
+-	config_get_bool DISABLE_WINBIND "$1" disable_winbind 0
+-	config_get_bool DISABLE_ASYNC_IO "$1" disable_async_io 0
+-	config_get_bool ALLOW_LEGACY_PROTOCOLS "$1" allow_legacy_protocols 0
+-	config_get_bool ENABLE_EXTRA_TUNING "$1" enable_extra_tuning 0
+-
+-	mkdir -p /var/etc
+-	sed -e "s#|NAME|#$hostname#g" \
+-	    -e "s#|WORKGROUP|#$workgroup#g" \
+-	    -e "s#|DESCRIPTION|#$description#g" \
+-	    -e "s#|INTERFACES|#$interfaces#g" \
+-	    -e "s#|CHARSET|#$charset#g" \
+-	    /etc/samba/smb.conf.template > /var/etc/smb.conf
+-
+-	{
+-		printf "\n######### Dynamic written config options #########\n"
+-
+-		# extra tuning options by community feedback (kinda try&error)
+-		if [ "$ENABLE_EXTRA_TUNING" -eq 1 ]; then
+-			socket_opt="$(grep -i 'socket options' /etc/samba/smb.conf.template | awk -F'=' '{print $2}' | tr -d '\n')"
+-			[ -n "$socket_opt" ] && printf "\tsocket options =%s SO_KEEPALIVE\n" "$socket_opt" # add keepalive, maybe larger buffer? SO_RCVBUF=65536 SO_SNDBUF=65536
+-
+-			printf "\tmax xmit = 131072\n" # increase smb1 transmit size
+-			printf "\tmin receivefile size = 131072\n" # allows zero-copy writes via fs
+-			printf "\tfake oplocks = Yes\n" # may corrupt files for simultanous writes to the same files by multiple clients, but might also see big speed boost
+-			printf "\tuse sendfile = Yes\n" # enable sendfile?
+-		fi
+-
+-		if [ "$DISABLE_NETBIOS" -eq 1 ] || [ ! -x /usr/sbin/nmbd ]; then
+-			printf "\tdisable netbios = yes\n"
+-			# note: samba opens port 139 even if netbios is disabled via option above, so adjust listening ports
+-			printf "\tsmb ports = 445\n"
+-		fi
+-
+-		if [ "$DISABLE_ASYNC_IO" -eq 1 ]; then
+-			printf "\taio read size = 0\n"
+-			printf "\taio write size = 0\n"
+-		fi
+-
+-		if [ "$ALLOW_LEGACY_PROTOCOLS" -eq 1 ]; then
+-			logger -p daemon.info -t 'samba4-server' "Legacy Protocols allowed, don't use this option for secure environments!"
+-			printf "\tserver min protocol = NT1\n"
+-			printf "\tlanman auth = yes\n"
+-			printf "\tntlm auth = ntlmv1-permitted\n"
+-		fi
+-	} >> /var/etc/smb.conf
+-
+-	[ -e /etc/samba/smb.conf ] || ln -nsf /var/etc/smb.conf /etc/samba/smb.conf
+-
+-	if [ ! -L /etc/samba/smb.conf ]; then
+-		logger -p daemon.warn -t 'samba4-server' "Local custom /etc/samba/smb.conf file detected, all luci/config settings are ignored!"
+-	fi
+-}
+-
+-smb_add_share() {
+-	config_get_sane name "$1" name
+-	config_get_sane path "$1" path
+-	config_get_sane users "$1" users
+-	config_get_sane create_mask "$1" create_mask
+-	config_get_sane dir_mask "$1" dir_mask
+-	config_get_sane browseable "$1" browseable
+-	config_get_sane read_only "$1" read_only
+-	config_get_sane writeable "$1" writeable
+-	config_get_sane guest_ok "$1" guest_ok
+-	config_get_sane guest_only "$1" guest_only
+-	config_get_sane inherit_owner "$1" inherit_owner
+-	config_get_sane vfs_objects "$1" vfs_objects
+-	config_get_bool timemachine "$1" timemachine 0
+-	config_get_sane timemachine_maxsize "$1" timemachine_maxsize
+-	config_get_bool force_root "$1" force_root 0
+-	config_get_sane write_list "$1" write_list
+-	config_get_sane read_list "$1" read_list
+-	
+-	[ -z "$name" ] || [ -z "$path" ] && return
+-
+-	{
+-		printf "\n[$name]\n\tpath = %s\n" "$path"
+-
+-		if [ "$force_root" -eq 1 ]; then
+-			printf "\tforce user = root\n"
+-			printf "\tforce group = root\n"
+-		fi
+-		[ -n "$users" ] && printf "\tvalid users = %s\n" "$users"
+ 
+-		[ -n "$create_mask" ] && printf "\tcreate mask = %s\n" "$create_mask"
+-		[ -n "$dir_mask" ] && printf "\tdirectory mask = %s\n" "$dir_mask"
+ 
+-		[ -n "$browseable" ] && printf "\tbrowseable = %s\n" "$browseable"
+-		[ -n "$read_only" ] && printf "\tread only = %s\n" "$read_only"
+-		[ -n "$writeable" ] && printf "\twriteable = %s\n" "$writeable"
+-		[ -n "$guest_ok" ] && printf "\tguest ok = %s\n" "$guest_ok"
+-		[ -n "$guest_only" ] && printf "\tguest only = %s\n" "$guest_only"
+-		[ -n "$inherit_owner" ] && printf "\tinherit owner = %s\n" "$inherit_owner"
+-
+-		[ -n "$write_list" ] && printf "\twrite list = %s\n" "$write_list"
+-		[ -n "$read_list" ] && printf "\tread list = %s\n" "$read_list"
+-
+-		if [ "$MACOS" -eq 1 ]; then
+-			vfs_objects="catia fruit streams_xattr $vfs_objects"
+-			printf "\tfruit:encoding = native\n"
+-			printf "\tfruit:metadata = stream\n"
+-			printf "\tfruit:veto_appledouble = no\n"
+-			# avoid mixed shares order for aapl
+-			if [ "$timemachine" -eq 1 ]; then
+-				printf "\tfruit:time machine = yes\n"
+-				[ -n "$timemachine_maxsize" ] && printf "\tfruit:time machine max size = %sG\n" "${timemachine_maxsize}"
+-			fi
+-		fi
+-		
+-		# always enable io_uring if we can ("should" fail silently via samba module load if no kernel support)
+-		if [ "$DISABLE_ASYNC_IO" -ne 1 ] && [ -e /usr/lib/samba/vfs/io_uring.so ] ; then
+-			logger -p daemon.info -t 'samba4-server' "io_uring module found, enabling VFS io_uring. (also needs Kernel 5.4+ Support)"
+-			# make sure its last in list
+-			if [ -n "$vfs_objects" ]; then
+-				vfs_objects="$vfs_objects io_uring"
+-			else
+-				vfs_objects="io_uring"
+-			fi
+-		fi
+-
+-		[ -n "$vfs_objects" ] && printf "\tvfs objects = %s\n" "$vfs_objects"
+-	} >> /var/etc/smb.conf
+-}
+-
+-init_config() {
+-	# Create samba dirs
+-	[ -d /var/lib/samba ] || mkdir -m 755 -p /var/lib/samba
+-	[ -d /var/cache/samba ] || mkdir -m 755 -p /var/cache/samba
+-	[ -d /var/lock ] || mkdir -m 755 -p /var/lock
+-	[ -d /var/run/samba ] || mkdir -p /var/run/samba
+-	[ -d /var/log/samba ] || mkdir -p /var/log/samba
+-	chmod 0755 /var/lock
+-	chmod 0755 /var/lib/samba
+-	chmod 0755 /var/cache/samba
+-
+-	config_load samba4
+-	config_foreach smb_header samba
+-	config_foreach smb_add_share sambashare
+-}
++USE_PROCD=1
++. "$IPKG_INSTROOT/usr/libexec/samba4-config.sh"
+ 
+ service_triggers() {
+ 	# PROCD_RELOAD_DELAY=1000
+@@ -197,7 +30,7 @@ start_service() {
+ 	# start main AD-DC daemon, will spawn (smbd,nmbd,winbindd) as needed/configured.
+ 	if [ "$DISABLE_AD_DC" -ne 1 ] && [ -x /usr/sbin/samba ]; then
+ 		procd_open_instance
+-		procd_set_param command /usr/sbin/samba -F
++		procd_set_param command /usr/sbin/samba -F --no-process-group
+ 		procd_set_param nice "$nice_value"
+ 		procd_set_param respawn
+ 		procd_set_param file /etc/samba/smb.conf
+@@ -206,7 +39,7 @@ start_service() {
+ 	else
+ 		# start fileserver daemon
+ 		procd_open_instance
+-		procd_set_param command /usr/sbin/smbd -F
++		procd_set_param command /usr/sbin/smbd -F --no-process-group
+ 		procd_set_param nice "$nice_value"
+ 		procd_set_param respawn
+ 		procd_set_param file /etc/samba/smb.conf
+@@ -216,7 +49,7 @@ start_service() {
+ 		# start netbios daemon
+ 		if [ "$DISABLE_NETBIOS" -ne 1 ] && [ -x /usr/sbin/nmbd ]; then
+ 			procd_open_instance
+-			procd_set_param command /usr/sbin/nmbd -F
++			procd_set_param command /usr/sbin/nmbd -F --no-process-group
+ 			procd_set_param nice "$nice_value"
+ 			procd_set_param respawn
+ 			procd_set_param file /etc/samba/smb.conf
+@@ -225,7 +58,7 @@ start_service() {
+ 		# start winbind daemon
+ 		if [ "$DISABLE_WINBIND" -ne 1 ] && [ -x /usr/sbin/winbindd ]; then
+ 			procd_open_instance
+-			procd_set_param command /usr/sbin/winbindd -F
++			procd_set_param command /usr/sbin/winbindd -F --no-process-group
+ 			procd_set_param nice "$nice_value"
+ 			procd_set_param respawn
+ 			procd_set_param file /etc/samba/smb.conf
+diff --git a/net/samba4/files/samba4-config.path b/net/samba4/files/samba4-config.path
+new file mode 100644
+index 000000000..b4149ebd5
+--- /dev/null
++++ b/net/samba4/files/samba4-config.path
+@@ -0,0 +1,12 @@
++[Unit]
++Description=Watch Samba configuration inputs
++
++[Path]
++PathChanged=/etc/config/samba4
++PathChanged=/etc/config/system
++PathChanged=/etc/config/dhcp
++PathChanged=/etc/samba/smb.conf.template
++Unit=samba4-reconfigure.service
++
++[Install]
++WantedBy=multi-user.target
+diff --git a/net/samba4/files/samba4-native.init b/net/samba4/files/samba4-native.init
+new file mode 100644
+index 000000000..4c502e866
+--- /dev/null
++++ b/net/samba4/files/samba4-native.init
+@@ -0,0 +1,13 @@
++#!/bin/sh
++# OpenWrt native service adapter
++case "$1" in
++	boot|shutdown|depends) exit 0 ;;
++esac
++if [ -n "${IPKG_INSTROOT:-}" ]; then
++	case "$1" in
++		enabled) exec systemctl --root="$IPKG_INSTROOT" is-enabled samba4.service ;;
++		enable|disable) exec systemctl --root="$IPKG_INSTROOT" "$1" samba4.service ;;
++		*) exit 0 ;;
++	esac
++fi
++exec /usr/libexec/samba4-systemd "$@"
+diff --git a/net/samba4/files/samba4-package b/net/samba4/files/samba4-package
+new file mode 100644
+index 000000000..a20d0eb59
+--- /dev/null
++++ b/net/samba4/files/samba4-package
+@@ -0,0 +1,42 @@
++#!/bin/sh
++set -eu
++
++root=${IPKG_INSTROOT:-}
++case "${1:-}" in
++postinst)
++	if [ -n "$root" ]; then
++		# Offline image assembly must not contact the host's service manager.
++		if [ "${PKG_UPGRADE:-0}" != 1 ]; then
++			if [ "$(readlink "$root/etc/systemd/system/samba4.service" 2>/dev/null || :)" != /dev/null ]; then
++				wants=$root/etc/systemd/system/multi-user.target.wants
++				mkdir -p "$wants"
++				if [ ! -e "$wants/samba4.service" ] && [ ! -L "$wants/samba4.service" ]; then
++					ln -s /usr/lib/systemd/system/samba4.service "$wants/samba4.service"
++				fi
++				if [ ! -e "$wants/samba4-config.path" ] && [ ! -L "$wants/samba4-config.path" ]; then
++					ln -s /usr/lib/systemd/system/samba4-config.path "$wants/samba4-config.path"
++				fi
++			fi
++		fi
++		exit 0
++	fi
++	[ -d /run/systemd/system ] || exit 0
++	systemctl daemon-reload
++	for mask in /etc/systemd/system/samba4.service /run/systemd/system/samba4.service; do
++		[ "$(readlink "$mask" 2>/dev/null || :)" != /dev/null ] || exit 0
++	done
++	if [ "${PKG_UPGRADE:-0}" != 1 ]; then
++		systemctl enable samba4.service samba4-config.path
++		systemctl --no-block start samba4.service
++	else
++		systemctl try-restart samba4.service
++	fi
++	;;
++prerm)
++	[ -z "$root" ] && [ -d /run/systemd/system ] || exit 0
++	[ "${PKG_UPGRADE:-0}" != 1 ] || exit 0
++	systemctl stop samba4-config.path samba4-reconfigure.service samba4.service
++	systemctl disable samba4.service samba4-config.path
++	;;
++*) exit 2 ;;
++esac
+diff --git a/net/samba4/files/samba4-reconfigure.service b/net/samba4/files/samba4-reconfigure.service
+new file mode 100644
+index 000000000..fd578b6cd
+--- /dev/null
++++ b/net/samba4/files/samba4-reconfigure.service
+@@ -0,0 +1,10 @@
++[Unit]
++Description=Apply changed Samba configuration
++After=network-online.target
++# File edits must not permanently disable the path watcher.
++StartLimitIntervalSec=0
++
++[Service]
++Type=oneshot
++Slice=nas.slice
++ExecStart=/usr/libexec/samba4-systemd reload
+diff --git a/net/samba4/files/samba4-systemd b/net/samba4/files/samba4-systemd
+new file mode 100644
+index 000000000..b879a5a74
+--- /dev/null
++++ b/net/samba4/files/samba4-systemd
+@@ -0,0 +1,76 @@
++#!/bin/sh
++# Native lifecycle adapter and foreground exec; systemd supervises each daemon.
++. /lib/functions.sh
++. /usr/libexec/samba4-config.sh
++
++load_options() {
++	config_load samba4
++	config_foreach read_options samba
++}
++read_options() {
++	config_get_bool DISABLE_AD_DC "$1" disable_ad_dc 0
++	config_get_bool DISABLE_NETBIOS "$1" disable_netbios 0
++	config_get_bool DISABLE_WINBIND "$1" disable_winbind 0
++}
++match_interface() {
++	local interfaces net
++	config_get interfaces "$1" interface lan
++	for net in $interfaces; do
++		[ "$net" != "$requested_interface" ] || interface_selected=1
++	done
++}
++selected() {
++	load_options
++	if [ "$DISABLE_AD_DC" != 1 ] && [ -x /usr/sbin/samba ]; then
++		[ "$1" = samba ]
++	else
++		case "$1" in
++			smbd) return 0 ;;
++			nmbd) [ "$DISABLE_NETBIOS" != 1 ] && [ -x /usr/sbin/nmbd ] ;;
++			winbindd) [ "$DISABLE_WINBIND" != 1 ] && [ -x /usr/sbin/winbindd ] ;;
++			*) return 1 ;;
++		esac
++	fi
++}
++case "$1" in
++prepare)
++	SAMBA_CONFIG_OUTPUT=/var/etc/smb.conf.new.$$
++	trap 'rm -f "$SAMBA_CONFIG_OUTPUT"' EXIT
++	init_config
++	/usr/bin/testparm -s "$SAMBA_CONFIG_OUTPUT" >/dev/null || exit 1
++	if [ ! -L /etc/samba/smb.conf ]; then
++		/usr/bin/testparm -s /etc/samba/smb.conf >/dev/null || exit 1
++	fi
++	mv -f "$SAMBA_CONFIG_OUTPUT" /var/etc/smb.conf
++	;;
++condition) selected "$2" ;;
++interface)
++	requested_interface=$2
++	interface_selected=0
++	config_load samba4
++	config_foreach match_interface samba
++	[ "$interface_selected" = 1 ]
++	;;
++run)
++	case "$2" in smbd|nmbd|winbindd|samba) ;; *) exit 2 ;; esac
++	load_options
++	config_get nice_value extra samba_nice 0
++	case "$nice_value" in ''|*[!0-9-]*) exit 2 ;; esac
++	exec nice -n "$nice_value" /usr/sbin/"$2" -F --no-process-group
++	;;
++start|stop|restart|status) exec systemctl "$1" samba4.service ;;
++reload)
++	systemctl is-active --quiet samba4.service || exit 0
++	exec systemctl reload samba4.service
++	;;
++reconcile)
++	# Administrative configuration changes get a fresh start budget; automatic
++	# crash recovery still uses the instance's normal rate limit.
++	systemctl reset-failed samba4@smbd.service samba4@nmbd.service samba4@winbindd.service samba4@samba.service || exit 1
++	exec systemctl --no-block restart samba4@smbd.service samba4@nmbd.service samba4@winbindd.service samba4@samba.service
++	;;
++running) exec systemctl is-active --quiet samba4.service ;;
++enable|disable) exec systemctl "$1" samba4.service samba4-config.path ;;
++enabled) exec systemctl is-enabled --quiet samba4.service ;;
++*) exit 2 ;;
++esac
+diff --git a/net/samba4/files/samba4.hotplug b/net/samba4/files/samba4.hotplug
+new file mode 100644
+index 000000000..722ade085
+--- /dev/null
++++ b/net/samba4/files/samba4.hotplug
+@@ -0,0 +1,8 @@
++#!/bin/sh
++[ -d /run/systemd/system ] && [ -f /usr/lib/systemd/system/samba4.service ] || exit 0
++case "$ACTION" in
++	ifup|ifdown|ifupdate)
++		/usr/libexec/samba4-systemd interface "$INTERFACE" || exit 0
++		systemctl --no-block start samba4-reconfigure.service
++		;;
++esac
+diff --git a/net/samba4/files/samba4.service b/net/samba4/files/samba4.service
+new file mode 100644
+index 000000000..f49c1e4b9
+--- /dev/null
++++ b/net/samba4/files/samba4.service
+@@ -0,0 +1,16 @@
++[Unit]
++Description=Samba configuration and daemon group
++After=network-online.target
++Wants=network-online.target samba4-config.path samba4@smbd.service samba4@nmbd.service samba4@winbindd.service samba4@samba.service
++
++[Service]
++Type=oneshot
++RemainAfterExit=yes
++Slice=nas.slice
++ExecStart=/usr/libexec/samba4-systemd prepare
++ExecReload=/usr/libexec/samba4-systemd prepare
++ExecReload=/usr/libexec/samba4-systemd reconcile
++
++[Install]
++WantedBy=multi-user.target
++Also=samba4-config.path
+diff --git a/net/samba4/files/samba4@.service b/net/samba4/files/samba4@.service
+new file mode 100644
+index 000000000..3f5a0505e
+--- /dev/null
++++ b/net/samba4/files/samba4@.service
+@@ -0,0 +1,18 @@
++[Unit]
++Description=Samba %i daemon
++Requires=samba4.service
++After=samba4.service
++PartOf=samba4.service
++StartLimitIntervalSec=60
++StartLimitBurst=5
++
++[Service]
++Type=simple
++Slice=nas.slice
++ExecCondition=/usr/libexec/samba4-systemd condition %i
++ExecStart=/usr/libexec/samba4-systemd run %i
++Restart=on-failure
++RestartSec=5s
++LimitNOFILE=16384
++KillMode=control-group
++TimeoutStopSec=30s
+diff --git a/net/weechat/Makefile b/net/weechat/Makefile
+index e589e5fef..cebe765c9 100644
+--- a/net/weechat/Makefile
++++ b/net/weechat/Makefile
+@@ -63,6 +63,7 @@ define Package/weechat-minimal
+   VARIANT:=minimal
+   DEFAULT_VARIANT:=1
+   PROVIDES:=weechat
++  # Keep the conflict on the default provider, which virtual users select.
+   CONFLICTS:=weechat-full
+ endef
+ 
+diff --git a/net/wsdd2/Makefile b/net/wsdd2/Makefile
+index 7fde40c39..f5279beeb 100644
+--- a/net/wsdd2/Makefile
++++ b/net/wsdd2/Makefile
+@@ -1,7 +1,7 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=wsdd2
+-PKG_RELEASE:=2
++PKG_RELEASE:=7
+ 
+ PKG_SOURCE_PROTO:=git
+ PKG_SOURCE_URL:=https://github.com/Netgear/wsdd2.git
+@@ -14,6 +14,8 @@ PKG_LICENSE_FILES:=COPYING
+ 
+ include $(INCLUDE_DIR)/package.mk
+ 
++PKG_CONFIG_DEPENDS:=CONFIG_OPENWRT_SYSTEMD
++
+ define Package/wsdd2
+   SECTION:=net
+   CATEGORY:=Network
+@@ -36,10 +38,29 @@ define Build/Compile
+ endef
+ 
+ define Package/wsdd2/install
+-	$(INSTALL_DIR) $(1)/usr/bin
++	$(INSTALL_DIR) $(1)/usr/bin $(1)/usr/libexec $(1)/etc/init.d
+ 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/wsdd2 $(1)/usr/bin/
+-	$(INSTALL_DIR) $(1)/etc/init.d
+-	$(INSTALL_BIN) ./files/wsdd2.init $(1)/etc/init.d/wsdd2
++	$(INSTALL_DATA) ./files/wsdd2-config.sh $(1)/usr/libexec/wsdd2-config.sh
++	$(INSTALL_BIN) ./files/$(if $(CONFIG_OPENWRT_SYSTEMD),wsdd2-native.init,wsdd2.init) $(1)/etc/init.d/wsdd2
++	$(if $(CONFIG_OPENWRT_SYSTEMD),$(call Package/wsdd2/install-systemd,$(1)))
++endef
++
++define Package/wsdd2/install-systemd
++	$(INSTALL_DIR) $(1)/usr/lib/systemd/system $(1)/usr/libexec $(1)/etc/hotplug.d/iface
++	$(INSTALL_DATA) ./files/wsdd2.service ./files/wsdd2-config.path \
++		./files/wsdd2-reconfigure.service $(1)/usr/lib/systemd/system/
++	$(INSTALL_BIN) ./files/wsdd2-systemd ./files/wsdd2-package $(1)/usr/libexec/
++	$(INSTALL_DATA) ./files/wsdd2.hotplug $(1)/etc/hotplug.d/iface/65-wsdd2
++endef
++
++define Package/wsdd2/postinst
++#!/bin/sh
++[ ! -x "$${IPKG_INSTROOT}/usr/libexec/wsdd2-package" ] || "$${IPKG_INSTROOT}/usr/libexec/wsdd2-package" postinst
++endef
++
++define Package/wsdd2/prerm
++#!/bin/sh
++[ ! -x "$${IPKG_INSTROOT}/usr/libexec/wsdd2-package" ] || "$${IPKG_INSTROOT}/usr/libexec/wsdd2-package" prerm
+ endef
+ 
+ $(eval $(call BuildPackage,wsdd2))
+diff --git a/net/wsdd2/files/wsdd2-config.path b/net/wsdd2/files/wsdd2-config.path
+new file mode 100644
+index 000000000..225c4a437
+--- /dev/null
++++ b/net/wsdd2/files/wsdd2-config.path
+@@ -0,0 +1,14 @@
++[Unit]
++Description=Watch WSDD2 configuration inputs
++
++[Path]
++PathChanged=/var/etc/smb.conf
++PathChanged=/etc/samba/smb.conf
++PathChanged=/etc/ksmbd/ksmbd.conf
++PathChanged=/etc/config/system
++PathChanged=/etc/config/dhcp
++PathChanged=/etc/config/ksmbd
++Unit=wsdd2-reconfigure.service
++
++[Install]
++WantedBy=multi-user.target
+diff --git a/net/wsdd2/files/wsdd2-config.sh b/net/wsdd2/files/wsdd2-config.sh
+new file mode 100644
+index 000000000..f0092ed81
+--- /dev/null
++++ b/net/wsdd2/files/wsdd2-config.sh
+@@ -0,0 +1,68 @@
++#!/bin/sh
++# Shared SMB/ksmbd discovery and CLI argument helper for wsdd2.
++
++wsdd2_find_conf() {
++	WS_CONF=""
++
++	if [ -e /etc/ksmbd/ksmbd.conf ] && [ -e /etc/init.d/ksmbd ] && /etc/init.d/ksmbd running; then
++		WS_CONF="/etc/ksmbd/ksmbd.conf"
++	fi
++
++	if [ -z "$WS_CONF" ] && [ -e /etc/samba/smb.conf ]; then
++		if [ -z "${IPKG_INSTROOT:-}" ] && [ -d /run/systemd/system ] &&
++		   [ -f /usr/lib/systemd/system/samba4.service ]; then
++			if systemctl is-active --quiet samba4.service; then
++				WS_CONF="/etc/samba/smb.conf"
++			fi
++		elif [ -e /etc/init.d/samba4 ] && /etc/init.d/samba4 running; then
++			WS_CONF="/etc/samba/smb.conf"
++		elif [ -e /etc/init.d/samba ] && /etc/init.d/samba running; then
++			WS_CONF="/etc/samba/smb.conf"
++		fi
++	fi
++
++	[ -n "$WS_CONF" ]
++}
++
++wsdd2_resolve_params() {
++	local smb_conf nb_name nb_option wg_name
++	local board_vendor board_model board_sku
++
++	WS_NB="$(sed 's/\..*//' /proc/sys/kernel/hostname)"
++	WS_WG="WORKGROUP"
++	WS_BI=""
++	WS_IFNAME=""
++
++	smb_conf="$(grep '^[[:blank:]]*[^[:blank:]#;]' "$WS_CONF")"
++
++	nb_name="$(echo "$smb_conf" | grep -i 'netbios name' | awk -F'=' '{print $2}' | tr -d ' \n')"
++	[ -n "$nb_name" ] && WS_NB="$nb_name"
++
++	# use uppercase for none mdns option
++	nb_option="$(echo "$smb_conf" | grep -i 'mdns name' | awk -F'=' '{print $2}' | tr -d ' \n')"
++	[ "$nb_option" != "mdns" ] && WS_NB="$(echo "$WS_NB" | awk '{print toupper($0)}')"
++
++	wg_name="$(echo "$smb_conf" | grep -i 'workgroup' | awk -F'=' '{print $2}' | tr -d ' \n')"
++	[ -n "$wg_name" ] && WS_WG="$wg_name"
++
++	. /lib/functions.sh
++	. /lib/functions/network.sh
++	network_get_device WS_IFNAME lan
++
++	[ -e /tmp/sysinfo/board_name ] && {
++		board_vendor="$(awk -F',' '{print $1}' /tmp/sysinfo/board_name | tr ' ' '_' | tr ',' '-' | tr -d ' \n')"
++		board_sku="$(awk -F',' '{print $2}' /tmp/sysinfo/board_name | tr ' ' '_' | tr ',' '-' | tr -d ' \n')"
++	}
++
++	[ -e /tmp/sysinfo/model ] && {
++		board_model="$(awk -F':' '{print $1}' /tmp/sysinfo/model | tr ' ' '_' | tr ',' '-' | tr -d ' \n')"
++	}
++
++	[ -n "$board_vendor" ] && [ -n "$board_model" ] && {
++		if [ -n "$board_sku" ]; then
++			WS_BI="vendor:$board_vendor,model:$board_model,sku:$board_sku"
++		else
++			WS_BI="vendor:$board_vendor,model:$board_model"
++		fi
++	}
++}
+diff --git a/net/wsdd2/files/wsdd2-native.init b/net/wsdd2/files/wsdd2-native.init
+new file mode 100644
+index 000000000..e8e8b7c10
+--- /dev/null
++++ b/net/wsdd2/files/wsdd2-native.init
+@@ -0,0 +1,13 @@
++#!/bin/sh
++# OpenWrt native service adapter
++case "$1" in
++	boot|shutdown|depends) exit 0 ;;
++esac
++if [ -n "${IPKG_INSTROOT:-}" ]; then
++	case "$1" in
++		enabled) exec systemctl --root="$IPKG_INSTROOT" is-enabled wsdd2.service ;;
++		enable|disable) exec systemctl --root="$IPKG_INSTROOT" "$1" wsdd2.service ;;
++		*) exit 0 ;;
++	esac
++fi
++exec /usr/libexec/wsdd2-systemd "$@"
+diff --git a/net/wsdd2/files/wsdd2-package b/net/wsdd2/files/wsdd2-package
+new file mode 100644
+index 000000000..afc50f33a
+--- /dev/null
++++ b/net/wsdd2/files/wsdd2-package
+@@ -0,0 +1,47 @@
++#!/bin/sh
++set -eu
++
++root=${IPKG_INSTROOT:-}
++case "${1:-}" in
++postinst)
++	if [ -n "$root" ]; then
++		if [ "${PKG_UPGRADE:-0}" != 1 ]; then
++			if [ "$(readlink "$root/etc/systemd/system/wsdd2.service" 2>/dev/null || :)" != /dev/null ]; then
++				wants=$root/etc/systemd/system/multi-user.target.wants
++				samba_wants=$root/etc/systemd/system/samba4.service.wants
++				mkdir -p "$wants" "$samba_wants"
++				if [ ! -e "$wants/wsdd2.service" ] && [ ! -L "$wants/wsdd2.service" ]; then
++					ln -s /usr/lib/systemd/system/wsdd2.service "$wants/wsdd2.service"
++				fi
++				if [ ! -e "$wants/wsdd2-config.path" ] && [ ! -L "$wants/wsdd2-config.path" ]; then
++					ln -s /usr/lib/systemd/system/wsdd2-config.path "$wants/wsdd2-config.path"
++				fi
++				if [ ! -e "$samba_wants/wsdd2.service" ] && [ ! -L "$samba_wants/wsdd2.service" ]; then
++					ln -s /usr/lib/systemd/system/wsdd2.service "$samba_wants/wsdd2.service"
++				fi
++			fi
++		fi
++		exit 0
++	fi
++	[ -d /run/systemd/system ] || exit 0
++	systemctl daemon-reload
++	for mask in /etc/systemd/system/wsdd2.service /run/systemd/system/wsdd2.service; do
++		[ "$(readlink "$mask" 2>/dev/null || :)" != /dev/null ] || exit 0
++	done
++	if [ "${PKG_UPGRADE:-0}" != 1 ]; then
++		systemctl enable wsdd2.service wsdd2-config.path
++		systemctl --no-block start wsdd2.service
++	else
++		systemctl try-restart wsdd2.service
++	fi
++	;;
++prerm)
++	[ -z "$root" ] && [ -d /run/systemd/system ] || exit 0
++	[ "${PKG_UPGRADE:-0}" != 1 ] || exit 0
++	systemctl stop wsdd2-config.path wsdd2-reconfigure.service wsdd2.service
++	systemctl disable wsdd2.service wsdd2-config.path
++	;;
++*)
++	exit 2
++	;;
++esac
+diff --git a/net/wsdd2/files/wsdd2-reconfigure.service b/net/wsdd2/files/wsdd2-reconfigure.service
+new file mode 100644
+index 000000000..dbd13d75e
+--- /dev/null
++++ b/net/wsdd2/files/wsdd2-reconfigure.service
+@@ -0,0 +1,10 @@
++[Unit]
++Description=Apply changed WSDD2 configuration
++After=network-online.target
++# File edits must not permanently disable the path watcher.
++StartLimitIntervalSec=0
++
++[Service]
++Type=oneshot
++Slice=nas.slice
++ExecStart=/usr/libexec/wsdd2-systemd reconcile
+diff --git a/net/wsdd2/files/wsdd2-systemd b/net/wsdd2/files/wsdd2-systemd
+new file mode 100644
+index 000000000..c59d43b13
+--- /dev/null
++++ b/net/wsdd2/files/wsdd2-systemd
+@@ -0,0 +1,53 @@
++#!/bin/sh
++# Native lifecycle adapter and foreground exec; systemd supervises wsdd2.
++. /usr/libexec/wsdd2-config.sh
++
++case "$1" in
++condition)
++	if wsdd2_find_conf; then
++		exit 0
++	fi
++	logger -p daemon.info -t 'wsdd2' "samba36/4 or ksmbd is not running"
++	exit 1
++	;;
++run)
++	wsdd2_find_conf || {
++		logger -p daemon.info -t 'wsdd2' "samba36/4 or ksmbd is not running"
++		exit 1
++	}
++	wsdd2_resolve_params
++	set -- /usr/bin/wsdd2
++	[ -n "$WS_IFNAME" ] && set -- "$@" -i "$WS_IFNAME"
++	set -- "$@" -N "$WS_NB" -G "$WS_WG"
++	[ -z "$WS_BI" ] || set -- "$@" -b "$WS_BI"
++	exec "$@"
++	;;
++start|stop|restart|status)
++	exec systemctl "$1" wsdd2.service
++	;;
++reload)
++	systemctl is-active --quiet wsdd2.service || exit 0
++	systemctl reset-failed wsdd2.service || exit 1
++	exec systemctl restart wsdd2.service
++	;;
++reconcile)
++	systemctl is-active --quiet wsdd2.service || exit 0
++	if wsdd2_find_conf; then
++		systemctl reset-failed wsdd2.service || exit 1
++		exec systemctl --no-block restart wsdd2.service
++	fi
++	exec systemctl --no-block stop wsdd2.service
++	;;
++running)
++	exec systemctl is-active --quiet wsdd2.service
++	;;
++enable|disable)
++	exec systemctl "$1" wsdd2.service wsdd2-config.path
++	;;
++enabled)
++	exec systemctl is-enabled --quiet wsdd2.service
++	;;
++*)
++	exit 2
++	;;
++esac
+diff --git a/net/wsdd2/files/wsdd2.hotplug b/net/wsdd2/files/wsdd2.hotplug
+new file mode 100644
+index 000000000..2145a1296
+--- /dev/null
++++ b/net/wsdd2/files/wsdd2.hotplug
+@@ -0,0 +1,9 @@
++#!/bin/sh
++[ -d /run/systemd/system ] && [ -f /usr/lib/systemd/system/wsdd2.service ] || exit 0
++case "$ACTION" in
++	ifup|ifdown|ifupdate)
++		[ "$INTERFACE" = lan ] || exit 0
++		systemctl is-active --quiet wsdd2.service || exit 0
++		systemctl --no-block start wsdd2-reconfigure.service
++		;;
++esac
+diff --git a/net/wsdd2/files/wsdd2.init b/net/wsdd2/files/wsdd2.init
+index 7b8930e06..fb620b6ec 100644
+--- a/net/wsdd2/files/wsdd2.init
++++ b/net/wsdd2/files/wsdd2.init
+@@ -1,88 +1,30 @@
+ #!/bin/sh /etc/rc.common
+ 
+ START=99
+-USE_PROCD=1
+-
+-SMB_CONF=""
+-BIND_IF_PARM=""
+-NB_PARM="$(sed 's/\..*//' /proc/sys/kernel/hostname)"
+-WG_PARM="WORKGROUP"
+-BI_PARM=""
+ 
+-start_service() {
+ 
+-	. /lib/functions/network.sh
++USE_PROCD=1
++. "$IPKG_INSTROOT/usr/libexec/wsdd2-config.sh"
+ 
++start_service() {
+ 	# needs long delay, otherwise service may not register correctly on stratup/reboot (not sure what the issues is?)
+ 	sleep 5
+ 
+-	if [ -e /etc/ksmbd/ksmbd.conf ] && [ -e /etc/init.d/ksmbd ] && /etc/init.d/ksmbd running; then
+-		SMB_CONF="/etc/ksmbd/ksmbd.conf"
+-	fi
+-
+-	[ -e /etc/samba/smb.conf ] && {
+-		if [ -e /etc/init.d/samba4 ] && /etc/init.d/samba4 running; then
+-			SMB_CONF="/etc/samba/smb.conf"
+-		elif [ -e /etc/init.d/samba ] && /etc/init.d/samba running; then
+-			SMB_CONF="/etc/samba/smb.conf"
+-		fi
+-	}
+-
+-	[ -z "$SMB_CONF" ] && {
++	wsdd2_find_conf || {
+ 		logger -p daemon.info -t 'wsdd2' "samba36/4 or ksmbd is not running"
+ 		return
+ 	}
+-	
+-	# cleanup comments
+-	local smb_conf
+-	smb_conf="$(grep '^[[:blank:]]*[^[:blank:]#;]' $SMB_CONF)"
+-
+-	local nb_name
+-	nb_name="$(echo "$smb_conf" | grep -i 'netbios name' | awk -F'=' '{print $2}' | tr -d ' \n')"
+-	[ -n "$nb_name" ] && NB_PARM="$nb_name"
+-
+-	# use uppercase for none mdns option
+-	local nb_option
+-	nb_option="$(echo "$smb_conf" | grep -i 'mdns name' | awk -F'=' '{print $2}' | tr -d ' \n')"
+-	[ "$nb_option" != "mdns" ] && NB_PARM="$(echo "$nb_name" | awk '{print toupper($0)}')"
+-
+-	local wg_name
+-	wg_name="$(echo "$smb_conf" | grep -i 'workgroup' | awk -F'=' '{print $2}' | tr -d ' \n')"
+-	[ -n "$wg_name" ] && WG_PARM="$wg_name"
+-
+-	# resolve lan interface (BUG: No multi-interface binds atm)
+-	local ifname
+-	network_get_device ifname lan
+-
+-	local board_vendor
+-	local board_model
+-	local board_sku
+-
+-	[ -e /tmp/sysinfo/board_name ] && {
+-		board_vendor="$(awk -F',' '{print $1}' /tmp/sysinfo/board_name | tr ' ' '_' | tr ',' '-' | tr -d ' \n')"
+-		board_sku="$(awk -F',' '{print $2}' /tmp/sysinfo/board_name | tr ' ' '_' | tr ',' '-' |  tr -d ' \n')"
+-	}
+-
+-	[ -e /tmp/sysinfo/model ] && {
+-		board_model="$(awk -F':' '{print $1}' /tmp/sysinfo/model | tr ' ' '_' | tr ',' '-' |  tr -d ' \n')"
+-	}
+ 
+-	[ -n "$board_vendor" ] && [ -n "$board_model" ] && {
+-		if [ -n "$board_sku" ]; then
+-			BI_PARM="vendor:$board_vendor,model:$board_model,sku:$board_sku"
+-		else
+-			BI_PARM="vendor:$board_vendor,model:$board_model"
+-		fi
+-	}
++	wsdd2_resolve_params
+ 
+ 	procd_open_instance
+ 	procd_set_param command /usr/bin/wsdd2
+-	[ -n "$ifname" ] && procd_append_param command -i "$ifname"
+-	procd_append_param command -N "$NB_PARM"
+-	procd_append_param command -G "$WG_PARM"
+-	[ "x${BI_PARM}" = "x" ] || procd_append_param command -b "$BI_PARM"
++	[ -n "$WS_IFNAME" ] && procd_append_param command -i "$WS_IFNAME"
++	procd_append_param command -N "$WS_NB"
++	procd_append_param command -G "$WS_WG"
++	[ -z "$WS_BI" ] || procd_append_param command -b "$WS_BI"
+ 	procd_set_param respawn
+-	procd_set_param file "$SMB_CONF"
++	procd_set_param file "$WS_CONF"
+ 	procd_close_instance
+ }
+ 
+diff --git a/net/wsdd2/files/wsdd2.service b/net/wsdd2/files/wsdd2.service
+new file mode 100644
+index 000000000..08abbae44
+--- /dev/null
++++ b/net/wsdd2/files/wsdd2.service
+@@ -0,0 +1,22 @@
++[Unit]
++Description=Web Services for Devices (WSD) daemon
++After=network-online.target samba4.service samba4@smbd.service samba4@samba.service
++Wants=network-online.target
++PartOf=samba4.service
++StartLimitIntervalSec=60
++StartLimitBurst=5
++
++[Service]
++Type=simple
++Slice=nas.slice
++ExecCondition=/usr/libexec/wsdd2-systemd condition
++ExecStart=/usr/libexec/wsdd2-systemd run
++ExecReload=/bin/kill -HUP $MAINPID
++Restart=on-failure
++RestartSec=5s
++KillMode=control-group
++TimeoutStopSec=30s
++
++[Install]
++WantedBy=multi-user.target samba4.service
++Also=wsdd2-config.path
+diff --git a/sound/pulseaudio/Makefile b/sound/pulseaudio/Makefile
+index 6a33577fe..8920fa65f 100644
+--- a/sound/pulseaudio/Makefile
++++ b/sound/pulseaudio/Makefile
+@@ -10,7 +10,7 @@ include $(TOPDIR)/rules.mk
+ PKG_NAME:=pulseaudio
+ # last release tag reachable from PKG_SOURCE_VERSION
+ PKG_VERSION:=17.0
+-PKG_RELEASE:=5
++PKG_RELEASE:=9
+ 
+ PKG_SOURCE_PROTO:=git
+ PKG_SOURCE_URL:=https://gitlab.freedesktop.org/pulseaudio/pulseaudio.git
+@@ -25,6 +25,10 @@ PKG_LICENSE_FILES:=GPL LICENSE
+ PKG_CPE_ID:=cpe:/a:pulseaudio:pulseaudio
+ 
+ PKG_BUILD_FLAGS:=no-mips16
++PKG_CONFIG_DEPENDS:=CONFIG_PACKAGE_libpulse-mainloop-glib
++ifneq ($(CONFIG_PACKAGE_libpulse-mainloop-glib),)
++PKG_BUILD_DEPENDS+=glib2
++endif
+ 
+ include $(INCLUDE_DIR)/package.mk
+ include $(INCLUDE_DIR)/nls.mk
+@@ -83,12 +87,20 @@ endef
+ define Package/pulseaudio-tools
+   SECTION:=sound
+   CATEGORY:=Sound
+-  DEPENDS:=+libsndfile pulseaudio
++  DEPENDS:=+libsndfile +libpulse
+   TITLE:=Tools for Pulseaudio
+   URL:=https://www.freedesktop.org/wiki/Software/PulseAudio/
+   VARIANT:=noavahi
+ endef
+ 
++define Package/libpulse-mainloop-glib
++  SECTION:=lib
++  CATEGORY:=Libraries
++  DEPENDS:=+libpulse +glib2
++  TITLE:=GLib main loop integration for PulseAudio clients
++  URL:=https://www.freedesktop.org/wiki/Software/PulseAudio/
++endef
++
+ define Package/pulseaudio-profiles
+   SECTION:=sound
+   CATEGORY:=Sound
+@@ -117,7 +129,7 @@ MESON_ARGS += \
+ 	-Dbluez5-ofono-headset=false \
+ 	-Ddbus=enabled \
+ 	-Dfftw=disabled \
+-	-Dglib=disabled \
++	-Dglib=$(if $(CONFIG_PACKAGE_libpulse-mainloop-glib),enabled,disabled) \
+ 	-Dgsettings=disabled \
+ 	-Dgstreamer=disabled \
+ 	-Dgtk=disabled \
+@@ -176,6 +188,14 @@ define Build/InstallDev
+ 	$(SED) 's,/usr/lib,$$$${exec_prefix}/lib,g' $(1)/usr/lib/pkgconfig/libpulse.pc
+ 	$(SED) 's,/usr/include,$$$${prefix}/include,g' $(1)/usr/lib/pkgconfig/libpulse-simple.pc
+ 	$(SED) 's,/usr/lib,$$$${exec_prefix}/lib,g' $(1)/usr/lib/pkgconfig/libpulse-simple.pc
++	if [ -f $(1)/usr/lib/pkgconfig/libpulse-mainloop-glib.pc ]; then \
++		$(SED) 's,/usr/include,$$$${prefix}/include,g;s,/usr/lib,$$$${exec_prefix}/lib,g' $(1)/usr/lib/pkgconfig/libpulse-mainloop-glib.pc; \
++	fi
++	# Cross linkers need a build-time search path for libpulsecommon. Its
++	# runtime location remains /usr/lib/pulseaudio in the client libraries.
++	for pc in $(1)/usr/lib/pkgconfig/libpulse*.pc; do \
++		$(SED) 's|^Libs:.*|& -Wl,-rpath-link,$$$${libdir}/pulseaudio|' $$$$pc; \
++	done
+ 
+ 	$(INSTALL_DIR) $(1)/usr/lib
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/*.so* $(1)/usr/lib/
+@@ -193,6 +213,11 @@ define Package/libpulse/install
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/pulseaudio/libpulsecommon-*.so $(1)/usr/lib/pulseaudio/
+ endef
+ 
++define Package/libpulse-mainloop-glib/install
++	$(INSTALL_DIR) $(1)/usr/lib
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libpulse-mainloop-glib.so.* $(1)/usr/lib/
++endef
++
+ define Package/pulseaudio-daemon/install
+ 	$(INSTALL_DIR) $(1)/usr/bin
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/pulseaudio $(1)/usr/bin/pulseaudio
+@@ -233,6 +258,7 @@ define Package/pulseaudio-profiles/install
+ endef
+ 
+ $(eval $(call BuildPackage,libpulse))
++$(eval $(call BuildPackage,libpulse-mainloop-glib))
+ $(eval $(call BuildPackage,pulseaudio-daemon))
+ $(eval $(call BuildPackage,pulseaudio-daemon-avahi))
+ $(eval $(call BuildPackage,pulseaudio-tools))
+diff --git a/sound/squeezelite/Makefile b/sound/squeezelite/Makefile
+index 4f8542876..ca6503fef 100644
+--- a/sound/squeezelite/Makefile
++++ b/sound/squeezelite/Makefile
+@@ -67,8 +67,10 @@ define Package/squeezelite-custom
+     $(if $(CONFIG_SQUEEZELITE_WMA_ALAC),DEPENDS+=libffmpeg)
+ endef
+ 
++# FFmpeg prerequisites propagate through SQUEEZELITE_WMA_ALAC to the package;
++# guarding these options with the package would close a dependency cycle.
+ define Package/squeezelite-custom/config
+-	if PACKAGE_squeezelite-custom
++	menu "Squeezelite custom configuration"
+ 		config SQUEEZELITE_AAC
+ 		    bool "AAC codec support"
+ 		    help
+@@ -135,7 +137,7 @@ define Package/squeezelite-custom/config
+ 		    help
+ 			WMA and ALAC codec support
+ 		    default n
+-	endif
++	endmenu
+ endef
+ 
+ define Package/squeezelite/description/default
+diff --git a/utils/attendedsysupgrade-common/Makefile b/utils/attendedsysupgrade-common/Makefile
+index c74fa833d..f9f272574 100644
+--- a/utils/attendedsysupgrade-common/Makefile
++++ b/utils/attendedsysupgrade-common/Makefile
+@@ -13,7 +13,7 @@ define Package/attendedsysupgrade-common
+   CATEGORY:=Base system
+   TITLE:=Common files needed by attendedsysupgrade packages
+   MAINTAINER:=Paul Spooren <mail@aparcar.org>
+-  DEPENDS:=+rpcd +rpcd-mod-rpcsys
++  DEPENDS:=@!OPENWRT_SYSTEMD +rpcd +rpcd-mod-rpcsys
+   PKGARCH:=all
+ endef
+ 
+diff --git a/utils/catatonit/Makefile b/utils/catatonit/Makefile
+index 7f2073aad..064de38b5 100644
+--- a/utils/catatonit/Makefile
++++ b/utils/catatonit/Makefile
+@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=catatonit
+ PKG_VERSION:=0.2.1
+-PKG_RELEASE:=1
++PKG_RELEASE:=4
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
+ PKG_SOURCE_URL:=https://codeload.github.com/openSUSE/catatonit/tar.gz/v$(PKG_VERSION)?
+@@ -18,6 +18,11 @@ PKG_LICENSE_FILES:=COPYING
+ 
+ include $(INCLUDE_DIR)/package.mk
+ 
++# Podman bind-mounts catatonit into the empty pod infra container, so it must
++# be static. The glibc toolchain's -static spec omits libgcc_eh, which makes
++# libtool's static probe fail and silently fall back to a dynamic link.
++CONFIGURE_VARS += $(if $(CONFIG_USE_GLIBC),LIBS="-lc -lgcc_eh")
++
+ define Package/catatonit
+   SECTION:=utils
+   CATEGORY:=Utilities
+diff --git a/utils/conmon/Makefile b/utils/conmon/Makefile
+index 65c620bd6..1ee198a21 100644
+--- a/utils/conmon/Makefile
++++ b/utils/conmon/Makefile
+@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=conmon
+ PKG_VERSION:=2.2.1
+-PKG_RELEASE:=2
++PKG_RELEASE:=3
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
+ PKG_SOURCE_URL:=https://github.com/containers/conmon/archive/v$(PKG_VERSION)
+@@ -13,6 +13,7 @@ PKG_LICENSE:=Apache-2.0
+ PKG_LICENSE_FILES:=LICENSE
+ 
+ PKG_BUILD_DEPENDS:=libseccomp
++PKG_CONFIG_DEPENDS:=CONFIG_OPENWRT_SYSTEMD
+ 
+ include $(INCLUDE_DIR)/package.mk
+ include $(INCLUDE_DIR)/nls.mk
+@@ -23,7 +24,7 @@ define Package/conmon
+   CATEGORY:=Utilities
+   TITLE:=Podman conmon
+   URL:=https://podman.io
+-  DEPENDS:=@!arc +glib2 $(INTL_DEPENDS) $(ICONV_DEPENDS)
++  DEPENDS:=@!arc +glib2 +OPENWRT_SYSTEMD:libsystemd $(INTL_DEPENDS) $(ICONV_DEPENDS)
+ endef
+ 
+ define Package/conmon/description
+diff --git a/utils/crun/Makefile b/utils/crun/Makefile
+index 8ff34ec07..38d3c6b13 100644
+--- a/utils/crun/Makefile
++++ b/utils/crun/Makefile
+@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=crun
+ PKG_VERSION:=1.28
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
+ PKG_SOURCE_URL:=https://codeload.github.com/containers/crun/tar.gz/$(PKG_VERSION)?
+@@ -12,6 +12,7 @@ PKG_BUILD_DEPENDS:=argp-standalone
+ PKG_BUILD_PARALLEL:=1
+ PKG_FIXUP:=autoreconf
+ PKG_INSTALL:=1
++PKG_CONFIG_DEPENDS:=CONFIG_OPENWRT_SYSTEMD
+ 
+ PKG_MAINTAINER:=Oskari Rauta <oskari.rauta@gmail.com>
+ PKG_LICENSE:=GPL-2.0-or-later
+@@ -25,7 +26,7 @@ define Package/crun
+   CATEGORY:=Utilities
+   TITLE:=crun
+   URL:=https://github.com/containers/crun
+-  DEPENDS:=@!arc +libseccomp +libcap +libgcrypt +libjson-c
++  DEPENDS:=@!arc +libseccomp +libcap +libgcrypt +libjson-c +OPENWRT_SYSTEMD:libsystemd
+ endef
+ 
+ define Package/crun/description
+@@ -45,7 +46,7 @@ endef
+ $(eval $(call Download,libocispec))
+ 
+ CONFIGURE_ARGS+= \
+-	--disable-systemd \
++	--$(if $(CONFIG_OPENWRT_SYSTEMD),enable,disable)-systemd \
+ 	--enable-caps \
+ 	--enable-dl \
+ 	--enable-seccomp \
+diff --git a/utils/dbus/Makefile b/utils/dbus/Makefile
+index 0e20bb1a0..b2c3c8093 100644
+--- a/utils/dbus/Makefile
++++ b/utils/dbus/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=dbus
+ PKG_VERSION:=1.16.2
+-PKG_RELEASE:=4
++PKG_RELEASE:=11
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://dbus.freedesktop.org/releases/dbus
+@@ -24,7 +24,7 @@ PKG_BUILD_PARALLEL:=1
+ PKG_INSTALL:=1
+ 
+ PKG_CONFIG_DEPENDS:= \
+-	CONFIG_DBUS_VERBOSE
++	CONFIG_DBUS_VERBOSE CONFIG_OPENWRT_SYSTEMD
+ 
+ include $(INCLUDE_DIR)/package.mk
+ include $(INCLUDE_DIR)/meson.mk
+@@ -49,7 +49,7 @@ define Package/libdbus
+ $(call Package/dbus/Default)
+   CATEGORY:=Libraries
+   TITLE+= (library)
+-  DEPENDS:= +libpthread
++  DEPENDS:= +libpthread +OPENWRT_SYSTEMD:libsystemd
+ endef
+ 
+ define Package/libdbus/Description
+@@ -60,7 +60,7 @@ endef
+ define Package/dbus
+ $(call Package/dbus/Default)
+  TITLE+= (daemon)
+- DEPENDS:= +libexpat +libdbus
++ DEPENDS:= +libexpat +libdbus +OPENWRT_SYSTEMD:libsystemd
+ endef
+ 
+ define Package/dbus/Description
+@@ -98,13 +98,13 @@ MESON_ARGS += \
+ 	-Dlibaudit=disabled \
+ 	-Dinotify=enabled \
+ 	-Dkqueue=disabled \
+-	-Dsystemd=disabled \
++	-Dsystemd=$(if $(CONFIG_OPENWRT_SYSTEMD),enabled,disabled) \
+ 	-Dmodular_tests=disabled \
+ 	-Dintrusive_tests=false \
+ 	-Dinstalled_tests=false \
+ 	-Dx11_autolaunch=disabled \
+ 	-Dtools=true \
+-	-Duser_session=false \
++	-Duser_session=$(if $(CONFIG_OPENWRT_SYSTEMD),true,false) \
+ 	-Dmessage_bus=true \
+ 	-Dstats=false
+ 
+@@ -139,15 +139,17 @@ define Package/dbus/install
+ 	$(INSTALL_DIR) $(1)/usr/bin
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/dbus-cleanup-sockets $(1)/usr/bin/
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/dbus-daemon $(1)/usr/bin/
++	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/dbus-run-session $(1)/usr/bin/
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/dbus-launch $(1)/usr/bin/dbus-launch.real
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/dbus-uuidgen $(1)/usr/bin/
+ 	$(INSTALL_BIN) ./files/dbus-launch $(1)/usr/bin/
+ 	$(INSTALL_DIR) $(1)/usr/lib
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/libexec/dbus-daemon-launch-helper $(1)/usr/lib/
+ 	$(INSTALL_DIR) $(1)/etc/init.d
+-	$(INSTALL_BIN) ./files/dbus.init $(1)/etc/init.d/dbus
++	$(INSTALL_BIN) ./files/$(if $(CONFIG_OPENWRT_SYSTEMD),dbus-native.init,dbus.init) $(1)/etc/init.d/dbus
+ 	$(INSTALL_DIR) $(1)/usr/share/dbus-1
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/share/dbus-1 $(1)/usr/share/
++	$(if $(CONFIG_OPENWRT_SYSTEMD),$(SED) 's|/usr/libexec/dbus-daemon-launch-helper|/usr/lib/dbus-daemon-launch-helper|g' $(1)/usr/share/dbus-1/system.conf)
+ 	$(INSTALL_DIR) $(1)/etc/capabilities
+ 	$(INSTALL_DATA) ./files/dbus.json $(1)/etc/capabilities
+ endef
+diff --git a/utils/dbus/files/dbus-native.init b/utils/dbus/files/dbus-native.init
+new file mode 100755
+index 000000000..45b5bb3a4
+--- /dev/null
++++ b/utils/dbus/files/dbus-native.init
+@@ -0,0 +1,18 @@
++#!/bin/sh
++# OpenWrt native service adapter
++case "$1" in
++	boot|stop|shutdown|depends) exit 0 ;;
++esac
++if [ -n "${IPKG_INSTROOT:-}" ]; then
++	case "$1" in
++		enabled) exec systemctl --root="$IPKG_INSTROOT" is-enabled dbus.service ;;
++		enable|disable) exec systemctl --root="$IPKG_INSTROOT" "$1" dbus.service ;;
++		*) exit 0 ;;
++	esac
++fi
++case "$1" in
++	start|restart|reload) exec /usr/bin/systemctl start dbus.service ;;
++	enabled) set -- is-enabled ;;
++	running) set -- is-active ;;
++esac
++exec /usr/bin/systemctl "$1" dbus.service
+diff --git a/utils/dbus/files/dbus.init b/utils/dbus/files/dbus.init
+index afd59c98b..85f88f193 100644
+--- a/utils/dbus/files/dbus.init
++++ b/utils/dbus/files/dbus.init
+@@ -3,6 +3,7 @@
+ 
+ START=60
+ 
++
+ USE_PROCD=1
+ PROG=/usr/bin/dbus-daemon
+ 
+diff --git a/utils/docker-compose/Makefile b/utils/docker-compose/Makefile
+index 375a85b96..1f7501fbc 100644
+--- a/utils/docker-compose/Makefile
++++ b/utils/docker-compose/Makefile
+@@ -29,7 +29,7 @@ define Package/docker-compose
+   CATEGORY:=Utilities
+   TITLE:=Docker Compose
+   URL:=https://github.com/docker/compose
+-  DEPENDS:=$(GO_ARCH_DEPENDS) +docker
++  DEPENDS:=$(GO_ARCH_DEPENDS)
+ endef
+ 
+ define Package/docker-compose/description
+diff --git a/utils/fuse3/Makefile b/utils/fuse3/Makefile
+index 626d10dba..249332d17 100644
+--- a/utils/fuse3/Makefile
++++ b/utils/fuse3/Makefile
+@@ -20,7 +20,7 @@ PKG_BUILD_DIR:=$(BUILD_DIR)/fuse-$(PKG_VERSION)
+ PKG_MAINTAINER:=Alexandru Ardelean <ardeleanalex@gmail.com>
+ PKG_CPE_ID:=cpe:/a:fuse_project:fuse
+ 
+-PKG_CONFIG_DEPENDS:=CONFIG_PACKAGE_fuse3-utils
++PKG_CONFIG_DEPENDS:=CONFIG_PACKAGE_fuse3-utils CONFIG_FUSE3_UTILS_SETUID
+ 
+ include $(INCLUDE_DIR)/package.mk
+ include $(INCLUDE_DIR)/meson.mk
+@@ -71,6 +71,16 @@ $(call Package/fuse3/Default/description)
+  - mount.fuse3
+ endef
+ 
++define Package/fuse3-utils/config
++	config FUSE3_UTILS_SETUID
++		bool "Allow ordinary users to mount FUSE filesystems"
++		depends on PACKAGE_fuse3-utils
++		default n
++		help
++		  Install fusermount3 setuid root. Required by the Flatpak
++		  document portal for ordinary-user file access.
++endef
++
+ MESON_ARGS += \
+ 	-Ddisable-mtab=true \
+ 	-Dudevrulesdir=/dev/null \
+@@ -95,6 +105,7 @@ endef
+ define Package/fuse3-utils/install
+ 	$(INSTALL_DIR) $(1)/usr/bin
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/bin/fusermount3 $(1)/usr/bin/
++	$(if $(CONFIG_FUSE3_UTILS_SETUID),chmod 4755 $(1)/usr/bin/fusermount3)
+ 	$(INSTALL_DIR) $(1)/usr/sbin
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/sbin/mount.fuse3 $(1)/usr/sbin/
+ endef
+diff --git a/utils/gnupg2/Makefile b/utils/gnupg2/Makefile
+index 80538dcef..f11166ad9 100644
+--- a/utils/gnupg2/Makefile
++++ b/utils/gnupg2/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=gnupg
+ PKG_VERSION:=2.5.21
+-PKG_RELEASE:=2
++PKG_RELEASE:=4
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.bz2
+ PKG_SOURCE_URL:=https://gnupg.org/ftp/gcrypt/gnupg
+@@ -59,7 +59,7 @@ endef
+ 
+ define Package/gnupg2-utils
+   $(call Package/gnupg2/Default)
+-  DEPENDS:=gnupg2 +libcurl
++  DEPENDS:=+gnupg2 +libcurl
+   TITLE:=Key management utilities for GnuPG (version 2)
+   PROVIDES:=gnupg-utils
+ endef
+@@ -110,7 +110,8 @@ CONFIGURE_ARGS += \
+ 	--disable-tests \
+ 	--disable-zip
+ 
+-TARGET_CFLAGS += $(if $(filter-out 5 6 7 8 9,$(word 1,$(subst ., ,$(call qstrip,$(CONFIG_GCC_VERSION))))),-DEXTERN_UNLESS_MAIN_MODULE=static)
++# GnuPG 2.5 defines globals in its main modules and uses extern elsewhere.
++# Overriding this macro with static splits parsed options between objects.
+ 
+ define Package/gnupg2/install
+ 	$(INSTALL_DIR) $(1)/usr/bin
+@@ -129,6 +130,7 @@ endef
+ 
+ define Package/gnupg2-utils/install
+ 	$(INSTALL_DIR) $(1)/usr/bin $(1)/usr/sbin
++	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/gpgconf $(1)/usr/bin
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/gpgtar $(1)/usr/bin
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/kbxutil $(1)/usr/bin
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/gpg-wks-server $(1)/usr/bin
+diff --git a/utils/irqbalance/Makefile b/utils/irqbalance/Makefile
+index 558f51b59..a216dcd2a 100644
+--- a/utils/irqbalance/Makefile
++++ b/utils/irqbalance/Makefile
+@@ -6,7 +6,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=irqbalance
+ PKG_VERSION:=1.9.5
+-PKG_RELEASE:=1
++PKG_RELEASE:=4
+ 
+ PKG_SOURCE_PROTO:=git
+ PKG_SOURCE_URL:=https://github.com/Irqbalance/irqbalance.git
+diff --git a/utils/irqbalance/files/irqbalance.config b/utils/irqbalance/files/irqbalance.config
+index 967b14d9a..c89920769 100644
+--- a/utils/irqbalance/files/irqbalance.config
++++ b/utils/irqbalance/files/irqbalance.config
+@@ -15,3 +15,7 @@ config irqbalance 'irqbalance'
+ 	#list banirq '36'
+ 	#list banirq '69'
+ 
++
++	# Optional PCI network-interface CPU pools (shell wildcard + CPU list).
++	# Rules are intersected when more than one matches. Unmatched IRQs are unchanged.
++	#list netdev_cpus 'enp*:0-3,8-11'
+diff --git a/utils/irqbalance/files/irqbalance.init b/utils/irqbalance/files/irqbalance.init
+index 05145ca8b..f18ada52f 100644
+--- a/utils/irqbalance/files/irqbalance.init
++++ b/utils/irqbalance/files/irqbalance.init
+@@ -39,6 +39,13 @@ start_service() {
+ 	}
+ 	config_list_foreach irqbalance banirq handle_banirq_value
+ 
++	# Optional per-netdev CPU pools; each list entry is one daemon argument.
++	handle_netdev_cpus_value()
++	{
++		procd_append_param command --netdev-cpus "$1"
++	}
++	config_list_foreach irqbalance netdev_cpus handle_netdev_cpus_value
++
+ 	# debug
+ 	if [ "$debug" -gt 0 ]; then
+ 		procd_append_param command -d
+diff --git a/utils/irqbalance/patches/030-netdev-cpu-pools.patch b/utils/irqbalance/patches/030-netdev-cpu-pools.patch
+new file mode 100644
+index 000000000..1cda947cd
+--- /dev/null
++++ b/utils/irqbalance/patches/030-netdev-cpu-pools.patch
+@@ -0,0 +1,346 @@
++From: OpenWrt local integration
++Subject: [PATCH] irqbalance: add per-network-device CPU pools
++
++Keep matching device IRQs within a configurable CPU list while retaining
++load-based placement and leaving unrelated IRQ policies unchanged.
++
++---
++--- a/Makefile.am
+++++ b/Makefile.am
++@@ -45,7 +45,7 @@ irqbalance_LDFLAGS = -Wl,-Bstatic
++ endif
++ 
++ irqbalance_SOURCES = activate.c bitmap.c classify.c cputree.c irqbalance.c \
++-	irqlist.c numa.c placement.c procinterrupts.c
+++	irqlist.c numa.c netdev.c placement.c procinterrupts.c
++ if THERMAL
++ irqbalance_SOURCES += thermal.c
++ endif
++--- a/activate.c
+++++ b/activate.c
++@@ -64,6 +64,9 @@ static void activate_mapping(struct irq_
++ 
++ 	/* activate only online cpus, otherwise writing to procfs returns EOVERFLOW */
++ 	cpus_and(applied_mask, cpu_online_map, info->assigned_obj->mask);
+++	restrict_irq_cpu_mask(info, &applied_mask);
+++	if ((info->flags & IRQ_FLAG_CPUSET) && cpus_empty(applied_mask))
+++		return; /* Keep pending; never write an empty or out-of-pool mask. */
++ 
++ 	/*
++  	 * Don't activate anything for which we have an invalid mask 
++--- a/classify.c
+++++ b/classify.c
++@@ -384,6 +384,7 @@ get_numa_node:
++ 		process_one_line(path, get_mask_from_bitmap, &new->cpumask);
++ 	}
++ 
+++	apply_netdev_cpu_rules(new, devpath);
++ 	log(TO_CONSOLE, LOG_INFO, "Adding IRQ %d to database\n", irq);
++ 	return new;
++ }
++@@ -593,8 +594,10 @@ static void add_new_irq(char *path, stru
++ 	int ret;
++ 
++ 	new = get_irq_info(irq);
++-	if (new)
+++	if (new) {
+++		apply_netdev_cpu_rules(new, path);
++ 		return;
+++	}
++ 
++ 	if (path) {
++ 		sprintf(buf, "%s/driver", path);
++@@ -703,6 +706,7 @@ void free_irq_db(void)
++ 
++ void free_cl_opts(void)
++ {
+++	free_netdev_cpu_rules();
++ 	g_list_free_full(cl_banned_modules, free);
++ 	g_list_free_full(cl_banned_irqs, free);
++ }
++--- a/irqbalance.1
+++++ b/irqbalance.1
++@@ -88,6 +88,20 @@ to see balancing as unnecessary.
++ The default value for deepestcache is 2.
++ 
++ .TP
+++.B -N, --netdev-cpus=<interface-pattern:cpulist>
+++Restrict IRQs of matching PCI network interfaces to the specified CPU list,
+++while continuing automatic load balancing within that pool. Interface patterns
+++use shell wildcard syntax and should be quoted. The option is repeatable;
+++all matching rules (including interfaces sharing an IRQ) are intersected.
+++Online CPUs and global CPU bans further restrict the pool. Nonmatching IRQs
+++retain their normal policy. For example:
+++.B --netdev-cpus='enp*:0-3,8-11'
+++No IRQ numbers or CPU pools are built in. An empty effective pool is reported;
+++irqbalance leaves the current affinity unchanged rather than violating the
+++pool. Explicitly banned or unmanaged IRQs remain unmanaged. New PCI IRQs and
+++CPU hotplug use the rules; request SIGHUP after an interface rename or if
+++the netdev appears after its IRQ was initially discovered.
+++.TP
++ .B -l, --policyscript=<script>
++ When specified, the referenced script or directory will execute once for each discovered IRQ,
++ with the sysfs device path and IRQ number passed as arguments.  Note that the
++--- a/irqbalance.c
+++++ b/irqbalance.c
++@@ -89,6 +89,7 @@ struct option lopts[] = {
++ 	{"interval", 1 , NULL, 't'},
++ 	{"version", 0, NULL, 'V'},
++ 	{"migrateval", 1, NULL, 'e'},
+++	{"netdev-cpus", 1, NULL, 'N'},
++ 	{0, 0, 0, 0}
++ };
++ 
++@@ -97,6 +98,8 @@ static void usage(void)
++ 	log(TO_CONSOLE, LOG_INFO, "irqbalance [--oneshot | -o] [--debug | -d] [--foreground | -f] [--journal | -j]\n");
++ 	log(TO_CONSOLE, LOG_INFO, "	[--powerthresh= | -p <off> | <n>] [--banirq= | -i <n>] [--banmod= | -m <module>] [--policyscript= | -l <script>]\n");
++ 	log(TO_CONSOLE, LOG_INFO, "	[--pid= | -s <file>] [--deepestcache= | -c <n>] [--interval= | -t <n>] [--migrateval= | -e <n>]\n");
+++	log(TO_CONSOLE, LOG_INFO,
+++	    "\t[--netdev-cpus= | -N <interface-pattern:cpulist>] (repeatable)\n");
++ }
++ 
++ static void version(void)
++@@ -112,7 +115,7 @@ static void parse_command_line(int argc,
++ 	char *endptr;
++ 
++ 	while ((opt = getopt_long(argc, argv,
++-		"odfjVi:p:s:c:l:m:t:e:",
+++		"odfjVi:p:s:c:l:m:t:e:N:",
++ 		lopts, &longind)) != -1) {
++ 
++ 		switch(opt) {
++@@ -150,6 +153,13 @@ static void parse_command_line(int argc,
++ 				free(polscript);
++ 				polscript = strdup(optarg);
++ 				break;
+++			case 'N':
+++				if (add_netdev_cpu_rule(optarg)) {
+++					log(TO_CONSOLE, LOG_ERR,
+++					    "Invalid netdev CPU rule: %s\n", optarg);
+++					exit(1);
+++				}
+++				break;
++ 			case 'm':
++ 				add_cl_banned_module(optarg);
++ 				break;
++--- a/irqbalance.h
+++++ b/irqbalance.h
++@@ -110,6 +110,11 @@ extern void for_each_irq(GList *list, vo
++ extern struct irq_info *get_irq_info(int irq);
++ extern void migrate_irq(GList **from, GList **to, struct irq_info *info);
++ extern void free_cl_opts(void);
+++int add_netdev_cpu_rule(const char *arg);
+++void free_netdev_cpu_rules(void);
+++void apply_netdev_cpu_rules(struct irq_info *info, const char *devpath);
+++void restrict_irq_cpu_mask(struct irq_info *info, cpumask_t *mask);
+++int irq_object_allowed(struct irq_info *info, cpumask_t *mask);
++ extern void add_cl_banned_module(char *modname);
++ #define irq_numa_node(irq) ((irq)->numa_node)
++ 
++--- a/meson.build
+++++ b/meson.build
++@@ -56,6 +56,7 @@ irqbalance_sources = files(
++   'irqbalance.c',
++   'irqlist.c',
++   'numa.c',
+++  'netdev.c',
++   'placement.c',
++   'procinterrupts.c',
++ )
++--- /dev/null
+++++ b/netdev.c
++@@ -0,0 +1,138 @@
+++// SPDX-License-Identifier: GPL-2.0-or-later
+++#include <errno.h>
+++#include <fnmatch.h>
+++#include <stdlib.h>
+++#include <string.h>
+++
+++#include "irqbalance.h"
+++
+++struct netdev_cpu_rule {
+++	char *pattern;
+++	cpumask_t cpus;
+++};
+++
+++static GList *netdev_cpu_rules;
+++
+++static int parse_netdev_cpus(const char *text, cpumask_t *mask)
+++{
+++	char *end;
+++	unsigned long first, last, cpu;
+++
+++	cpus_clear(*mask);
+++	for (;;) {
+++		if (!g_ascii_isdigit(*text))
+++			return -EINVAL;
+++		errno = 0;
+++		first = strtoul(text, &end, 10);
+++		if (errno || first >= NR_CPUS)
+++			return -EINVAL;
+++		last = first;
+++		if (*end == '-') {
+++			text = end + 1;
+++			if (!g_ascii_isdigit(*text))
+++				return -EINVAL;
+++			errno = 0;
+++			last = strtoul(text, &end, 10);
+++			if (errno || last >= NR_CPUS || last < first)
+++				return -EINVAL;
+++		}
+++		for (cpu = first; cpu <= last; cpu++)
+++			cpu_set(cpu, *mask);
+++		if (!*end)
+++			return 0;
+++		if (*end != ',' || !end[1])
+++			return -EINVAL;
+++		text = end + 1;
+++	}
+++}
+++
+++int add_netdev_cpu_rule(const char *arg)
+++{
+++	const char *sep = strchr(arg, ':');
+++	struct netdev_cpu_rule *rule;
+++
+++	if (!sep || sep == arg || !sep[1] ||
+++	    strspn(sep + 1, "0123456789,-") != strlen(sep + 1))
+++		return -EINVAL;
+++	rule = calloc(1, sizeof(*rule));
+++	if (!rule)
+++		return -ENOMEM;
+++	rule->pattern = strndup(arg, sep - arg);
+++	if (!rule->pattern) {
+++		free(rule);
+++		return -ENOMEM;
+++	}
+++	if (parse_netdev_cpus(sep + 1, &rule->cpus) ||
+++	    cpus_empty(rule->cpus)) {
+++		free(rule->pattern);
+++		free(rule);
+++		return -EINVAL;
+++	}
+++	netdev_cpu_rules = g_list_append(netdev_cpu_rules, rule);
+++	return 0;
+++}
+++
+++static void free_netdev_cpu_rule(gpointer data)
+++{
+++	struct netdev_cpu_rule *rule = data;
+++
+++	free(rule->pattern);
+++	free(rule);
+++}
+++
+++void free_netdev_cpu_rules(void)
+++{
+++	g_list_free_full(netdev_cpu_rules, free_netdev_cpu_rule);
+++	netdev_cpu_rules = NULL;
+++}
+++
+++/* Match sysfs netdevs, not /proc/interrupts labels or fixed IRQ numbers. */
+++void apply_netdev_cpu_rules(struct irq_info *info, const char *devpath)
+++{
+++	char *path;
+++	const char *name;
+++	GDir *dir;
+++	GList *entry;
+++
+++	if (!netdev_cpu_rules || !devpath || (info->flags & IRQ_FLAG_BANNED))
+++		return;
+++	path = g_build_filename(devpath, "net", NULL);
+++	dir = g_dir_open(path, 0, NULL);
+++	g_free(path);
+++	if (!dir)
+++		return;
+++	while ((name = g_dir_read_name(dir))) {
+++		for (entry = netdev_cpu_rules; entry; entry = entry->next) {
+++			struct netdev_cpu_rule *rule = entry->data;
+++
+++			if (fnmatch(rule->pattern, name, 0))
+++				continue;
+++			if (!(info->flags & IRQ_FLAG_CPUSET))
+++				cpus_setall(info->allowed_cpus);
+++			/* Multiple matching rules/devices restrict, never expand. */
+++			cpus_and(info->allowed_cpus, info->allowed_cpus, rule->cpus);
+++			info->flags |= IRQ_FLAG_CPUSET;
+++		}
+++	}
+++	g_dir_close(dir);
+++}
+++
+++/* Apply the per-IRQ pool after online filtering, respecting global bans. */
+++void restrict_irq_cpu_mask(struct irq_info *info, cpumask_t *mask)
+++{
+++	if (!(info->flags & IRQ_FLAG_CPUSET))
+++		return;
+++	cpus_and(*mask, *mask, info->allowed_cpus);
+++	cpus_and(*mask, *mask, unbanned_cpus);
+++}
+++
+++int irq_object_allowed(struct irq_info *info, cpumask_t *object_mask)
+++{
+++	cpumask_t mask;
+++
+++	if (!(info->flags & IRQ_FLAG_CPUSET))
+++		return 1;
+++	cpus_and(mask, *object_mask, cpu_online_map);
+++	restrict_irq_cpu_mask(info, &mask);
+++	return !cpus_empty(mask);
+++}
++--- a/placement.c
+++++ b/placement.c
++@@ -56,6 +56,9 @@ static void find_best_object(struct topo
++ 	    (!cpus_intersects(d->mask, unbanned_cpus)))
++ 		return;
++ 
+++	if (!irq_object_allowed(best->info, &d->mask))
+++		return;
+++
++ 	if (d->powersave_mode)
++ 		return;
++ 
++@@ -126,12 +129,23 @@ static void place_irq_in_node(struct irq
++ 	if ((info->level == BALANCE_NONE) && cpus_empty(banned_cpus))
++ 		return;
++ 
+++	if (!irq_object_allowed(info, &cpu_online_map)) {
+++		if (!(info->flags & IRQ_FLAG_CPUSET_WARNED))
+++			log(TO_ALL, LOG_WARNING,
+++			    "IRQ %d: no online CPU in netdev pool after global bans; "
+++			    "affinity unchanged\n", info->irq);
+++		info->flags |= IRQ_FLAG_CPUSET_WARNED;
+++		return;
+++	}
+++	info->flags &= ~IRQ_FLAG_CPUSET_WARNED;
+++
++ 	if (irq_numa_node(info)->number != NUMA_NO_NODE || !numa_avail) {
++ 		/*
++ 		 * Need to make sure this node is elligible for migration
++ 		 * given the banned cpu list
++ 		 */
++-		if (!cpus_intersects(irq_numa_node(info)->mask, unbanned_cpus)) {
+++		if (!cpus_intersects(irq_numa_node(info)->mask, unbanned_cpus) ||
+++		    !irq_object_allowed(info, &irq_numa_node(info)->mask)) {
++ 			log(TO_CONSOLE, LOG_WARNING, "There is no suitable CPU in node:%d.\n", irq_numa_node(info)->number);
++ 			log(TO_CONSOLE, LOG_WARNING, "Irqbalance dispatch irq:%d to other node.\n", info->irq);
++ 			goto find_placement;
++--- a/types.h
+++++ b/types.h
++@@ -35,6 +35,8 @@
++  * IRQ Internal tracking flags
++  */
++ #define IRQ_FLAG_BANNED                 (1ULL << 0)
+++#define IRQ_FLAG_CPUSET                 (1ULL << 1)
+++#define IRQ_FLAG_CPUSET_WARNED          (1ULL << 2)
++ 
++ enum obj_type_e {
++ 	OBJ_TYPE_CPU,
++@@ -67,6 +69,7 @@ struct irq_info {
++ 	int flags;
++ 	struct topo_obj *numa_node;
++ 	cpumask_t cpumask;
+++	cpumask_t allowed_cpus;
++ 	uint64_t irq_count;
++ 	uint64_t last_irq_count;
++ 	uint64_t load;
+diff --git a/utils/owut/Makefile b/utils/owut/Makefile
+index 74037bf1f..f1369e900 100644
+--- a/utils/owut/Makefile
++++ b/utils/owut/Makefile
+@@ -24,7 +24,7 @@ define Package/owut
+   CATEGORY:=Utilities
+   TITLE:=owut - an OpenWrt Upgrade Tool
+   URL:=https://github.com/efahl/owut
+-  DEPENDS:=+attendedsysupgrade-common \
++  DEPENDS:=@!OPENWRT_SYSTEMD +attendedsysupgrade-common \
+     +rpcd-mod-file \
+     +ucode +ucode-mod-fs +ucode-mod-ubus \
+     +ucode-mod-uci +ucode-mod-uclient +ucode-mod-uloop
+diff --git a/utils/podman/Makefile b/utils/podman/Makefile
+index cc75f885e..49c3dd3d5 100644
+--- a/utils/podman/Makefile
++++ b/utils/podman/Makefile
+@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=podman
+ PKG_VERSION:=6.1.2
+-PKG_RELEASE:=1
++PKG_RELEASE:=5
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
+ PKG_SOURCE_URL:=https://github.com/podman-container-tools/podman/archive/v$(PKG_VERSION)
+@@ -17,6 +17,7 @@ PKG_BUILD_DEPENDS:=golang/host protobuf/host btrfs-progs
+ PKG_BUILD_PARALLEL:=1
+ PKG_BUILD_FLAGS:=no-mips16
+ PKG_INSTALL:=1
++PKG_CONFIG_DEPENDS:=CONFIG_OPENWRT_SYSTEMD
+ 
+ include $(INCLUDE_DIR)/package.mk
+ include ../../lang/golang/golang-package.mk
+@@ -35,7 +36,9 @@ define Package/podman
+   URL:=https://podman.io
+   DEPENDS:=$(GO_ARCH_DEPENDS) +conmon +libgpgme +libseccomp +nsenter \
+ 	+zoneinfo-simple +kmod-veth +passt +netavark +aardvark-dns \
+-	+catatonit +crun +PODMAN_SELINUX_SUPPORT:libselinux
++	+catatonit +crun +OPENWRT_SYSTEMD:libsystemd +kmod-tun \
++	+shadow-newuidmap +shadow-newgidmap \
++	+PODMAN_SELINUX_SUPPORT:libselinux
+ endef
+ 
+ define Package/podman/description
+@@ -61,6 +64,9 @@ define Package/podman/conffiles
+ endef
+ 
+ GO_PKG_TAGS:=seccomp exclude_graphdriver_devicemapper apparmor
++ifeq ($(CONFIG_OPENWRT_SYSTEMD),y)
++  GO_PKG_TAGS+= systemd
++endif
+ ifdef CONFIG_PODMAN_SELINUX_SUPPORT
+   GO_PKG_TAGS+= selinux
+ endif
+@@ -74,7 +80,7 @@ MAKE_VARS += \
+ 	PREFIX=/usr \
+ 	LIBEXECDIR=/usr/lib \
+ 	LIBEXECPODMAN=/usr/lib/podman \
+-	TMPFILESDIR=/var/run/podman \
++	TMPFILESDIR=/usr/lib/tmpfiles.d \
+ 	BUILDTAGS="$(GO_PKG_TAGS)"
+ 
+ define Build/Prepare
+@@ -87,7 +93,7 @@ define Build/Compile
+ endef
+ 
+ define Build/Install
+-	$(call Build/Compile/Default,install.bin)
++	$(call Build/Compile/Default,install.bin $(if $(CONFIG_OPENWRT_SYSTEMD),install.systemd))
+ endef
+ 
+ ifneq ($(CONFIG_USE_MUSL),)
+@@ -105,15 +111,71 @@ define Package/podman/install
+ 	$(INSTALL_DATA) ./files/default-registries.conf $(1)/etc/containers/registries.conf
+ 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/vendor/go.podman.io/storage/storage.conf $(1)/etc/containers/storage.conf
+ 	$(INSTALL_DATA) ./files/containers.conf $(1)/etc/containers/containers.conf
++ifeq ($(CONFIG_OPENWRT_SYSTEMD),y)
++	$(SED) 's/default_rootless_network_cmd = "slirp4netns"/default_rootless_network_cmd = "pasta"/' $(1)/etc/containers/containers.conf
++	$(INSTALL_DIR) $(1)/usr/lib/systemd/system $(1)/usr/lib/systemd/user
++	$(INSTALL_DATA) \
++		$(PKG_INSTALL_DIR)/usr/lib/systemd/system/podman.service \
++		$(PKG_INSTALL_DIR)/usr/lib/systemd/system/podman.socket \
++		$(PKG_INSTALL_DIR)/usr/lib/systemd/system/podman-restart.service \
++		$(PKG_INSTALL_DIR)/usr/lib/systemd/system/podman-auto-update.service \
++		$(PKG_INSTALL_DIR)/usr/lib/systemd/system/podman-auto-update.timer \
++		$(PKG_INSTALL_DIR)/usr/lib/systemd/system/podman-kube@.service \
++		$(PKG_INSTALL_DIR)/usr/lib/systemd/system/podman-clean-transient.service \
++		$(1)/usr/lib/systemd/system/
++	$(INSTALL_DATA) \
++		$(PKG_INSTALL_DIR)/usr/lib/systemd/user/podman.service \
++		$(PKG_INSTALL_DIR)/usr/lib/systemd/user/podman.socket \
++		$(PKG_INSTALL_DIR)/usr/lib/systemd/user/podman-restart.service \
++		$(PKG_INSTALL_DIR)/usr/lib/systemd/user/podman-auto-update.service \
++		$(PKG_INSTALL_DIR)/usr/lib/systemd/user/podman-auto-update.timer \
++		$(PKG_INSTALL_DIR)/usr/lib/systemd/user/podman-kube@.service \
++		$(PKG_INSTALL_DIR)/usr/lib/systemd/user/podman-clean-transient.service \
++		$(PKG_INSTALL_DIR)/usr/lib/systemd/user/podman-user-wait-network-online.service \
++		$(1)/usr/lib/systemd/user/
++	$(INSTALL_DIR) $(1)/usr/lib/systemd/system-generators \
++		$(1)/usr/lib/systemd/user-generators $(1)/usr/lib/tmpfiles.d
++	$(LN) ../../podman/quadlet \
++		$(1)/usr/lib/systemd/system-generators/podman-system-generator
++	$(LN) ../../podman/quadlet \
++		$(1)/usr/lib/systemd/user-generators/podman-user-generator
++	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/lib/tmpfiles.d/podman.conf \
++		$(1)/usr/lib/tmpfiles.d/podman.conf
++	$(INSTALL_DIR) $(1)/usr/lib/systemd/user/sockets.target.wants \
++		$(1)/usr/lib/systemd/user/default.target.wants \
++		$(1)/usr/lib/systemd/user/timers.target.wants
++	$(LN) ../podman.socket \
++		$(1)/usr/lib/systemd/user/sockets.target.wants/podman.socket
++	$(LN) ../podman-restart.service \
++		$(1)/usr/lib/systemd/user/default.target.wants/podman-restart.service
++	$(LN) ../podman-auto-update.timer \
++		$(1)/usr/lib/systemd/user/timers.target.wants/podman-auto-update.timer
++endif
+ 	$(INSTALL_DIR) $(1)/etc/containers/networks
+ 	$(INSTALL_CONF) ./files/podman.json $(1)/etc/containers/networks
+ 	$(INSTALL_DIR) $(1)/usr/share/containers
+ 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/vendor/go.podman.io/common/pkg/seccomp/seccomp.json $(1)/usr/share/containers/
+ 	$(INSTALL_DIR) $(1)/etc/init.d
+-	$(INSTALL_BIN) ./files/podman.init $(1)/etc/init.d/podman
++	$(INSTALL_BIN) ./files/$(if $(CONFIG_OPENWRT_SYSTEMD),podman-native.init,podman.init) $(1)/etc/init.d/podman
+ 	$(INSTALL_DIR) $(1)/etc/uci-defaults
+ 	$(INSTALL_BIN) ./files/podman.defaults $(1)/etc/uci-defaults/90-podman
+ 	$(SED) 's/driver = \"\"/driver = \"overlay\"/g' $(1)/etc/containers/storage.conf
+ endef
+ 
++define Package/podman/postinst
++#!/bin/sh
++[ -n "$$IPKG_INSTROOT" ] && exit 0
++[ "$${PKG_UPGRADE:-0}" = "1" ] || exit 0
++conf=/etc/containers/containers.conf
++[ -f "$$conf" ] || exit 0
++# Drop only the values injected by older packages; Podman now selects the
++# backend at runtime (systemd boot: systemd cgroups + journald; procd: cgroupfs
++# + file events). User-added values with other formatting are left untouched.
++sed -i -e '/^events_logger = "none"$$/d' \
++	-e '/^cgroup_manager = "systemd"$$/d' \
++	-e '/^cgroup_manager = "cgroupfs"$$/d' "$$conf"
++$(if $(CONFIG_OPENWRT_SYSTEMD),sed -i -e 's/^default_rootless_network_cmd = "slirp4netns"$$/default_rootless_network_cmd = "pasta"/' -e '/^network_cmd_path = "\/usr\/bin\/slirp4netns"$$/d' "$$conf")
++exit 0
++endef
++
+ $(eval $(call BuildPackage,podman))
+diff --git a/utils/podman/files/containers.conf b/utils/podman/files/containers.conf
+index cfd2c4483..535490269 100644
+--- a/utils/podman/files/containers.conf
++++ b/utils/podman/files/containers.conf
+@@ -75,7 +75,8 @@ network_backend = "netavark"
+ #  "/usr/lib/netavark",
+ #]
+ firewall_driver = "nftables"
+-network_config_dir = "/etc/containers/networks/"
++# Leave unset: rootful uses /etc/containers/networks, rootless uses its graphroot.
++#network_config_dir = ""
+ default_network = "podman"
+ #default_subnet = "10.88.0.0/16"
+ #default_subnet_pools = [
+@@ -97,7 +98,8 @@ default_rootless_network_cmd = "pasta"
+ #compose_warning_logs = true
+ #compression_format = "gzip"
+ #compression_level = 5
+-cgroup_manager = "cgroupfs"
++# Leave unset so Podman selects its systemd cgroup manager.
++#cgroup_manager = "systemd"
+ 
+ conmon_path = [ "/usr/bin/conmon" ]
+ #conmon_env_vars = [
+@@ -110,7 +112,8 @@ conmon_path = [ "/usr/bin/conmon" ]
+ #env = []
+ #events_logfile_path=""
+ #events_logfile_max_size = "1m"
+-events_logger = "none"
++# Leave unset: journald on a native systemd boot, file events under procd.
++#events_logger = "journald"
+ #events_container_create_inspect_data = false
+ #image_default_format = ""
+ #image_default_transport = "docker://"
+@@ -137,7 +140,8 @@ runtime_supports_json = ["crun", "runc", "kata", "runsc", "youki", "krun", "uxc"
+ #stop_timeout = 10
+ #exit_command_delay = 300
+ #static_dir = "/var/lib/containers/storage/libpod"
+-tmp_dir = "/var/run/libpod"
++# Leave unset so rootless uses its private XDG_RUNTIME_DIR.
++#tmp_dir = "/run/libpod"
+ #volume_path = "/var/lib/containers/storage/volumes"
+ #volume_plugin_timeout = 5
+ #podmansh_timeout = 30
+diff --git a/utils/podman/files/podman-native.init b/utils/podman/files/podman-native.init
+new file mode 100644
+index 000000000..a70f2fa20
+--- /dev/null
++++ b/utils/podman/files/podman-native.init
+@@ -0,0 +1,17 @@
++#!/bin/sh
++# OpenWrt native service adapter
++case "$1" in
++	boot|shutdown|depends) exit 0 ;;
++esac
++if [ -n "${IPKG_INSTROOT:-}" ]; then
++	case "$1" in
++		enabled) exec systemctl --root="$IPKG_INSTROOT" is-enabled podman.socket ;;
++		enable|disable) exec systemctl --root="$IPKG_INSTROOT" "$1" podman.socket ;;
++		*) exit 0 ;;
++	esac
++fi
++case "$1" in
++	enabled) set -- is-enabled ;;
++	running) set -- is-active ;;
++esac
++exec /usr/bin/systemctl "$1" podman.socket
+diff --git a/utils/podman/files/podman.defaults b/utils/podman/files/podman.defaults
+index 95058f392..3f2a25dd1 100755
+--- a/utils/podman/files/podman.defaults
++++ b/utils/podman/files/podman.defaults
+@@ -1,5 +1,8 @@
+ #!/bin/sh
+ 
++# Upgrades must not reapply first-boot firewall or DHCP integration.
++[ "${PKG_UPGRADE:-0}" = 1 ] && exit 0
++
+ changed=0
+ 
+ if uci -q get dhcp.@dnsmasq[0] >/dev/null; then
+diff --git a/utils/podman/patches/020-rootless-overlay-probe-xino.patch b/utils/podman/patches/020-rootless-overlay-probe-xino.patch
+new file mode 100644
+index 000000000..bb47d0b67
+--- /dev/null
++++ b/utils/podman/patches/020-rootless-overlay-probe-xino.patch
+@@ -0,0 +1,59 @@
++Subject: [PATCH] overlay: disable xino in rootless capability probes
++
++Rootless mounts lack CAP_DAC_READ_SEARCH in the initial user namespace.
++The kernel cannot decode lower file handles and xino=auto always falls
++back to off. Select that behavior explicitly in temporary probe mounts,
++including those which do not accept the configured storage mount options.
++Rootful mounts and administrator-selected runtime mount options are unchanged.
++
++---
++--- a/vendor/go.podman.io/storage/drivers/overlay/check.go
+++++ b/vendor/go.podman.io/storage/drivers/overlay/check.go
++@@ -63,7 +63,7 @@
++ 
++ 	mountFlags := "lowerdir=%s:%s,upperdir=%s,workdir=%s"
++ 	if unshare.IsRootless() {
++-		mountFlags = mountFlags + ",userxattr"
+++		mountFlags = mountFlags + ",userxattr,xino=off"
++ 	}
++ 
++ 	opts := fmt.Sprintf(mountFlags, path.Join(td, "l2"), path.Join(td, "l1"), path.Join(td, "l3"), path.Join(td, "work"))
++@@ -149,7 +149,7 @@
++ 	// Mount using the mandatory options and configured options
++ 	opts := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", path.Join(td, "l1"), path.Join(td, "l2"), path.Join(td, "work"))
++ 	if unshare.IsRootless() {
++-		opts = fmt.Sprintf("%s,userxattr", opts)
+++		opts = fmt.Sprintf("%s,userxattr,xino=off", opts)
++ 	}
++ 	flags, data := mount.ParseOptions(mountOpts)
++ 	if data != "" {
++@@ -210,7 +210,7 @@
++ 	// Mount using the mandatory options and configured options
++ 	opts := fmt.Sprintf("volatile,lowerdir=%s,upperdir=%s,workdir=%s", path.Join(td, "lower"), path.Join(td, "upper"), path.Join(td, "work"))
++ 	if unshare.IsRootless() {
++-		opts = fmt.Sprintf("%s,userxattr", opts)
+++		opts = fmt.Sprintf("%s,userxattr,xino=off", opts)
++ 	}
++ 	if err := unix.Mount("overlay", filepath.Join(td, "merged"), "overlay", 0, opts); err != nil {
++ 		return false, fmt.Errorf("failed to mount overlay for volatile check: %w", err)
++--- a/vendor/go.podman.io/storage/drivers/overlay/overlay.go
+++++ b/vendor/go.podman.io/storage/drivers/overlay/overlay.go
++@@ -736,7 +736,7 @@
++ 			flags = label.FormatMountLabel(flags, selinuxLabelTest)
++ 		}
++ 		if unshare.IsRootless() {
++-			flags = fmt.Sprintf("%s,userxattr", flags)
+++			flags = fmt.Sprintf("%s,userxattr,xino=off", flags)
++ 		}
++ 		if err := syscall.Mknod(filepath.Join(upperDir, "whiteout"), syscall.S_IFCHR|0o600, int(unix.Mkdev(0, 0))); err != nil {
++ 			logrus.Debugf("Unable to create kernel-style whiteout: %v", err)
++@@ -756,6 +756,9 @@
++ 			logrus.Debugf("overlay: test mount with multiple lowers failed: %v", err)
++ 		}
++ 		flags = fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", lower1Dir, upperDir, workDir)
+++		if unshare.IsRootless() {
+++			flags += ",userxattr,xino=off"
+++		}
++ 		if selinux.GetEnabled() {
++ 			flags = label.FormatMountLabel(flags, selinuxLabelTest)
++ 		}
+diff --git a/utils/procps-ng/Makefile b/utils/procps-ng/Makefile
+index 70844e28a..bdc126121 100644
+--- a/utils/procps-ng/Makefile
++++ b/utils/procps-ng/Makefile
+@@ -30,7 +30,7 @@ CONFIGURE_ARGS += --enable-skill
+ 
+ # most of these have alternatives provided by busybox applets
+ PROCPS_APPLETS := \
+-    free kill pgrep pkill pmap ps pwdx skill slabtop \
++    free kill pgrep pidof pkill pmap ps pwdx skill slabtop \
+     snice sysctl tload top uptime vmstat w watch
+ 
+ # procps-ng will be configured with "--bindir=/usr/bin --sbindir=/usr/sbin" and
+diff --git a/utils/qemu/Makefile b/utils/qemu/Makefile
+index 81b761e5c..54bc8cbc0 100644
+--- a/utils/qemu/Makefile
++++ b/utils/qemu/Makefile
+@@ -10,7 +10,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=qemu
+ PKG_VERSION:=11.1.3
+-PKG_RELEASE:=1
++PKG_RELEASE:=6
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://download.qemu.org/
+ PKG_HASH:=5a8289c7940dc77d3873c81a6c29ba3afe1446fc9d36e77fa1658cdbecb84b22
+@@ -35,6 +35,8 @@ QEMU_DEPS_IN_GUEST :=@(TARGET_x86_64||TARGET_armsr_armv8||TARGET_malta_le64||TAR
+ QEMU_DEPS_IN_HOST :=@(TARGET_x86_64||TARGET_armsr_armv8||TARGET_sunxi_cortexa53||TARGET_rockchip_armv8)
+ QEMU_DEPS_IN_HOST +=+libstdcpp
+ QEMU_DEPS_IN_HOST +=$(ICONV_DEPENDS)
++# Block-layer AIO engines are linked into the system emulators, qemu-img and qemu-nbd.
++QEMU_BLOCK_AIO_DEPS :=+QEMU_LINUX_AIO:libaio +QEMU_IO_URING:liburing
+ 
+ define Package/virtio-console-helper
+   SECTION:=utils
+@@ -46,7 +48,18 @@ endef
+ 
+ define Package/virtio-console-helper/install
+ 	$(INSTALL_DIR) $(1)/etc/hotplug.d/virtio-ports
++ifeq ($(CONFIG_OPENWRT_SYSTEMD),)
+ 	$(INSTALL_BIN) ./files/00-virtio-ports.hotplug $(1)/etc/hotplug.d/virtio-ports/00-virtio-ports
++endif
++endef
++
++define Package/virtio-console-helper/postinst
++#!/bin/sh
++[ -n "$${IPKG_INSTROOT}" ] && exit 0
++if [ -d /run/systemd/system ] && [ -e /etc/hotplug.d/virtio-ports/00-virtio-ports ]; then
++	logger -t virtio-console-helper "Notice: locally modified /etc/hotplug.d/virtio-ports/00-virtio-ports retained; /dev/virtio-ports symlinks are managed by udev on native systemd"
++fi
++exit 0
+ endef
+ 
+ 
+@@ -68,7 +81,7 @@ define Package/qemu-ga/install
+ 	$(INSTALL_BIN) ./files/10-qemu-ga.hotplug $(1)/etc/hotplug.d/virtio-ports/10-qemu-ga
+ endef
+ 
+-PKG_CONFIG_DEPENDS += CONFIG_PACKAGE_qemu-ga
++PKG_CONFIG_DEPENDS += CONFIG_PACKAGE_qemu-ga CONFIG_OPENWRT_SYSTEMD
+ 
+ 
+ define Package/qemu-bridge-helper
+@@ -94,7 +107,7 @@ define Package/qemu-img
+  SUBMENU:=Virtualization
+  TITLE:=QEMU Image utility
+  URL:=https://www.qemu.org
+- DEPENDS:=+glib2 +QEMU_ZSTD:libzstd $(QEMU_DEPS_IN_HOST)
++ DEPENDS:=+glib2 +QEMU_ZSTD:libzstd $(QEMU_BLOCK_AIO_DEPS) $(QEMU_DEPS_IN_HOST)
+ endef
+ 
+ define Package/qemu-img/install
+@@ -109,7 +122,7 @@ define Package/qemu-nbd
+  SUBMENU:=Virtualization
+  TITLE:=QEMU Network Block Device Utility
+  URL:=https://www.qemu.org
+- DEPENDS:=+glib2 +QEMU_ZSTD:libzstd $(QEMU_DEPS_IN_HOST) +kmod-nbd
++ DEPENDS:=+glib2 +QEMU_ZSTD:libzstd $(QEMU_BLOCK_AIO_DEPS) $(QEMU_DEPS_IN_HOST) +kmod-nbd
+ endef
+ 
+ define Package/qemu-nbd/install
+@@ -199,9 +212,13 @@ define qemu-target
+ 	+QEMU_UI_VNC_JPEG:libjpeg \
+ 	+QEMU_UI_VNC_SASL:libsasl2 \
+ 	+QEMU_UI_SPICE:libspice-server \
++	+QEMU_AUDIO_PIPEWIRE:libpipewire \
++	+QEMU_OPENGL:libepoxy +QEMU_OPENGL:libmesa \
++	+QEMU_VIRGLRENDERER:virglrenderer \
+ 	+QEMU_DEV_USB:libusb-1.0 \
+ 	+QEMU_SECCOMP:libseccomp \
+ 	+QEMU_ZSTD:libzstd \
++	$(QEMU_BLOCK_AIO_DEPS) \
+ 	$(if $(filter %-softmmu,$(1)),+libncurses +libfdt +libslirp +libudev +pixman +qemu-firmware-efi $(ICONV_DEPENDS))
+   endef
+ 
+@@ -273,7 +290,69 @@ config QEMU_ZSTD
+ 	bool "QEMU ZSTD compression support"
+ 	default n
+ 
++config QEMU_TPM
++	bool "QEMU TPM device support"
++	default n
++	help
++	  Build the TPM TIS/CRB guest devices and the passthrough and
++	  emulator (swtpm) backends.
++
++
+ endif
++
++# AIO library prerequisites propagate back to the emulator packages.
++# Keep these options outside their package guard to avoid a dependency cycle.
++menu "QEMU block AIO configuration"
++
++config QEMU_LINUX_AIO
++	bool "QEMU Linux native AIO support (aio=native)"
++	default KERNEL_AIO
++	depends on KERNEL_AIO
++	help
++	  Build the block layer with Linux kernel AIO through libaio, so
++	  disks can use aio=native. Without it and io_uring, aio=threads
++	  is the only accepted mode.
++
++config QEMU_IO_URING
++	bool "QEMU io_uring support (aio=io_uring)"
++	default KERNEL_IO_URING
++	depends on KERNEL_IO_URING
++	help
++	  Build the block layer and the main loop with io_uring through
++	  liburing, so disks can use aio=io_uring.
++
++endmenu
++
++# Keep these options independent of the QEMU packages: their conditional
++# Mesa prerequisites propagate back to those packages and would form a cycle.
++menu "QEMU graphics configuration"
++
++config QEMU_OPENGL
++	bool "QEMU OpenGL (EGL/GBM) support"
++	default n
++	depends on HAVE_MESA
++
++config QEMU_VIRGLRENDERER
++	bool "QEMU VirtIO GPU 3D (VirGL) support"
++	default n
++	depends on HAVE_MESA
++	select QEMU_OPENGL
++
++endmenu
++
++# Keep library prerequisites out of the QEMU package guard, as above.
++menu "QEMU audio configuration"
++
++config QEMU_AUDIO_PIPEWIRE
++	bool "QEMU native PipeWire audio support"
++	default n
++	depends on TARGET_x86_64 && USE_GLIBC && OPENWRT_SYSTEMD
++	help
++	  Connect guest sound devices directly to a host PipeWire server.
++	  Configure the audio backend and runtime directory per virtual machine.
++	  SPICE console audio works independently of this option.
++
++endmenu
+ endef
+ 
+ PKG_CONFIG_DEPENDS += \
+@@ -281,9 +360,15 @@ PKG_CONFIG_DEPENDS += \
+ 	CONFIG_QEMU_UI_VNC_JPEG \
+ 	CONFIG_QEMU_UI_VNC_SASL \
+ 	CONFIG_QEMU_UI_SPICE \
++	CONFIG_QEMU_AUDIO_PIPEWIRE \
++	CONFIG_QEMU_OPENGL \
++	CONFIG_QEMU_VIRGLRENDERER \
+ 	CONFIG_QEMU_DEV_USB \
+ 	CONFIG_QEMU_SECCOMP \
+ 	CONFIG_QEMU_ZSTD \
++	CONFIG_QEMU_TPM \
++	CONFIG_QEMU_LINUX_AIO \
++	CONFIG_QEMU_IO_URING \
+ 
+ 
+ # QEMU configure script does not recognize these options
+@@ -351,7 +436,7 @@ CONFIGURE_ARGS +=			\
+ 	--disable-sdl			\
+ 	--disable-sdl-image		\
+ 	--$(if $(CONFIG_QEMU_UI_SPICE),enable,disable)-spice			\
+-	--disable-virglrenderer		\
++	--$(if $(CONFIG_QEMU_VIRGLRENDERER),enable,disable)-virglrenderer		\
+ 	--$(if $(CONFIG_QEMU_UI_VNC),enable,disable)-vnc			\
+ 	--$(if $(CONFIG_QEMU_UI_VNC_JPEG),enable,disable)-vnc-jpeg		\
+ 	--$(if $(CONFIG_QEMU_UI_VNC_SASL),enable,disable)-vnc-sasl		\
+@@ -403,8 +488,8 @@ CONFIGURE_ARGS +=			\
+ 	--disable-libssh		\
+ 	--$(if $(CONFIG_QEMU_DEV_USB),enable,disable)-libusb		\
+ 	--disable-libkeyutils           \
+-	--disable-linux-aio		\
+-	--disable-linux-io-uring	\
++	--$(if $(CONFIG_QEMU_LINUX_AIO),enable,disable)-linux-aio	\
++	--$(if $(CONFIG_QEMU_IO_URING),enable,disable)-linux-io-uring	\
+ 	--disable-lzfse			\
+ 	--disable-lzo			\
+ 	--disable-modules		\
+@@ -413,7 +498,7 @@ CONFIGURE_ARGS +=			\
+ 	--disable-netmap		\
+ 	--disable-nettle		\
+ 	--disable-numa			\
+-	--disable-opengl		\
++	--$(if $(CONFIG_QEMU_OPENGL),enable,disable)-opengl		\
+ 	--disable-plugins		\
+ 	--disable-qom-cast-debug	\
+ 	--disable-rbd			\
+@@ -431,7 +516,7 @@ CONFIGURE_ARGS +=			\
+ 	--disable-sparse		\
+ 	--disable-strip			\
+ 	--disable-tcg-interpreter	\
+-	--disable-tpm			\
++	--$(if $(CONFIG_QEMU_TPM),enable,disable)-tpm		\
+ 	--disable-usb-redir		\
+ 	--disable-vde			\
+ 	--disable-virtfs		\
+@@ -442,6 +527,7 @@ CONFIGURE_ARGS +=			\
+ 	--disable-selinux		\
+ 	--disable-oss			\
+ 	--disable-alsa			\
++	--$(if $(CONFIG_QEMU_AUDIO_PIPEWIRE),enable,disable)-pipewire	\
+ 	--disable-pa			\
+ 	--disable-vduse-blk-export	\
+ 	--disable-libdw			\
+diff --git a/utils/qemu/patches/0005-spice-defer-scanout-until-gl-draw-done.patch b/utils/qemu/patches/0005-spice-defer-scanout-until-gl-draw-done.patch
+new file mode 100644
+index 000000000..0fdff9a2c
+--- /dev/null
++++ b/utils/qemu/patches/0005-spice-defer-scanout-until-gl-draw-done.patch
+@@ -0,0 +1,226 @@
++Subject: ui/spice: defer scanout replacement until GL draw completion
++
++The display reset/modeset path can replace or disable a scanout while
++spice-server still has a GL draw cookie outstanding. The server aborts in
++spice_qxl_gl_scanout(). Retain/coalesce exported scanout fds, apply the latest
++scanout from the completion BH before unblocking the renderer, and close
++superseded or shutdown-pending fds. Do not fake completion or disable GL.
++
++--- a/ui/spice-display.c
+++++ b/ui/spice-display.c
++@@ -785,11 +785,37 @@
++ 
++ #ifdef HAVE_SPICE_GL
++ 
+++/* QEMU may reset/change scanout while the client still owns a GL draw. */
+++struct SpiceGLScanout {
+++    int fd[DMABUF_MAX_PLANES];
+++    uint32_t width, height;
+++    uint32_t offset[DMABUF_MAX_PLANES], stride[DMABUF_MAX_PLANES];
+++    uint32_t num_planes, format;
+++    uint64_t modifier;
+++    int y_0_top;
+++    bool have_monitor_config;
+++    int monitor_x, monitor_y, monitor_width, monitor_height;
+++};
+++
+++static void spice_gl_apply_pending_scanout(SimpleSpiceDisplay *ssd);
+++static void spice_gl_discard_pending_scanout(SimpleSpiceDisplay *ssd);
+++
++ static void qemu_spice_gl_monitor_config(SimpleSpiceDisplay *ssd,
++                                          int x, int y, int w, int h)
++ {
++     QXLMonitorsConfig *config;
++     QXLCookie *cookie;
+++
+++    if (ssd->pending_scanout) {
+++        struct SpiceGLScanout *scanout = ssd->pending_scanout;
+++
+++        scanout->have_monitor_config = true;
+++        scanout->monitor_x = x;
+++        scanout->monitor_y = y;
+++        scanout->monitor_width = w;
+++        scanout->monitor_height = h;
+++        return;
+++    }
++ 
++     config = g_malloc0(sizeof(QXLMonitorsConfig) + sizeof(QXLHead));
++     config->count = 1;
++@@ -826,6 +852,8 @@
++ {
++     SimpleSpiceDisplay *ssd = opaque;
++ 
+++    ssd->gl_draw_pending = false;
+++    spice_gl_apply_pending_scanout(ssd);
++     qemu_spice_gl_block(ssd, false);
++ }
++ 
++@@ -840,6 +868,7 @@
++     uint64_t cookie;
++ 
++     cookie = (uintptr_t)qxl_cookie_new(QXL_COOKIE_TYPE_GL_DRAW_DONE, 0);
+++    ssd->gl_draw_pending = true;
++     spice_qxl_gl_draw_async(&ssd->qxl, x, y, w, h, cookie);
++ }
++ 
++@@ -964,7 +993,7 @@
++     return ret;
++ }
++ 
++-static void spice_server_gl_scanout(QXLInstance *qxl,
+++static void spice_server_gl_scanout_now(QXLInstance *qxl,
++                                     const int *fd,
++                                     uint32_t width, uint32_t height,
++                                     const uint32_t *offset,
++@@ -986,6 +1015,78 @@
++ #endif
++ }
++ 
+++static void spice_gl_discard_pending_scanout(SimpleSpiceDisplay *ssd)
+++{
+++    struct SpiceGLScanout *scanout = ssd->pending_scanout;
+++
+++    if (!scanout) {
+++        return;
+++    }
+++    for (uint32_t i = 0; i < scanout->num_planes; i++) {
+++        close(scanout->fd[i]);
+++    }
+++    g_clear_pointer(&ssd->pending_scanout, g_free);
+++}
+++
+++static void spice_gl_apply_pending_scanout(SimpleSpiceDisplay *ssd)
+++{
+++    struct SpiceGLScanout *scanout = ssd->pending_scanout;
+++
+++    if (!scanout) {
+++        return;
+++    }
+++    /* Ownership of the latest scanout fds now passes to the SPICE server. */
+++    ssd->pending_scanout = NULL;
+++    spice_server_gl_scanout_now(&ssd->qxl,
+++                               scanout->num_planes ? scanout->fd : NULL,
+++                               scanout->width, scanout->height,
+++                               scanout->offset, scanout->stride,
+++                               scanout->num_planes, scanout->format,
+++                               scanout->modifier, scanout->y_0_top);
+++    if (scanout->have_monitor_config) {
+++        qemu_spice_gl_monitor_config(ssd, scanout->monitor_x, scanout->monitor_y,
+++                                    scanout->monitor_width,
+++                                    scanout->monitor_height);
+++    }
+++    g_free(scanout);
+++}
+++
+++static void spice_server_gl_scanout(SimpleSpiceDisplay *ssd,
+++                                    const int *fd,
+++                                    uint32_t width, uint32_t height,
+++                                    const uint32_t *offset,
+++                                    const uint32_t *stride,
+++                                    uint32_t num_planes, uint32_t format,
+++                                    uint64_t modifier, int y_0_top)
+++{
+++    struct SpiceGLScanout *scanout;
+++
+++    spice_gl_discard_pending_scanout(ssd);
+++    if (!ssd->gl_draw_pending) {
+++        spice_server_gl_scanout_now(&ssd->qxl, fd, width, height, offset,
+++                                   stride, num_planes, format, modifier,
+++                                   y_0_top);
+++        return;
+++    }
+++
+++    /* Keep the exported fds alive until GL_DRAW_DONE, including a reset's
+++     * disable. Never discard the outstanding cookie or unblock early.
+++     */
+++    scanout = g_new0(struct SpiceGLScanout, 1);
+++    scanout->width = width;
+++    scanout->height = height;
+++    scanout->num_planes = num_planes;
+++    scanout->format = format;
+++    scanout->modifier = modifier;
+++    scanout->y_0_top = y_0_top;
+++    for (uint32_t i = 0; i < num_planes; i++) {
+++        scanout->fd[i] = fd[i];
+++        scanout->offset[i] = offset[i];
+++        scanout->stride[i] = stride[i];
+++    }
+++    ssd->pending_scanout = scanout;
+++}
+++
++ static void spice_gl_switch(DisplayChangeListener *dcl,
++                             struct DisplaySurface *new_surface)
++ {
++@@ -1025,7 +1126,7 @@
++                                     fourcc);
++ 
++         /* note: spice server will close the fd */
++-        spice_server_gl_scanout(&ssd->qxl, fd,
+++        spice_server_gl_scanout(ssd, fd,
++                                 surface_width(ssd->ds),
++                                 surface_height(ssd->ds),
++                                 offset, stride, num_planes,
++@@ -1064,7 +1165,7 @@
++             qemu_spice_gl_block(ssd, false);
++         }
++     }
++-    spice_server_gl_scanout(&ssd->qxl, NULL, 0, 0, NULL, NULL, 0, DRM_FORMAT_INVALID,
+++    spice_server_gl_scanout(ssd, NULL, 0, 0, NULL, NULL, 0, DRM_FORMAT_INVALID,
++                             DRM_FORMAT_MOD_INVALID, false);
++     qemu_spice_gl_monitor_config(ssd, 0, 0, 0, 0);
++     ssd->have_surface = false;
++@@ -1108,7 +1209,7 @@
++         }
++     } else {
++         /* note: spice server will close the fd */
++-        spice_server_gl_scanout(&ssd->qxl, fd, backing_width, backing_height,
+++        spice_server_gl_scanout(ssd, fd, backing_width, backing_height,
++                                 (uint32_t *)offset, (uint32_t *)stride,
++                                 num_planes, fourcc, modifier, y_0_top);
++         qemu_spice_gl_monitor_config(ssd, x, y, w, h);
++@@ -1210,7 +1311,7 @@
++         return false;
++     }
++ 
++-    spice_server_gl_scanout(&ssd->qxl, fds,
+++    spice_server_gl_scanout(ssd, fds,
++                             surface_width(ssd->ds),
++                             surface_height(ssd->ds),
++                             (uint32_t *)offsets, (uint32_t *)strides,
++@@ -1282,7 +1383,7 @@
++                     return;
++                 }
++ 
++-                spice_server_gl_scanout(&ssd->qxl, fds, width, height, offsets, strides,
+++                spice_server_gl_scanout(ssd, fds, width, height, offsets, strides,
++                                         num_planes, fourcc, modifier, false);
++             }
++         } else {
++@@ -1301,7 +1402,7 @@
++ 
++             trace_qemu_spice_gl_forward_dmabuf(ssd->qxl.id, width, height);
++             /* note: spice server will close the fd, so hand over a dup */
++-            spice_server_gl_scanout(&ssd->qxl, fds, width, height,
+++            spice_server_gl_scanout(ssd, fds, width, height,
++                                     offsets, strides, num_planes,
++                                     fourcc,
++                                     qemu_dmabuf_get_modifier(dmabuf),
++@@ -1460,6 +1561,7 @@
++         g_clear_pointer(&ssd->mirror, pixman_image_unref);
++         g_clear_pointer(&ssd->buf, g_free);
++ #ifdef HAVE_SPICE_GL
+++        spice_gl_discard_pending_scanout(ssd);
++         g_clear_pointer(&ssd->gl_unblock_bh, qemu_bh_delete);
++         g_clear_pointer(&ssd->gl_unblock_timer, timer_free);
++         g_clear_pointer(&ssd->gls, qemu_gl_fini_shader);
++--- a/include/ui/spice-display.h
+++++ b/include/ui/spice-display.h
++@@ -125,6 +125,8 @@
++     int gl_updates;
++     bool have_scanout;
++     bool have_surface;
+++    bool gl_draw_pending;
+++    struct SpiceGLScanout *pending_scanout;
++ 
++     QemuDmaBuf *guest_dmabuf;
++     bool guest_dmabuf_refresh;
+diff --git a/utils/qemu/patches/0006-spice-avoid-broken-input-cleanup.patch b/utils/qemu/patches/0006-spice-avoid-broken-input-cleanup.patch
+new file mode 100644
+index 000000000..069782b08
+--- /dev/null
++++ b/utils/qemu/patches/0006-spice-avoid-broken-input-cleanup.patch
+@@ -0,0 +1,25 @@
++Subject: ui/spice: avoid freeing unsupported input interfaces on shutdown
++
++Based on Fiona Ebner's Proxmox workaround for released spice-server versions
++without upstream c3efe69e (inputs: Fix keyboard and mouse state leaks on
++interface removal). Removing mouse/keyboard returns an error but QEMU frees
++the callback structures anyway, causing use-after-free in server teardown.
++Keep those interfaces alive until process exit as QEMU before 11.1 did.
++
++Reference: https://git.proxmox.com/?p=pve-qemu.git;a=blob_plain;f=debian/patches/pve/0046-ui-spice-core-work-around-broken-input-cleanup-in-li.patch;hb=HEAD
++
++--- a/ui/spice-core.c
+++++ b/ui/spice-core.c
++@@ -1016,7 +1016,11 @@
++     }
++ 
++     qemu_spice_display_cleanup();
++-    qemu_spice_input_cleanup();
+++    /* Released spice-server versions cannot detach keyboard/mouse inputs.
+++     * Keep their callbacks alive until spice_server_destroy() below.
+++     * QEMU 11.1 added this cleanup; older QEMU also left inputs attached.
+++     * See Proxmox's workaround for spice-server <= 0.16.0.
+++     */
++     migration_remove_notifier(&migration_state);
++     g_clear_pointer(&spice_consoles, g_slist_free);
++     g_clear_pointer(&auth_passwd, g_free);
+diff --git a/utils/qemu/patches/0007-util-fdmon-io_uring-disable-iowait.patch b/utils/qemu/patches/0007-util-fdmon-io_uring-disable-iowait.patch
+new file mode 100644
+index 000000000..948793e36
+--- /dev/null
++++ b/utils/qemu/patches/0007-util-fdmon-io_uring-disable-iowait.patch
+@@ -0,0 +1,41 @@
++Subject: util/fdmon-io_uring: disable kernel iowait accounting for event loop
++
++QEMU's fdmon-io_uring AioContext event loop submits IORING_OP_POLL_ADD
++requests that remain inflight while waiting for guest/host events. When
++io_uring_enter() is called without IORING_ENTER_NO_IOWAIT, io_cqring_wait()
++sees inflight requests and marks the sleeping iothread with in_iowait = 1,
++inflating per-CPU iowait and PSI IO pressure even when no block I/O is
++occurring.
++
++Detect liburing's io_uring_set_iowait() in meson.build and disable iowait
++accounting on fdmon_io_uring rings during setup.
++
++--- a/meson.build
+++++ b/meson.build
++@@ -2713,6 +2713,8 @@ if linux_io_uring.found()
++                        cc.has_header_symbol('liburing.h', 'io_uring_prep_writev2'))
++   config_host_data.set('HAVE_IO_URING_CQ_HAS_OVERFLOW',
++                        cc.has_header_symbol('liburing.h', 'io_uring_cq_has_overflow'))
+++  config_host_data.set('HAVE_IO_URING_SET_IOWAIT',
+++                       cc.has_header_symbol('liburing.h', 'io_uring_set_iowait'))
++ endif
++ config_host_data.set('HAVE_TCP_KEEPCNT',
++                      cc.has_header_symbol('netinet/tcp.h', 'TCP_KEEPCNT') or
++--- a/util/fdmon-io_uring.c
+++++ b/util/fdmon-io_uring.c
++@@ -476,6 +476,15 @@ bool fdmon_io_uring_setup(AioContext *ct
++         return false;
++     }
++ 
+++#ifdef HAVE_IO_URING_SET_IOWAIT
+++    /*
+++     * Polling eventfds with IORING_OP_POLL_ADD keeps inflight io_uring
+++     * requests active while idle, causing Linux to account idle CPU time
+++     * and PSI IO stalls as iowait unless IORING_ENTER_NO_IOWAIT is set.
+++     */
+++    (void)io_uring_set_iowait(&ctx->fdmon_io_uring, false);
+++#endif
+++
++     QSLIST_INIT(&ctx->submit_list);
++     QSIMPLEQ_INIT(&ctx->cqe_handler_ready_list);
++     ctx->fdmon_ops = &fdmon_io_uring_ops;
+diff --git a/utils/sed/Makefile b/utils/sed/Makefile
+index 2dbd877a0..390a57250 100644
+--- a/utils/sed/Makefile
++++ b/utils/sed/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=sed
+ PKG_VERSION:=4.10
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=@GNU/sed
+@@ -46,6 +46,8 @@ CONFIGURE_ARGS += \
+ 	--disable-xattr \
+ 	--without-selinux
+ 
++TARGET_CFLAGS += -std=gnu23
++
+ define Build/Compile
+ 	sed -i 's/SUBDIRS = po . gnulib-tests/SUBDIRS = po ./' $(PKG_BUILD_DIR)/Makefile
+ 	$(call Build/Compile/Default,)
+diff --git a/utils/ttyd/Makefile b/utils/ttyd/Makefile
+index c6733c47e..cec23fd90 100644
+--- a/utils/ttyd/Makefile
++++ b/utils/ttyd/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=ttyd
+ PKG_VERSION:=1.7.7
+-PKG_RELEASE:=1
++PKG_RELEASE:=7
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
+ PKG_SOURCE_URL:=https://codeload.github.com/tsl0922/ttyd/tar.gz/$(PKG_VERSION)?
+@@ -47,6 +47,10 @@ define Package/ttyd/install
+ 	$(INSTALL_CONF) ./files/ttyd.config $(1)/etc/config/ttyd
+ 	$(INSTALL_DIR) $(1)/etc/init.d/
+ 	$(INSTALL_BIN) ./files/ttyd.init $(1)/etc/init.d/ttyd
++	$(INSTALL_DIR) $(1)/etc/uci-defaults
++	$(INSTALL_BIN) ./files/ttyd.uci-defaults $(1)/etc/uci-defaults/80-ttyd-https
++	$(INSTALL_DIR) $(1)/etc/hotplug.d/acme
++	$(INSTALL_DATA) ./files/ttyd.acme-hotplug $(1)/etc/hotplug.d/acme/50-ttyd
+ endef
+ 
+ $(eval $(call BuildPackage,ttyd))
+diff --git a/utils/ttyd/files/ttyd.acme-hotplug b/utils/ttyd/files/ttyd.acme-hotplug
+new file mode 100644
+index 000000000..ce32d9a7e
+--- /dev/null
++++ b/utils/ttyd/files/ttyd.acme-hotplug
+@@ -0,0 +1,6 @@
++# Restart ttyd instances whose certificate changed after an ACME renewal.
++case "$ACTION" in
++renewed|issued)
++	[ -x /etc/init.d/ttyd ] && /etc/init.d/ttyd enabled && /etc/init.d/ttyd reload
++	;;
++esac
+diff --git a/utils/ttyd/files/ttyd.init b/utils/ttyd/files/ttyd.init
+index 7e24aeab2..d0e07b83b 100644
+--- a/utils/ttyd/files/ttyd.init
++++ b/utils/ttyd/files/ttyd.init
+@@ -59,6 +59,17 @@ ttyd_instance()
+ 	[ "$ipv6" = 0 ] && ipv6=""
+ 	[ "$ssl" = 0 ] && ssl=""
+ 
++	# Reuse the LuCI web server certificate unless one is configured,
++	# so the terminal can be embedded in an HTTPS LuCI page.
++	[ -n "$ssl" ] && {
++		[ -n "$ssl_cert" ] || ssl_cert="$(uci -q get uhttpd.main.cert)"
++		[ -n "$ssl_key" ] || ssl_key="$(uci -q get uhttpd.main.key)"
++		[ -s "$ssl_cert" ] && [ -s "$ssl_key" ] || {
++			echo "ttyd: no TLS certificate/key available, serving plain HTTP" >&2
++			ssl=""; ssl_cert=""; ssl_key=""
++		}
++	}
++
+ 	procd_open_instance
+ 	procd_set_param command "$PROG" \
+ 		${port:+-p $port} \
+@@ -82,6 +93,7 @@ ttyd_instance()
+ 		${debug:+-d $debug}
+ 	config_list_foreach "$1" client_option "procd_append_param command -t"
+ 	procd_append_param command $command
++	[ -n "$ssl" ] && procd_set_param file "$ssl_cert" "$ssl_key"
+ 	procd_set_param stdout 1
+ 	procd_set_param stderr 1
+ 	procd_close_instance
+@@ -98,5 +110,5 @@ shutdown() {
+ }
+ 
+ service_triggers() {
+-	procd_add_reload_trigger "$NAME"
++	procd_add_reload_trigger "$NAME" uhttpd
+ }
+diff --git a/utils/ttyd/files/ttyd.uci-defaults b/utils/ttyd/files/ttyd.uci-defaults
+new file mode 100644
+index 000000000..ddb095d98
+--- /dev/null
++++ b/utils/ttyd/files/ttyd.uci-defaults
+@@ -0,0 +1,15 @@
++#!/bin/sh
++
++# Serve ttyd over TLS when LuCI is served over HTTPS, otherwise browsers
++# block the embedded http:// terminal as mixed content. Only sections
++# without an explicit ssl setting are changed.
++
++[ -n "$(uci -q get uhttpd.main.listen_https)" ] || exit 0
++
++for section in $(uci -q show ttyd | sed -n 's/^ttyd\.\([^.=]*\)=ttyd$/\1/p'); do
++	[ -n "$(uci -q get "ttyd.$section.ssl")" ] && continue
++	uci -q set "ttyd.$section.ssl=1"
++done
++
++uci -q commit ttyd
++exit 0
+diff --git a/utils/ttyd/patches/200-loop-lws-service-for-lws-5.1.patch b/utils/ttyd/patches/200-loop-lws-service-for-lws-5.1.patch
+new file mode 100644
+index 000000000..aab86e530
+--- /dev/null
++++ b/utils/ttyd/patches/200-loop-lws-service-for-lws-5.1.patch
+@@ -0,0 +1,20 @@
++From: OpenWrt local fix
++Subject: [PATCH] server: loop lws_service() until force_exit for libwebsockets 5.1+
++
++libwebsockets 5.1 changed elops_run_pt_uv() from UV_RUN_DEFAULT to
++UV_RUN_ONCE so each lws_service() call runs a single event-loop turn.
++Loop lws_service() while !force_exit so ttyd stays running until
++SIGINT/SIGTERM or --once triggers force_exit.
++
++--- a/src/server.c
+++++ b/src/server.c
++@@ -610,7 +610,8 @@ int main(int argc, char **argv) {
++     uv_signal_start(&signals[i], signal_cb, sig_nums[i]);
++   }
++ 
++-  lws_service(context, 0);
+++  while (!force_exit && lws_service(context, 0) >= 0) {
+++  }
++ 
++   for (int i = 0; i < sig_count; i++) {
++     uv_signal_stop(&signals[i]);
+diff --git a/utils/usbutils/Makefile b/utils/usbutils/Makefile
+index 61dc8e77f..183fb05a6 100644
+--- a/utils/usbutils/Makefile
++++ b/utils/usbutils/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=usbutils
+ PKG_VERSION:=020
+-PKG_RELEASE:=1
++PKG_RELEASE:=4
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=@KERNEL/linux/utils/usb/usbutils
+diff --git a/utils/zsh/Makefile b/utils/zsh/Makefile
+index d47c48376..09c595cec 100644
+--- a/utils/zsh/Makefile
++++ b/utils/zsh/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=zsh
+ PKG_VERSION:=5.9.2
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=@SF/zsh
+@@ -102,9 +102,11 @@ define Package/zsh/postinst
+ grep zsh $${IPKG_INSTROOT}/etc/shells || \
+ 	echo "/usr/bin/zsh" >> $${IPKG_INSTROOT}/etc/shells
+ 
+-# Backwards compatibility
+-if [ -e /bin/zsh ] && { [ ! -L /bin/zsh ] || [ "$(readlink -fn $${IPKG_INSTROOT}/bin/zsh)" != "../$(CONFIGURE_PREFIX)/bin/zsh" ]; }; then
+-	ln -fs "../$(CONFIGURE_PREFIX)/bin/zsh" "$${IPKG_INSTROOT}/bin/zsh"
++# Backwards compatibility for an existing /bin/zsh. In merged-/usr images,
++# /bin already points to /usr/bin, so this would replace zsh with a self-link.
++if [ ! -L "$${IPKG_INSTROOT}/bin" ] && \
++	{ [ -e "$${IPKG_INSTROOT}/bin/zsh" ] || [ -L "$${IPKG_INSTROOT}/bin/zsh" ]; }; then
++	ln -fs "..$(CONFIGURE_PREFIX)/bin/zsh" "$${IPKG_INSTROOT}/bin/zsh"
+ fi
+ endef
+ 

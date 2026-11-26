@@ -149,6 +149,21 @@ class ConnEvents(unittest.TestCase):
     def test_production_uid_is_root_only(self):
         self.assertEqual(A.CONN_UIDS, {0})
 
+    def test_conn_socket_mode_is_owner_only_and_changes_skips_parser_when_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'conn.sock')
+            with patch.object(A, 'CONN_SOCK', path):
+                threading.Thread(target=A.conn_receive, daemon=True).start()
+                for _ in range(200):
+                    if os.path.exists(path):
+                        break
+                    time.sleep(0.01)
+                self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+        with patch.object(A, 'command', return_value=''), \
+             patch.object(A.runpy, 'run_path', side_effect=AssertionError('parser should not load when no revisions')):
+            res = A.changes(0)
+            self.assertEqual(res['revisions'], [])
+
 
 if __name__ == '__main__':
     unittest.main()

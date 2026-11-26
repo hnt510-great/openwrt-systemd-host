@@ -1,0 +1,11 @@
+[Unit]
+Description=Watch DRM events for OpenWrt desktop auto-start
+
+[Path]
+PathExists=/run/openwrt-desktop-drm/pending
+Unit=openwrt-desktop-drm.service
+TriggerLimitIntervalSec=10s
+TriggerLimitBurst=200
+
+[Install]
+WantedBy=multi-user.target

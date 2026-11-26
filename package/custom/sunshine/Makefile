@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=sunshine
 PKG_VERSION:=2026.914.233613
-PKG_RELEASE:=16
+PKG_RELEASE:=17
 PKG_SOURCE:=sunshine-source-63d35f702ee9.tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/LizardByte/Sunshine/tar.gz/63d35f702ee9e362e43263742981836ec0710384?
 PKG_HASH:=2564df7ee9c1ac1d617e30b406ec0ed7d358cbba485cfb013956bdab528dae5f
@@ -119,7 +119,13 @@ endef
 
 define Package/sunshine/postinst
 #!/bin/sh
-[ -n "$${IPKG_INSTROOT}" ] || /usr/libexec/sunshine-permissions
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+if [ -d /run/systemd/system ]; then
+	systemctl daemon-reload 2>/dev/null || :
+	[ -x /usr/bin/udevadm ] && /usr/bin/udevadm control --reload-rules 2>/dev/null || :
+	systemctl start openwrt-sunshine-uinput.path 2>/dev/null || :
+fi
+/usr/libexec/sunshine-permissions
 endef
 
 define Package/sunshine/install
@@ -132,10 +138,16 @@ define Package/sunshine/install
 	$(CP) $(PKG_INSTALL_DIR)/usr/share/applications $(PKG_INSTALL_DIR)/usr/share/icons $(1)/usr/share/
 	$(INSTALL_BIN) ./files/sunshine-setup $(1)/usr/sbin/
 	$(INSTALL_BIN) ./files/sunshine-permissions $(1)/usr/libexec/
+	$(INSTALL_BIN) ./files/sunshine-uinput-udev-notify ./files/sunshine-uinput-reconcile $(1)/usr/libexec/
 	$(INSTALL_BIN) ./files/sunshine-session $(1)/usr/libexec/
-	$(INSTALL_DIR) $(1)/usr/lib/systemd/user $(1)/etc/init.d $(1)/etc/hotplug.d/misc $(1)/etc/hotplug.json.d $(1)/lib/upgrade/keep.d
+	$(INSTALL_DIR) $(1)/usr/lib/systemd/user $(1)/usr/lib/systemd/system $(1)/etc/systemd/system/multi-user.target.wants $(1)/usr/lib/udev/rules.d
+	$(INSTALL_DIR) $(1)/etc/init.d $(1)/etc/hotplug.d/misc $(1)/etc/hotplug.json.d $(1)/lib/upgrade/keep.d
 	$(INSTALL_DATA) ./files/sunshine.service $(1)/usr/lib/systemd/user/app-dev.lizardbyte.app.Sunshine.service
 	$(LN) app-dev.lizardbyte.app.Sunshine.service $(1)/usr/lib/systemd/user/sunshine.service
+	$(INSTALL_DATA) ./files/80-openwrt-sunshine.rules $(1)/usr/lib/udev/rules.d/
+	$(INSTALL_DATA) ./files/openwrt-sunshine-uinput.path $(1)/usr/lib/systemd/system/
+	$(INSTALL_DATA) ./files/openwrt-sunshine-uinput.service $(1)/usr/lib/systemd/system/
+	$(LN) /usr/lib/systemd/system/openwrt-sunshine-uinput.path $(1)/etc/systemd/system/multi-user.target.wants/
 	$(INSTALL_BIN) ./files/sunshine-permissions.init $(1)/etc/init.d/sunshine-permissions
 	$(INSTALL_BIN) ./files/sunshine.hotplug $(1)/etc/hotplug.d/misc/95-sunshine
 	$(INSTALL_DATA) ./files/sunshine-uinput.json $(1)/etc/hotplug.json.d/

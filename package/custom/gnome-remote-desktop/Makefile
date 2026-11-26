@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=gnome-remote-desktop
-PKG_VERSION:=51.0
-PKG_RELEASE:=8
-PKG_SOURCE:=gnome-remote-desktop-51.0.tar.xz
+PKG_VERSION:=51.1
+PKG_RELEASE:=1
+PKG_SOURCE:=gnome-remote-desktop-51.1.tar.xz
 PKG_SOURCE_URL:=https://download.gnome.org/sources/gnome-remote-desktop/51/
-PKG_HASH:=c7954b34da5766288ea19b56026421c9c1fe2c23ef379e57ec209dc0cf13df2b
+PKG_HASH:=3f1444948184590e9777e5e32da8597fed7a08501f63015587b4dba1e523fbd5
 PKG_LICENSE:=GPL-2.0-or-later
 PKG_BUILD_DEPENDS:=glslang/host spirv-tools/host nv-codec-headers
 GNOME_TITLE:=GNOME shared-session RDP server

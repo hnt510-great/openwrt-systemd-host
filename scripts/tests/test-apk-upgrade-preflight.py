@@ -467,6 +467,20 @@ class PreflightTests(unittest.TestCase):
             baseline, simulation, {'sequence': 85, 'release': '7.3.5-85-openwrt'})
         self.assertEqual(status, 'router-on-different-generation')
 
+    def test_capture_uses_longer_timeout_than_default_remote(self):
+        recorded = []
+
+        def fake_run(cmd, **kwargs):
+            recorded.append(kwargs.get('timeout'))
+            return G.subprocess.CompletedProcess(cmd, 0, stdout='{"ok": true}', stderr='')
+
+        with patch.object(G.subprocess, 'run', side_effect=fake_run):
+            G.remote('router', 'print(1)')
+            G.capture('router')
+        self.assertEqual(recorded, [G.REMOTE_TIMEOUT, G.CAPTURE_TIMEOUT])
+        self.assertEqual(G.REMOTE_TIMEOUT, 60)
+        self.assertGreaterEqual(G.CAPTURE_TIMEOUT, 180)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

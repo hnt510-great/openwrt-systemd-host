@@ -170,6 +170,7 @@ class History:
         if not self.repo.exists():
             self.run(['git', 'init', '--bare', '-q', str(self.repo)])
             self.git('config', 'core.fsync', 'all')
+        self.object_format = self.git('rev-parse', '--show-object-format').strip()
         self.refresh_settings()
 
     def refresh_settings(self):
@@ -244,27 +245,59 @@ class History:
                 files[rel] = dict(data=data, mode=stat.S_IMODE(st.st_mode), uid=st.st_uid, gid=st.st_gid)
         return files
 
-    def tree(self, files):
+    def blob_oid(self, data):
+        algo = hashlib.sha256 if self.object_format == 'sha256' else hashlib.sha1
+        return algo(f'blob {len(data)}\0'.encode() + data).hexdigest()
+
+    def head_tree_blobs(self, oid):
+        raw = self.git('ls-tree', '-r', '-z', oid + '^{tree}')
+        blobs = {}
+        for entry in raw.split('\0'):
+            if not entry:
+                continue
+            meta, name = entry.split('\t', 1)
+            parts = meta.split(' ')
+            if len(parts) == 3 and parts[1] == 'blob':
+                blobs[name] = parts[2]
+        return blobs
+
+    def _blob_map(self, files):
+        meta = {k: {x: v[x] for x in ('mode', 'uid', 'gid')} for k, v in files.items()}
+        blobs = {k: v['data'] for k, v in files.items()}
+        blobs['.meta.json'] = json.dumps(meta, sort_keys=True).encode()
+        return blobs
+
+    def files_match_commit(self, oid, files, existing=None):
+        blobs = self._blob_map(files)
+        expected = {k: self.blob_oid(data) for k, data in blobs.items()}
+        actual = self.head_tree_blobs(oid) if existing is None else existing
+        return expected == actual
+
+    def tree(self, files, existing=None):
         fd, index = tempfile.mkstemp(dir=self.base)
         os.close(fd)
         os.unlink(index)
         env = dict(os.environ, GIT_INDEX_FILE=index)
         try:
             self.git('read-tree', '--empty', env=env)
-            meta = {k: {x: v[x] for x in ('mode', 'uid', 'gid')} for k, v in files.items()}
-            blobs = {k: v['data'] for k, v in files.items()}
-            blobs['.meta.json'] = json.dumps(meta, sort_keys=True).encode()
+            blobs = self._blob_map(files)
+            index_records = []
             for name, data in sorted(blobs.items()):
-                oid = self.git('hash-object', '-w', '--stdin', input=data).strip()
-                self.git('update-index', '--add', '--cacheinfo', '100644', oid, name, env=env)
+                expected_oid = self.blob_oid(data)
+                if existing is not None and existing.get(name) == expected_oid:
+                    oid = expected_oid
+                else:
+                    oid = self.git('hash-object', '-w', '--stdin', input=data).strip()
+                index_records.append(f'100644 {oid}\t{name}\0')
+            if index_records:
+                self.git('update-index', '-z', '--index-info',
+                         input=''.join(index_records).encode(), env=env)
             return self.git('write-tree', env=env).strip()
         finally:
             Path(index).unlink(missing_ok=True)
 
-    def revisions(self):
-        if not self.git('for-each-ref', '--format=%(objectname)', 'refs/heads/history').strip():
-            return []
-        data = self.git('log', '--format=%H%x00%ct%x00%B%x00', 'refs/heads/history')
+    @staticmethod
+    def _parse_log_records(data):
         parts, result = data.split('\0'), []
         for i in range(0, len(parts) - 2, 3):
             oid, stamp, body = parts[i].strip(), parts[i+1], parts[i+2]
@@ -275,11 +308,26 @@ class History:
                                configs=trailers.get('Configs', '').split()))
         return result
 
+    def head_revision(self):
+        if not self.git('for-each-ref', '--format=%(objectname)', 'refs/heads/history').strip():
+            return None
+        data = self.git('log', '-n', '1', '--format=%H%x00%ct%x00%B%x00', 'refs/heads/history')
+        records = self._parse_log_records(data)
+        return records[0] if records else None
+
+    def revisions(self):
+        if not self.git('for-each-ref', '--format=%(objectname)', 'refs/heads/history').strip():
+            return []
+        data = self.git('log', '--format=%H%x00%ct%x00%B%x00', 'refs/heads/history')
+        return self._parse_log_records(data)
+
     def revision(self, value):
-        revisions = self.revisions()
-        if value in (None, 'HEAD') and revisions:
-            return revisions[0]
-        for rev in revisions:
+        if value in (None, 'HEAD'):
+            head = self.head_revision()
+            if head is not None:
+                return head
+            raise Error(4, 'Revision not found')
+        for rev in self.revisions():
             if str(rev['revision']) == str(value):
                 return rev
         raise Error(4, 'Revision not found')
@@ -287,17 +335,34 @@ class History:
     def files_at(self, value):
         oid = self.revision(value)['oid']
         meta = json.loads(self.git('show', oid + ':.meta.json'))
-        result = {}
-        for name, attrs in meta.items():
+        names = []
+        for name in meta:
             if not name.startswith('etc/config/'):
                 self.validate_path('/' + name)
             else:
                 self.validate_path('/' + name)
                 if any(p.startswith('.') for p in Path(name).parts):
                     raise Error(2, 'Unsafe configuration path in history')
-            p = subprocess.run(['git', '--git-dir=' + str(self.repo), 'show', oid + ':' + name],
-                               capture_output=True, check=True)
-            result[name] = dict(attrs, data=p.stdout)
+            names.append(name)
+        result = {}
+        if not names:
+            return result
+        batch_input = ''.join(f'{oid}:{name}\0' for name in names).encode()
+        p = subprocess.run(['git', '--git-dir=' + str(self.repo), 'cat-file', '-Z', '--batch'],
+                           input=batch_input, capture_output=True, check=True)
+        buf = p.stdout
+        pos = 0
+        for name in names:
+            nul = buf.index(b'\0', pos)
+            header = buf[pos:nul].decode()
+            pos = nul + 1
+            parts = header.split(' ')
+            if len(parts) != 3 or parts[1] != 'blob':
+                raise Error(1, 'Missing history object: ' + name)
+            size = int(parts[2])
+            data = buf[pos:pos + size]
+            pos += size + 1  # trailing NUL after blob payload
+            result[name] = dict(meta[name], data=data)
         return result
 
     def atomic(self, file, data, mode=0o600, uid=None, gid=None):
@@ -381,11 +446,14 @@ class History:
         if auto and not self.settings['enabled']:
             return dict(changed=False, disabled=True)
         files = self.collect()
-        tree = self.tree(files)
-        revs = self.revisions()
-        if revs and tree == self.git('rev-parse', revs[0]['oid'] + '^{tree}').strip():
-            return dict(changed=False, revision=revs[0]['revision'])
-        old = self.files_at('HEAD') if revs else {}
+        head = self.head_revision()
+        existing = self.head_tree_blobs(head['oid']) if head else None
+        if head and self.files_match_commit(head['oid'], files, existing):
+            return dict(changed=False, revision=head['revision'])
+        tree = self.tree(files, existing=existing)
+        if head and tree == self.git('rev-parse', head['oid'] + '^{tree}').strip():
+            return dict(changed=False, revision=head['revision'])
+        old = self.files_at('HEAD') if head else {}
         changed = sorted(k for k in set(old) | set(files) if old.get(k) != files.get(k))
         configs = sorted({config_name(k) for k in changed if config_name(k)})
         tx = self.txn() or {}
@@ -393,7 +461,7 @@ class History:
         actor = actor or tx.get('actor') or hint.get('actor') or os.environ.get('SUDO_USER') or 'root'
         note = note or tx.get('note', '')
         source = hint.get('source', source)
-        revision = revs[0]['revision'] + 1 if revs else 1
+        revision = head['revision'] + 1 if head else 1
         clean = lambda s: str(s).replace('\n', ' ').replace('\r', ' ')
         body = '\n'.join('%s: %s' % (k, clean(v)) for k, v in [
             ('Revision', revision), ('Source', source), ('Actor', actor), ('Note', note),
@@ -401,17 +469,18 @@ class History:
         env = dict(os.environ, GIT_AUTHOR_NAME='uci-history', GIT_AUTHOR_EMAIL='root@localhost',
                    GIT_COMMITTER_NAME='uci-history', GIT_COMMITTER_EMAIL='root@localhost')
         args = ['commit-tree', tree]
-        if revs:
-            args += ['-p', revs[0]['oid']]
+        if head:
+            args += ['-p', head['oid']]
         oid = self.git(*args, input=body.encode(), env=env).strip()
         self.git('update-ref', 'refs/heads/history', oid)
         return dict(changed=True, revision=revision, configs=configs, source=source)
 
     def status(self):
-        revs = self.revisions()
-        drift = not revs or self.tree(self.collect()) != self.git('rev-parse', revs[0]['oid'] + '^{tree}').strip()
-        return dict(head=revs[0]['revision'] if revs else None, drift=drift,
-                    configs=sorted(self.texts(self.collect())),
+        head = self.head_revision()
+        files = self.collect()
+        drift = not head or not self.files_match_commit(head['oid'], files)
+        return dict(head=head['revision'] if head else None, drift=drift,
+                    configs=sorted(self.texts(files)),
                     staged=self.staged(), transaction=self.txn(), rpcd_rollback=self.pending_rpcd())
 
     def texts(self, files, config=None):
@@ -769,11 +838,20 @@ def main(argv=None):
                 result = h.diff(a.a, a.b, a.config, a.format, a.show_secrets)
             elif cmd == 'snapshot':
                 if a.auto:
-                    fcntl.flock(h.lock, fcntl.LOCK_UN)
-                    settle(h)
-                    fcntl.flock(h.lock, fcntl.LOCK_EX)
-                    h.refresh_settings()
-                result = h.snapshot(a.source if not a.auto or a.source != 'cli' else 'external', a.actor, a.note, a.auto)
+                    if not h.settings['enabled']:
+                        result = dict(changed=False, disabled=True)
+                    else:
+                        head = h.head_revision()
+                        if head and h.files_match_commit(head['oid'], h.collect()):
+                            result = dict(changed=False, revision=head['revision'])
+                        else:
+                            fcntl.flock(h.lock, fcntl.LOCK_UN)
+                            settle(h)
+                            fcntl.flock(h.lock, fcntl.LOCK_EX)
+                            h.refresh_settings()
+                            result = h.snapshot(a.source if a.source != 'cli' else 'external', a.actor, a.note, a.auto)
+                else:
+                    result = h.snapshot(a.source, a.actor, a.note, a.auto)
             elif cmd == 'begin':
                 result = h.arm(a.timeout if a.timeout is not None else h.settings['timeout'], a.actor, a.note)
             elif cmd == 'restore':

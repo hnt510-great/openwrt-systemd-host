@@ -360,6 +360,63 @@ class PublisherTests(unittest.TestCase):
         self.assertIn('base/feed-probe-1.0-r1.apk', result.stdout + result.stderr)
         self.assertFalse((self.destination / 'public/abi' / new_kernel).exists())
 
+    def test_same_version_conflict_fails_before_ucode_and_elf_validation(self):
+        self.make_package('feed-probe', '1.0-r1', 'mutated bytes for early reject')
+        args = publisher.argparse.Namespace(
+            config=None, kernel=self.kernel, source_root=self.source,
+            destination=self.destination, base_url='http://127.0.0.1:8088',
+            incremental=True, dry_run=False, kernel_upgrade_view=False,
+            expected=None, frozen_artifacts=False,
+        )
+        with mock.patch.object(publisher, 'validate_ucode_abi', side_effect=AssertionError('should not run')) as ucode_mock, \
+             mock.patch.object(publisher, 'validate_elf_abi', side_effect=AssertionError('should not run')) as elf_mock:
+            with self.assertRaises(publisher.SameVersionRebuildError):
+                publisher.publish(args)
+        ucode_mock.assert_not_called()
+        elf_mock.assert_not_called()
+
+    def test_prune_feeds_accounts_for_grace_period_and_multi_snapshot_hardlinks(self):
+        import os
+        import time
+
+        with tempfile.TemporaryDirectory(prefix='prune-feeds-test-') as td:
+            dest = Path(td)
+            snaps = dest / 'public/snapshots'
+            live = snaps / '20260101T000000Z'
+            old1 = snaps / '20250101T000000Z'
+            old2 = snaps / '20250102T000000Z'
+            for d in (live, old1, old2):
+                d.mkdir(parents=True)
+            (dest / 'public/current').symlink_to('snapshots/' + live.name)
+
+            # Shared 4096-byte file hardlinked between old1 (past grace) and old2 (within grace).
+            shared = old1 / 'shared.apk'
+            shared.write_bytes(b'X' * 4096)
+            os.link(shared, old2 / 'shared.apk')
+            past = time.time() - 7200
+            os.utime(old1, (past, past))
+
+            # When old2 is retained by grace period, deleting old1 frees 0 bytes.
+            out1 = subprocess.check_output(
+                ['python3', str(TREE / 'scripts/prune-lan-apk-feeds.py'),
+                 '--destination', str(dest), '--grace-seconds', '3600'],
+                text=True,
+            )
+            report1 = json.loads(out1[out1.index('{'):])
+            self.assertEqual(report1['removed'], 1)
+            self.assertEqual(report1['freed_bytes'], 0)
+
+            # When BOTH old1 and old2 are past grace, the shared file is counted ONCE (4096, not 8192).
+            os.utime(old2, (past, past))
+            out2 = subprocess.check_output(
+                ['python3', str(TREE / 'scripts/prune-lan-apk-feeds.py'),
+                 '--destination', str(dest), '--grace-seconds', '3600'],
+                text=True,
+            )
+            report2 = json.loads(out2[out2.index('{'):])
+            self.assertEqual(report2['removed'], 2)
+            self.assertEqual(report2['freed_bytes'], 4096)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

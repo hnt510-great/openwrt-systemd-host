@@ -1,0 +1,1308 @@
+diff --git a/applications/luci-app-attendedsysupgrade/Makefile b/applications/luci-app-attendedsysupgrade/Makefile
+index 09a7312741..c7d03607c2 100644
+--- a/applications/luci-app-attendedsysupgrade/Makefile
++++ b/applications/luci-app-attendedsysupgrade/Makefile
+@@ -4,7 +4,7 @@
+ include $(TOPDIR)/rules.mk
+ 
+ LUCI_TITLE:=LuCI support for attended sysupgrades
+-LUCI_DEPENDS:=+luci-base +attendedsysupgrade-common +cgi-io
++LUCI_DEPENDS:=@!OPENWRT_SYSTEMD +luci-base +attendedsysupgrade-common +cgi-io
+ 
+ PKG_MAINTAINER:=Eric Fahlgren <ericfahlgren@gmail.com>, Paul Spooren <paul@spooren.de>
+ PKG_LICENSE:=GPL-2.0
+diff --git a/applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/zones.js b/applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/zones.js
+index ae78fb1867..6246d8c71a 100644
+--- a/applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/zones.js
++++ b/applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/zones.js
+@@ -68,6 +68,15 @@ return view.extend({
+ 			popt.value('ACCEPT', _('accept'));
+ 		}
+ 
++		/* Broadcom-style full cone masquerading, firewall4 "fullcone 2" */
++		if (fw4) {
++			o = s.option(form.Flag, 'fullcone', _('Enable full cone NAT'),
++				_('Endpoint-independent mapping and filtering (NAT1) for IPv4 UDP in zones with masquerading. Once a LAN host has sent from a UDP port, any remote host can reach it through that port. Requires a kernel with full cone support; otherwise ordinary masquerading is used.'));
++			o.enabled = '2';
++			o.disabled = '0';
++			o.default = o.disabled;
++		}
++
+ 		/* Netfilter flow offload support */
+ 
+ 		if (L.hasSystemFeature('offloading')) {
+diff --git a/applications/luci-app-firewall/po/templates/firewall.pot b/applications/luci-app-firewall/po/templates/firewall.pot
+index d77ab9cd09..f45ab10929 100644
+--- a/applications/luci-app-firewall/po/templates/firewall.pot
++++ b/applications/luci-app-firewall/po/templates/firewall.pot
+@@ -274,6 +274,18 @@ msgstr ""
+ msgid "Drop invalid packets"
+ msgstr ""
+ 
++#: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/zones.js:73
++msgid "Enable full cone NAT"
++msgstr ""
++
++#: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/zones.js:74
++msgid ""
++"Endpoint-independent mapping and filtering (NAT1) for IPv4 UDP in zones with "
++"masquerading. Once a LAN host has sent from a UDP port, any remote host can "
++"reach it through that port. Requires a kernel with full cone support; "
++"otherwise ordinary masquerading is used."
++msgstr ""
++
+ #: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/forwards.js:230
+ #: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/rules.js:225
+ #: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/snats.js:209
+diff --git a/applications/luci-app-firewall/po/zh_Hans/firewall.po b/applications/luci-app-firewall/po/zh_Hans/firewall.po
+index c0e49a4062..9b7b7e60f9 100644
+--- a/applications/luci-app-firewall/po/zh_Hans/firewall.po
++++ b/applications/luci-app-firewall/po/zh_Hans/firewall.po
+@@ -316,6 +316,18 @@ msgstr ""
+ msgid "Drop invalid packets"
+ msgstr "丢弃无效数据包"
+ 
++#: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/zones.js:73
++msgid "Enable full cone NAT"
++msgstr "启用全锥形 NAT"
++
++#: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/zones.js:74
++msgid ""
++"Endpoint-independent mapping and filtering (NAT1) for IPv4 UDP in zones with "
++"masquerading. Once a LAN host has sent from a UDP port, any remote host can "
++"reach it through that port. Requires a kernel with full cone support; "
++"otherwise ordinary masquerading is used."
++msgstr "为启用了 IP 动态伪装的区域中的 IPv4 UDP 提供端点无关的映射和过滤（NAT1）。局域网主机从某个 UDP 端口发出数据后，任何远程主机都可以通过该端口访问它。需要支持全锥形 NAT 的内核，否则使用普通 IP 动态伪装。"
++
+ #: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/forwards.js:230
+ #: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/rules.js:225
+ #: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/snats.js:209
+diff --git a/applications/luci-app-firewall/po/zh_Hant/firewall.po b/applications/luci-app-firewall/po/zh_Hant/firewall.po
+index 948217028f..c72d7b5e28 100644
+--- a/applications/luci-app-firewall/po/zh_Hant/firewall.po
++++ b/applications/luci-app-firewall/po/zh_Hant/firewall.po
+@@ -315,6 +315,18 @@ msgstr "允許轉送連線追蹤狀態無效的流量。對於複雜的不對稱
+ msgid "Drop invalid packets"
+ msgstr "丟棄無效封包"
+ 
++#: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/zones.js:73
++msgid "Enable full cone NAT"
++msgstr "啟用全錐形 NAT"
++
++#: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/zones.js:74
++msgid ""
++"Endpoint-independent mapping and filtering (NAT1) for IPv4 UDP in zones with "
++"masquerading. Once a LAN host has sent from a UDP port, any remote host can "
++"reach it through that port. Requires a kernel with full cone support; "
++"otherwise ordinary masquerading is used."
++msgstr "為啟用了 IP 動態偽裝的區域中的 IPv4 UDP 提供端點無關的映射和過濾（NAT1）。區域網路主機從某個 UDP 連接埠發出資料後，任何遠端主機都可以透過該連接埠存取它。需要支援全錐形 NAT 的核心，否則使用一般 IP 動態偽裝。"
++
+ #: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/forwards.js:230
+ #: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/rules.js:225
+ #: applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/snats.js:209
+diff --git a/applications/luci-app-ttyd/htdocs/luci-static/resources/view/ttyd/term.js b/applications/luci-app-ttyd/htdocs/luci-static/resources/view/ttyd/term.js
+index fac6da51a2..0e8d26d4c3 100644
+--- a/applications/luci-app-ttyd/htdocs/luci-static/resources/view/ttyd/term.js
++++ b/applications/luci-app-ttyd/htdocs/luci-static/resources/view/ttyd/term.js
+@@ -13,10 +13,28 @@ return view.extend({
+ 		if (port === '0')
+ 			return E('div', { class: 'alert-message warning' },
+ 					_('Random ttyd port (port=0) is not supported.<br />Change to a fixed port and try again.'));
+-		return E('iframe', {
+-			src: url || ((ssl === '1' ? 'https' : 'http') + '://' + window.location.hostname + ':' + port),
+-			style: 'width: 100%; min-height: 500px; border: none; border-radius: 3px; resize: vertical;'
+-		});
++
++		var host = window.location.hostname;
++		if (host.indexOf(':') !== -1)
++			host = '[' + host + ']';
++
++		var src = url || ((ssl === '1' ? 'https' : 'http') + '://' + host + ':' + port),
++			nodes = [];
++
++		/* An http:// frame inside an https:// page is blocked as mixed content. */
++		if (window.location.protocol === 'https:' && /^http:/i.test(src))
++			nodes.push(E('div', { class: 'alert-message warning' },
++				_('LuCI is served over HTTPS but ttyd is not. Enable SSL in the ttyd configuration, or open the terminal in a new tab.')));
++
++		nodes.push(E('iframe', {
++			src: src,
++			style: 'flex: 1; width: 100%; min-height: 500px; border: none; border-radius: 3px; resize: vertical;'
++		}));
++
++		nodes.push(E('p', {}, E('a', { href: src, target: '_blank', rel: 'noopener' },
++			_('Open the terminal in a new tab (also accepts its certificate if the frame stays blank)'))));
++
++		return E('div', { style: 'display: flex; flex-direction: column; height: 100%;' }, nodes);
+ 	},
+ 	handleSaveApply: null,
+ 	handleSave: null,
+diff --git a/contrib/package/lucihttp/Makefile b/contrib/package/lucihttp/Makefile
+index fa0277e512..1c778c2c06 100644
+--- a/contrib/package/lucihttp/Makefile
++++ b/contrib/package/lucihttp/Makefile
+@@ -1,7 +1,7 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=lucihttp
+-PKG_RELEASE:=1
++PKG_RELEASE:=4
+ 
+ PKG_SOURCE_PROTO:=git
+ PKG_SOURCE_URL=https://github.com/jow-/lucihttp.git
+diff --git a/contrib/package/ucode-mod-html/Makefile b/contrib/package/ucode-mod-html/Makefile
+index 4ed21738f5..be13e29504 100644
+--- a/contrib/package/ucode-mod-html/Makefile
++++ b/contrib/package/ucode-mod-html/Makefile
+@@ -1,7 +1,7 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=ucode-mod-html
+-PKG_RELEASE:=1
++PKG_RELEASE:=3
+ PKG_LICENSE:=ISC
+ PKG_MAINTAINER:=Jo-Philipp Wich <jo@mein.io>
+ 
+diff --git a/contrib/package/ucode-mod-lua/Makefile b/contrib/package/ucode-mod-lua/Makefile
+index a7937925b0..311d6556fc 100644
+--- a/contrib/package/ucode-mod-lua/Makefile
++++ b/contrib/package/ucode-mod-lua/Makefile
+@@ -1,7 +1,7 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=ucode-mod-lua
+-PKG_RELEASE:=1
++PKG_RELEASE:=3
+ PKG_LICENSE:=ISC
+ PKG_MAINTAINER:=Jo-Philipp Wich <jo@mein.io>
+ 
+diff --git a/modules/luci-base/Makefile b/modules/luci-base/Makefile
+index 952c993be5..d2896418c0 100644
+--- a/modules/luci-base/Makefile
++++ b/modules/luci-base/Makefile
+@@ -7,6 +7,9 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=luci-base
++# Keep the feed revision while making native module rebuilds upgradeable.
++PKG_VERSION=$(PKG_SRC_VERSION)
++PKG_RELEASE:=5
+ PKG_BUILD_FLAGS:=no-lto
+ 
+ LUCI_TYPE:=mod
+@@ -20,6 +23,7 @@ LUCI_DEPENDS:=\
+ 	+rpcd-mod-ucode \
+ 	+cgi-io \
+ 	+ucode \
++	+libucode \
+ 	+ucode-mod-fs \
+ 	+ucode-mod-log \
+ 	+ucode-mod-uci \
+diff --git a/modules/luci-base/po/templates/base.pot b/modules/luci-base/po/templates/base.pot
+index 9aea062f81..414a87712a 100644
+--- a/modules/luci-base/po/templates/base.pot
++++ b/modules/luci-base/po/templates/base.pot
+@@ -2139,6 +2139,14 @@ msgstr ""
+ msgid "CNAME or fqdn"
+ msgstr ""
+ 
++#: modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/10_system.js:259
++msgid "CPU Frequency"
++msgstr ""
++
++#: modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/10_system.js:256
++msgid "CPU Temperature"
++msgstr ""
++
+ #: modules/luci-mod-status/htdocs/luci-static/resources/view/status/processes.js:68
+ msgid "CPU usage (%)"
+ msgstr ""
+diff --git a/modules/luci-base/po/zh_Hans/base.po b/modules/luci-base/po/zh_Hans/base.po
+index f993871a8e..f3cf00264b 100644
+--- a/modules/luci-base/po/zh_Hans/base.po
++++ b/modules/luci-base/po/zh_Hans/base.po
+@@ -2217,6 +2217,14 @@ msgstr "CNAME"
+ msgid "CNAME or fqdn"
+ msgstr "CNAME 或 fqdn"
+ 
++#: modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/10_system.js:259
++msgid "CPU Frequency"
++msgstr "CPU 频率"
++
++#: modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/10_system.js:256
++msgid "CPU Temperature"
++msgstr "CPU 温度"
++
+ #: modules/luci-mod-status/htdocs/luci-static/resources/view/status/processes.js:68
+ msgid "CPU usage (%)"
+ msgstr "CPU 使用率（%）"
+@@ -16801,3 +16809,43 @@ msgstr "… 及另外 %d 个。"
+ 
+ #~ msgid "Set Static"
+ #~ msgstr "设为静态"
++
++#: modules/luci-mod-system/htdocs/luci-static/resources/view/system/openssh.js
++msgid "OpenSSH offers SSH access and SFTP file transfers."
++msgstr "OpenSSH 提供 SSH 远程访问和 SFTP 文件传输服务。"
++
++#: modules/luci-mod-system/htdocs/luci-static/resources/view/system/openssh.js
++msgid "OpenSSH Server"
++msgstr "OpenSSH 服务器"
++
++#: modules/luci-mod-system/htdocs/luci-static/resources/view/system/openssh.js
++msgid "Public key authentication"
++msgstr "公钥认证"
++
++#: modules/luci-mod-system/htdocs/luci-static/resources/view/system/openssh.js
++msgid "Root login"
++msgstr "root 登录方式"
++
++#: modules/luci-mod-system/htdocs/luci-static/resources/view/system/openssh.js
++msgid "Password or public key"
++msgstr "密码或公钥"
++
++#: modules/luci-mod-system/htdocs/luci-static/resources/view/system/openssh.js
++msgid "Public key only"
++msgstr "仅公钥"
++
++#: modules/luci-mod-system/htdocs/luci-static/resources/view/system/openssh.js
++msgid "Specified by the SSH client"
++msgstr "由 SSH 客户端指定"
++
++#: modules/luci-mod-system/htdocs/luci-static/resources/view/system/openssh.js
++msgid "Unable to read SSH configuration."
++msgstr "无法读取 SSH 配置。"
++
++#: modules/luci-mod-system/htdocs/luci-static/resources/view/system/openssh.js
++msgid "Unable to save SSH configuration."
++msgstr "无法保存 SSH 配置。"
++
++#: modules/luci-mod-system/htdocs/luci-static/resources/view/system/openssh.js
++msgid "SSH settings have been saved and applied."
++msgstr "SSH 设置已保存并应用。"
+diff --git a/modules/luci-base/src/Makefile b/modules/luci-base/src/Makefile
+index 8ac8246445..c574bef5a6 100644
+--- a/modules/luci-base/src/Makefile
++++ b/modules/luci-base/src/Makefile
+@@ -32,3 +32,7 @@ install: compile
+ 
+ 	mkdir -p $(DESTDIR)/usr/share/ucode/luci
+ 	cp version.uc $(DESTDIR)/usr/share/ucode/luci/version.uc
++
++	# ubusd rejects group-writable ACL files; do not inherit checkout modes.
++	mkdir -p $(DESTDIR)/usr/share/acl.d
++	install -m 0644 ../root/usr/share/acl.d/luci-base.json $(DESTDIR)/usr/share/acl.d/luci-base.json
+diff --git a/modules/luci-base/ucode/template/header.ut b/modules/luci-base/ucode/template/header.ut
+index f23e5e45c8..4100a1a9c7 100644
+--- a/modules/luci-base/ucode/template/header.ut
++++ b/modules/luci-base/ucode/template/header.ut
+@@ -19,6 +19,8 @@
+ 		dispatchpath   : ctx.path,
+ 		pollinterval   : +config.main.pollinterval || 5,
+ 		ubuspath       : config.main.ubuspath || '/ubus/',
++		base_url       : resource,
++		resource_version: version.luciversion + '-' + pkgs_update_time,
+ 		sessionid      : ctx.authsession,
+ 		token          : ctx.authtoken,
+ 		nodespec       : dispatched,
+diff --git a/modules/luci-mod-status/Makefile b/modules/luci-mod-status/Makefile
+index 6b86e8472c..296828b375 100644
+--- a/modules/luci-mod-status/Makefile
++++ b/modules/luci-mod-status/Makefile
+@@ -9,7 +9,8 @@ include $(TOPDIR)/rules.mk
+ LUCI_TITLE:=LuCI Status Pages
+ LUCI_DEPENDS:=+luci-base +libiwinfo +rpcd-mod-iwinfo
+ 
+-PKG_RELEASE:=4
++PKG_VERSION=$(PKG_SRC_VERSION)
++PKG_RELEASE:=2
+ PKG_BUILD_DEPENDS:=iwinfo
+ PKG_LICENSE:=Apache-2.0
+ 
+diff --git a/modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/10_system.js b/modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/10_system.js
+index 3a2d2f1f2f..c778ba3a2a 100644
+--- a/modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/10_system.js
++++ b/modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/10_system.js
+@@ -25,6 +25,176 @@ var callSystemInfo = rpc.declare({
+ 	method: 'info'
+ });
+ 
++var cpuHwmonDrivers = [
++	'coretemp', 'k10temp', 'zenpower', 'cpu_thermal', 'soc_thermal'
++];
++
++function readSysfs(path) {
++	return fs.read(path).then(function(str) {
++		return (str || '').trim();
++	}).catch(function() {
++		return null;
++	});
++}
++
++function listSysfs(path) {
++	return fs.list(path).then(function(entries) {
++		return (entries || []).map(function(entry) {
++			return entry.name;
++		});
++	}).catch(function() {
++		return [];
++	});
++}
++
++function readHwmonCpuTemperature() {
++	return listSysfs('/sys/class/hwmon').then(function(entries) {
++		var hwmons = entries.filter(function(name) {
++			return /^hwmon\d+$/.test(name);
++		});
++
++		return Promise.all(hwmons.map(function(name) {
++			var dir = '/sys/class/hwmon/%s'.format(name);
++
++			return readSysfs('%s/name'.format(dir)).then(function(driver) {
++				if (cpuHwmonDrivers.indexOf(driver) < 0)
++					return null;
++
++				return readSysfs('%s/temp1_input'.format(dir)).then(function(value) {
++					var temp = parseFloat(value);
++
++					return isNaN(temp) ? null : temp / 1000;
++				});
++			});
++		}));
++	}).then(function(temps) {
++		for (var i = 0; i < temps.length; i++)
++			if (temps[i] != null)
++				return temps[i];
++
++		return null;
++	});
++}
++
++function readThermalZoneTemperature() {
++	return listSysfs('/sys/class/thermal').then(function(entries) {
++		var zones = entries.filter(function(name) {
++			return /^thermal_zone\d+$/.test(name);
++		});
++
++		return Promise.all(zones.map(function(name) {
++			var dir = '/sys/class/thermal/%s'.format(name);
++
++			return Promise.all([
++				readSysfs('%s/type'.format(dir)),
++				readSysfs('%s/temp'.format(dir))
++			]).then(function(data) {
++				var temp = parseFloat(data[1]);
++
++				if (!data[0] || isNaN(temp))
++					return null;
++
++				return { type: data[0], temp: temp / 1000 };
++			});
++		}));
++	}).then(function(zones) {
++		var valid = zones.filter(function(zone) {
++			return zone != null;
++		});
++
++		for (var i = 0; i < valid.length; i++)
++			if (/(pkg|cpu|soc|core)/i.test(valid[i].type))
++				return valid[i].temp;
++
++		return valid.length ? valid[0].temp : null;
++	});
++}
++
++function readCpuTemperature() {
++	return readHwmonCpuTemperature().then(function(temp) {
++		return (temp != null) ? temp : readThermalZoneTemperature();
++	}).catch(function() {
++		return null;
++	});
++}
++
++function parseCpuList(str) {
++	var cpus = [];
++
++	(str || '').split(',').forEach(function(range) {
++		var m = range.trim().match(/^(\d+)(?:-(\d+))?$/);
++
++		if (!m)
++			return;
++
++		var from = +m[1],
++		    to = m[2] ? +m[2] : from;
++
++		for (var i = from; i <= to && cpus.length < 1024; i++)
++			cpus.push(i);
++	});
++
++	return cpus;
++}
++
++function readProcCpuFrequency() {
++	return readSysfs('/proc/cpuinfo').then(function(content) {
++		if (!content)
++			return null;
++
++		var freqs = [];
++
++		content.split('\n').forEach(function(line) {
++			var m = line.match(/^cpu MHz\s*:\s*([\d.]+)/);
++
++			if (m)
++				freqs.push(parseFloat(m[1]));
++		});
++
++		if (!freqs.length)
++			return null;
++
++		return freqs.reduce(function(a, b) { return a + b; }, 0) / freqs.length * 1000;
++	});
++}
++
++function readCpuFrequency() {
++	/*
++	 * The status page refreshes all includes at once, and the burst of RPC
++	 * calls briefly drives every core to its boost clock. Sampling right
++	 * away would report the dashboard's own load, so give the poll burst a
++	 * moment to settle before reading the current frequency.
++	 */
++	return new Promise(function(resolve) {
++		setTimeout(resolve, 800);
++	}).then(function() {
++		return readSysfs('/sys/devices/system/cpu/online');
++	}).then(function(online) {
++		var cpus = parseCpuList(online);
++
++		return Promise.all(cpus.map(function(cpu) {
++			return readSysfs('/sys/devices/system/cpu/cpu%d/cpufreq/scaling_cur_freq'.format(cpu));
++		}));
++	}).then(function(freqs) {
++		var values = (freqs || []).map(parseFloat).filter(function(freq) {
++			return !isNaN(freq) && freq > 0;
++		});
++
++		if (!values.length)
++			return readProcCpuFrequency();
++
++		return values.reduce(function(a, b) { return a + b; }, 0) / values.length;
++	}).catch(function() {
++		return null;
++	});
++}
++
++function formatFrequency(khz) {
++	return (khz >= 1000000)
++		? '%.2f GHz'.format(khz / 1000000)
++		: '%.0f MHz'.format(khz / 1000);
++}
++
+ return baseclass.extend({
+ 	title: _('System'),
+ 
+@@ -34,7 +204,9 @@ return baseclass.extend({
+ 			L.resolveDefault(callSystemInfo(), {}),
+ 			L.resolveDefault(callLuciVersion(), { revision: _('unknown version'), branch: 'LuCI' }),
+ 			L.resolveDefault(callGetUnixtime(), 0),
+-			uci.load('system')
++			uci.load('system'),
++			readCpuTemperature(),
++			readCpuFrequency()
+ 		]);
+ 	},
+ 
+@@ -42,7 +214,9 @@ return baseclass.extend({
+ 		var boardinfo   = data[0],
+ 		    systeminfo  = data[1],
+ 		    luciversion = data[2],
+-		    unixtime    = data[3];
++		    unixtime    = data[3],
++		    cputemp     = data[5],
++		    cpufreq     = data[6];
+ 
+ 		luciversion = luciversion.branch + ' ' + luciversion.revision;
+ 
+@@ -78,6 +252,12 @@ return baseclass.extend({
+ 			) : null
+ 		];
+ 
++		if (cputemp != null)
++			fields.push(_('CPU Temperature'), '%.1f °C'.format(cputemp));
++
++		if (cpufreq != null)
++			fields.push(_('CPU Frequency'), formatFrequency(cpufreq));
++
+ 		var table = E('table', { 'class': 'table' });
+ 
+ 		for (var i = 0; i < fields.length; i += 2) {
+diff --git a/modules/luci-mod-status/htdocs/luci-static/resources/view/status/index.js b/modules/luci-mod-status/htdocs/luci-static/resources/view/status/index.js
+index e9379ef650..3ce8afa343 100644
+--- a/modules/luci-mod-status/htdocs/luci-static/resources/view/status/index.js
++++ b/modules/luci-mod-status/htdocs/luci-static/resources/view/status/index.js
+@@ -56,10 +56,48 @@ return view.extend({
+ 		return has_load ? Promise.all(tasks) : Promise.resolve(null);
+ 	},
+ 
++	/*
++	 * Update the children of container to content, replacing only the
++	 * top-level nodes whose rendered markup differs. Rebuilding identical
++	 * markup on every poll recreates <img> elements, which browsers briefly
++	 * paint blank while the new image decodes, so unchanged icons visibly
++	 * flicker. Comparing per top-level node keeps e.g. the wireless radio
++	 * boxes in place while the station list, whose widgets carry unique
++	 * data-idref values, is rebuilt.
++	 */
++	updateContent: function(container, content) {
++		var scratch = E('div'), bin = E('div'), changed = false;
++
++		dom.content(scratch, content);
++
++		var next = Array.prototype.slice.call(scratch.childNodes),
++		    prev = Array.prototype.slice.call(container.childNodes);
++
++		if (next.length != prev.length) {
++			dom.content(container, next);
++			return true;
++		}
++
++		for (var i = 0; i < next.length; i++) {
++			if (next[i].isEqualNode(prev[i]))
++				continue;
++
++			container.replaceChild(next[i], prev[i]);
++			bin.appendChild(prev[i]);
++			changed = true;
++		}
++
++		/* release dom.data registry entries of replaced and discarded nodes */
++		dom.content(bin, null);
++		dom.content(scratch, null);
++
++		return changed;
++	},
++
+ 	poll_status: function(includes, containers, first_load) {
+ 		return network.flushCache().then(L.bind(
+ 			this.invokeIncludesLoad, this, includes, first_load
+-		)).then(function(results) {
++		)).then(L.bind(function(results) {
+ 			for (var i = 0; i < includes.length; i++) {
+ 				var content = null;
+ 
+@@ -84,7 +122,7 @@ return view.extend({
+ 					containers[i].parentNode.classList.add('fade-in');
+ 
+ 					if (!includes[i].hide)
+-						dom.content(containers[i], content);
++						this.updateContent(containers[i], content);
+ 				}
+ 			}
+ 
+@@ -93,7 +131,7 @@ return view.extend({
+ 				ssi.style.display = '';
+ 				ssi.classList.add('fade-in');
+ 			}
+-		});
++		}, this));
+ 	},
+ 
+ 	load: function() {
+diff --git a/modules/luci-mod-status/root/usr/share/rpcd/acl.d/luci-mod-status-index.json b/modules/luci-mod-status/root/usr/share/rpcd/acl.d/luci-mod-status-index.json
+index b3f2cefb4b..ed168e130c 100644
+--- a/modules/luci-mod-status/root/usr/share/rpcd/acl.d/luci-mod-status-index.json
++++ b/modules/luci-mod-status/root/usr/share/rpcd/acl.d/luci-mod-status-index.json
+@@ -4,8 +4,24 @@
+ 		"read": {
+ 			"file": {
+ 				"/etc/board.json": [ "read" ],
++				"/proc/cpuinfo": [ "read" ],
+ 				"/proc/sys/net/netfilter/nf_conntrack_count": [ "read" ],
+ 				"/proc/sys/net/netfilter/nf_conntrack_max": [ "read" ],
++				"/sys/class/hwmon": [ "list" ],
++				"/sys/class/hwmon/hwmon*/name": [ "read" ],
++				"/sys/class/hwmon/hwmon*/temp*_input": [ "read" ],
++				"/sys/class/thermal": [ "list" ],
++				"/sys/class/thermal/thermal_zone*/temp": [ "read" ],
++				"/sys/class/thermal/thermal_zone*/type": [ "read" ],
++				"/sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq": [ "read" ],
++				"/sys/devices/system/cpu/cpufreq/policy*/scaling_cur_freq": [ "read" ],
++				"/sys/devices/system/cpu/online": [ "read" ],
++				"/sys/devices/virtual/hwmon": [ "list" ],
++				"/sys/devices/*/hwmon/hwmon*/name": [ "read" ],
++				"/sys/devices/*/hwmon/hwmon*/temp*_input": [ "read" ],
++				"/sys/devices/virtual/thermal": [ "list" ],
++				"/sys/devices/*/thermal_zone*/temp": [ "read" ],
++				"/sys/devices/*/thermal_zone*/type": [ "read" ],
+ 				"/www/luci-static/resources/view/status/include": [ "list" ]
+ 			},
+ 			"ubus": {
+diff --git a/modules/luci-mod-system/Makefile b/modules/luci-mod-system/Makefile
+index a6d5a7a456..c8354f0155 100644
+--- a/modules/luci-mod-system/Makefile
++++ b/modules/luci-mod-system/Makefile
+@@ -8,6 +8,8 @@ include $(TOPDIR)/rules.mk
+ 
+ LUCI_TITLE:=LuCI Administration - Global System Settings
+ LUCI_DEPENDS:=+luci-base
++PKG_VERSION=$(PKG_SRC_VERSION)
++PKG_RELEASE:=3
+ 
+ PKG_LICENSE:=Apache-2.0
+ 
+diff --git a/modules/luci-mod-system/htdocs/luci-static/resources/view/system/flash.js b/modules/luci-mod-system/htdocs/luci-static/resources/view/system/flash.js
+index 1fbe513f1d..de0961cec2 100644
+--- a/modules/luci-mod-system/htdocs/luci-static/resources/view/system/flash.js
++++ b/modules/luci-mod-system/htdocs/luci-static/resources/view/system/flash.js
+@@ -8,69 +8,13 @@
+ 
+ const isReadonlyView = !L.hasViewPermission();
+ 
+-const callSystemValidateFirmwareImage = rpc.declare({
+-	object: 'system',
+-	method: 'validate_firmware_image',
+-	params: [ 'path' ],
+-	expect: { '': { valid: false, forceable: true } }
+-});
+-
+-function findStorageSize(procmtd, procpart) {
+-	let kernsize = 0, rootsize = 0, wholesize = 0;
+-
+-	procmtd.split(/\n/).forEach(function(ln) {
+-		const match = ln.match(/^mtd\d+: ([0-9a-f]+) [0-9a-f]+ "(.+)"$/);
+-		const size = match ? parseInt(match[1], 16) : 0;
+-
+-		switch (match ? match[2] : '') {
+-		case 'linux':
+-		case 'firmware':
+-			if (size > wholesize)
+-				wholesize = size;
+-			break;
+-
+-		case 'kernel':
+-		case 'kernel0':
+-			kernsize = size;
+-			break;
+-
+-		case 'rootfs':
+-		case 'rootfs0':
+-		case 'ubi':
+-		case 'ubi0':
+-			rootsize = size;
+-			break;
+-		}
+-	});
+-
+-	if (wholesize > 0)
+-		return wholesize;
+-	else if (kernsize > 0 && rootsize > kernsize)
+-		return kernsize + rootsize;
+-
+-	procpart.split(/\n/).forEach(function(ln) {
+-		const match = ln.match(/^\s*\d+\s+\d+\s+(\d+)\s+(\S+)$/);
+-		if (match) {
+-			const size = parseInt(match[1], 10);
+-
+-			if (!match[2].match(/\d/) && size > 2048 && wholesize == 0)
+-				wholesize = size * 1024;
+-		}
+-	});
+-
+-	return wholesize;
+-}
+-
+-
+ const mapdata = { actions: {}, config: {} };
+ 
+ return view.extend({
+ 	load() {
+ 		const tasks = [
+-			L.resolveDefault(fs.stat('/lib/upgrade/platform.sh'), {}),
+ 			fs.trimmed('/proc/sys/kernel/hostname'),
+ 			fs.trimmed('/proc/mtd'),
+-			fs.trimmed('/proc/partitions'),
+ 			fs.trimmed('/proc/mounts')
+ 		];
+ 
+@@ -98,7 +42,7 @@ return view.extend({
+ 			E('p', { 'class': 'spinning' }, _('The system is erasing the configuration partition now and will reboot itself when finished.'))
+ 		]);
+ 
+-		/* Currently the sysupgrade rpc call will not return, hence no promise handling */
++		/* The factory reset reboots the device before the command returns */
+ 		fs.exec('/sbin/firstboot', [ '-r', '-y' ]);
+ 
+ 		ui.awaitReconnect('192.168.1.1', 'openwrt.lan');
+@@ -189,157 +133,6 @@ return view.extend({
+ 		form.parentNode.removeChild(form);
+ 	},
+ 
+-	handleSysupgrade(storage_size, has_rootfs_data, ev) {
+-		return ui.uploadFile('/tmp/firmware.bin', ev.target.firstChild)
+-			.then(L.bind(function(btn, reply) {
+-				btn.firstChild.data = _('Checking image…');
+-
+-				ui.showModal(_('Checking image…'), [
+-					E('span', { 'class': 'spinning' }, _('Verifying the uploaded image file.'))
+-				]);
+-
+-				return callSystemValidateFirmwareImage('/tmp/firmware.bin')
+-					.then(function(res) { return [ reply, res ]; });
+-			}, this, ev.target))
+-			.then(L.bind(function(btn, reply) {
+-				return fs.exec('/sbin/sysupgrade', [ '--test', '/tmp/firmware.bin' ])
+-					.then(function(res) { reply.push(res); return reply; });
+-			}, this, ev.target))
+-			.then(L.bind(function(btn, res) {
+-				/* sysupgrade opts table  [0]:checkbox element [1]:check condition [2]:args to pass */
+-				const opts = {
+-				    keep : [ E('input', { type: 'checkbox' }), false, '-n' ],
+-				    force : [ E('input', { type: 'checkbox' }), true, '--force' ],
+-				    skip_orig : [ E('input', { type: 'checkbox' }), true, '-u' ],
+-				    backup_pkgs : [ E('input', { type: 'checkbox' }), true, '-k' ],
+-				    },
+-				    is_valid = res[1].valid,
+-				    is_forceable = res[1].forceable,
+-				    allow_backup = res[1].allow_backup,
+-				    is_too_big = (storage_size > 0 && res[0].size > storage_size),
+-				    body = [];
+-
+-				body.push(E('p', _("The flash image was uploaded. Below is the checksum and file size listed, compare them with the original file to ensure data integrity. <br /> Click 'Continue' below to start the flash procedure.")));
+-				body.push(E('ul', {}, [
+-					res[0].size ? E('li', {}, '%s: %1024.2mB'.format(_('Size'), res[0].size)) : '',
+-					res[0].checksum ? E('li', {}, '%s: %s'.format(_('MD5'), res[0].checksum)) : '',
+-					res[0].sha256sum ? E('li', {}, '%s: %s'.format(_('SHA256'), res[0].sha256sum)) : ''
+-				]));
+-
+-				body.push(E('p', {}, E('label', { 'class': 'btn' }, [
+-					opts.keep[0], ' ', _('Keep settings and retain the current configuration')
+-				])));
+-
+-				if (!is_valid || is_too_big)
+-					body.push(E('hr'));
+-
+-				if (is_too_big)
+-					body.push(E('p', { 'class': 'alert-message' }, [
+-						_('It appears that you are trying to flash an image that does not fit into the flash memory, please verify the image file!')
+-					]));
+-
+-				if (!is_valid)
+-					body.push(E('p', { 'class': 'alert-message' }, [
+-						res[2].stderr ? res[2].stderr : '',
+-						res[2].stderr ? E('br') : '',
+-						res[2].stderr ? E('br') : '',
+-						_('The uploaded image file does not contain a supported format. Make sure that you choose the generic image format for your platform.')
+-					]));
+-
+-				if (!allow_backup) {
+-					body.push(E('p', { 'class': 'alert-message' }, [
+-						_('The uploaded firmware does not allow keeping current configuration.')
+-					]));
+-					opts.keep[0].disabled = true;
+-				} else {
+-					opts.keep[0].checked = true;
+-
+-					if (has_rootfs_data) {
+-						body.push(E('p', {}, E('label', { 'class': 'btn' }, [
+-							opts.skip_orig[0], ' ', _('Skip from backup files that are equal to those in /rom')
+-						])));
+-					}
+-
+-					body.push(E('p', {}, E('label', { 'class': 'btn' }, [
+-						opts.backup_pkgs[0], ' ', _('Include in backup a list of current installed packages at /etc/backup/installed_packages.txt')
+-					])));
+-				};
+-
+-				const cntbtn = E('button', {
+-					'class': 'btn cbi-button-action important',
+-					'click': ui.createHandlerFn(this, 'handleSysupgradeConfirm', btn, opts),
+-				}, [ _('Continue') ]);
+-
+-				if (res[2].code != 0) {
+-					body.push(E('p', { 'class': 'alert-message danger' }, E('label', {}, [
+-						_('Image check failed:'),
+-						E('br'), E('br'),
+-						res[2].stderr
+-					])));
+-				};
+-
+-				if ((!is_valid || is_too_big || res[2].code != 0) && is_forceable) {
+-					body.push(E('p', {}, E('label', { 'class': 'btn alert-message danger' }, [
+-						opts.force[0], ' ', _('Force upgrade'),
+-						E('br'), E('br'),
+-						_('Select \'Force upgrade\' to flash the image even if the image format check fails. Use only if you are sure that the firmware is correct and meant for your device!')
+-					])));
+-					cntbtn.disabled = true;
+-				};
+-
+-
+-				body.push(E('div', { 'class': 'right' }, [
+-					E('button', {
+-						'class': 'btn',
+-						'click': ui.createHandlerFn(this, function(ev) {
+-							return fs.remove('/tmp/firmware.bin').finally(ui.hideModal);
+-						})
+-					}, [ _('Cancel') ]), ' ', cntbtn
+-				]));
+-
+-				opts.force[0].addEventListener('change', function(ev) {
+-					cntbtn.disabled = !ev.target.checked;
+-				});
+-
+-				opts.keep[0].addEventListener('change', function(ev) {
+-					opts.skip_orig[0].disabled = !ev.target.checked;
+-					opts.backup_pkgs[0].disabled = !ev.target.checked;
+-
+-				});
+-
+-				ui.showModal(_('Flash image?'), body);
+-			}, this, ev.target))
+-			.catch(function(e) { ui.addNotification(null, E('p', e.message)) })
+-			.finally(L.bind(function(btn) {
+-				btn.firstChild.data = _('Flash image...');
+-			}, this, ev.target));
+-	},
+-
+-	handleSysupgradeConfirm(btn, opts, ev) {
+-		btn.firstChild.data = _('Flashing…');
+-
+-		ui.showModal(_('Flashing…'), [
+-			E('p', { 'class': 'spinning' }, _('The system is flashing now.<br /> DO NOT POWER OFF THE DEVICE!<br /> Wait a few minutes before you try to reconnect. It might be necessary to renew the address of your computer to reach the device again, depending on your settings.'))
+-		]);
+-
+-		const args = [];
+-
+-		for (let key in opts)
+-			/* if checkbox == condition add args to sysupgrade */
+-			if (opts[key][0].checked == opts[key][1])
+-				args.push(opts[key][2]);
+-
+-		args.push('/tmp/firmware.bin');
+-
+-		/* Currently the sysupgrade rpc call will not return, hence no promise handling */
+-		fs.exec('/sbin/sysupgrade', args);
+-
+-		if (opts['keep'][0].checked)
+-			ui.awaitReconnect(window.location.host);
+-		else
+-			ui.awaitReconnect(window.location.host, '192.168.1.1', 'openwrt.lan');
+-	},
+-
+ 	handleBackupList(ev) {
+ 		return fs.exec('/sbin/sysupgrade', [ '--list-backup' ]).then(function(res) {
+ 			if (res.code != 0) {
+@@ -373,13 +166,11 @@ return view.extend({
+ 		});
+ 	},
+ 
+-	render([p_fstat, hostname, procmtd, procpart, procmounts]) {
+-		const has_sysupgrade = (p_fstat.type == 'file');
++	render([hostname, procmtd, procmounts]) {
+ 		const has_rootfs_data = (procmtd.match(/"rootfs_data"/) != null) || (procmounts.match("overlayfs:/overlay / ") != null);
+-		const storage_size = findStorageSize(procmtd, procpart);
+ 		let m, s, o, ss;
+ 
+-		m = new form.JSONMap(mapdata, _('Flash operations'));
++		m = new form.JSONMap(mapdata, _('Backup / Restore'));
+ 		m.tabbed = true;
+ 		m.readonly = isReadonlyView;
+ 
+@@ -434,22 +225,7 @@ return view.extend({
+ 		}
+ 
+ 
+-		o = s.option(form.SectionValue, 'actions', form.NamedSection, 'actions', 'actions', _('Flash new firmware image'),
+-			has_sysupgrade
+-				? _('Upload a sysupgrade-compatible image here to replace the running firmware.')
+-				: _('Sorry, there is no sysupgrade support present; a new firmware image must be flashed manually. Please refer to the wiki for device specific install instructions.'));
+-
+-		ss = o.subsection;
+-
+-		if (has_sysupgrade) {
+-			o = ss.option(form.Button, 'sysupgrade', _('Image'));
+-			o.inputstyle = 'action important';
+-			o.inputtitle = _('Flash image...');
+-			o.onclick = L.bind(this.handleSysupgrade, this, storage_size, has_rootfs_data);
+-		}
+-
+-
+-		s = m.section(form.NamedSection, 'config', 'config', _('Configuration'), _('This is a list of shell glob patterns for matching files and directories to include during sysupgrade. Modified files in /etc/config/ and certain other configurations are automatically preserved.'));
++		s = m.section(form.NamedSection, 'config', 'config', _('Configuration'), _('This is a list of shell glob patterns for matching files and directories to include in configuration backups. Modified files in /etc/config/ and certain other configurations are automatically preserved.'));
+ 		s.render = L.bind(function(view /*, ... */) {
+ 			return form.NamedSection.prototype.render.apply(this, this.varargs(arguments, 1))
+ 				.then(L.bind(function(node) {
+diff --git a/modules/luci-mod-system/htdocs/luci-static/resources/view/system/openssh.js b/modules/luci-mod-system/htdocs/luci-static/resources/view/system/openssh.js
+new file mode 100644
+index 0000000000..f40d7c7584
+--- /dev/null
++++ b/modules/luci-mod-system/htdocs/luci-static/resources/view/system/openssh.js
+@@ -0,0 +1,79 @@
++'use strict';
++'require view';
++'require form';
++'require fs';
++'require ui';
++
++return view.extend({
++	load: function() {
++		return fs.exec('/usr/libexec/luci-openssh', [ 'read' ]).then(function(result) {
++			if (result.code !== 0)
++				throw new Error(result.stderr || _('Unable to read SSH configuration.'));
++
++			var settings = {};
++			(result.stdout || '').split(/\n/).forEach(function(line) {
++				var match = line.match(/^(\S+)\s+(.+)$/);
++				if (match && settings[match[1].toLowerCase()] == null)
++					settings[match[1].toLowerCase()] = match[2];
++			});
++			return settings;
++		});
++	},
++
++	render: function(settings) {
++		var m = new form.JSONMap({ sshd: {
++			Port: settings.port || '22',
++			PasswordAuthentication: settings.passwordauthentication || 'yes',
++			PubkeyAuthentication: settings.pubkeyauthentication || 'yes',
++			PermitRootLogin: settings.permitrootlogin || 'prohibit-password',
++			GatewayPorts: settings.gatewayports || 'no'
++		} }, _('SSH Access'), _('OpenSSH offers SSH access and SFTP file transfers.'));
++		m.readonly = !L.hasViewPermission();
++
++		var s = m.section(form.NamedSection, 'sshd', 'sshd', _('OpenSSH Server'));
++		var o = s.option(form.Value, 'Port', _('Port'));
++		o.datatype = 'port';
++		o.rmempty = false;
++
++		o = s.option(form.Flag, 'PasswordAuthentication', _('Password authentication'), _('Allow <abbr title="Secure Shell">SSH</abbr> password authentication'));
++		o.enabled = 'yes';
++		o.disabled = 'no';
++		o.rmempty = false;
++
++		o = s.option(form.Flag, 'PubkeyAuthentication', _('Public key authentication'));
++		o.enabled = 'yes';
++		o.disabled = 'no';
++		o.rmempty = false;
++
++		o = s.option(form.ListValue, 'PermitRootLogin', _('Root login'));
++		o.value('yes', _('Password or public key'));
++		o.value('prohibit-password', _('Public key only'));
++		o.rmempty = false;
++
++		o = s.option(form.ListValue, 'GatewayPorts', _('Gateway Ports'), _('Allow remote hosts to connect to local SSH forwarded ports'));
++		o.value('no', _('Disabled'));
++		o.value('yes', _('Enabled'));
++		o.value('clientspecified', _('Specified by the SSH client'));
++		o.rmempty = false;
++
++		this.map = m;
++		return m.render();
++	},
++
++	handleSaveApply: function() {
++		var m = this.map;
++		return m.save(function() {
++			var settings = m.data.get('json', 'sshd');
++			return fs.exec('/usr/libexec/luci-openssh', [ 'save', settings.Port,
++				settings.PasswordAuthentication, settings.PubkeyAuthentication,
++				settings.PermitRootLogin, settings.GatewayPorts ]).then(function(result) {
++				if (result.code !== 0)
++					throw new Error(result.stderr || _('Unable to save SSH configuration.'));
++				ui.addNotification(null, E('p', _('SSH settings have been saved and applied.')), 'info');
++			});
++		});
++	},
++
++	handleSave: null,
++	handleReset: null
++});
+diff --git a/modules/luci-mod-system/htdocs/luci-static/resources/view/system/startup.js b/modules/luci-mod-system/htdocs/luci-static/resources/view/system/startup.js
+index 7823ac12a7..367fc68559 100644
+--- a/modules/luci-mod-system/htdocs/luci-static/resources/view/system/startup.js
++++ b/modules/luci-mod-system/htdocs/luci-static/resources/view/system/startup.js
+@@ -22,7 +22,8 @@ return view.extend({
+ 	load: function() {
+ 		return Promise.all([
+ 			L.resolveDefault(fs.read('/etc/rc.local'), ''),
+-			this.callRcList()
++			this.callRcList(),
++			L.resolveDefault(fs.exec('/usr/libexec/luci-openssh', [ 'backend' ]), {})
+ 		]);
+ 	},
+ 
+@@ -68,6 +69,7 @@ return view.extend({
+ 	render: function(data) {
+ 		var rcLocal = data[0],
+ 		    initList = data[1],
++		    nativeSsh = (data[2].code === 0 && data[2].stdout.trim() === 'systemd'),
+ 		    rows = [], list = [];
+ 
+ 		var table = E('table', { 'class': 'table' }, [
+@@ -79,7 +81,7 @@ return view.extend({
+ 		]);
+ 
+ 		for (var init in initList)
+-			if (initList[init].start < 100)
++			if (initList[init].start < 100 && !(nativeSsh && init === 'sshd'))
+ 				list.push(Object.assign({ name: init }, initList[init]));
+ 
+ 		list.sort(function(a, b) {
+@@ -110,6 +112,7 @@ return view.extend({
+ 			E('div', {}, [
+ 				E('div', { 'class': 'cbi-section', 'data-tab': 'init', 'data-tab-title': _('Initscripts') }, [
+ 					E('p', {}, _('You can enable or disable installed init scripts here. Changes will be applied after a device reboot.<br /><strong>Warning: If you disable essential init scripts like "network", your device might become inaccessible!</strong>')),
++					nativeSsh ? E('p', {}, _('OpenSSH is managed by sshd.service. Use systemctl to start, stop, restart, enable, or disable it. The recovery boot has separate SSH startup settings.')) : null,
+ 					table
+ 				]),
+ 				E('div', { 'class': 'cbi-section', 'data-tab': 'rc', 'data-tab-title': _('Local Startup') }, [
+diff --git a/modules/luci-mod-system/root/usr/libexec/luci-openssh b/modules/luci-mod-system/root/usr/libexec/luci-openssh
+new file mode 100755
+index 0000000000..cafbe9e84f
+--- /dev/null
++++ b/modules/luci-mod-system/root/usr/libexec/luci-openssh
+@@ -0,0 +1,110 @@
++#!/bin/sh
++
++native_sshd() {
++	[ -d /run/systemd/system ] && [ -f /usr/lib/systemd/system/sshd.service ]
++}
++
++reload_sshd() {
++	if native_sshd; then
++		local state
++		state=$(systemctl show -p ActiveState --value sshd.service) || return 1
++		case "$state" in
++			active|reloading) systemctl reload sshd.service ;;
++			inactive|failed) return 0 ;;
++			*) echo 'OpenSSH is changing state; retry after it settles' >&2; return 1 ;;
++		esac
++	else
++		/etc/init.d/sshd reload
++	fi
++}
++
++case "$1" in
++backend)
++	[ "$#" -eq 1 ] || exit 1
++	if native_sshd; then echo systemd; else echo procd; fi
++	exit 0
++	;;
++read)
++	[ "$#" -eq 1 ] || exit 1
++	exec /usr/sbin/sshd -T -C user=root,host=localhost,addr=127.0.0.1
++	;;
++save)
++	[ "$#" -eq 6 ] || exit 1
++	;;
++*) exit 1 ;;
++esac
++
++port=$2
++password=$3
++pubkey=$4
++rootlogin=$5
++gateway=$6
++case "$port" in ''|*[!0-9]*) echo 'Invalid SSH port' >&2; exit 1 ;; esac
++[ "$port" -ge 1 ] && [ "$port" -le 65535 ] || exit 1
++case "$password" in yes|no) ;; *) exit 1 ;; esac
++case "$pubkey" in yes|no) ;; *) exit 1 ;; esac
++case "$rootlogin" in yes|prohibit-password|no) ;; *) exit 1 ;; esac
++case "$gateway" in yes|no|clientspecified) ;; *) exit 1 ;; esac
++
++# Keep at least one root authentication method available.
++if [ "$rootlogin" = no ] || { [ "$pubkey" = no ] && { [ "$password" = no ] || [ "$rootlogin" != yes ]; }; }; then
++	echo 'At least one root SSH authentication method must remain enabled' >&2
++	exit 1
++fi
++if { [ "$password" = no ] || [ "$rootlogin" != yes ]; } &&
++	[ ! -s /root/.ssh/authorized_keys ] && [ ! -s /etc/dropbear/authorized_keys ]; then
++	echo 'Add an SSH public key before disabling root password login' >&2
++	exit 1
++fi
++
++config=/etc/ssh/sshd_config.d/00-openwrt-access.conf
++[ -f "$config" ] || { echo 'OpenSSH access configuration is missing' >&2; exit 1; }
++umask 077
++exec 9>/var/lock/luci-openssh.lock || exit 1
++flock -n 9 || { echo 'SSH configuration is being updated' >&2; exit 1; }
++
++new=$config.luci-new
++backup=$config.luci-backup
++replaced=0
++cleanup() {
++	if [ "$replaced" = 1 ]; then
++		mv "$backup" "$config" || return 1
++	fi
++	rm -f "$new" "$backup"
++}
++trap cleanup 0
++trap 'exit 1' 1 2 3 15
++
++# This file contains global options; preserve comments and unmanaged settings.
++awk -v port="$port" -v password="$password" -v pubkey="$pubkey" \
++	-v rootlogin="$rootlogin" -v gateway="$gateway" '
++BEGIN {
++	print "Port " port
++	print "PasswordAuthentication " password
++	print "PubkeyAuthentication " pubkey
++	print "PermitRootLogin " rootlogin
++	print "GatewayPorts " gateway
++	print "AuthenticationMethods any"
++	print "PermitEmptyPasswords no"
++	print "KbdInteractiveAuthentication no"
++}
++tolower($1) == "match" { exit 1 }
++tolower($1) ~ /^(port|passwordauthentication|pubkeyauthentication|permitrootlogin|gatewayports|authenticationmethods|permitemptypasswords|kbdinteractiveauthentication)$/ { next }
++{ print }
++' "$config" > "$new" || { echo 'Unsupported conditional SSH access configuration' >&2; exit 1; }
++
++mv "$config" "$backup" || exit 1
++replaced=1
++mv "$new" "$config" || exit 1
++
++# Check the complete effective configuration before signalling the daemon.
++/usr/sbin/sshd -t || exit 1
++if ! reload_sshd; then
++	mv "$backup" "$config" || exit 1
++	replaced=0
++	reload_sshd
++	echo 'Unable to reload OpenSSH; original configuration restored' >&2
++	exit 1
++fi
++replaced=0
++exit 0
+diff --git a/modules/luci-mod-system/root/usr/share/luci/menu.d/luci-mod-system.json b/modules/luci-mod-system/root/usr/share/luci/menu.d/luci-mod-system.json
+index 372c618be4..9e0e1c8547 100644
+--- a/modules/luci-mod-system/root/usr/share/luci/menu.d/luci-mod-system.json
++++ b/modules/luci-mod-system/root/usr/share/luci/menu.d/luci-mod-system.json
+@@ -59,6 +59,19 @@
+ 		}
+ 	},
+ 
++	"admin/system/admin/openssh": {
++		"title": "SSH Access",
++		"order": 5,
++		"action": {
++			"type": "view",
++			"path": "system/openssh"
++		},
++		"depends": {
++			"acl": [ "luci-mod-system-openssh" ],
++			"fs": { "/usr/sbin/sshd": "executable" }
++		}
++	},
++
+ 	"admin/system/admin/sshkeys": {
+ 		"title": "SSH-Keys",
+ 		"order": 6,
+@@ -68,7 +81,10 @@
+ 		},
+ 		"depends": {
+ 			"acl": [ "luci-mod-system-ssh" ],
+-			"fs": {	"/usr/sbin/dropbear": "executable" }
++			"fs": [
++				{ "/usr/sbin/dropbear": "executable" },
++				{ "/usr/sbin/sshd": "executable" }
++			]
+ 		}
+ 	},
+ 
+@@ -160,7 +176,7 @@
+ 	},
+ 
+ 	"admin/system/flash": {
+-		"title": "Backup / Flash Firmware",
++		"title": "Backup / Restore",
+ 		"order": 70,
+ 		"action": {
+ 			"type": "view",
+diff --git a/modules/luci-mod-system/root/usr/share/rpcd/acl.d/luci-mod-system-openssh.json b/modules/luci-mod-system/root/usr/share/rpcd/acl.d/luci-mod-system-openssh.json
+new file mode 100644
+index 0000000000..3c7a8b33ae
+--- /dev/null
++++ b/modules/luci-mod-system/root/usr/share/rpcd/acl.d/luci-mod-system-openssh.json
+@@ -0,0 +1,21 @@
++{
++	"luci-mod-system-openssh": {
++		"description": "Grant access to OpenSSH configuration",
++		"read": {
++			"file": {
++				"/usr/libexec/luci-openssh read": [ "exec" ]
++			},
++			"ubus": {
++				"file": [ "exec" ]
++			}
++		},
++		"write": {
++			"file": {
++				"/usr/libexec/luci-openssh save *": [ "exec" ]
++			},
++			"ubus": {
++				"file": [ "exec" ]
++			}
++		}
++	}
++}
+diff --git a/modules/luci-mod-system/root/usr/share/rpcd/acl.d/luci-mod-system.json b/modules/luci-mod-system/root/usr/share/rpcd/acl.d/luci-mod-system.json
+index ce8437fbbd..3e3fd29966 100644
+--- a/modules/luci-mod-system/root/usr/share/rpcd/acl.d/luci-mod-system.json
++++ b/modules/luci-mod-system/root/usr/share/rpcd/acl.d/luci-mod-system.json
+@@ -93,10 +93,11 @@
+ 		"description": "Grant access to startup configuration",
+ 		"read": {
+ 			"file": {
+-				"/etc/rc.local": [ "read" ]
++				"/etc/rc.local": [ "read" ],
++				"/usr/libexec/luci-openssh backend": [ "exec" ]
+ 			},
+ 			"ubus": {
+-				"file": [ "read" ],
++				"file": [ "read", "exec" ],
+ 				"rc": [ "list" ]
+ 			}
+ 		},
+@@ -164,17 +165,15 @@
+ 	},
+ 
+ 	"luci-mod-system-flash": {
+-		"description": "Grant access to flash operations",
++		"description": "Grant access to configuration backup and restore",
+ 		"read": {
+ 			"cgi-io": [ "backup", "download" ],
+ 			"file": {
+ 				"/dev/mtdblock[0-9]*": [ "read" ],
+ 				"/etc/sysupgrade.conf": [ "read" ],
+-				"/lib/upgrade/platform.sh": [ "list" ],
+ 				"/proc/mounts": [ "read" ],
+ 				"/proc/*/mounts": [ "read" ],
+ 				"/proc/mtd": [ "read" ],
+-				"/proc/partitions": [ "read" ],
+ 				"/proc/sys/kernel/hostname": [ "read" ],
+ 				"/sbin/sysupgrade --list-backup": [ "exec" ]
+ 			},
+@@ -189,24 +188,11 @@
+ 				"/etc/sysupgrade.conf": [ "write" ],
+ 				"/sbin/firstboot -r -y": [ "exec" ],
+ 				"/sbin/reboot": [ "exec" ],
+-				"/sbin/sysupgrade --force /tmp/firmware.bin": [ "exec" ],
+-				"/sbin/sysupgrade -n --force /tmp/firmware.bin": [ "exec" ],
+-				"/sbin/sysupgrade --force -k /tmp/firmware.bin": [ "exec" ],
+-				"/sbin/sysupgrade --force -u /tmp/firmware.bin": [ "exec" ],
+-				"/sbin/sysupgrade --force -u -k /tmp/firmware.bin": [ "exec" ],
+-				"/sbin/sysupgrade -n /tmp/firmware.bin": [ "exec" ],
+-				"/sbin/sysupgrade -k /tmp/firmware.bin": [ "exec" ],
+-				"/sbin/sysupgrade -u /tmp/firmware.bin": [ "exec" ],
+-				"/sbin/sysupgrade -u -k /tmp/firmware.bin": [ "exec" ],
+ 				"/sbin/sysupgrade --restore-backup /tmp/backup.tar.gz": [ "exec" ],
+-				"/sbin/sysupgrade --test /tmp/firmware.bin": [ "exec" ],
+-				"/sbin/sysupgrade /tmp/firmware.bin": [ "exec" ],
+-				"/tmp/backup.tar.gz": [ "write" ],
+-				"/tmp/firmware.bin": [ "write" ]
++				"/tmp/backup.tar.gz": [ "write" ]
+ 			},
+ 			"ubus": {
+-				"file": [ "exec", "remove", "write" ],
+-				"system": [ "validate_firmware_image" ]
++				"file": [ "exec", "remove", "write" ]
+ 			}
+ 		}
+ 	},

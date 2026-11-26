@@ -70,6 +70,7 @@ async function main() {
 			}
 			if (spec.method == 'switch') return { ok: true, switched: true, restarted: true, status: state };
 			if (spec.method == 'sync_boot') return { ok: true, boot_enabled: true };
+			if (spec.method == 'sync_sunshine') return { ok: true, capture: state.config.sunshine_capture, applied: true, restarted: false };
 			return { ok: true };
 		}
 	};
@@ -127,10 +128,11 @@ async function main() {
 		['gnome', 'GNOME (Wayland)'],
 		['plasma', 'KDE Plasma (not installed)']
 	]);
-	// Read-only fields stay DummyValue
+	// Read-only fields stay DummyValue; sunshine_capture is selectable (portal/kms)
 	assert.equal(options.user.type, 'DummyValue');
 	assert.equal(options.rdp_port.type, 'DummyValue');
-	assert.equal(options.sunshine_capture.type, 'DummyValue');
+	assert.equal(options.sunshine_capture.type, 'ListValue');
+	assert.deepEqual(options.sunshine_capture.values.map(v => v[0]), ['portal', 'kms']);
 
 	// Drift banner visible when restart_required == true
 	assert.equal(view.driftBanner.style.display, '');
@@ -148,12 +150,13 @@ async function main() {
 	assert.equal(options.output.validate('main', 'HDMI-A-1'), true);
 	assert.notEqual(options.output.validate('main', 'HDMI;id'), true);
 
-	// Save & Apply saves UCI + sync_boot, does NOT auto-restart desktop
+	// Save & Apply saves UCI + sync_boot + sync_sunshine, does NOT auto-restart desktop
 	calls.length = 0;
 	await view.handleSaveApply();
 	assert(calls.some(c => c[0] == 'map.save'));
 	assert(calls.some(c => c[0] == 'uci.apply'));
 	assert(calls.some(c => c[0] == 'sync_boot'));
+	assert(calls.some(c => c[0] == 'sync_sunshine'));
 	assert(!calls.some(c => c[0] == 'action' && c[1] == 'restart'));
 
 	// Restart triggers confirmation modal before calling action('restart')

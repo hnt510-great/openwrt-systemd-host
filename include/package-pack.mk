@@ -407,13 +407,13 @@ endif
     $(eval $(call BuildPackVariable,$(1),postrm,,1))
 
     $(PKG_BUILD_DIR)/.pkgdir/$(1).installed : export PATH=$$(TARGET_PATH_PKG)
-    $(PKG_BUILD_DIR)/.pkgdir/$(1).installed: $(STAMP_BUILT) $(INCLUDE_DIR)/package-pack.mk $(TOPDIR)/.config $(if $(CONFIG_OPENWRT_SYSTEMD),$(SCRIPT_DIR)/merge-usr.py) $(if $(CONFIG_USE_APK),$(SCRIPT_DIR)/elf-abi.py $(TOPDIR)/configs/elf-abi-policy.json $(PKG_BUILD_DIR)/.pkgdir/$(1).pack-key $(if $(QUILT)$(DUMP),,$(call find_private_library_dependencies,$(1))))
+    $(PKG_BUILD_DIR)/.pkgdir/$(1).installed: $(STAMP_BUILT) $(INCLUDE_DIR)/package-pack.mk $(if $(TMP_DIR),$(TMP_DIR)/.config-packages,$(TOPDIR)/.config) $(if $(CONFIG_OPENWRT_SYSTEMD),$(SCRIPT_DIR)/merge-usr.py) $(if $(CONFIG_USE_APK),$(SCRIPT_DIR)/elf-abi.py $(TOPDIR)/configs/elf-abi-policy.json $(PKG_BUILD_DIR)/.pkgdir/$(1).pack-key $(if $(QUILT)$(DUMP),,$(call find_private_library_dependencies,$(1))))
 	rm -rf $$@ $(PKG_BUILD_DIR)/.pkgdir/$(1)
 	mkdir -p $(PKG_BUILD_DIR)/.pkgdir/$(1)
 	$(call Package/$(1)/install,$(PKG_BUILD_DIR)/.pkgdir/$(1))
 	$(call Package/$(1)/install_lib,$(PKG_BUILD_DIR)/.pkgdir/$(1))
-	$(if $(CONFIG_OPENWRT_SYSTEMD),python3 $(SCRIPT_DIR)/merge-usr.py $(PKG_BUILD_DIR)/.pkgdir/$(1) --package $(1) $(if $(filter base-files,$(1)),--aliases))
-	$(if $(CONFIG_USE_APK),python3 $(SCRIPT_DIR)/elf-abi.py --root "$(PKG_BUILD_DIR)/.pkgdir/$(1)" --package "$(1)$$(ABIV_$(1))" --version "$(VERSION)" --staging-root "$(STAGING_DIR_ROOT)" --staging-lock "$(TMP_DIR)/.root-copy.flock" $(if $(ELF_ABI_BOOTSTRAP_ROOT),--bootstrap-root "$(ELF_ABI_BOOTSTRAP_ROOT)") --depends-output "$(PKG_BUILD_DIR)/.pkgdir/$(1).elf.depends" --provides-output "$(PKG_BUILD_DIR)/.pkgdir/$(1).elf.provides" --stamp "$(PKG_INFO_DIR)/$(1).sonames" --private-stamp "$(PKG_INFO_DIR)/$(1).private")
+	$(if $(CONFIG_OPENWRT_SYSTEMD),$(if $(wildcard $(STAGING_DIR_HOST)/bin/python3),$(STAGING_DIR_HOST)/bin/python3,python3) $(SCRIPT_DIR)/merge-usr.py $(PKG_BUILD_DIR)/.pkgdir/$(1) --package $(1) $(if $(filter base-files,$(1)),--aliases))
+	$(if $(CONFIG_USE_APK),$(if $(wildcard $(STAGING_DIR_HOST)/bin/python3),$(STAGING_DIR_HOST)/bin/python3,python3) $(SCRIPT_DIR)/elf-abi.py --root "$(PKG_BUILD_DIR)/.pkgdir/$(1)" --package "$(1)$$(ABIV_$(1))" --version "$(VERSION)" --staging-root "$(STAGING_DIR_ROOT)" --staging-lock "$(TMP_DIR)/.root-copy.flock" $(if $(ELF_ABI_BOOTSTRAP_ROOT),--bootstrap-root "$(ELF_ABI_BOOTSTRAP_ROOT)") --depends-output "$(PKG_BUILD_DIR)/.pkgdir/$(1).elf.depends" --provides-output "$(PKG_BUILD_DIR)/.pkgdir/$(1).elf.provides" --stamp "$(PKG_INFO_DIR)/$(1).sonames" --private-stamp "$(PKG_INFO_DIR)/$(1).private")
 	touch $$@
 
     $(STAGING_DIR_ROOT)/stamp/.$(1)_installed: $(PKG_BUILD_DIR)/.pkgdir/$(1).installed $(SCRIPT_DIR)/stage-package.py
@@ -440,7 +440,7 @@ endif
 		rm -f "$(PKG_INFO_DIR)/$(1).version" "$(PKG_INFO_DIR)/$(1).version.aliases"; \
 		for pkg in $$$$aliases; do rm -f "$(PKG_INFO_DIR)/$$$$pkg.version"; done; \
 	fi
-	python3 "$(SCRIPT_DIR)/stage-package.py" --root "$(STAGING_DIR_ROOT)" --source "$(PKG_BUILD_DIR)/.pkgdir/$(1)" \
+	$(if $(wildcard $(STAGING_DIR_HOST)/bin/python3),$(STAGING_DIR_HOST)/bin/python3,python3) "$(SCRIPT_DIR)/stage-package.py" --root "$(STAGING_DIR_ROOT)" --source "$(PKG_BUILD_DIR)/.pkgdir/$(1)" \
 		--lock "$(TMP_DIR)/.root-copy.flock" --manifest "$(STAGING_DIR_ROOT)/stamp/packages/$(1).list" \
 		--owner "$(1)" --legacy-package "$(1)$$(ABIV_$(1))" --legacy-base "$(1)"
 	touch $$@
@@ -675,10 +675,10 @@ else
 		exit 1; \
 	fi
 
-	$(if $(CONFIG_OPENWRT_SYSTEMD),python3 $(SCRIPT_DIR)/merge-usr.py $$(IDIR_$(1)) --package $(1) $(if $(filter base-files,$(1)),--aliases))
-	$(if $(and $(CONFIG_OPENWRT_KERNEL_UPGRADE),$(filter kernel kernel-dev-headers kmod-%,$(1))),python3 $(SCRIPT_DIR)/kernel-package.py --root "$$(IDIR_$(1))" --name "$(1)" --release "$(KERNEL_GENERATION)" --stage "$(KERNEL_BUILD_DIR)/kernel-bundle/$(KERNEL_GENERATION)" --linux "$(LINUX_DIR)")
-	python3 $(SCRIPT_DIR)/ucode-abi.py --root "$$(IDIR_$(1))" --package "$(1)" --abi "$$(call GetABISuffix,libucode)" --readelf "$(TARGET_CROSS)readelf" --output "$$(ADIR_$(1))/ucode.depends"
-	python3 $(SCRIPT_DIR)/elf-abi.py --root "$$(IDIR_$(1))" --package "$(1)$$(ABIV_$(1))" --version "$(VERSION)" --staging-root "$(STAGING_DIR_ROOT)" --staging-lock "$(TMP_DIR)/.root-copy.flock" $(if $(ELF_ABI_BOOTSTRAP_ROOT),--bootstrap-root "$(ELF_ABI_BOOTSTRAP_ROOT)") --depends-output "$$(ADIR_$(1))/elf.depends" --provides-output "$$(ADIR_$(1))/elf.provides" --stamp "$(PKG_INFO_DIR)/$(1).sonames" --private-stamp "$(PKG_INFO_DIR)/$(1).private"
+	$(if $(CONFIG_OPENWRT_SYSTEMD),$(if $(wildcard $(STAGING_DIR_HOST)/bin/python3),$(STAGING_DIR_HOST)/bin/python3,python3) $(SCRIPT_DIR)/merge-usr.py $$(IDIR_$(1)) --package $(1) $(if $(filter base-files,$(1)),--aliases))
+	$(if $(and $(CONFIG_OPENWRT_KERNEL_UPGRADE),$(filter kernel kernel-dev-headers kmod-%,$(1))),$(if $(wildcard $(STAGING_DIR_HOST)/bin/python3),$(STAGING_DIR_HOST)/bin/python3,python3) $(SCRIPT_DIR)/kernel-package.py --root "$$(IDIR_$(1))" --name "$(1)" --release "$(KERNEL_GENERATION)" --stage "$(KERNEL_BUILD_DIR)/kernel-bundle/$(KERNEL_GENERATION)" --linux "$(LINUX_DIR)")
+	$(if $(wildcard $(STAGING_DIR_HOST)/bin/python3),$(STAGING_DIR_HOST)/bin/python3,python3) $(SCRIPT_DIR)/ucode-abi.py --root "$$(IDIR_$(1))" --package "$(1)" --abi "$$(call GetABISuffix,libucode)" --readelf "$(TARGET_CROSS)readelf" --output "$$(ADIR_$(1))/ucode.depends"
+	$(if $(wildcard $(STAGING_DIR_HOST)/bin/python3),$(STAGING_DIR_HOST)/bin/python3,python3) $(SCRIPT_DIR)/elf-abi.py --root "$$(IDIR_$(1))" --package "$(1)$$(ABIV_$(1))" --version "$(VERSION)" --staging-root "$(STAGING_DIR_ROOT)" --staging-lock "$(TMP_DIR)/.root-copy.flock" $(if $(ELF_ABI_BOOTSTRAP_ROOT),--bootstrap-root "$(ELF_ABI_BOOTSTRAP_ROOT)") --depends-output "$$(ADIR_$(1))/elf.depends" --provides-output "$$(ADIR_$(1))/elf.provides" --stamp "$(PKG_INFO_DIR)/$(1).sonames" --private-stamp "$(PKG_INFO_DIR)/$(1).private"
 	SOURCE_DATE_EPOCH=0 $(FAKEROOT) $(STAGING_DIR_HOST)/bin/apk mkpkg \
 	  --info "name:$(1)$$(ABIV_$(1))" \
 	  --info "version:$(VERSION)" \
@@ -720,4 +720,24 @@ endif
 
     clean: $(1)-clean
   endef
+endif
+
+ifneq ($(TMP_DIR),)
+$(TMP_DIR)/.config-packages: $(TOPDIR)/.config $(if $(wildcard $(TMP_DIR)/.config-packages),,FORCE)
+	@mkdir -p $(@D)
+	@sig=$$(stat -c '%y %s' "$(TOPDIR)/.config" 2>/dev/null); \
+	if [ -f "$@" ] && [ -n "$$sig" ] && [ -f "$@.sig" ] && [ "$$(cat "$@.sig" 2>/dev/null)" = "$$sig" ]; then \
+		exit 0; \
+	fi; \
+	tmp=$$(mktemp "$@.XXXXXX"); \
+	grep -v '^CONFIG_OPENWRT_KERNEL_SEQUENCE=' "$(TOPDIR)/.config" > "$$tmp" || true; \
+	if [ ! -f "$@" ] || ! cmp -s "$$tmp" "$@"; then \
+		mv "$$tmp" "$@"; \
+	else \
+		rm -f "$$tmp"; \
+	fi; \
+	if [ -n "$$sig" ]; then \
+		stmp=$$(mktemp "$@.sig.XXXXXX"); \
+		printf '%s\n' "$$sig" > "$$stmp" && mv "$$stmp" "$@.sig"; \
+	fi
 endif

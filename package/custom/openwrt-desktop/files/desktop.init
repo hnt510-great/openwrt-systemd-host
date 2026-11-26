@@ -2,6 +2,24 @@
 START=95
 STOP=5
 USE_PROCD=1
+EXTRA_COMMANDS="autostart"
+EXTRA_HELP="	autostart	Start the desktop for device events if not manually stopped"
+
+autostart() {
+	DESKTOP_AUTOSTART=1 start "$@"
+}
+
+write_manual_stop() {
+	local path tmp
+	path=/run/openwrt-desktop
+	[ ! -L "$path" ] || return 1
+	mkdir -p "$path" || return 1
+	chown 0:0 "$path"
+	chmod 0755 "$path"
+	tmp="$(mktemp "$path/.manual-stop.XXXXXX")" || return 1
+	chmod 0644 "$tmp"
+	mv -f "$tmp" "$path/manual-stop"
+}
 
 write_lan_environment() {
 	local address path rdp tmp
@@ -43,6 +61,11 @@ start_service() {
 	config_load desktop
 	config_get_bool enabled main enabled 0
 	[ "$enabled" = 1 ] || return 0
+	# Automatic device triggers must check manual-stop inside procd_lock and
+	# never have authority to clear it.
+	if [ "${DESKTOP_AUTOSTART:-0}" = 1 ] && [ -e /run/openwrt-desktop/manual-stop ]; then
+		return 0
+	fi
 	config_get user main user
 	config_get configured_session main session ''
 	config_get kms_scheduling main kms_scheduling high-priority
@@ -61,12 +84,17 @@ start_service() {
 	}
 	credential_prop="$(desktop_session_credential_prop)" || return 1
 	write_lan_environment || return 1
-	systemctl is-active --quiet openwrt-desktop.service && return 0
+	if systemctl is-active --quiet openwrt-desktop.service 1000>&-; then
+		if [ "${DESKTOP_AUTOSTART:-0}" != 1 ]; then
+			rm -f /run/openwrt-desktop/manual-stop
+		fi
+		return 0
+	fi
 	if [ -e /run/systemd/transient/openwrt-desktop.service ]; then
 		rm -f /run/systemd/transient/openwrt-desktop.service
-		systemctl daemon-reload 2>/dev/null || :
+		systemctl daemon-reload 1000>&- 2>/dev/null || :
 	fi
-	systemctl reset-failed openwrt-desktop.service 2>/dev/null || :
+	systemctl reset-failed openwrt-desktop.service 1000>&- 2>/dev/null || :
 	desktop_select_output "$output" >/dev/null || return 1
 	set -- systemd-run --quiet --collect --unit=openwrt-desktop.service \
 		--uid="$user" --property=PAMName=openwrt-desktop --property=Type=exec \
@@ -83,11 +111,13 @@ start_service() {
 		set -- "$@" --property="$credential_prop"
 	fi
 	if [ -e /dev/tty0 ]; then
-		/bin/busybox chvt 7 || return 1
+		/bin/busybox chvt 7 1000>&- || return 1
 		set -- "$@" --property=StandardInput=tty --property=TTYPath=/dev/tty7 --setenv=XDG_SEAT=seat0 --setenv=XDG_VTNR=7
 	fi
-	"$@" /usr/libexec/desktop-session || return 1
-	rm -f /run/openwrt-desktop/manual-stop
+	"$@" /usr/libexec/desktop-session 1000>&- || return 1
+	if [ "${DESKTOP_AUTOSTART:-0}" != 1 ]; then
+		rm -f /run/openwrt-desktop/manual-stop
+	fi
 	write_active_state "$session" "$user" "$kms_scheduling" "$output" "$mode"
 }
 
@@ -102,12 +132,7 @@ reload_service() {
 stop_service() {
 	local session user active_file active_session active_user line
 	. /usr/libexec/desktop-common.sh
-	if [ ! -L /run/openwrt-desktop ]; then
-		mkdir -p /run/openwrt-desktop
-		chown 0:0 /run/openwrt-desktop
-		chmod 0755 /run/openwrt-desktop
-		: > /run/openwrt-desktop/manual-stop
-	fi
+	write_manual_stop || :
 	active_file=/run/openwrt-desktop/active.env
 	active_session=
 	active_user=
@@ -125,16 +150,16 @@ stop_service() {
 		session="$(desktop_resolve_session '' 2>/dev/null || :)"
 	fi
 	if [ -n "$user" ] && [ -n "$session" ] && desktop_validate_session_id "$session" 2>/dev/null; then
-		su -s /bin/sh -c "/usr/libexec/desktop-user-stop '$session'" "$user" 2>/dev/null || :
+		su -s /bin/sh -c "/usr/libexec/desktop-user-stop '$session'" "$user" 1000>&- 2>/dev/null || :
 	fi
-	systemctl stop openwrt-desktop.service 2>/dev/null || :
-	for session in $(loginctl list-sessions --no-legend --no-pager | awk '{print $1}'); do
-		[ "$(loginctl show-session "$session" -p Service --value 2>/dev/null)" = openwrt-desktop ] || continue
-		loginctl terminate-session "$session" 2>/dev/null || :
+	systemctl stop openwrt-desktop.service 1000>&- 2>/dev/null || :
+	for session in $(loginctl list-sessions --no-legend --no-pager 1000>&- | awk '{print $1}'); do
+		[ "$(loginctl show-session "$session" -p Service --value 1000>&- 2>/dev/null)" = openwrt-desktop ] || continue
+		loginctl terminate-session "$session" 1000>&- 2>/dev/null || :
 	done
 	if [ -e /run/systemd/transient/openwrt-desktop.service ]; then
 		rm -f /run/systemd/transient/openwrt-desktop.service
-		systemctl daemon-reload 2>/dev/null || :
+		systemctl daemon-reload 1000>&- 2>/dev/null || :
 	fi
 	rm -f "$active_file"
 }

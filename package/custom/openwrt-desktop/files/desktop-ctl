@@ -1,6 +1,8 @@
 #!/usr/bin/python3
 """Control and inspect the OpenWrt native-systemd desktop service."""
 import argparse
+from contextlib import contextmanager
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -18,6 +20,8 @@ TLS_DIR = Path('/etc/desktop/tls')
 DRM_DIR = Path('/sys/class/drm')
 PASSWD_FILE = Path('/etc/passwd')
 INIT_SCRIPT = '/etc/init.d/desktop'
+LOCK_FILE = Path('/var/lock/procd_desktop.lock')
+PROCD_LOCK_FD = 1000
 COMMON_SH = Path('/usr/libexec/desktop-common.sh')
 REQUIRE_ROOT_PLUGIN = True
 
@@ -62,7 +66,7 @@ def success(**extra):
     return payload
 
 
-def run_cmd(argv, timeout=10, user=None, group=None, env=None):
+def run_cmd(argv, timeout=10, user=None, group=None, env=None, pass_fds=()):
     kwargs = {
         'capture_output': True,
         'text': True,
@@ -71,6 +75,8 @@ def run_cmd(argv, timeout=10, user=None, group=None, env=None):
     }
     if env is not None:
         kwargs['env'] = env
+    if pass_fds:
+        kwargs['pass_fds'] = pass_fds
     if user is not None and os.geteuid() == 0:
         kwargs['user'] = user
         if group is not None:
@@ -79,6 +85,42 @@ def run_cmd(argv, timeout=10, user=None, group=None, env=None):
         return subprocess.run(argv, **kwargs)
     except (OSError, subprocess.TimeoutExpired) as exc:
         return subprocess.CompletedProcess(argv, 127, '', str(exc))
+
+
+@contextmanager
+def desktop_op_lock():
+    """Serialize desktop control actions with /etc/init.d/desktop's procd_lock.
+
+    Dup the locked open file description onto PROCD_LOCK_FD (1000) and pass it
+    only to INIT_SCRIPT so rc.common's `flock -n 1000` reuses our lock instead
+    of deadlocking, while unrelated child processes never inherit it.
+    """
+    lock_fd = None
+    dup_fd = None
+    try:
+        LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        lock_fd = os.open(str(LOCK_FILE), os.O_CREAT | os.O_RDWR | os.O_CLOEXEC, 0o600)
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        os.dup2(lock_fd, PROCD_LOCK_FD)
+        os.set_inheritable(PROCD_LOCK_FD, True)
+        dup_fd = PROCD_LOCK_FD
+    except OSError:
+        if lock_fd is not None:
+            os.close(lock_fd)
+            lock_fd = None
+    try:
+        yield (dup_fd,) if dup_fd is not None else ()
+    finally:
+        if dup_fd is not None:
+            try:
+                os.close(dup_fd)
+            except OSError:
+                pass
+        if lock_fd is not None:
+            try:
+                os.close(lock_fd)
+            except OSError:
+                pass
 
 
 def is_safe_regular_file(path, require_root=False, exact_mode=None, nonempty=False):
@@ -487,15 +529,16 @@ def preflight_start(status_data, target_session=None):
 def do_action(verb):
     if verb not in VALID_ACTIONS:
         return failure(2, f"Unsupported action '{verb}'")
-    status_data = get_status()
-    if verb in ('start', 'restart'):
-        if status_data['config']['enabled'] != '1':
-            return failure(2, 'Desktop service is disabled; enable it in configuration first')
-        err = preflight_start(status_data)
-        if err is not None:
-            return err
-    res = run_cmd([INIT_SCRIPT, verb], timeout=25)
-    after = get_status()
+    with desktop_op_lock() as lock_fds:
+        status_data = get_status()
+        if verb in ('start', 'restart'):
+            if status_data['config']['enabled'] != '1':
+                return failure(2, 'Desktop service is disabled; enable it in configuration first')
+            err = preflight_start(status_data)
+            if err is not None:
+                return err
+        res = run_cmd([INIT_SCRIPT, verb], timeout=25, pass_fds=lock_fds)
+        after = get_status()
     if res.returncode != 0:
         msg = (res.stderr or res.stdout or f'Desktop {verb} failed').strip().splitlines()[-1]
         return failure(1, msg, action=verb, status=after)
@@ -508,37 +551,38 @@ def do_action(verb):
 def do_switch(session_id):
     if not SESSION_ID_RE.match(session_id):
         return failure(2, f"Invalid desktop session '{session_id}'")
-    status_data = get_status()
-    resolved, err_msg = resolve_session(session_id, status_data['sessions'])
-    if resolved is None:
-        return failure(2, err_msg)
+    with desktop_op_lock() as lock_fds:
+        status_data = get_status()
+        resolved, err_msg = resolve_session(session_id, status_data['sessions'])
+        if resolved is None:
+            return failure(2, err_msg)
 
-    ok_check, check_err = run_plugin_check(session_id)
-    if not ok_check:
-        return failure(2, check_err or f"Desktop session '{session_id}' is unavailable")
+        ok_check, check_err = run_plugin_check(session_id)
+        if not ok_check:
+            return failure(2, check_err or f"Desktop session '{session_id}' is unavailable")
 
-    running = status_data['service']['active_state'] in ('active', 'activating')
-    if running:
-        err = preflight_start(status_data, target_session=session_id)
-        if err is not None:
-            return err
+        running = status_data['service']['active_state'] in ('active', 'activating')
+        if running:
+            err = preflight_start(status_data, target_session=session_id)
+            if err is not None:
+                return err
 
-    for argv in (['uci', 'set', f'desktop.main.session={session_id}'], ['uci', 'commit', 'desktop']):
-        res = run_cmd(argv, timeout=10)
-        if res.returncode != 0:
-            return failure(1, (res.stderr or 'Unable to save UCI session').strip())
+        for argv in (['uci', 'set', f'desktop.main.session={session_id}'], ['uci', 'commit', 'desktop']):
+            res = run_cmd(argv, timeout=10)
+            if res.returncode != 0:
+                return failure(1, (res.stderr or 'Unable to save UCI session').strip())
 
-    restarted = False
-    if running:
-        res = run_cmd([INIT_SCRIPT, 'restart'], timeout=25)
-        after = get_status()
-        if res.returncode != 0 or after['service']['active_state'] not in ('active', 'activating'):
-            msg = (res.stderr or res.stdout or 'Desktop restart failed').strip().splitlines()[-1]
-            return failure(1, msg, switched=True, restarted=False, status=after)
-        restarted = True
-        return success(switched=True, restarted=restarted, status=after)
+        restarted = False
+        if running:
+            res = run_cmd([INIT_SCRIPT, 'restart'], timeout=25, pass_fds=lock_fds)
+            after = get_status()
+            if res.returncode != 0 or after['service']['active_state'] not in ('active', 'activating'):
+                msg = (res.stderr or res.stdout or 'Desktop restart failed').strip().splitlines()[-1]
+                return failure(1, msg, switched=True, restarted=False, status=after)
+            restarted = True
+            return success(switched=True, restarted=restarted, status=after)
 
-    return success(switched=True, restarted=restarted, status=get_status())
+        return success(switched=True, restarted=restarted, status=get_status())
 
 
 def do_sync_boot():
@@ -548,6 +592,53 @@ def do_sync_boot():
     if res.returncode != 0:
         return failure(1, (res.stderr or f'Unable to {verb} desktop boot service').strip())
     return success(boot_enabled=(verb == 'enable'))
+
+
+def do_sync_sunshine():
+    config = read_uci_config()
+    capture = config.get('sunshine_capture') or 'portal'
+    if capture not in ('portal', 'kms'):
+        return failure(2, f"Invalid Sunshine capture mode '{capture}'")
+
+    perm_bin = Path('/usr/libexec/sunshine-permissions')
+    enrolled_file = Path('/etc/desktop/sunshine-users')
+    if not perm_bin.is_file() or not enrolled_file.is_file() or enrolled_file.stat().st_size == 0:
+        return success(capture=capture, applied=False, restarted=False)
+
+    res = run_cmd([str(perm_bin)], timeout=10)
+    if res.returncode != 0:
+        msg = (res.stderr or res.stdout or 'Unable to update Sunshine permissions').strip()
+        return failure(1, msg)
+
+    restarted = False
+    service = read_service_state()
+    provisioned = inspect_user_and_credentials(config['user'])
+    if service['active_state'] == 'active' and provisioned['user_valid']:
+        uid = provisioned['uid']
+        gid = provisioned['gid']
+        runtime_dir = f'/run/user/{uid}'
+        bus_path = Path(runtime_dir) / 'bus'
+        if bus_path.exists():
+            user_env = {
+                'PATH': os.environ.get('PATH', '/usr/sbin:/usr/bin:/sbin:/bin'),
+                'XDG_RUNTIME_DIR': runtime_dir,
+                'DBUS_SESSION_BUS_ADDRESS': f'unix:path={bus_path}',
+            }
+            active_res = run_cmd(
+                ['systemctl', '--user', 'is-active', 'app-dev.lizardbyte.app.Sunshine.service'],
+                timeout=3, user=uid, group=gid, env=user_env,
+            )
+            if active_res.returncode == 0 and active_res.stdout.strip() == 'active':
+                rst = run_cmd(
+                    ['systemctl', '--user', 'restart', 'app-dev.lizardbyte.app.Sunshine.service'],
+                    timeout=15, user=uid, group=gid, env=user_env,
+                )
+                if rst.returncode != 0:
+                    msg = (rst.stderr or rst.stdout or 'Unable to restart Sunshine service').strip()
+                    return failure(1, msg, capture=capture, applied=True, restarted=False)
+                restarted = True
+
+    return success(capture=capture, applied=True, restarted=restarted)
 
 
 def do_logs(lines):
@@ -578,6 +669,7 @@ def main(argv=None):
     sw = sub.add_parser('switch')
     sw.add_argument('--session', required=True)
     sub.add_parser('sync-boot')
+    sub.add_parser('sync-sunshine')
     lg = sub.add_parser('logs')
     lg.add_argument('--lines', type=int, default=100)
 
@@ -590,6 +682,8 @@ def main(argv=None):
         result = do_switch(args.session)
     elif args.command == 'sync-boot':
         result = do_sync_boot()
+    elif args.command == 'sync-sunshine':
+        result = do_sync_sunshine()
     elif args.command == 'logs':
         result = do_logs(args.lines)
     else:

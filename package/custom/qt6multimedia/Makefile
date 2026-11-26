@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=qt6multimedia
 PKG_VERSION:=6.11.3
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 PKG_SOURCE:=qtmultimedia-everywhere-src-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=https://download.qt.io/archive/qt/6.11/$(PKG_VERSION)/submodules/
 PKG_BUILD_DIR:=$(BUILD_DIR)/qtmultimedia-everywhere-src-$(PKG_VERSION)
@@ -84,12 +84,11 @@ define Package/qt6multimedia-widgets/install
 endef
 
 define Package/qt6multimedia-dev/install
-	$(INSTALL_DIR) $(1)/usr/include/qt6 $(1)/usr/lib/cmake \
+	$(INSTALL_DIR) $(1)/usr/include/qt6 $(1)/usr/lib $(1)/usr/lib/cmake \
 		$(1)/usr/lib/pkgconfig $(1)/usr/lib/qt6/metatypes
 	$(CP) $(PKG_INSTALL_DIR)/usr/include/qt6/. $(1)/usr/include/qt6/
+	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libQt6Multimedia*.so $(1)/usr/lib/
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/cmake/Qt6Multimedia* $(1)/usr/lib/cmake/
-	$(CP) $(PKG_INSTALL_DIR)/usr/lib/cmake/Qt6FFmpegMediaPluginImplPrivate \
-		$(1)/usr/lib/cmake/
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/Qt6Multimedia*.pc \
 		$(1)/usr/lib/pkgconfig/
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/qt6/metatypes/. \

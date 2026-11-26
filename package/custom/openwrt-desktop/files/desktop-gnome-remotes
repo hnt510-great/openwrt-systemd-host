@@ -32,7 +32,7 @@ ticks=0
 previous_key=
 previous_address=
 cleanup() {
-	systemctl --user stop gnome-remote-desktop.service 2>/dev/null || :
+	systemctl --user stop --no-block gnome-remote-desktop.service 2>/dev/null || :
 }
 read_environment() {
 	address= rdp=
@@ -57,7 +57,9 @@ while :; do
 		fi
 		case "$address" in ''|0.0.0.0|*[!0-9.]*) address= ;; esac
 		if [ "$address" != "$previous_address" ]; then
-			cleanup
+			if [ -n "$previous_address" ]; then
+				systemctl --user stop gnome-remote-desktop.service 2>/dev/null || :
+			fi
 			previous_address=$address
 		fi
 		if [ -n "$address" ]; then
@@ -65,9 +67,10 @@ while :; do
 			[ -n "$rdp" ] || rdp=$(uci -q get desktop.main.rdp_enabled || :)
 			if [ -f /usr/lib/systemd/user/gnome-remote-desktop.service ]; then
 				if [ "$rdp" = 1 ]; then
+					systemctl --user start xdg-desktop-portal.service 2>/dev/null || :
 					systemctl --user start gnome-remote-desktop.service || :
 				else
-					systemctl --user stop gnome-remote-desktop.service || :
+					systemctl --user stop --no-block gnome-remote-desktop.service || :
 				fi
 			fi
 		fi

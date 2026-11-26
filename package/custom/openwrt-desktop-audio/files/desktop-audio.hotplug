@@ -1,2 +1,21 @@
 #!/bin/sh
-case "${ACTION:-}" in add|change) /usr/libexec/desktop-audio-permissions ;; esac
+case "${ACTION:-}" in
+	add|change)
+		if [ "${OPENWRT_UDEV_HANDLED_AUDIO:-0}" = 1 ]; then
+			# udev already triggered openwrt-desktop-audio-acl.path. Wait briefly if
+			# reconciliation is still in flight so later sound hotplug scripts observe
+			# converged ACLs without triggering a duplicate run.
+			i=0
+			while [ "$i" -lt 100 ]; do
+				if [ ! -e /run/openwrt-desktop-audio/pending ] &&
+				   ! systemctl is-active --quiet openwrt-desktop-audio-acl.service 2>/dev/null; then
+					break
+				fi
+				sleep 0.05
+				i=$((i + 1))
+			done
+			exit 0
+		fi
+		/usr/libexec/desktop-audio-permissions
+		;;
+esac

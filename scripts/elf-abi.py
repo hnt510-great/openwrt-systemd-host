@@ -2,6 +2,7 @@
 """Derive APK shared-library contracts from ELF payloads without executing them."""
 import argparse
 import fcntl
+import heapq
 import importlib.util
 import json
 import mmap
@@ -194,26 +195,49 @@ class Context(dict):
             for link_path, target in sorted(record['links'].items()):
                 self.links[link_path] = target
         # DT_RPATH is inherited by descendants in loader search order; DT_RUNPATH is direct-only.
-        changed = True
-        while changed:
-            changed = False
-            for path, item in sorted(self.files.items()):
-                inherited = self.inherited.setdefault(path, [])
-                if item.get('runpath') is not None:
-                    propagated = list(inherited)
-                else:
-                    propagated = [p for p in search_paths(path, item, inherited) if p not in PUBLIC]
-                if not propagated:
-                    continue
-                for needed in item['needed']:
-                    targets = [needed] if '/' in needed else [posixpath.join(p, needed) for p in search_paths(path, item, inherited)]
-                    child = next((r for p in targets if (r := resolve(p, self.files, self.links))), None)
-                    if child:
-                        before = self.inherited.setdefault(child, [])
-                        extra = [p for p in propagated if p not in before]
-                        if extra:
-                            before.extend(extra)
-                            changed = True
+        resolve_cache = {}
+
+        def cached_resolve(p):
+            if p not in resolve_cache:
+                resolve_cache[p] = resolve(p, self.files, self.links)
+            return resolve_cache[p]
+
+        heap = []
+        queued = set()
+        for path, item in self.files.items():
+            inherited = self.inherited.setdefault(path, [])
+            if inherited or (item.get('runpath') is None and item.get('rpath')):
+                key = (0, path)
+                queued.add(key)
+                heapq.heappush(heap, key)
+
+        while heap:
+            wave, path = heapq.heappop(heap)
+            queued.discard((wave, path))
+            item = self.files[path]
+            inherited = self.inherited[path]
+            if item.get('runpath') is not None:
+                propagated = list(inherited)
+                search = None
+            else:
+                search = search_paths(path, item, inherited)
+                propagated = [p for p in search if p not in PUBLIC]
+            if not propagated:
+                continue
+            if search is None:
+                search = search_paths(path, item, inherited)
+            for needed in item['needed']:
+                targets = [needed] if '/' in needed else [posixpath.join(p, needed) for p in search]
+                child = next((r for p in targets if (r := cached_resolve(p))), None)
+                if child:
+                    before = self.inherited.setdefault(child, [])
+                    extra = [p for p in propagated if p not in before]
+                    if extra:
+                        before.extend(extra)
+                        key = (wave if child > path else wave + 1, child)
+                        if key not in queued:
+                            queued.add(key)
+                            heapq.heappush(heap, key)
 
 
 def public_provides(inventory):
@@ -398,41 +422,52 @@ def main():
     try:
         inventory = inspect(args.root)
         inventory.update(package=args.package, version=args.version)
-        context = None
-        if args.staging_root:
-            context = {}
-
-            def read_staging():
-                pkg_dir = args.staging_root / 'usr/lib/apk/packages'
-                if pkg_dir.is_dir():
-                    for path in sorted(pkg_dir.glob('*.elf.json')):
-                        record = json.loads(path.read_text())
-                        context[record['package']] = record
-                # Bootstrap the metadata migration from the actual staged payload.
-                staged = staged_inventory(args.staging_root, inventory)
-                context['@staged'] = staged
-
-            if args.staging_lock:
-                args.staging_lock.parent.mkdir(parents=True, exist_ok=True)
-                with args.staging_lock.open('a') as lock:
-                    fcntl.flock(lock, fcntl.LOCK_SH)
-                    pending = args.staging_root / 'stamp/packages/.stage-pending'
-                    if pending.is_symlink():
+        if not inventory['files']:
+            if args.staging_root and args.staging_lock:
+                pending = args.staging_root / 'stamp/packages/.stage-pending'
+                if pending.is_symlink():
+                    args.staging_lock.parent.mkdir(parents=True, exist_ok=True)
+                    with args.staging_lock.open('a') as lock:
                         fcntl.flock(lock, fcntl.LOCK_EX)
                         if pending.is_symlink():
                             _recover_staging(args.staging_root)
-                        fcntl.flock(lock, fcntl.LOCK_SH)
-                    read_staging()
-            else:
-                read_staging()
-        if args.bootstrap_root:
-            if context is None:
+            depends, provides = [], []
+        else:
+            context = None
+            if args.staging_root:
                 context = {}
-            # Keep the check strict: only actual, architecture-matched runtime
-            # files from this toolchain can satisfy the bootstrap dependencies.
-            bootstrap = staged_inventory(args.bootstrap_root, inventory, merged_usr=False)
-            context = {'@bootstrap': bootstrap, **context}
-        depends, provides = contracts(inventory, args.package, context)
+
+                def read_staging():
+                    pkg_dir = args.staging_root / 'usr/lib/apk/packages'
+                    if pkg_dir.is_dir():
+                        for path in sorted(pkg_dir.glob('*.elf.json')):
+                            record = json.loads(path.read_text())
+                            context[record['package']] = record
+                    # Bootstrap the metadata migration from the actual staged payload.
+                    staged = staged_inventory(args.staging_root, inventory)
+                    context['@staged'] = staged
+
+                if args.staging_lock:
+                    args.staging_lock.parent.mkdir(parents=True, exist_ok=True)
+                    with args.staging_lock.open('a') as lock:
+                        fcntl.flock(lock, fcntl.LOCK_SH)
+                        pending = args.staging_root / 'stamp/packages/.stage-pending'
+                        if pending.is_symlink():
+                            fcntl.flock(lock, fcntl.LOCK_EX)
+                            if pending.is_symlink():
+                                _recover_staging(args.staging_root)
+                            fcntl.flock(lock, fcntl.LOCK_SH)
+                        read_staging()
+                else:
+                    read_staging()
+            if args.bootstrap_root:
+                if context is None:
+                    context = {}
+                # Keep the check strict: only actual, architecture-matched runtime
+                # files from this toolchain can satisfy the bootstrap dependencies.
+                bootstrap = staged_inventory(args.bootstrap_root, inventory, merged_usr=False)
+                context = {'@bootstrap': bootstrap, **context}
+            depends, provides = contracts(inventory, args.package, context)
         write_changed(args.depends_output, ' '.join(depends) + '\n')
         write_changed(args.provides_output, ' '.join(provides) + '\n')
         if inventory['files']:

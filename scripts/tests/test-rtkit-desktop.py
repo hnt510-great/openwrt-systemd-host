@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -106,15 +107,15 @@ class DesktopIntegration(unittest.TestCase):
         sessions_dir.mkdir(exist_ok=True)
         gnome_plugin = (DESKTOP / 'files/sessions.d/gnome').read_text().replace(
             '/usr/bin/gnome-session', str(gnome_exec))
-        if secret is not None:
-            gnome_plugin = gnome_plugin.replace(
-                '"/etc/desktop/gnome/$DESKTOP_USER_UID.keyring-passphrase"',
-                '"' + str(secret) + '"')
         if keyring is not None:
             gnome_plugin = gnome_plugin.replace(
                 '/usr/libexec/desktop-keyring-unlock', str(keyring))
         (sessions_dir / 'gnome').write_text(gnome_plugin)
         common_src = (DESKTOP / 'files/desktop-common.sh').read_text()
+        if secret is not None:
+            secret_target = '"/etc/desktop/gnome/$DESKTOP_USER_UID.keyring-passphrase"'
+            self.assertIn(secret_target, common_src)
+            common_src = common_src.replace(secret_target, '"' + str(secret) + '"')
         common_src = common_src.replace(
             'DESKTOP_SESSIONS_DIR=/usr/libexec/openwrt-desktop/sessions.d',
             f'DESKTOP_SESSIONS_DIR={sessions_dir}')
@@ -180,7 +181,8 @@ class DesktopIntegration(unittest.TestCase):
         env.pop('KMS', None)
         if kms_scheduling is not None:
             env['KMS'] = kms_scheduling
-        result = subprocess.run(['sh', str(harness), str(init)], env=env,
+        shell = ['busybox', 'ash'] if shutil.which('busybox') else ['bash']
+        result = subprocess.run([*shell, str(harness), str(init)], env=env,
                                 capture_output=True, text=True)
         arguments = record.read_text().splitlines() if record.exists() else None
         return result, arguments
@@ -241,7 +243,8 @@ class DesktopIntegration(unittest.TestCase):
         output.unlink(missing_ok=True)
         env = dict(self.env, XDG_RUNTIME_DIR=str(self.path), SESSION_OUTPUT=str(output),
                    **(inherited or {}))
-        env.pop('OPENWRT_DESKTOP_KMS_SCHEDULING', None)
+        for var in ('OPENWRT_DESKTOP_KMS_SCHEDULING', 'XDG_SESSION_ID', 'XDG_SEAT', 'XDG_VTNR'):
+            env.pop(var, None)
         if kms_scheduling is not None:
             env['OPENWRT_DESKTOP_KMS_SCHEDULING'] = kms_scheduling
         result = subprocess.run(['sh', str(script)], env=env, capture_output=True, text=True)

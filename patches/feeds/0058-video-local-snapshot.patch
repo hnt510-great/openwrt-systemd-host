@@ -1,0 +1,4209 @@
+diff --git a/frameworks/qt5/qt5base/Config.in b/frameworks/qt5/qt5base/Config.in
+index aa89719..768598e 100644
+--- a/frameworks/qt5/qt5base/Config.in
++++ b/frameworks/qt5/qt5base/Config.in
+@@ -15,10 +15,13 @@ config BUILD_qt5base-gui_DRM
+     depends on PACKAGE_qt5base-gui
+     default y
+ 
++# Keep this choice independent of PACKAGE_qt5base-gui: its conditional
++# Mesa dependency propagates hardware prerequisites back to the package.
++menu "Qt5 GUI OpenGL configuration"
++
+ choice
+     prompt "Which OpenGL variant to use"
+     default BUILD_qt5base-gui_OPENGL_NONE
+-    depends on PACKAGE_qt5base-gui
+ 
+ config BUILD_qt5base-gui_OPENGL_OPENGLES2
+     bool "es2"
+@@ -27,3 +30,5 @@ config BUILD_qt5base-gui_OPENGL_NONE
+     bool "no"
+ 
+ endchoice
++
++endmenu
+diff --git a/frameworks/qt6/common.mk b/frameworks/qt6/common.mk
+index 12ce3f0..896ef60 100644
+--- a/frameworks/qt6/common.mk
++++ b/frameworks/qt6/common.mk
+@@ -74,7 +74,7 @@ QT_HOST_LIBEXECS:=$(QT_HOSTPKG_LIBEXECS)
+ # the Qt module (e.g. qtbase) before including this file
+ ifneq ($(QT_MODULE),)
+ 
+-PKG_VERSION?=6.9.3
++PKG_VERSION?=6.11.3
+ 
+ PKG_SOURCE_URL?=https://download.qt.io/archive/qt/$(basename $(PKG_VERSION))/$(PKG_VERSION)/submodules
+ PKG_SYS_NAME?=$(QT_MODULE)
+@@ -217,22 +217,21 @@ define Build/Install/Plugins
+ 	fi
+ endef
+ 
+-# Installs the qmldir, the type information and the plugin of the QML module
+-# in $(2). If the qmldir has a "prefer" line, the QML engine loads the .qml
+-# and .js files of the module from the resources compiled into its binaries,
+-# so they are not installed; otherwise it loads them from the module's
+-# directory, so they are installed as well. The module's directory has to
+-# exist and contain at least one of the files to install.
++# Installs the qmldir, the type information, the plugin and the .qml/.js
++# sources of the QML module in $(2). The sources are installed even when the
++# qmldir has a "prefer" line: the QML engine can load the compiled resources,
++# but qmlcachegen and the on-device tooling need the source files as well.
++# The module's directory has to exist and contain at least one of the files
++# to install.
+ define Build/Install/QMLplugin
+ 	$(INSTALL_DIR) \
+ 		$(1)/$(QT_INSTALL_QML)/$(2)
+ 
+ 	dir=$(PKG_INSTALL_DIR)/$(QT_INSTALL_QML)/$(2) && \
+-	if grep -q '^prefer ' "$$$$dir/qmldir" 2>/dev/null; then sources=; else sources=1; fi && \
+ 	files="$$$$($(FIND) "$$$$dir" \
+ 	  -mindepth 1 -maxdepth 1 \
+ 	  \( -name plugins.qmltypes -o -name qmldir -o -name '$(3).so' \
+-	  $$$${sources:+-o -name '$(3).qml' -o -name '$(3).js'} \))" && \
++	  -o -name '*.qml' -o -name '*.js' \))" && \
+ 	[ -n "$$$$files" ] && \
+ 	$(CP) \
+ 	  $$$$files \
+diff --git a/frameworks/qt6/qt6base/Config_qt6base-core.in b/frameworks/qt6/qt6base/Config_qt6base-core.in
+index 3b811bd..5fa9f4e 100644
+--- a/frameworks/qt6/qt6base/Config_qt6base-core.in
++++ b/frameworks/qt6/qt6base/Config_qt6base-core.in
+@@ -10,3 +10,11 @@ config BUILD_qt6base-core_ICU
+     bool "Compile with ICU internationalization support"
+     depends on PACKAGE_qt6base-core
+     default y
++
++config BUILD_qt6base_SQL
++    bool "Build the SQL module with the SQLite driver"
++    default n
++    help
++        Builds QtSql and its SQLite driver plugin. The
++        qt6base-sql and qt6base-plugin-sqldrivers-sqlite packages install
++        the library and driver.
+diff --git a/frameworks/qt6/qt6base/Config_qt6base-gui.in b/frameworks/qt6/qt6base/Config_qt6base-gui.in
+index 37707f4..0d93a01 100644
+--- a/frameworks/qt6/qt6base/Config_qt6base-gui.in
++++ b/frameworks/qt6/qt6base/Config_qt6base-gui.in
+@@ -35,6 +35,7 @@ endchoice
+ 
+ choice
+     prompt "Default platform plugin"
++    default BUILD_qt6base-gui_QPA_DEFAULT_XCB if PACKAGE_qt6base-plugin-platforms-xcb
+     default BUILD_qt6base-gui_QPA_DEFAULT_EGLFS if PACKAGE_qt6base-plugin-platforms-eglfs
+     default BUILD_qt6base-gui_QPA_DEFAULT_LINUXFB if PACKAGE_qt6base-plugin-platforms-linuxfb
+     default BUILD_qt6base-gui_QPA_DEFAULT_VNC if PACKAGE_qt6base-plugin-platforms-vnc
+@@ -44,6 +45,10 @@ choice
+         Platform plugin compiled into Qt6Gui as the default, used when
+         neither QT_QPA_PLATFORM nor -platform select one at runtime.
+ 
++config BUILD_qt6base-gui_QPA_DEFAULT_XCB
++    bool "xcb"
++    depends on PACKAGE_qt6base-plugin-platforms-xcb
++
+ config BUILD_qt6base-gui_QPA_DEFAULT_EGLFS
+     bool "eglfs"
+     depends on PACKAGE_qt6base-plugin-platforms-eglfs
+diff --git a/frameworks/qt6/qt6base/Makefile b/frameworks/qt6/qt6base/Makefile
+index 64968e0..b55ab62 100644
+--- a/frameworks/qt6/qt6base/Makefile
++++ b/frameworks/qt6/qt6base/Makefile
+@@ -13,8 +13,8 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=qt6base
+-PKG_RELEASE:=1
+-PKG_HASH:=c5a1a2f660356ec081febfa782998ae5ddbc5925117e64f50e4be9cd45b8dc6e
++PKG_RELEASE:=2
++PKG_HASH:=46de0710b594945a5d446ae44354daa386141c6903c53781b2ca547bc62f8f8f
+ 
+ PKG_MAINTAINER:=Mirko Vogt <mirko-openwrt@nanl.de>
+ PKG_LICENSE:=LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+@@ -51,9 +51,11 @@ include ../cmake.mk
+ PKG_CONFIG_DEPENDS:= \
+   CONFIG_BUILD_qt6base-core_ICU \
+   CONFIG_BUILD_qt6base-core_INOTIFY \
++  CONFIG_BUILD_qt6base_SQL \
+   CONFIG_BUILD_qt6base-gui_DRM \
+   CONFIG_BUILD_qt6base-gui_OPENGL_NONE \
+   CONFIG_BUILD_qt6base-gui_OPENGL_OPENGLES2 \
++  CONFIG_BUILD_qt6base-gui_QPA_DEFAULT_XCB \
+   CONFIG_BUILD_qt6base-gui_QPA_DEFAULT_EGLFS \
+   CONFIG_BUILD_qt6base-gui_QPA_DEFAULT_LINUXFB \
+   CONFIG_BUILD_qt6base-gui_QPA_DEFAULT_VNC \
+@@ -63,21 +65,47 @@ PKG_CONFIG_DEPENDS:= \
+   CONFIG_BUILD_qt6base-network_SSL \
+   CONFIG_PACKAGE_qt6base-gui \
+   CONFIG_PACKAGE_qt6base-widgets \
++  CONFIG_PACKAGE_qt6base-dbus \
++  CONFIG_PACKAGE_qt6base-printsupport \
++  CONFIG_PACKAGE_qt6base-plugin-platforms-xcb \
++  CONFIG_PACKAGE_qt6waylandclient \
+   CONFIG_PACKAGE_qt6base-plugin-platforms-linuxfb \
+   CONFIG_PACKAGE_qt6base-plugin-platforms-vnc \
+   CONFIG_PACKAGE_qt6base-plugin-imageformats-gif
+ 
+-HOST_BUILD_DEPENDS:=pcre2/host libdouble-conversion/host
++HOST_BUILD_DEPENDS:=pcre2/host libdouble-conversion/host wayland/host
+ # Forced features fail configure if their library is not staged:
+ # FEATURE_libudev is forced on whenever UDEV is enabled, FEATURE_kms whenever
+ # DRM is enabled. Neither is guaranteed through the DEPENDS of the selected
+ # subpackages.
+-PKG_BUILD_DEPENDS:=qt6base/host BUILD_qt6base-gui_UDEV:libudev-zero BUILD_qt6base-gui_DRM:libdrm
++PKG_BUILD_DEPENDS:=qt6base/host wayland/host BUILD_qt6base-gui_UDEV&&PACKAGE_libudev-systemd:systemd BUILD_qt6base-gui_UDEV&&PACKAGE_libudev-zero:libudev-zero BUILD_qt6base-gui_DRM:libdrm \
++	BUILD_qt6base-gui_OPENGL_OPENGLES2:mesa \
++	PACKAGE_qt6base-plugin-platforms-xcb:fontconfig \
++	PACKAGE_qt6base-plugin-platforms-xcb:harfbuzz \
++	PACKAGE_qt6base-plugin-platforms-xcb:libX11 \
++	PACKAGE_qt6base-plugin-platforms-xcb:libxcb \
++	PACKAGE_qt6base-plugin-platforms-xcb:libxcb-util \
++	PACKAGE_qt6base-plugin-platforms-xcb:libxcb-image \
++	PACKAGE_qt6base-plugin-platforms-xcb:libxcb-keysyms \
++	PACKAGE_qt6base-plugin-platforms-xcb:libxcb-render-util \
++	PACKAGE_qt6base-plugin-platforms-xcb:libxcb-wm \
++	PACKAGE_qt6base-plugin-platforms-xcb:libxcb-cursor \
++	PACKAGE_qt6base-plugin-platforms-xcb:libxkbcommon \
++	PACKAGE_qt6waylandclient:wayland \
++	PACKAGE_qt6waylandclient:wayland-protocols \
++	PACKAGE_qt6waylandclient:libxkbcommon
+ 
+ # KMS-based EGLFS integrations require both OpenGL ES and DRM
+ QT6BASE_EGLFS_KMS:=$(and $(CONFIG_BUILD_qt6base-gui_OPENGL_OPENGLES2),$(CONFIG_BUILD_qt6base-gui_DRM))
+ 
++# The xcb platform plugin is the desktop entry point used by KF6 applications.
++# It requires fontconfig/harfbuzz for text and the xcb-util libraries Qt's
++# plugin links against.
++QT6BASE_XCB:=$(CONFIG_PACKAGE_qt6base-plugin-platforms-xcb)
++QT6BASE_XKBCOMMON:=$(or $(QT6BASE_XCB),$(CONFIG_PACKAGE_qt6waylandclient))
++
+ QT6BASE_QPA_DEFAULT_PLATFORM:=$(strip \
++  $(if $(CONFIG_BUILD_qt6base-gui_QPA_DEFAULT_XCB),xcb) \
+   $(if $(CONFIG_BUILD_qt6base-gui_QPA_DEFAULT_EGLFS),eglfs) \
+   $(if $(CONFIG_BUILD_qt6base-gui_QPA_DEFAULT_LINUXFB),linuxfb) \
+   $(if $(CONFIG_BUILD_qt6base-gui_QPA_DEFAULT_VNC),vnc) \
+@@ -102,7 +130,7 @@ endef
+ define Package/qt6base-core
+   $(call Package/qt6base/Default)
+   TITLE+=core
+-  DEPENDS+=+zlib +libzstd +libstdcpp $(ATOMIC64_DEPENDS) +libpcre2-16 +libdouble-conversion +BUILD_qt6base-core_ICU:icu
++  DEPENDS+=+zlib +libzstd +liburing +glib2 +libstdcpp $(ATOMIC64_DEPENDS) +libpcre2-16 +libdouble-conversion +BUILD_qt6base-core_ICU:icu
+ 
+ endef
+ 
+@@ -113,7 +141,11 @@ endef
+ define Package/qt6base-gui
+   $(call Package/qt6base/Default)
+   TITLE+=gui
+-  DEPENDS+=+qt6base-core +libpng +libfreetype +BUILD_qt6base-gui_OPENGL_OPENGLES2:libmesa
++  DEPENDS+=+qt6base-core +libpng +libfreetype \
++	$(if $(CONFIG_PACKAGE_qt6base-plugin-platforms-xcb),+fontconfig +harfbuzz +qt6base-dbus) \
++	$(if $(QT6BASE_XKBCOMMON),+libxkbcommon) \
++	$(if $(CONFIG_PACKAGE_qt6waylandclient),+libwayland) \
++	+BUILD_qt6base-gui_OPENGL_OPENGLES2:libmesa
+ 
+ endef
+ 
+@@ -143,6 +175,18 @@ define Package/qt6base-widgets
+   DEPENDS+=+qt6base-gui
+ endef
+ 
++define Package/qt6base-dbus
++  $(call Package/qt6base/Default)
++  TITLE+=dbus
++  DEPENDS+=+qt6base-core +libdbus
++endef
++
++define Package/qt6base-printsupport
++  $(call Package/qt6base/Default)
++  TITLE+=printsupport
++  DEPENDS+=+qt6base-core +qt6base-gui +qt6base-widgets
++endef
++
+ define Package/qt6base-openglwidgets
+   $(call Package/qt6base/Default)
+   TITLE+=opengl widgets
+@@ -161,8 +205,28 @@ define Package/qt6base-opengl
+   DEPENDS+=+qt6base-gui +libmesa @BUILD_qt6base-gui_OPENGL_OPENGLES2
+ endef
+ 
++define Package/qt6base-sql
++  $(call Package/qt6base/Default)
++  TITLE+=sql
++  DEPENDS+=+qt6base-core @BUILD_qt6base_SQL
++endef
++
++define Package/qt6base-plugin-sqldrivers-sqlite
++  $(call Package/qt6base/Default)
++  TITLE+=SQLite SQL driver
++  DEPENDS+=+qt6base-sql @BUILD_qt6base_SQL
++endef
++
+ #### plugins
+ 
++####### input methods
++
++define Package/qt6base-plugin-inputcontexts-ibus
++  $(call Package/qt6base/Default)
++  TITLE+=IBus input context (plugin)
++  DEPENDS+=+qt6base-core +qt6base-gui +qt6base-dbus
++endef
++
+ ####### generic / input
+ 
+ define Package/qt6base-plugin-input-evdevkeyboard
+@@ -217,6 +281,14 @@ define Package/qt6base-plugin-platforms-offscreen
+   DEPENDS+=+qt6base-gui
+ endef
+ 
++define Package/qt6base-plugin-platforms-xcb
++  $(call Package/qt6base/Default)
++  TITLE+=platform xcb (plugin)
++  DEPENDS+=+qt6base-gui +fontconfig +harfbuzz +libX11 +libxcb +libxcb-util \
++	+libxcb-image +libxcb-keysyms +libxcb-render-util +libxcb-wm \
++	+libxcb-cursor +libxkbcommon +libxkbcommon-x11
++endef
++
+ define Package/qt6base-plugin-platforms-linuxfb
+   $(call Package/qt6base/Default)
+   TITLE+=platform linuxfb (plugin)
+@@ -235,6 +307,21 @@ define Package/qt6base-plugin-platforms-eglfs
+   DEPENDS+=+qt6base-gui +qt6base-opengl +BUILD_qt6base-gui_UDEV:libudev +BUILD_qt6base-gui_DRM:libdrm
+ endef
+ 
++define Package/qt6waylandclient
++  $(call Package/qt6base/Default)
++  TITLE:=Qt6 Wayland client platform plugins
++  DEPENDS:=@TARGET_x86_64 @USE_GLIBC +qt6base-gui +libwayland \
++	+BUILD_qt6base-gui_OPENGL_OPENGLES2:qt6base-opengl \
++	+libxkbcommon +libstdcpp
++endef
++
++define Package/qt6waylandclient-dev
++  $(call Package/qt6base/Default)
++  TITLE:=Qt6 Wayland client development files
++  DEPENDS:=@TARGET_x86_64 @USE_GLIBC +qt6base-dev +qt6waylandclient \
++	+wayland-scanner +wayland-protocols
++endef
++
+ define Build/Prepare
+ 	$(call Build/Prepare/Default)
+ 	# qt6base takes custom mkspecs only from its source dir, see:
+@@ -285,6 +372,7 @@ CMAKE_OPTIONS += \
+ 	-DFEATURE_optimize_size=ON \
+ 	-DFEATURE_reduce_exports=OFF \
+ 	-DFEATURE_reduce_relocations=OFF \
++	-DFEATURE_relocatable=OFF \
+ 	-DFEATURE_rpath=OFF \
+ 	-DQT_GENERATE_SBOM=OFF \
+ 	-DFEATURE_intelcet=OFF \
+@@ -297,12 +385,13 @@ CMAKE_OPTIONS += \
+ 	-DFEATURE_pkg_config=ON \
+ 	-DFEATURE_gui=$(if $(CONFIG_PACKAGE_qt6base-gui),ON,OFF) \
+ 	-DFEATURE_widgets=$(if $(CONFIG_PACKAGE_qt6base-widgets),ON,OFF) \
+-	-DFEATURE_printsupport=OFF \
+-	-DFEATURE_dbus=OFF \
++	-DFEATURE_printsupport=$(if $(CONFIG_PACKAGE_qt6base-printsupport),ON,OFF) \
++	-DFEATURE_dbus=$(if $(CONFIG_PACKAGE_qt6base-dbus),ON,OFF) \
++	-DINPUT_dbus=$(if $(CONFIG_PACKAGE_qt6base-dbus),runtime,no) \
+ 	-DFEATURE_accessibility=ON \
+ 	-DFEATURE_accessibility_atspi_bridge=OFF \
+ 	-DINPUT_doubleconversion=system \
+-	-DFEATURE_glib=OFF \
++	-DFEATURE_glib=ON \
+ 	-DFEATURE_inotify=$(if $(CONFIG_BUILD_qt6base-core_INOTIFY),ON,OFF) \
+ 	-DFEATURE_icu=$(if $(CONFIG_BUILD_qt6base-core_ICU),ON,OFF) \
+ 	-DINPUT_pcre=system \
+@@ -323,10 +412,10 @@ CMAKE_OPTIONS += \
+ 	-DFEATURE_system_proxies=ON \
+ 	-DFEATURE_cups=OFF \
+ 	-DFEATURE_emojisegmenter=OFF \
+-	-DFEATURE_fontconfig=OFF \
++	-DFEATURE_fontconfig=$(if $(QT6BASE_XCB),ON,OFF) \
+ 	-DINPUT_freetype=system \
+-	-DFEATURE_harfbuzz=OFF \
+-	-DFEATURE_system_harfbuzz=OFF \
++	-DFEATURE_harfbuzz=$(if $(QT6BASE_XCB),ON,OFF) \
++	-DFEATURE_system_harfbuzz=$(if $(QT6BASE_XCB),ON,OFF) \
+ 	-DFEATURE_system_textmarkdownreader=OFF \
+ 	-DFEATURE_gtk3=OFF \
+ 	-DINPUT_opengl=$(if $(CONFIG_BUILD_qt6base-gui_OPENGL_OPENGLES2),es2,no) \
+@@ -345,24 +434,26 @@ CMAKE_OPTIONS += \
+ 	-DFEATURE_drm_atomic=$(if $(CONFIG_BUILD_qt6base-gui_DRM),ON,OFF) \
+ 	-DFEATURE_linuxfb=$(if $(CONFIG_PACKAGE_qt6base-plugin-platforms-linuxfb),ON,OFF) \
+ 	-DFEATURE_vnc=$(if $(CONFIG_PACKAGE_qt6base-plugin-platforms-vnc),ON,OFF) \
+-	-DFEATURE_wayland=OFF \
+-	-DFEATURE_xcb=OFF \
++	-DFEATURE_wayland=$(if $(CONFIG_PACKAGE_qt6waylandclient),ON,OFF) \
++	-DFEATURE_wayland_client=$(if $(CONFIG_PACKAGE_qt6waylandclient),ON,OFF) \
++	-DFEATURE_xcb=$(if $(QT6BASE_XCB),ON,OFF) \
++	-DFEATURE_xkbcommon=$(if $(QT6BASE_XKBCOMMON),ON,OFF) \
++	-DFEATURE_xkbcommon_x11=$(if $(QT6BASE_XCB),ON,OFF) \
++	-DFEATURE_xlib=$(if $(QT6BASE_XCB),ON,OFF) \
++	-DFEATURE_xcb_xlib=$(if $(QT6BASE_XCB),ON,OFF) \
+ 	-DFEATURE_libudev=$(if $(CONFIG_BUILD_qt6base-gui_UDEV),ON,OFF) \
+ 	-DFEATURE_evdev=ON \
+ 	-DFEATURE_tuiotouch=OFF \
+ 	-DFEATURE_libinput=OFF \
+ 	-DFEATURE_mtdev=OFF \
+ 	-DFEATURE_tslib=OFF \
+-	-DFEATURE_xkbcommon=OFF \
+-	-DFEATURE_xkbcommon_x11=OFF \
+-	-DFEATURE_xlib=OFF \
+-	-DFEATURE_xcb_xlib=OFF \
+ 	-DFEATURE_gif=$(if $(CONFIG_PACKAGE_qt6base-plugin-imageformats-gif),ON,OFF) \
+-	-DFEATURE_ico=OFF \
++	-DFEATURE_ico=ON \
+ 	-DINPUT_libpng=system \
+ 	-DINPUT_libjpeg=system \
+-	-DFEATURE_sql=OFF \
+-	-DFEATURE_sqlmodel=OFF
++	-DFEATURE_sql=$(if $(CONFIG_BUILD_qt6base_SQL),ON,OFF) \
++	-DFEATURE_sqlmodel=$(if $(CONFIG_BUILD_qt6base_SQL),ON,OFF) \
++	-DFEATURE_sql_sqlite=$(if $(CONFIG_BUILD_qt6base_SQL),ON,OFF)
+ 
+ 
+ # BUILD_SHARED_LIBS=ON (set in ../cmake.mk) is needed for the host build:
+@@ -414,13 +505,14 @@ CMAKE_HOST_OPTIONS += \
+ 	-DINPUT_linker=bfd \
+ 	-DFEATURE_pkg_config=ON \
+ 	-DFEATURE_gui=ON \
+-	-DFEATURE_widgets=OFF \
++	-DFEATURE_widgets=ON \
+ 	-DFEATURE_printsupport=OFF \
+-	-DFEATURE_dbus=OFF \
++	-DFEATURE_dbus=ON \
++	-DINPUT_dbus=runtime \
+ 	-DFEATURE_accessibility=OFF \
+ 	-DFEATURE_accessibility_atspi_bridge=OFF \
+ 	-DINPUT_doubleconversion=system \
+-	-DFEATURE_glib=OFF \
++	-DFEATURE_glib=ON \
+ 	-DFEATURE_inotify=OFF \
+ 	-DFEATURE_icu=OFF \
+ 	-DINPUT_pcre=system \
+@@ -529,6 +621,7 @@ endef
+ 
+ define Package/qt6base-gui/install
+ 	$(call Build/Install/Libs,$(1),libQt6Gui)
++	$(call Build/Install/Plugins,$(1),imageformats,libqico)
+ endef
+ 
+ define Package/qt6base-network/install
+@@ -544,6 +637,14 @@ define Package/qt6base-widgets/install
+ 	$(call Build/Install/Libs,$(1),libQt6Widgets)
+ endef
+ 
++define Package/qt6base-dbus/install
++	$(call Build/Install/Libs,$(1),libQt6DBus)
++endef
++
++define Package/qt6base-printsupport/install
++	$(call Build/Install/Libs,$(1),libQt6PrintSupport)
++endef
++
+ define Package/qt6base-openglwidgets/install
+ 	$(call Build/Install/Libs,$(1),libQt6OpenGLWidgets)
+ endef
+@@ -556,6 +657,14 @@ define Package/qt6base-opengl/install
+ 	$(call Build/Install/Libs,$(1),libQt6OpenGL)
+ endef
+ 
++define Package/qt6base-sql/install
++	$(call Build/Install/Libs,$(1),libQt6Sql)
++endef
++
++define Package/qt6base-plugin-sqldrivers-sqlite/install
++	$(call Build/Install/Plugins,$(1),sqldrivers,libqsqlite)
++endef
++
+ define Package/qt6base-plugin-platforms-eglfs/install
+ 	$(call Build/Install/Libs,$(1),libQt6EglFSDeviceIntegration)
+ 	$(call Build/Install/Plugins,$(1),platforms,libqeglfs)
+@@ -565,6 +674,10 @@ define Package/qt6base-plugin-platforms-eglfs/install
+ 	$(if $(QT6BASE_EGLFS_KMS),$(call Build/Install/Plugins,$(1),egldeviceintegrations,libqeglfs-kms-integration))
+ endef
+ 
++define Package/qt6base-plugin-inputcontexts-ibus/install
++	$(call Build/Install/Plugins,$(1),platforminputcontexts,libibusplatforminputcontextplugin)
++endef
++
+ define Package/qt6base-plugin-input-evdevkeyboard/install
+ 	$(call Build/Install/Plugins,$(1),generic,libqevdevkeyboardplugin)
+ endef
+@@ -601,20 +714,161 @@ define Package/qt6base-plugin-platforms-offscreen/install
+ 	$(call Build/Install/Plugins,$(1),platforms,libqoffscreen)
+ endef
+ 
++define Package/qt6base-plugin-platforms-xcb/install
++	$(call Build/Install/Libs,$(1),libQt6XcbQpa)
++	$(call Build/Install/Plugins,$(1),platforms,libqxcb)
++endef
++
+ define Package/qt6base-plugin-platforms-vnc/install
+ 	$(call Build/Install/Plugins,$(1),platforms,libqvnc)
+ endef
+ 
++
++define Package/qt6base-dev
++  $(call Package/qt6base/Default)
++  SECTION:=devel
++  CATEGORY:=Development
++  SUBMENU:=Libraries
++  TITLE+=development files
++  DEPENDS:=+qt6base-core +qt6base-gui +qt6base-widgets +qt6base-network \
++	+qt6base-dbus +qt6base-xml +qt6base-printsupport \
++	+qt6base-plugin-platforms-xcb +native-libs-dev +gcc +cmake-bin \
++	+BUILD_qt6base_SQL:qt6base-sql \
++	+BUILD_qt6base_SQL:qt6base-plugin-sqldrivers-sqlite \
++	+BUILD_qt6base-gui_OPENGL_OPENGLES2:qt6base-opengl \
++	+BUILD_qt6base-gui_OPENGL_OPENGLES2:qt6base-openglwidgets
++endef
++
++define Package/qt6base-dev/install
++	$(INSTALL_DIR) $(1)/usr/include/qt6 $(1)/usr/lib/cmake $(1)/usr/lib/pkgconfig \
++		$(1)/usr/lib/qt6/mkspecs $(1)/usr/lib/qt6/libexec \
++		$(1)/usr/lib/qt6/metatypes $(1)/usr/bin/qt6
++	$(CP) $(PKG_INSTALL_DIR)/usr/include/qt6/. $(1)/usr/include/qt6/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/cmake/. $(1)/usr/lib/cmake/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/Qt6*.pc $(1)/usr/lib/pkgconfig/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/qt6/mkspecs/. $(1)/usr/lib/qt6/mkspecs/
++	$(INSTALL_DATA) ./files/mkspecs/linux-openwrt-g++/qmake.conf \
++		$(1)/usr/lib/qt6/mkspecs/linux-openwrt-g++/qmake.conf
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/qt6/metatypes/. $(1)/usr/lib/qt6/metatypes/
++	$(CP) $(STAGING_DIR_HOSTPKG)/lib/qt6/mkspecs/linux-openwrt-host-g++ \
++		$(1)/usr/lib/qt6/mkspecs/
++	# On-device builds do not set OpenWrt's cross-build HOSTCC/HOSTCXX vars.
++	$(SED) '/^QMAKE_CC[[:space:]]*=/a\isEmpty(QMAKE_CC): QMAKE_CC = gcc' \
++		-e '/^QMAKE_CXX[[:space:]]*=/a\isEmpty(QMAKE_CXX): QMAKE_CXX = g++' \
++		$(1)/usr/lib/qt6/mkspecs/linux-openwrt-host-g++/qmake.conf
++	# Host-built command line tools run against the target Qt libraries.
++	for tool in moc uic rcc syncqt tracepointgen tracegen cmake_automoc_parser \
++		qlalr qvkgen; do \
++		[ ! -f $(STAGING_DIR_HOSTPKG)/lib/qt6/libexec/$$$$tool ] || \
++			$(INSTALL_BIN) $(STAGING_DIR_HOSTPKG)/lib/qt6/libexec/$$$$tool \
++				$(1)/usr/lib/qt6/libexec/; \
++	done
++	for tool in qmake6 qtpaths6 qdbuscpp2xml qdbusxml2cpp wasmdeployqt; do \
++		[ ! -f $(STAGING_DIR_HOSTPKG)/bin/qt6/$$$$tool ] || \
++			$(INSTALL_BIN) $(STAGING_DIR_HOSTPKG)/bin/qt6/$$$$tool $(1)/usr/bin/qt6/; \
++	done
++	$(LN) qmake6 $(1)/usr/bin/qt6/qmake
++	$(LN) qtpaths6 $(1)/usr/bin/qt6/qtpaths
++	$(INSTALL_DATA) ./files/qt.conf $(1)/usr/bin/qt6/qt.conf
++	$(INSTALL_BIN) ./files/qt-cmake $(1)/usr/bin/qt-cmake
++	$(LN) qt6/qmake6 $(1)/usr/bin/qmake6
++	$(LN) qt6/qmake6 $(1)/usr/bin/qmake
++	$(LN) qt6/qtpaths6 $(1)/usr/bin/qtpaths6
++	for tool in moc uic rcc; do $(LN) ../lib/qt6/libexec/$$$$tool $(1)/usr/bin/$$$$tool; done
++	# Plugin CMake targets describe every plugin built for the target. The
++	# runtime packages install only a subset, so keep their CMake packages out
++	# of the on-device tree; Qt loads plugins by path at runtime.
++	rm -rf $(1)/usr/lib/cmake/Qt6*/Qt6Q*Plugin*
++	rm -f $(1)/usr/lib/cmake/Qt6Gui/Qt6GuiPlugins.cmake
++	# The target CMake files embed the cross-build host prefix. On the device
++	# the host tools live under the same /usr prefix.
++	for m in Tools CoreTools GuiTools WidgetsTools DBusTools; do \
++		[ ! -d $(STAGING_DIR_HOSTPKG)/lib/cmake/Qt6$$$$m ] || \
++			$(CP) $(STAGING_DIR_HOSTPKG)/lib/cmake/Qt6$$$$m $(1)/usr/lib/cmake/; \
++	done
++	# Wayland client development files are owned by qt6waylandclient-dev.
++	rm -rf $(1)/usr/include/qt6/QtWayland* \
++		$(1)/usr/include/qt6/QtWlShellIntegration \
++		$(1)/usr/lib/cmake/Qt6Wayland* \
++		$(1)/usr/lib/cmake/Qt6WlShellIntegrationPrivate \
++		$(1)/usr/lib/pkgconfig/Qt6Wayland*.pc \
++		$(1)/usr/lib/qt6/metatypes/qt6wayland* \
++		$(1)/usr/lib/qt6/metatypes/qt6wlshellintegration*
++	# Static private support libraries and disabled EglFS integration libs
++	# are not packaged on the target; drop their CMake configs so consumers
++	# see no dangling targets.
++	rm -rf $(1)/usr/lib/cmake/Qt6DeviceDiscoverySupportPrivate \
++		$(1)/usr/lib/cmake/Qt6FbSupportPrivate \
++		$(1)/usr/lib/cmake/Qt6InputSupportPrivate \
++		$(1)/usr/lib/cmake/Qt6KmsSupportPrivate \
++		$(if $(CONFIG_PACKAGE_qt6base-plugin-platforms-eglfs),, \
++			$(1)/usr/lib/cmake/Qt6EglFSDeviceIntegrationPrivate \
++			$(1)/usr/lib/cmake/Qt6EglFsKmsGbmSupportPrivate \
++			$(1)/usr/lib/cmake/Qt6EglFsKmsSupportPrivate)
++	find $(1)/usr/lib/cmake -type f -name '*.cmake' -exec \
++		sed -i 's|$(STAGING_DIR_HOSTPKG)|/usr|g' {} +
++	# OpenWrt links Qt shared libraries with -Wl,-Bsymbolic-functions even
++	# when FEATURE_reduce_relocations=OFF. Require PIC for consumers built
++	# via pkg-config or CMake so taking &Class::signal resolves through the
++	# GOT rather than an executable PLT stub.
++	$(SED) 's|^Cflags: |Cflags: -fPIC |' $(1)/usr/lib/pkgconfig/Qt6Platform.pc
++	printf '\nif(TARGET Qt6::Core)\n    set_property(TARGET Qt6::Core APPEND PROPERTY INTERFACE_COMPILE_OPTIONS "$$$$<$$$$<COMPILE_LANGUAGE:C,CXX>:-fPIC>")\nendif()\n' \
++		>> $(1)/usr/lib/cmake/Qt6Core/Qt6CoreConfigExtras.cmake
++endef
++
++define Package/qt6waylandclient/install
++	$(INSTALL_DIR) $(1)/usr/lib $(1)/usr/lib/qt6/plugins/platforms
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libQt6Wayland*.so.* $(1)/usr/lib/
++	[ ! -e $(PKG_INSTALL_DIR)/usr/lib/libQt6Wl*.so.* ] 2>/dev/null || \
++		$(CP) $(PKG_INSTALL_DIR)/usr/lib/libQt6Wl*.so.* $(1)/usr/lib/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/qt6/plugins/platforms/libqwayland*.so $(1)/usr/lib/qt6/plugins/platforms/
++	for d in wayland-decoration-client wayland-graphics-integration-client \
++		wayland-shell-integration; do \
++		[ ! -d $(PKG_INSTALL_DIR)/usr/lib/qt6/plugins/$$$$d ] || \
++			$(CP) $(PKG_INSTALL_DIR)/usr/lib/qt6/plugins/$$$$d $(1)/usr/lib/qt6/plugins/; \
++	done
++endef
++
++define Package/qt6waylandclient-dev/install
++	$(INSTALL_DIR) $(1)/usr/include/qt6 $(1)/usr/lib $(1)/usr/lib/cmake \
++		$(1)/usr/lib/pkgconfig $(1)/usr/lib/qt6/libexec \
++		$(1)/usr/lib/qt6/metatypes
++	$(CP) $(PKG_INSTALL_DIR)/usr/include/qt6/QtWayland* $(1)/usr/include/qt6/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libQt6Wayland*.so $(1)/usr/lib/
++	[ ! -e $(PKG_INSTALL_DIR)/usr/lib/libQt6Wl*.so ] 2>/dev/null || \
++		$(CP) $(PKG_INSTALL_DIR)/usr/lib/libQt6Wl*.so $(1)/usr/lib/
++	[ ! -d $(PKG_INSTALL_DIR)/usr/include/qt6/QtWlShellIntegration ] || \
++		$(CP) $(PKG_INSTALL_DIR)/usr/include/qt6/QtWlShellIntegration $(1)/usr/include/qt6/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/cmake/Qt6Wayland* $(1)/usr/lib/cmake/
++	[ ! -d $(PKG_INSTALL_DIR)/usr/lib/cmake/Qt6WlShellIntegrationPrivate ] || \
++		$(CP) $(PKG_INSTALL_DIR)/usr/lib/cmake/Qt6WlShellIntegrationPrivate $(1)/usr/lib/cmake/
++	[ ! -d $(STAGING_DIR_HOSTPKG)/lib/cmake/Qt6WaylandScannerTools ] || \
++		$(CP) $(STAGING_DIR_HOSTPKG)/lib/cmake/Qt6WaylandScannerTools $(1)/usr/lib/cmake/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/Qt6Wayland*.pc $(1)/usr/lib/pkgconfig/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/qt6/metatypes/qt6wayland* $(1)/usr/lib/qt6/metatypes/
++	[ ! -x $(STAGING_DIR_HOSTPKG)/lib/qt6/libexec/qtwaylandscanner ] || \
++		$(INSTALL_BIN) $(STAGING_DIR_HOSTPKG)/lib/qt6/libexec/qtwaylandscanner \
++			$(1)/usr/lib/qt6/libexec/
++	find $(1)/usr/lib/cmake -type f -name '*.cmake' -exec \
++		sed -i 's|$(STAGING_DIR_HOSTPKG)|/usr|g' {} +
++endef
++
+ # $(eval $(call BuildPackage,qt6base))
+ $(eval $(call BuildPackage,qt6base-concurrent))
+ $(eval $(call BuildPackage,qt6base-core))
+ $(eval $(call BuildPackage,qt6base-gui))
+ $(eval $(call BuildPackage,qt6base-opengl))
++$(eval $(call BuildPackage,qt6base-sql))
++$(eval $(call BuildPackage,qt6base-plugin-sqldrivers-sqlite))
+ $(eval $(call BuildPackage,qt6base-network))
+ $(eval $(call BuildPackage,qt6base-test))
+ $(eval $(call BuildPackage,qt6base-widgets))
++$(eval $(call BuildPackage,qt6base-dbus))
++$(eval $(call BuildPackage,qt6base-printsupport))
+ $(eval $(call BuildPackage,qt6base-openglwidgets))
+ $(eval $(call BuildPackage,qt6base-xml))
++$(eval $(call BuildPackage,qt6base-dev))
++$(eval $(call BuildPackage,qt6base-plugin-inputcontexts-ibus))
+ $(eval $(call BuildPackage,qt6base-plugin-input-evdevkeyboard))
+ $(eval $(call BuildPackage,qt6base-plugin-input-evdevmouse))
+ $(eval $(call BuildPackage,qt6base-plugin-input-evdevtablet))
+@@ -624,6 +878,9 @@ $(eval $(call BuildPackage,qt6base-plugin-imageformats-jpeg))
+ $(eval $(call BuildPackage,qt6base-plugin-platforms-minimal))
+ $(eval $(call BuildPackage,qt6base-plugin-platforms-linuxfb))
+ $(eval $(call BuildPackage,qt6base-plugin-platforms-offscreen))
++$(eval $(call BuildPackage,qt6base-plugin-platforms-xcb))
+ $(eval $(call BuildPackage,qt6base-plugin-platforms-vnc))
+ $(eval $(call BuildPackage,qt6base-plugin-platforms-eglfs))
++$(eval $(call BuildPackage,qt6waylandclient))
++$(eval $(call BuildPackage,qt6waylandclient-dev))
+ $(eval $(call HostBuild))
+diff --git a/frameworks/qt6/qt6base/files/mkspecs/linux-openwrt-g++/qmake.conf b/frameworks/qt6/qt6base/files/mkspecs/linux-openwrt-g++/qmake.conf
+index 6c768c3..49e3397 100644
+--- a/frameworks/qt6/qt6base/files/mkspecs/linux-openwrt-g++/qmake.conf
++++ b/frameworks/qt6/qt6base/files/mkspecs/linux-openwrt-g++/qmake.conf
+@@ -22,6 +22,13 @@ QMAKE_CFLAGS           += $$(TARGET_CFLAGS)
+ QMAKE_CXXFLAGS         += $$(TARGET_CXXFLAGS)
+ QMAKE_LFLAGS           += $$(TARGET_LDFLAGS)
+ 
++# OpenWrt links Qt shared libraries with -Wl,-Bsymbolic-functions, so Qt
++# applications must be position-independent to avoid PLT-stub mismatches
++# in QObject::connect(&Class::signal, ...).
++QMAKE_CFLAGS_APP       += -fPIE
++QMAKE_CXXFLAGS_APP     += -fPIE
++QMAKE_LFLAGS_APP       += -pie
++
+ # modifications to g++.conf
+ QMAKE_CC                = $$(TARGET_CROSS)gcc
+ QMAKE_CXX               = $$(TARGET_CROSS)g++
+diff --git a/frameworks/qt6/qt6base/files/qt-cmake b/frameworks/qt6/qt6base/files/qt-cmake
+new file mode 100755
+index 0000000..5b8f826
+--- /dev/null
++++ b/frameworks/qt6/qt6base/files/qt-cmake
+@@ -0,0 +1,2 @@
++#!/bin/sh
++exec cmake "$@"
+diff --git a/frameworks/qt6/qt6base/files/qt.conf b/frameworks/qt6/qt6base/files/qt.conf
+new file mode 100644
+index 0000000..ec39a39
+--- /dev/null
++++ b/frameworks/qt6/qt6base/files/qt.conf
+@@ -0,0 +1,21 @@
++[Paths]
++Prefix=../../
++Headers=include/qt6
++Libraries=lib
++LibraryExecutables=lib/qt6/libexec
++Binaries=bin/qt6
++Plugins=lib/qt6/plugins
++QmlImports=lib/qt6/qml
++ArchData=lib/qt6
++Data=share/qt6
++Translations=share/qt6/translations
++Settings=/etc/qt6
++HostPrefix=../../
++HostBinaries=bin/qt6
++HostLibraries=lib
++HostLibraryExecutables=lib/qt6/libexec
++HostData=lib/qt6
++TargetSpec=linux-openwrt-g++
++HostSpec=
++Sysroot=
++SysrootifyPrefix=false
+diff --git a/frameworks/qt6/qt6quick/Makefile b/frameworks/qt6/qt6quick/Makefile
+index 107674f..460f410 100644
+--- a/frameworks/qt6/qt6quick/Makefile
++++ b/frameworks/qt6/qt6quick/Makefile
+@@ -8,8 +8,8 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=qt6declarative
+-PKG_RELEASE:=1
+-PKG_HASH:=5a071b227229afbf5c976b7b59a0d850818d06ae861fcdf6d690351ca3f8a260
++PKG_RELEASE:=2
++PKG_HASH:=6d6db328a02ae3bb0b1e6944aeef8dfe44cd6b55ab59b1708bbf0400f5759cb5
+ 
+ PKG_MAINTAINER:=Mirko Vogt <mirko-openwrt@nanl.de>
+ PKG_LICENSE:=LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+@@ -278,6 +278,28 @@ define Package/qt6quick-widgets
+   DEPENDS+=+qt6quick +qt6base-widgets
+ endef
+ 
++define Package/qt6quick-tools
++  $(call Package/qt6quick/Default)
++  TITLE+=QML runtime and development tools
++  DEPENDS+=+qt6quick +qt6quick-qml +qt6quick-qml-meta +qt6quick-qml-models \
++	+qt6quick-qml-workerscript +qt6quick-test +qt6quick-effects \
++	+qt6quick-qml-mod-qtqml +qt6quick-qml-mod-qtquick \
++	+qt6quick-qml-mod-qttest +qt6base-gui +qt6base-network \
++	+qt6base-widgets +qt6base-test \
++	+PACKAGE_qt6base-plugin-platforms-xcb:qt6base-plugin-platforms-xcb \
++	+PACKAGE_qt6base-plugin-platforms-offscreen:qt6base-plugin-platforms-offscreen \
++	+PACKAGE_qt6base-plugin-platforms-minimal:qt6base-plugin-platforms-minimal
++endef
++
++define Package/qt6quick-dev
++  $(call Package/qt6quick/Default)
++  TITLE+=development files
++  DEPENDS:=+qt6base-dev +qt6quick-tools +qt6quick +qt6quick-qml \
++	+qt6quick-qml-meta +qt6quick-controls2 +qt6quick-templates2 \
++	+qt6quick-layouts +qt6quick-shapes +qt6quick-effects \
++	+qt6quick-widgets +qt6quick-test
++endef
++
+ ###
+ 
+ define Package/qt6quick-qml
+@@ -571,6 +593,74 @@ define Package/qt6quick-widgets/install
+ 	$(call Build/Install/Libs,$(1),libQt6QuickWidgets)
+ endef
+ 
++define Package/qt6quick-tools/install
++	$(INSTALL_DIR) $(1)/usr/bin/qt6 $(1)/usr/lib \
++		$(1)/usr/lib/qt6/libexec
++	# qml, qmlscene and qmltestrunner are target binaries built with the
++	# module. qmllint and the other tooling binaries are host builds, like
++	# moc and uic in qt6base-dev; x86_64 host and target share the ABI, and
++	# the tools resolve the target Qt libraries through their RUNPATH.
++	for tool in qml qmlscene qmltestrunner qmleasing; do \
++		[ ! -x $(PKG_INSTALL_DIR)/$(QT_INSTALL_BINS)/$$$$tool ] || { \
++			$(INSTALL_BIN) $(PKG_INSTALL_DIR)/$(QT_INSTALL_BINS)/$$$$tool \
++				$(1)/usr/bin/qt6/; \
++			$(LN) qt6/$$$$tool $(1)/usr/bin/$$$$tool; \
++		}; \
++	done
++	for tool in qmllint qmlformat qmldom qmltc qmlplugindump \
++		qmlprofiler qmltime qmlcontextpropertydump; do \
++		[ ! -x $(STAGING_DIR_HOSTPKG)/bin/qt6/$$$$tool ] || { \
++			$(INSTALL_BIN) $(STAGING_DIR_HOSTPKG)/bin/qt6/$$$$tool \
++				$(1)/usr/bin/qt6/; \
++			$(LN) qt6/$$$$tool $(1)/usr/bin/$$$$tool; \
++		}; \
++	done
++	# Build-time helpers referenced by Qt6QmlTools; CMake calls them by path.
++	for tool in qmlaotstats qmlcachegen qmlimportscanner qmljsrootgen \
++		qmltyperegistrar; do \
++		[ ! -x $(STAGING_DIR_HOSTPKG)/lib/qt6/libexec/$$$$tool ] || \
++			$(INSTALL_BIN) $(STAGING_DIR_HOSTPKG)/lib/qt6/libexec/$$$$tool \
++				$(1)/usr/lib/qt6/libexec/; \
++	done
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libQt6QmlCompiler.so.* $(1)/usr/lib/
++endef
++
++define Package/qt6quick-dev/install
++	$(INSTALL_DIR) $(1)/usr/include/qt6 $(1)/usr/lib/cmake \
++		$(1)/usr/lib/pkgconfig $(1)/usr/lib/qt6/metatypes
++	$(CP) $(PKG_INSTALL_DIR)/usr/include/qt6/. $(1)/usr/include/qt6/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/cmake/Qt6Qml* \
++		$(PKG_INSTALL_DIR)/usr/lib/cmake/Qt6Quick* \
++		$(PKG_INSTALL_DIR)/usr/lib/cmake/Qt6Labs* $(1)/usr/lib/cmake/
++	# Qt6QmlConfig requires the host tools package; its imported paths are
++	# relative to the /usr prefix, so it can be copied unchanged.
++	$(CP) $(STAGING_DIR_HOSTPKG)/lib/cmake/Qt6QmlTools $(1)/usr/lib/cmake/
++	[ ! -d $(PKG_INSTALL_DIR)/usr/lib/qt6/metatypes ] || \
++		$(CP) $(PKG_INSTALL_DIR)/usr/lib/qt6/metatypes/. \
++			$(1)/usr/lib/qt6/metatypes/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/Qt6Qml*.pc \
++		$(PKG_INSTALL_DIR)/usr/lib/pkgconfig/Qt6Quick*.pc \
++		$(PKG_INSTALL_DIR)/usr/lib/pkgconfig/Qt6Labs*.pc \
++		$(1)/usr/lib/pkgconfig/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libQt6QmlCompiler.so $(1)/usr/lib/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/*.a $(1)/usr/lib/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/*.prl $(1)/usr/lib/
++	# Drop CMake/pkg-config metadata for optional Labs/DesignHelpers libs
++	# that have no runtime package selected on the target.
++	rm -rf $(1)/usr/lib/cmake/Qt6LabsStyleKit* \
++		$(1)/usr/lib/cmake/Qt6LabsSynchronizer* \
++		$(1)/usr/lib/cmake/Qt6QuickShapesDesignHelpersPrivate \
++		$(1)/usr/lib/pkgconfig/Qt6LabsStyleKit*.pc \
++		$(1)/usr/lib/pkgconfig/Qt6LabsSynchronizer.pc \
++		$(if $(CONFIG_PACKAGE_qt6labs-wavefrontmesh),, \
++			$(1)/usr/lib/cmake/Qt6LabsWavefrontMesh* \
++			$(1)/usr/lib/pkgconfig/Qt6LabsWavefrontMesh.pc)
++	# Plugin CMake targets describe every QML plugin built for the target.
++	# Runtime packages install only a subset, so keep them out of the
++	# on-device tree; Qt loads QML modules by path at runtime.
++	find $(1)/usr/lib/cmake -type d -name QmlPlugins -exec rm -rf {} +
++endef
++
+ ### libQt6Qml*.so*
+ 
+ define Package/qt6quick-qml/install
+@@ -760,6 +850,8 @@ $(eval $(call BuildPackage,qt6quick-shapes))
+ $(eval $(call BuildPackage,qt6quick-templates2))
+ $(eval $(call BuildPackage,qt6quick-test))
+ $(eval $(call BuildPackage,qt6quick-widgets))
++$(eval $(call BuildPackage,qt6quick-tools))
++$(eval $(call BuildPackage,qt6quick-dev))
+ 
+ $(eval $(call BuildPackage,qt6quick-qml))
+ $(eval $(call BuildPackage,qt6quick-qml-core))
+diff --git a/frameworks/qt6/qt6shadertools/Makefile b/frameworks/qt6/qt6shadertools/Makefile
+index cdd1681..6db2489 100644
+--- a/frameworks/qt6/qt6shadertools/Makefile
++++ b/frameworks/qt6/qt6shadertools/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=qt6shadertools
+ PKG_RELEASE:=1
+-PKG_HASH:=629804ee86a35503e4b616f9ab5175caef3da07bd771cf88a24da3b5d4284567
++PKG_HASH:=d86079425ec71eecbb05f4d20623b0a403a7d21a5cfa7efb9734ea3d538d801b
+ 
+ PKG_MAINTAINER:=Mirko Vogt <mirko-openwrt@nanl.de>
+ PKG_LICENSE:=LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+@@ -44,11 +44,15 @@ define Package/qt6shadertools
+   CATEGORY:=Video
+   SUBMENU:=Frameworks and Toolkits
+   TITLE:=Qt6ShaderTools
+-  BUILDONLY:=1
++  DEPENDS:=+qt6base-core +qt6base-gui +libstdcpp
+   URL:=https://www.qt.io
+ endef
+ 
+ Build/InstallDev = $(Build/InstallDev/Qt)
+ 
++define Package/qt6shadertools/install
++	$(call Build/Install/Libs,$(1),libQt6ShaderTools)
++endef
++
+ $(eval $(call BuildPackage,qt6shadertools))
+ $(eval $(call HostBuild))
+diff --git a/frameworks/qt6/qt6svg/Makefile b/frameworks/qt6/qt6svg/Makefile
+index d0a132c..9b94ffc 100644
+--- a/frameworks/qt6/qt6svg/Makefile
++++ b/frameworks/qt6/qt6svg/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=qt6svg
+ PKG_RELEASE:=1
+-PKG_HASH:=db76aa3358cbbe6fce7da576ff4669cb9801920188c750d3b12783bbe97026e2
++PKG_HASH:=9bdf6fa4b5a2d91c3eaa2edd12263fdff0ae19d0ac25d3c99946cd4189a07123
+ 
+ PKG_MAINTAINER:=Mirko Vogt <mirko-openwrt@nanl.de>
+ PKG_LICENSE:=LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+@@ -60,6 +60,12 @@ define Package/qt6svg-widgets
+   DEPENDS+=+qt6svg +qt6base-widgets
+ endef
+ 
++define Package/qt6svg-dev
++  $(call Package/qt6svg/Default)
++  TITLE+=development files
++  DEPENDS:=+qt6base-dev +qt6svg +PACKAGE_qt6svg-widgets:qt6svg-widgets
++endef
++
+ Build/InstallDev = $(Build/InstallDev/Qt)
+ 
+ define Package/qt6svg/install
+@@ -72,6 +78,18 @@ define Package/qt6svg-widgets/install
+ 	$(call Build/Install/Libs,$(1),libQt6SvgWidgets)
+ endef
+ 
++define Package/qt6svg-dev/install
++	$(INSTALL_DIR) $(1)/usr/include/qt6 $(1)/usr/lib/cmake \
++		$(1)/usr/lib/pkgconfig $(1)/usr/lib/qt6/metatypes
++	$(CP) $(PKG_INSTALL_DIR)/usr/include/qt6/. $(1)/usr/include/qt6/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/cmake/Qt6Svg* $(1)/usr/lib/cmake/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/Qt6Svg*.pc \
++		$(1)/usr/lib/pkgconfig/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/qt6/metatypes/. \
++		$(1)/usr/lib/qt6/metatypes/
++endef
++
+ $(eval $(call BuildPackage,qt6svg))
+ $(eval $(call BuildPackage,qt6svg-widgets))
++$(eval $(call BuildPackage,qt6svg-dev))
+ $(eval $(call HostBuild))
+diff --git a/frameworks/qt6/qt6tools/Makefile b/frameworks/qt6/qt6tools/Makefile
+index 1e57c28..1606d1d 100644
+--- a/frameworks/qt6/qt6tools/Makefile
++++ b/frameworks/qt6/qt6tools/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=qt6tools
+ PKG_RELEASE:=1
+-PKG_HASH:=0cf7ab0e975fc57f5ce1375576a0a76e9ede25e6b01db3cf2339cd4d9750b4e9
++PKG_HASH:=524ca79ee653fa36d4644ce66a5c0825930ee2550ff1d0987e703a66fd6c61ec
+ 
+ PKG_MAINTAINER:=Mirko Vogt <mirko-openwrt@nanl.de>
+ # license of the tools built (Qt Linguist tools, kmap2qmap)
+@@ -51,9 +51,7 @@ QT6TOOLS_OPTIONS:= \
+ 	-DFEATURE_qtdiag=OFF \
+ 	-DFEATURE_qtplugininfo=OFF \
+ 	-DCMAKE_DISABLE_FIND_PACKAGE_WrapLibClang=ON \
+-	-DCMAKE_DISABLE_FIND_PACKAGE_Qt6DBus=ON \
+ 	-DCMAKE_DISABLE_FIND_PACKAGE_Qt6Xml=ON \
+-	-DCMAKE_DISABLE_FIND_PACKAGE_Qt6Widgets=ON \
+ 	-DCMAKE_DISABLE_FIND_PACKAGE_Qt6Quick=ON \
+ 	-DCMAKE_DISABLE_FIND_PACKAGE_Qt6QuickWidgets=ON \
+ 	-DCMAKE_DISABLE_FIND_PACKAGE_Qt6QmlLSPrivate=ON \
+@@ -70,11 +68,14 @@ CMAKE_OPTIONS += \
+ 	-DCMAKE_DISABLE_FIND_PACKAGE_Qt6Qml=ON
+ 
+ # lupdate uses Qt QML to extract translatable strings from QML and JavaScript
+-# files. Qt Network is needed, as the host's Qt QML depends on it.
++# files. Qt Network is needed, as the host's Qt QML depends on it. kmap2qmap is
++# not built: it is the only tool that needs Qt's private input support, and KF6
++# only needs lrelease from this host build.
+ CMAKE_HOST_OPTIONS += \
+ 	$(QT6TOOLS_OPTIONS) \
+-	-DFEATURE_kmap2qmap=ON \
+-	-DCMAKE_REQUIRE_FIND_PACKAGE_Qt6InputSupportPrivate=ON \
++	-DFEATURE_kmap2qmap=OFF \
++	-DCMAKE_DISABLE_FIND_PACKAGE_Qt6DBus=ON \
++	-DCMAKE_DISABLE_FIND_PACKAGE_Qt6Widgets=ON \
+ 	-DCMAKE_REQUIRE_FIND_PACKAGE_Qt6Network=ON \
+ 	-DCMAKE_REQUIRE_FIND_PACKAGE_Qt6Qml=ON
+ 
+@@ -82,9 +83,25 @@ define Package/qt6tools
+   SECTION:=video-frameworks
+   CATEGORY:=Video
+   SUBMENU:=Frameworks and Toolkits
+-  TITLE:=Qt6Tools
++  TITLE:=Qt6 Linguist tools
+   URL:=https://www.qt.io
+-  BUILDONLY:=1
++  DEPENDS:=+qt6base-core +qt6base-gui +qt6base-widgets +qt6quick-qml +libstdcpp
++endef
++
++define Package/qt6tools/install
++	$(INSTALL_DIR) $(1)/usr/bin/qt6 $(1)/usr/lib
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libQt6UiTools.so.* $(1)/usr/lib/
++	# The Linguist tools are host builds, like moc and uic in qt6base-dev.
++	# x86_64 host and target share the ABI, and the binaries resolve the
++	# target Qt libraries through their RUNPATH. Designer and Linguist (the
++	# GUI applications) remain disabled in this build.
++	for tool in lupdate lrelease lconvert; do \
++		[ ! -x $(STAGING_DIR_HOSTPKG)/bin/qt6/$$$$tool ] || { \
++			$(INSTALL_BIN) $(STAGING_DIR_HOSTPKG)/bin/qt6/$$$$tool \
++				$(1)/usr/bin/qt6/; \
++			$(LN) qt6/$$$$tool $(1)/usr/bin/$$$$tool; \
++		}; \
++	done
+ endef
+ 
+ # The target build is still needed: it installs the CMake packages through
+diff --git a/frameworks/qt6/qt6tools/patches/001-Re-enable-the-build-of-kmap2qmap.patch b/frameworks/qt6/qt6tools/patches/001-Re-enable-the-build-of-kmap2qmap.patch
+deleted file mode 100644
+index 8e3cc51..0000000
+--- a/frameworks/qt6/qt6tools/patches/001-Re-enable-the-build-of-kmap2qmap.patch
++++ /dev/null
+@@ -1,357 +0,0 @@
+-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+-From: Joerg Bornemann <joerg.bornemann@qt.io>
+-Date: Thu, 25 Sep 2025 07:55:51 +0200
+-Subject: [PATCH] Re-enable the build of kmap2qmap
+-
+-The tool is still documented but was never properly ported to Qt6.
+-
+-Change-Id: Icad05a0c3648354bea0f423a1c5dcb1bbb287c4e
+-Reviewed-by: Oliver Wolff <oliver.wolff@qt.io>
+-(cherry picked from commit 620cb3381d7d39744e27e771d8364f967c369761)
+-
+-[backport to 6.9: CMakeLists.txt find_package() context adjusted, QuickLayouts is
+- not among the optional components in 6.9]
+-
+-Signed-off-by: Mirko Vogt <foss@mirko.in>
+----
+- CMakeLists.txt         |   2 +-
+- configure.cmake        |   3 +-
+- src/CMakeLists.txt     |   3 +
+- src/kmap2qmap/main.cpp | 140 ++++++++++++++++++++---------------------
+- 4 files changed, 76 insertions(+), 72 deletions(-)
+-
+---- a/CMakeLists.txt
+-+++ b/CMakeLists.txt
+-@@ -20,7 +20,7 @@ endif()
+- 
+- find_package(Qt6 ${PROJECT_VERSION} CONFIG REQUIRED COMPONENTS BuildInternals Core)
+- find_package(Qt6 ${PROJECT_VERSION} QUIET CONFIG OPTIONAL_COMPONENTS
+--             DBus Network Xml Widgets Quick QuickWidgets Qml QmlLSPrivate
+-+             DBus InputSupportPrivate Network Xml Widgets Quick QuickWidgets Qml QmlLSPrivate
+-              Sql PrintSupport OpenGL OpenGLWidgets ${optional_components})
+- qt_internal_project_setup()
+- 
+---- a/configure.cmake
+-+++ b/configure.cmake
+-@@ -62,6 +62,7 @@ qt_feature("distancefieldgenerator" PRIV
+- qt_feature("kmap2qmap" PRIVATE
+-     LABEL "kmap2qmap"
+-     PURPOSE "kmap2qmap is a tool to generate keymaps for use on Embedded Linux. The source files have to be in standard Linux kmap format that is e.g. understood by the kernel's loadkeys command."
+-+    CONDITION TARGET Qt::InputSupportPrivate
+- )
+- qt_feature("linguist" PRIVATE
+-     LABEL "Qt Linguist"
+-@@ -102,7 +103,7 @@ qt_configure_add_summary_entry(ARGS "cla
+- qt_configure_add_summary_entry(ARGS "clangcpp")
+- qt_configure_add_summary_entry(ARGS "designer")
+- qt_configure_add_summary_entry(ARGS "distancefieldgenerator")
+--#qt_configure_add_summary_entry(ARGS "kmap2qmap")
+-+qt_configure_add_summary_entry(ARGS "kmap2qmap")
+- qt_configure_add_summary_entry(ARGS "linguist")
+- qt_configure_add_summary_entry(ARGS "pixeltool")
+- qt_configure_add_summary_entry(ARGS "qdbus")
+---- a/src/CMakeLists.txt
+-+++ b/src/CMakeLists.txt
+-@@ -39,6 +39,9 @@ endif()
+- if(QT_FEATURE_distancefieldgenerator)
+-     add_subdirectory(distancefieldgenerator)
+- endif()
+-+if(QT_FEATURE_kmap2qmap)
+-+    add_subdirectory(kmap2qmap)
+-+endif()
+- if(QT_FEATURE_qtattributionsscanner)
+-     add_subdirectory(qtattributionsscanner)
+- endif()
+---- a/src/kmap2qmap/main.cpp
+-+++ b/src/kmap2qmap/main.cpp
+-@@ -24,16 +24,16 @@ struct modifier_map_t {
+- };
+- 
+- static const struct modifier_map_t modifier_map[] = {
+--    { "plain",   QEvdevKeyboardMap::ModPlain,   Qt::NoModifier },
+--    { "shift",   QEvdevKeyboardMap::ModShift,   Qt::ShiftModifier },
+--    { "altgr",   QEvdevKeyboardMap::ModAltGr,   Qt::AltModifier },
+--    { "control", QEvdevKeyboardMap::ModControl, Qt::ControlModifier },
+--    { "alt",     QEvdevKeyboardMap::ModAlt,     Qt::AltModifier },
+--    { "meta",    QEvdevKeyboardMap::ModAlt,     Qt::AltModifier },
+--    { "shiftl",  QEvdevKeyboardMap::ModShiftL,  Qt::ShiftModifier },
+--    { "shiftr",  QEvdevKeyboardMap::ModShiftR,  Qt::ShiftModifier },
+--    { "ctrll",   QEvdevKeyboardMap::ModCtrlL,   Qt::ControlModifier },
+--    { "ctrlr",   QEvdevKeyboardMap::ModCtrlR,   Qt::ControlModifier },
+-+    { "plain",   QKeyboardMap::ModPlain,   Qt::NoModifier },
+-+    { "shift",   QKeyboardMap::ModShift,   Qt::ShiftModifier },
+-+    { "altgr",   QKeyboardMap::ModAltGr,   Qt::AltModifier },
+-+    { "control", QKeyboardMap::ModControl, Qt::ControlModifier },
+-+    { "alt",     QKeyboardMap::ModAlt,     Qt::AltModifier },
+-+    { "meta",    QKeyboardMap::ModAlt,     Qt::AltModifier },
+-+    { "shiftl",  QKeyboardMap::ModShiftL,  Qt::ShiftModifier },
+-+    { "shiftr",  QKeyboardMap::ModShiftR,  Qt::ShiftModifier },
+-+    { "ctrll",   QKeyboardMap::ModCtrlL,   Qt::ControlModifier },
+-+    { "ctrlr",   QKeyboardMap::ModCtrlR,   Qt::ControlModifier },
+- };
+- 
+- static const int modifier_map_size = sizeof(modifier_map)/sizeof(modifier_map_t);
+-@@ -262,24 +262,24 @@ static const struct symbol_map_t symbol_
+-     { "VoiceDial"       , Qt::Key_VoiceDial },
+-     { "LastNumberRedial", Qt::Key_LastNumberRedial },
+- 
+--    { "KP_0",        Qt::Key_0 | Qt::KeypadModifier },
+--    { "KP_1",        Qt::Key_1 | Qt::KeypadModifier },
+--    { "KP_2",        Qt::Key_2 | Qt::KeypadModifier },
+--    { "KP_3",        Qt::Key_3 | Qt::KeypadModifier },
+--    { "KP_4",        Qt::Key_4 | Qt::KeypadModifier },
+--    { "KP_5",        Qt::Key_5 | Qt::KeypadModifier },
+--    { "KP_6",        Qt::Key_6 | Qt::KeypadModifier },
+--    { "KP_7",        Qt::Key_7 | Qt::KeypadModifier },
+--    { "KP_8",        Qt::Key_8 | Qt::KeypadModifier },
+--    { "KP_9",        Qt::Key_9 | Qt::KeypadModifier },
+--    { "KP_Add",      Qt::Key_Plus | Qt::KeypadModifier },
+--    { "KP_Subtract", Qt::Key_Minus | Qt::KeypadModifier },
+--    { "KP_Multiply", Qt::Key_Asterisk | Qt::KeypadModifier },
+--    { "KP_Divide",   Qt::Key_Slash | Qt::KeypadModifier },
+--    { "KP_Enter",    Qt::Key_Enter | Qt::KeypadModifier },
+--    { "KP_Comma",    Qt::Key_Comma | Qt::KeypadModifier },
+--    { "KP_Period",   Qt::Key_Period | Qt::KeypadModifier },
+--    { "KP_MinPlus",  Qt::Key_plusminus | Qt::KeypadModifier },
+-+    { "KP_0",        (Qt::Key_0 | Qt::KeypadModifier).toCombined() },
+-+    { "KP_1",        (Qt::Key_1 | Qt::KeypadModifier).toCombined() },
+-+    { "KP_2",        (Qt::Key_2 | Qt::KeypadModifier).toCombined() },
+-+    { "KP_3",        (Qt::Key_3 | Qt::KeypadModifier).toCombined() },
+-+    { "KP_4",        (Qt::Key_4 | Qt::KeypadModifier).toCombined() },
+-+    { "KP_5",        (Qt::Key_5 | Qt::KeypadModifier).toCombined() },
+-+    { "KP_6",        (Qt::Key_6 | Qt::KeypadModifier).toCombined() },
+-+    { "KP_7",        (Qt::Key_7 | Qt::KeypadModifier).toCombined() },
+-+    { "KP_8",        (Qt::Key_8 | Qt::KeypadModifier).toCombined() },
+-+    { "KP_9",        (Qt::Key_9 | Qt::KeypadModifier).toCombined() },
+-+    { "KP_Add",      (Qt::Key_Plus | Qt::KeypadModifier).toCombined() },
+-+    { "KP_Subtract", (Qt::Key_Minus | Qt::KeypadModifier).toCombined() },
+-+    { "KP_Multiply", (Qt::Key_Asterisk | Qt::KeypadModifier).toCombined() },
+-+    { "KP_Divide",   (Qt::Key_Slash | Qt::KeypadModifier).toCombined() },
+-+    { "KP_Enter",    (Qt::Key_Enter | Qt::KeypadModifier).toCombined() },
+-+    { "KP_Comma",    (Qt::Key_Comma | Qt::KeypadModifier).toCombined() },
+-+    { "KP_Period",   (Qt::Key_Period | Qt::KeypadModifier).toCombined() },
+-+    { "KP_MinPlus",  (Qt::Key_plusminus | Qt::KeypadModifier).toCombined() },
+- 
+-     { "dead_grave",      Qt::Key_Dead_Grave },
+-     { "dead_acute",      Qt::Key_Dead_Acute },
+-@@ -365,7 +365,7 @@ static const int symbol_synonyms_size =
+- 
+- // makes the generated array in --header mode a bit more human readable
+- QT_BEGIN_NAMESPACE
+--namespace QEvdevKeyboardMap {
+-+namespace QKeyboardMap {
+-     static bool operator<(const Mapping &m1, const Mapping &m2)
+-     {
+-         return m1.keycode != m2.keycode ? m1.keycode < m2.keycode : m1.modifiers < m2.modifiers;
+-@@ -396,8 +396,8 @@ private:
+- 
+- 
+- private:
+--    QList<QEvdevKeyboardMap::Mapping> m_keymap;
+--    QList<QEvdevKeyboardMap::Composing> m_keycompose;
+-+    QList<QKeyboardMap::Mapping> m_keymap;
+-+    QList<QKeyboardMap::Composing> m_keycompose;
+- 
+-     int m_warning_count;
+- };
+-@@ -474,19 +474,19 @@ bool KeymapParser::generateHeader(QFile
+-     ts << "#ifndef QEVDEVKEYBOARDHANDLER_DEFAULTMAP_H" << Qt::endl;
+-     ts << "#define QEVDEVKEYBOARDHANDLER_DEFAULTMAP_H" << Qt::endl << Qt::endl;
+- 
+--    ts << "const QEvdevKeyboardMap::Mapping QEvdevKeyboardHandler::s_keymap_default[] = {" << Qt::endl;
+-+    ts << "const QKeyboardMap::Mapping QEvdevKeyboardHandler::s_keymap_default[] = {" << Qt::endl;
+- 
+-     for (int i = 0; i < m_keymap.size(); ++i) {
+--        const QEvdevKeyboardMap::Mapping &m = m_keymap.at(i);
+-+        const QKeyboardMap::Mapping &m = m_keymap.at(i);
+-         ts << QString::asprintf("    { %3d, 0x%04x, 0x%08x, 0x%02x, 0x%02x, 0x%04x },\n", m.keycode, m.unicode, m.qtcode, m.modifiers, m.flags, m.special);
+-     }
+- 
+-     ts << "};" << Qt::endl << Qt::endl;
+- 
+--    ts << "const QEvdevKeyboardMap::Composing QEvdevKeyboardHandler::s_keycompose_default[] = {" << Qt::endl;
+-+    ts << "const QKeyboardMap::Composing QEvdevKeyboardHandler::s_keycompose_default[] = {" << Qt::endl;
+- 
+-     for (int i = 0; i < m_keycompose.size(); ++i) {
+--        const QEvdevKeyboardMap::Composing &c = m_keycompose.at(i);
+-+        const QKeyboardMap::Composing &c = m_keycompose.at(i);
+-         ts << QString::asprintf("    { 0x%04x, 0x%04x, 0x%04x },\n", c.first, c.second, c.result);
+-     }
+-     ts << "};" << Qt::endl << Qt::endl;
+-@@ -501,7 +501,7 @@ bool KeymapParser::generateQmap(QFile *f
+- {
+-     QDataStream ds(f);
+- 
+--    ds << quint32(QEvdevKeyboardMap::FileMagic) << quint32(1 /* version */) << quint32(m_keymap.size()) << quint32(m_keycompose.size());
+-+    ds << quint32(QKeyboardMap::FileMagic) << quint32(1 /* version */) << quint32(m_keymap.size()) << quint32(m_keycompose.size());
+- 
+-     if (ds.status() != QDataStream::Ok)
+-         return false;
+-@@ -540,7 +540,7 @@ QList<QByteArray> KeymapParser::tokenize
+-         }
+-         else {
+-             separator = false;
+--            token.append(c);
+-+            token.append(c.toLatin1());
+-         }
+-     }
+-     if (!token.isEmpty())
+-@@ -647,7 +647,7 @@ bool KeymapParser::parseKmap(QFile *f)
+-         }
+-         else if (tokens[0] == "compose") {
+-             if (tokens.count() == 5 && tokens[3] == "to") {
+--                QEvdevKeyboardMap::Composing c = { 0xffff, 0xffff, 0xffff };
+-+                QKeyboardMap::Composing c = { 0xffff, 0xffff, 0xffff };
+- 
+-                 if (!parseCompose(tokens[1], codec, c.first))
+-                     parseWarning("could not parse first compose symbol");
+-@@ -716,27 +716,27 @@ bool KeymapParser::parseKmap(QFile *f)
+- 
+-                             // a single a-z|A-Z value results in a very flags mapping: see below
+- 
+--                            updateMapping(keycode, QEvdevKeyboardMap::ModPlain, unicode, qtcode, flags, 0);
+-+                            updateMapping(keycode, QKeyboardMap::ModPlain, unicode, qtcode, flags, 0);
+- 
+--                            updateMapping(keycode, QEvdevKeyboardMap::ModShift, other_unicode, qtcode, flags, 0);
+-+                            updateMapping(keycode, QKeyboardMap::ModShift, other_unicode, qtcode, flags, 0);
+- 
+--                            updateMapping(keycode, QEvdevKeyboardMap::ModAltGr,                         unicode, qtcode, flags, 0);
+--                            updateMapping(keycode, QEvdevKeyboardMap::ModAltGr | QEvdevKeyboardMap::ModShift, other_unicode, qtcode, flags, 0);
+-+                            updateMapping(keycode, QKeyboardMap::ModAltGr,                         unicode, qtcode, flags, 0);
+-+                            updateMapping(keycode, QKeyboardMap::ModAltGr | QKeyboardMap::ModShift, other_unicode, qtcode, flags, 0);
+- 
+--                            updateMapping(keycode, QEvdevKeyboardMap::ModControl,                                                 lower_unicode, qtcode | Qt::ControlModifier, flags, 0);
+--                            updateMapping(keycode, QEvdevKeyboardMap::ModControl | QEvdevKeyboardMap::ModShift,                         lower_unicode, qtcode | Qt::ControlModifier, flags, 0);
+--                            updateMapping(keycode, QEvdevKeyboardMap::ModControl | QEvdevKeyboardMap::ModAltGr,                         lower_unicode, qtcode | Qt::ControlModifier, flags, 0);
+--                            updateMapping(keycode, QEvdevKeyboardMap::ModControl | QEvdevKeyboardMap::ModAltGr | QEvdevKeyboardMap::ModShift, lower_unicode, qtcode | Qt::ControlModifier, flags, 0);
+--
+--                            updateMapping(keycode, QEvdevKeyboardMap::ModAlt,                                                 unicode, qtcode | Qt::AltModifier, flags, 0);
+--                            updateMapping(keycode, QEvdevKeyboardMap::ModAlt | QEvdevKeyboardMap::ModShift,                         unicode, qtcode | Qt::AltModifier, flags, 0);
+--                            updateMapping(keycode, QEvdevKeyboardMap::ModAlt | QEvdevKeyboardMap::ModAltGr,                         unicode, qtcode | Qt::AltModifier, flags, 0);
+--                            updateMapping(keycode, QEvdevKeyboardMap::ModAlt | QEvdevKeyboardMap::ModAltGr | QEvdevKeyboardMap::ModShift, unicode, qtcode | Qt::AltModifier, flags, 0);
+--
+--                            updateMapping(keycode, QEvdevKeyboardMap::ModAlt | QEvdevKeyboardMap::ModControl,                                                 lower_unicode, qtcode | Qt::ControlModifier | Qt::AltModifier, flags, 0);
+--                            updateMapping(keycode, QEvdevKeyboardMap::ModAlt | QEvdevKeyboardMap::ModControl | QEvdevKeyboardMap::ModShift,                         lower_unicode, qtcode | Qt::ControlModifier | Qt::AltModifier, flags, 0);
+--                            updateMapping(keycode, QEvdevKeyboardMap::ModAlt | QEvdevKeyboardMap::ModControl | QEvdevKeyboardMap::ModAltGr,                         lower_unicode, qtcode | Qt::ControlModifier | Qt::AltModifier, flags, 0);
+--                            updateMapping(keycode, QEvdevKeyboardMap::ModAlt | QEvdevKeyboardMap::ModControl | QEvdevKeyboardMap::ModAltGr | QEvdevKeyboardMap::ModShift, lower_unicode, qtcode | Qt::ControlModifier | Qt::AltModifier, flags, 0);
+-+                            updateMapping(keycode, QKeyboardMap::ModControl,                                                 lower_unicode, qtcode | Qt::ControlModifier, flags, 0);
+-+                            updateMapping(keycode, QKeyboardMap::ModControl | QKeyboardMap::ModShift,                         lower_unicode, qtcode | Qt::ControlModifier, flags, 0);
+-+                            updateMapping(keycode, QKeyboardMap::ModControl | QKeyboardMap::ModAltGr,                         lower_unicode, qtcode | Qt::ControlModifier, flags, 0);
+-+                            updateMapping(keycode, QKeyboardMap::ModControl | QKeyboardMap::ModAltGr | QKeyboardMap::ModShift, lower_unicode, qtcode | Qt::ControlModifier, flags, 0);
+-+
+-+                            updateMapping(keycode, QKeyboardMap::ModAlt,                                                 unicode, qtcode | Qt::AltModifier, flags, 0);
+-+                            updateMapping(keycode, QKeyboardMap::ModAlt | QKeyboardMap::ModShift,                         unicode, qtcode | Qt::AltModifier, flags, 0);
+-+                            updateMapping(keycode, QKeyboardMap::ModAlt | QKeyboardMap::ModAltGr,                         unicode, qtcode | Qt::AltModifier, flags, 0);
+-+                            updateMapping(keycode, QKeyboardMap::ModAlt | QKeyboardMap::ModAltGr | QKeyboardMap::ModShift, unicode, qtcode | Qt::AltModifier, flags, 0);
+-+
+-+                            updateMapping(keycode, QKeyboardMap::ModAlt | QKeyboardMap::ModControl,                                                 lower_unicode, qtcode | Qt::ControlModifier | Qt::AltModifier, flags, 0);
+-+                            updateMapping(keycode, QKeyboardMap::ModAlt | QKeyboardMap::ModControl | QKeyboardMap::ModShift,                         lower_unicode, qtcode | Qt::ControlModifier | Qt::AltModifier, flags, 0);
+-+                            updateMapping(keycode, QKeyboardMap::ModAlt | QKeyboardMap::ModControl | QKeyboardMap::ModAltGr,                         lower_unicode, qtcode | Qt::ControlModifier | Qt::AltModifier, flags, 0);
+-+                            updateMapping(keycode, QKeyboardMap::ModAlt | QKeyboardMap::ModControl | QKeyboardMap::ModAltGr | QKeyboardMap::ModShift, lower_unicode, qtcode | Qt::ControlModifier | Qt::AltModifier, flags, 0);
+-                         }
+-                         else {
+-                             // a single value results in that mapping regardless of the modifier
+-@@ -744,7 +744,7 @@ bool KeymapParser::parseKmap(QFile *f)
+-                             //    updateMapping(keycode, quint8(mod), unicode, qtcode | toQtModifiers(mod), flags, special);
+- 
+-                             // we can save a lot of space in the qmap, since we do that anyway in the kbd handler:
+--                            updateMapping(keycode, QEvdevKeyboardMap::ModPlain, unicode, qtcode, flags, special);
+-+                            updateMapping(keycode, QKeyboardMap::ModPlain, unicode, qtcode, flags, special);
+-                         }
+-                     }
+-                     else {
+-@@ -764,7 +764,7 @@ bool KeymapParser::parseKmap(QFile *f)
+- void KeymapParser::updateMapping(quint16 keycode, quint8 modifiers, quint16 unicode, quint32 qtcode, quint8 flags, quint16 special)
+- {
+-     for (int i = 0; i < m_keymap.size(); ++i) {
+--        QEvdevKeyboardMap::Mapping &m = m_keymap[i];
+-+        QKeyboardMap::Mapping &m = m_keymap[i];
+- 
+-         if (m.keycode == keycode && m.modifiers == modifiers) {
+-             m.unicode = unicode;
+-@@ -774,7 +774,7 @@ void KeymapParser::updateMapping(quint16
+-             return;
+-         }
+-     }
+--    QEvdevKeyboardMap::Mapping m = { keycode, unicode, qtcode, modifiers, flags, special };
+-+    QKeyboardMap::Mapping m = { keycode, unicode, qtcode, modifiers, flags, special };
+-     m_keymap << m;
+- }
+- 
+-@@ -811,7 +811,7 @@ bool KeymapParser::parseCompose(const QB
+-         unicode = '\'';
+-         return true;
+-     } else if (str.length() == 3 && str.startsWith('\'') && str.endsWith('\'')) {
+--        QString temp = codec(str.constData() + 1, str.length() - 2);
+-+        QString temp = codec(QByteArrayView(str.constData() + 1, str.length() - 2));
+-         if (temp.length() != 1)
+-             return false;
+-         unicode = temp[0].unicode();
+-@@ -823,7 +823,7 @@ bool KeymapParser::parseCompose(const QB
+-         char c[2];
+-         c[0] = char(code);
+-         c[1] = 0;
+--        QString temp = codec(c, 2);
+-+        QString temp = codec(QByteArrayView(c, 2));
+-         if (temp.length() != 1)
+-             return false;
+-         unicode = temp[0].unicode();
+-@@ -834,8 +834,8 @@ bool KeymapParser::parseCompose(const QB
+- 
+- bool KeymapParser::parseSymbol(const QByteArray &str, quint16 &unicode, quint32 &qtcode, quint8 &flags, quint16 &special)
+- {
+--    flags = (str[0] == '+') ? QEvdevKeyboardMap::IsLetter : 0;
+--    QByteArray sym = (flags & QEvdevKeyboardMap::IsLetter) ? str.right(str.length() - 1) : str;
+-+    flags = (str[0] == '+') ? QKeyboardMap::IsLetter : 0;
+-+    QByteArray sym = (flags & QKeyboardMap::IsLetter) ? str.right(str.length() - 1) : str;
+- 
+-     special = 0;
+-     qtcode = Qt::Key_unknown;
+-@@ -883,7 +883,7 @@ bool KeymapParser::parseSymbol(const QBy
+-             // check if symbol is a modifier
+-             if (parseModifier(sym, modcode)) {
+-                 special = modcode;
+--                flags |= QEvdevKeyboardMap::IsModifier;
+-+                flags |= QKeyboardMap::IsModifier;
+-             }
+- 
+-             // map symbol to Qt key code
+-@@ -912,22 +912,22 @@ bool KeymapParser::parseSymbol(const QBy
+-                 quint16 sys = 0;
+- 
+-                 if (sym == "Decr_Console") {
+--                    sys = QEvdevKeyboardMap::SystemConsolePrevious;
+-+                    sys = QKeyboardMap::SystemConsolePrevious;
+-                 } else if (sym == "Incr_Console") {
+--                    sys = QEvdevKeyboardMap::SystemConsoleNext;
+-+                    sys = QKeyboardMap::SystemConsoleNext;
+-                 } else if (sym.startsWith("Console_")) {
+-                     int console = sym.mid(8).toInt() - 1;
+--                    if (console >= 0 && console <= (QEvdevKeyboardMap::SystemConsoleLast - QEvdevKeyboardMap::SystemConsoleFirst)) {
+--                        sys = QEvdevKeyboardMap::SystemConsoleFirst + console;
+-+                    if (console >= 0 && console <= (QKeyboardMap::SystemConsoleLast - QKeyboardMap::SystemConsoleFirst)) {
+-+                        sys = QKeyboardMap::SystemConsoleFirst + console;
+-                     }
+-                 } else if (sym == "Boot") {
+--                    sys = QEvdevKeyboardMap::SystemReboot;
+-+                    sys = QKeyboardMap::SystemReboot;
+-                 } else if (sym == "QtZap") {
+--                    sys = QEvdevKeyboardMap::SystemZap;
+-+                    sys = QKeyboardMap::SystemZap;
+-                 }
+- 
+-                 if (sys) {
+--                    flags |= QEvdevKeyboardMap::IsSystem;
+-+                    flags |= QKeyboardMap::IsSystem;
+-                     special = sys;
+-                     qtcode = Qt::Key_Escape; // just a dummy
+-                 }
+-@@ -942,7 +942,7 @@ bool KeymapParser::parseSymbol(const QBy
+- 
+-             // flag dead keys
+-             if (qtcode >= Qt::Key_Dead_Grave && qtcode <= Qt::Key_Dead_Horn) {
+--                flags = QEvdevKeyboardMap::IsDead;
+-+                flags = QKeyboardMap::IsDead;
+- 
+-                 for (int i = 0; i < symbol_dead_unicode_size; ++i) {
+-                     if (symbol_dead_unicode[i].dead == qtcode) {
+diff --git a/frameworks/qt6/qt6translations/Makefile b/frameworks/qt6/qt6translations/Makefile
+index 040d7b3..d901e61 100644
+--- a/frameworks/qt6/qt6translations/Makefile
++++ b/frameworks/qt6/qt6translations/Makefile
+@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=qt6translations
+ PKG_RELEASE:=1
+-PKG_HASH:=f36d545e6681b146fd79b3ebb74ef275e88694cf81eae8323327cae3bfc490a1
++PKG_HASH:=499e3067b91e53675eead7a54a3cd771c30939d04d03b4e67f12167484e290f2
+ 
+ PKG_MAINTAINER:=Mirko Vogt <mirko-openwrt@nanl.de>
+ PKG_LICENSE:=LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+diff --git a/frameworks/wayland/Makefile b/frameworks/wayland/Makefile
+index bb8667a..105580d 100644
+--- a/frameworks/wayland/Makefile
++++ b/frameworks/wayland/Makefile
+@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=wayland
+ PKG_VERSION:=1.26.0
+-PKG_RELEASE:=2
++PKG_RELEASE:=4
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://gitlab.freedesktop.org/wayland/wayland/-/releases/$(PKG_VERSION)/downloads/
+@@ -68,6 +68,8 @@ define Build/InstallDev
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/lib*.so* $(1)/usr/lib/
+ 	$(INSTALL_DIR) $(1)/usr/lib/pkgconfig
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/*.pc $(1)/usr/lib/pkgconfig
++	$(INSTALL_DIR) $(1)/usr/share/wayland
++	$(CP) $(PKG_INSTALL_DIR)/usr/share/wayland/wayland.xml $(1)/usr/share/wayland/
+ 	$(SED) 's/^wayland_scanner=$$$${bindir}\/\(.*\)/wayland_scanner=$$$${prefix_hostpkg}\/bin\/\1/' $(1)/usr/lib/pkgconfig/wayland-scanner.pc
+ endef
+ 
+diff --git a/frameworks/wayland/files/xdg-runtime-dir.profile b/frameworks/wayland/files/xdg-runtime-dir.profile
+index d031cd6..0becb10 100644
+--- a/frameworks/wayland/files/xdg-runtime-dir.profile
++++ b/frameworks/wayland/files/xdg-runtime-dir.profile
+@@ -1,2 +1,5 @@
+-export XDG_RUNTIME_DIR="/tmp/run/$LOGNAME"
+-mkdir -m 0700 -p "$XDG_RUNTIME_DIR"
++# Respect runtime directories supplied by PAM or an existing desktop session.
++if [ -z "${XDG_RUNTIME_DIR:-}" ]; then
++	export XDG_RUNTIME_DIR="/tmp/run/$LOGNAME"
++	mkdir -m 0700 -p "$XDG_RUNTIME_DIR"
++fi
+diff --git a/frameworks/weston/Makefile b/frameworks/weston/Makefile
+index 4ad2063..736948b 100644
+--- a/frameworks/weston/Makefile
++++ b/frameworks/weston/Makefile
+@@ -1,7 +1,7 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=weston
+-PKG_RELEASE:=1
++PKG_RELEASE:=13
+ 
+ PKG_VERSION:=16.0.0
+ PKG_MAJOR_VERSION:=$(firstword $(subst .,$(space),$(PKG_VERSION)))
+@@ -15,6 +15,7 @@ PKG_LICENSE_FILES:=COPYING
+ 
+ PKG_INSTALL:=1
+ PKG_BUILD_DEPENDS:=wayland/host
++PKG_CONFIG_DEPENDS:=CONFIG_WESTON_VNC CONFIG_WESTON_RDP CONFIG_WESTON_RDP_AUDIO CONFIG_WESTON_XWAYLAND CONFIG_WESTON_PIPEWIRE
+ 
+ include $(INCLUDE_DIR)/package.mk
+ include $(INCLUDE_DIR)/meson.mk
+@@ -28,22 +29,57 @@ define Package/weston
+   DEPENDS:=+gstreamer1-plugins-base +libcairo +libevdev +libdisplay-info \
+ 	+libgst1allocators +libgst1app +libgst1video +libgstreamer1 +libinput \
+ 	+libmesa +libpango +libseat +libwayland +libwebp +libxkbcommon +pixman \
+-	+seatd +vulkan-loader +wayland-protocols +xkeyboard-config
++	+seatd +vulkan-loader +wayland-protocols +xkeyboard-config \
++	+WESTON_VNC:libaml +WESTON_VNC:libneatvnc +WESTON_VNC:libpam \
++	+WESTON_RDP:libfreerdp3 +WESTON_RDP_AUDIO:libpipewire +WESTON_PIPEWIRE:libpipewire \
++	+WESTON_XWAYLAND:xwayland +WESTON_XWAYLAND:libxcb +WESTON_XWAYLAND:libXcursor
+ endef
+ 
+ define Package/weston/description
+ endef
+ 
++define Package/weston/config
++config WESTON_VNC
++	bool "Enable authenticated TLS VNC backend"
++	depends on PACKAGE_weston
++	default n
++
++config WESTON_RDP
++	bool "Enable authenticated RDP desktop sharing"
++	depends on PACKAGE_weston
++	default n
++
++config WESTON_RDP_AUDIO
++	bool "Enable PipeWire RDP audio playback and microphone"
++	# Conditional libpipewire target constraints propagate into PACKAGE_weston.
++	# Keep this independent of WESTON_RDP/PACKAGE_weston to avoid a Kconfig cycle.
++	depends on OPENWRT_SYSTEMD && TARGET_x86_64 && USE_GLIBC
++	default n
++
++config WESTON_PIPEWIRE
++	bool "Enable PipeWire desktop mirror for Sunshine"
++	depends on OPENWRT_SYSTEMD && TARGET_x86_64 && USE_GLIBC
++	default n
++
++config WESTON_XWAYLAND
++	bool "Enable X11 applications through Xwayland"
++	# Xwayland's target constraints propagate back into PACKAGE_weston.
++	# Keep this option independent of the package to avoid a dependency cycle.
++	depends on TARGET_x86_64 && USE_GLIBC
++	default n
++endef
++
+ MESON_ARGS += \
+ 	--wrap-mode=nofallback \
+ 	-Dbackend-drm=true \
+ 	-Dbackend-headless=false \
+-	-Dbackend-pipewire=false \
+-	-Dbackend-rdp=false \
+-	-Dbackend-vnc=false \
++	-Dbackend-pipewire=$(if $(CONFIG_WESTON_PIPEWIRE),true,false) \
++	-Dbackend-rdp=$(if $(CONFIG_WESTON_RDP),true,false) \
++	-Dbackend-rdp-audio=$(if $(CONFIG_WESTON_RDP_AUDIO),true,false) \
++	-Dbackend-vnc=$(if $(CONFIG_WESTON_VNC),true,false) \
+ 	-Dbackend-x11=false \
+ 	-Dbackend-wayland=true \
+-	-Dxwayland=false \
++	-Dxwayland=$(if $(CONFIG_WESTON_XWAYLAND),true,false) \
+ 	-Dcolor-management-lcms=false \
+ 	-Dsystemd=false \
+ 	-Ddeprecated-pipewire=false \
+@@ -61,6 +97,11 @@ MESON_ARGS += \
+ 	-Dtests=false \
+ 	-Ddoc=false
+ 
++define Build/Prepare
++	$(call Build/Prepare/Default)
++	$(CP) ./files/rdpaudio.c ./files/rdpaudio.h $(PKG_BUILD_DIR)/libweston/backend-rdp/
++endef
++
+ define Build/InstallDev
+ 	$(INSTALL_DIR) $(1)/usr/include
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/include/* $(1)/usr/include/
+diff --git a/frameworks/weston/files/rdpaudio.c b/frameworks/weston/files/rdpaudio.c
+new file mode 100644
+index 0000000..439d853
+--- /dev/null
++++ b/frameworks/weston/files/rdpaudio.c
+@@ -0,0 +1,351 @@
++// SPDX-License-Identifier: MIT
++/* Per-peer PipeWire streams for Weston's authenticated shared RDP desktop.
++ * Neither PipeWire nor network audio callbacks run on the compositor thread.
++ */
++#include "config.h"
++#include <pthread.h>
++#include <stdatomic.h>
++#include <stdint.h>
++#include <stdlib.h>
++#include <string.h>
++#include <stdio.h>
++#include <unistd.h>
++#include <time.h>
++#include <pipewire/pipewire.h>
++#include <spa/param/audio/format-utils.h>
++#include <freerdp/server/rdpsnd.h>
++#include <freerdp/server/audin.h>
++#include <freerdp/server/server-common.h>
++#include <libweston/libweston.h>
++#include "rdpaudio.h"
++
++/* Less than 200 ms of stereo PCM, with whole-frame overflow dropping. */
++#define AUDIO_QUEUE 32768
++#define AUDIO_PACKET 1920
++struct rdp_audio {
++	struct pw_thread_loop *loop;
++	struct pw_stream *stream;
++	pthread_mutex_t mutex;
++	pthread_cond_t wake;
++	pthread_t worker;
++	bool worker_started;
++	bool loop_started;
++	atomic_bool stopping;
++	atomic_bool ready;
++	bool capture;
++	HANDLE vcm;
++	RdpsndServerContext *out;
++	audin_server_context *in;
++	AUDIO_FORMAT pcm;
++	uint8_t queue[AUDIO_QUEUE];
++	size_t read_pos, write_pos, queued;
++};
++static pthread_once_t pw_once = PTHREAD_ONCE_INIT;
++static atomic_uint source_id;
++
++static void audio_init(void) { pw_init(NULL, NULL); }
++
++static void queue_write(struct rdp_audio *a, const void *data, size_t size)
++{
++	size_t first;
++
++	if (size > AUDIO_QUEUE || pthread_mutex_trylock(&a->mutex))
++		return;
++	if (size <= AUDIO_QUEUE - a->queued) {
++		first = SPA_MIN(size, AUDIO_QUEUE - a->write_pos);
++		memcpy(a->queue + a->write_pos, data, first);
++		memcpy(a->queue, (const uint8_t *)data + first, size - first);
++		a->write_pos = (a->write_pos + size) % AUDIO_QUEUE;
++		a->queued += size;
++		pthread_cond_signal(&a->wake);
++	}
++	pthread_mutex_unlock(&a->mutex);
++}
++
++/* Caller holds mutex. */
++static size_t queue_read(struct rdp_audio *a, void *data, size_t size)
++{
++	size_t first;
++
++	size = SPA_MIN(size, a->queued);
++	first = SPA_MIN(size, AUDIO_QUEUE - a->read_pos);
++	memcpy(data, a->queue + a->read_pos, first);
++	memcpy((uint8_t *)data + first, a->queue, size - first);
++	a->read_pos = (a->read_pos + size) % AUDIO_QUEUE;
++	a->queued -= size;
++	return size;
++}
++
++static void stream_process(void *data)
++{
++	struct rdp_audio *a = data;
++	struct pw_buffer *pb;
++	struct spa_data *d;
++	size_t size, offset;
++
++	pb = pw_stream_dequeue_buffer(a->stream);
++	if (!pb)
++		return;
++	if (!pb->buffer->n_datas)
++		goto done;
++	d = &pb->buffer->datas[0];
++	if (!d->data || !d->chunk || !d->maxsize)
++		goto done;
++	if (!a->capture) {
++		offset = d->chunk->offset % d->maxsize;
++		size = SPA_MIN(d->chunk->size, d->maxsize - offset);
++		size -= size % 4;
++		if (atomic_load(&a->ready) && !(d->chunk->flags & SPA_CHUNK_FLAG_CORRUPTED))
++			queue_write(a, (uint8_t *)d->data + offset, size);
++	} else {
++		size = SPA_MIN((size_t)d->maxsize, (size_t)pb->requested * 2);
++		if (!size)
++			size = SPA_MIN(d->maxsize, (uint32_t)AUDIO_PACKET);
++		size -= size % 2;
++		memset(d->data, 0, size);
++		if (!pthread_mutex_trylock(&a->mutex)) {
++			queue_read(a, d->data, size);
++			pthread_mutex_unlock(&a->mutex);
++		}
++		d->chunk->offset = 0;
++		d->chunk->stride = 2;
++		d->chunk->size = size;
++		pb->size = size / 2;
++	}
++ done:
++	pw_stream_queue_buffer(a->stream, pb);
++}
++
++static const struct pw_stream_events stream_events = {
++	PW_VERSION_STREAM_EVENTS,
++	.process = stream_process,
++};
++
++static bool audio_connect(struct rdp_audio *a)
++{
++	uint8_t buffer[1024];
++	struct spa_pod_builder b = SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
++	struct spa_audio_info_raw info = { .format = SPA_AUDIO_FORMAT_S16_LE,
++		.rate = 48000, .channels = a->capture ? 1 : 2 };
++	const struct spa_pod *param;
++	struct pw_properties *props;
++	char name[64];
++	int rc;
++
++	pthread_once(&pw_once, audio_init);
++	a->loop = pw_thread_loop_new("weston-rdp-audio", NULL);
++	if (!a->loop || pw_thread_loop_start(a->loop) < 0)
++		return false;
++	a->loop_started = true;
++	props = pw_properties_new(PW_KEY_MEDIA_TYPE, "Audio",
++		PW_KEY_MEDIA_CATEGORY, a->capture ? "Playback" : "Capture",
++		PW_KEY_MEDIA_ROLE, "Communication", NULL);
++	if (!props)
++		return false;
++	if (a->capture) {
++		snprintf(name, sizeof(name), "rdp-microphone-%u", atomic_fetch_add(&source_id, 1));
++		pw_properties_set(props, PW_KEY_NODE_NAME, name);
++		pw_properties_set(props, PW_KEY_NODE_DESCRIPTION, "RDP client microphone");
++		pw_properties_set(props, PW_KEY_MEDIA_CLASS, "Audio/Source");
++		pw_properties_set(props, PW_KEY_NODE_VIRTUAL, "true");
++		pw_properties_set(props, PW_KEY_NODE_ALWAYS_PROCESS, "true");
++		info.position[0] = SPA_AUDIO_CHANNEL_MONO;
++	} else {
++		pw_properties_set(props, "stream.capture.sink", "true");
++		pw_properties_set(props, PW_KEY_NODE_NAME, "weston-rdp-playback");
++		info.position[0] = SPA_AUDIO_CHANNEL_FL;
++		info.position[1] = SPA_AUDIO_CHANNEL_FR;
++	}
++	pw_thread_loop_lock(a->loop);
++	a->stream = pw_stream_new_simple(pw_thread_loop_get_loop(a->loop),
++		"Weston RDP audio", props, &stream_events, a);
++	if (!a->stream) {
++		pw_thread_loop_unlock(a->loop);
++		return false;
++	}
++	param = spa_format_audio_raw_build(&b, SPA_PARAM_EnumFormat, &info);
++	rc = pw_stream_connect(a->stream, a->capture ? PW_DIRECTION_OUTPUT : PW_DIRECTION_INPUT,
++		PW_ID_ANY, PW_STREAM_FLAG_MAP_BUFFERS |
++		(a->capture ? 0 : PW_STREAM_FLAG_AUTOCONNECT), &param, 1);
++	pw_thread_loop_unlock(a->loop);
++	return rc >= 0;
++}
++
++static void out_activated(RdpsndServerContext *out)
++{
++	struct rdp_audio *a = out->data;
++	/* PCM is interoperable with ordinary RDP desktop clients. */
++	const UINT16 tags[] = { WAVE_FORMAT_PCM };
++	for (size_t t = 0; t < SPA_N_ELEMENTS(tags); t++) {
++		for (size_t i = 0; i < out->num_client_formats; i++) {
++			if (out->client_formats[i].wFormatTag != tags[t])
++				continue;
++			for (size_t j = 0; j < out->num_server_formats; j++) {
++				if (audio_format_compatible(&out->server_formats[j], &out->client_formats[i]) &&
++				    out->SelectFormat(out, (UINT16)i) == CHANNEL_RC_OK) {
++					const AUDIO_FORMAT *fmt = &out->client_formats[i];
++
++					weston_log("RDP playback format: tag=0x%04x rate=%u channels=%u bitrate=%u\n",
++						(unsigned int)fmt->wFormatTag, (unsigned int)fmt->nSamplesPerSec,
++						(unsigned int)fmt->nChannels, (unsigned int)fmt->nAvgBytesPerSec * 8);
++					atomic_store(&a->ready, true);
++					return;
++				}
++			}
++		}
++	}
++}
++
++static UINT in_data(audin_server_context *in, const SNDIN_DATA *data)
++{
++	struct rdp_audio *a = in->userdata;
++	const AUDIO_FORMAT *fmt = audin_server_get_negotiated_format(in);
++	size_t size = Stream_GetRemainingLength(data->Data);
++	/* AUDIN delivers encoded packets. Only advertise PCM for microphone input. */
++	if (!fmt || fmt->wFormatTag != WAVE_FORMAT_PCM || fmt->nSamplesPerSec != 48000 ||
++	    fmt->nChannels != 1 || fmt->wBitsPerSample != 16 || size % 2)
++		return ERROR_INVALID_DATA;
++	queue_write(a, Stream_Pointer(data->Data), size);
++	return CHANNEL_RC_OK;
++}
++
++static void *audio_worker(void *data)
++{
++	struct rdp_audio *a = data;
++	uint8_t packet[AUDIO_PACKET];
++	struct timespec now;
++	UINT16 timestamp;
++
++	if (a->capture) {
++		while (!atomic_load(&a->stopping)) {
++			BYTE state = WTSVirtualChannelManagerGetDrdynvcState(a->vcm);
++
++			if (state == DRDYNVC_STATE_READY) {
++				if (!a->in->Open(a->in))
++					weston_log("RDP microphone channel unavailable\n");
++				break;
++			}
++			if (state == DRDYNVC_STATE_FAILED)
++				break;
++			usleep(100000);
++		}
++		return NULL;
++	}
++	while (!atomic_load(&a->stopping)) {
++		pthread_mutex_lock(&a->mutex);
++		while (a->queued < sizeof(packet) && !atomic_load(&a->stopping))
++			pthread_cond_wait(&a->wake, &a->mutex);
++		if (atomic_load(&a->stopping)) {
++			pthread_mutex_unlock(&a->mutex);
++			break;
++		}
++		queue_read(a, packet, sizeof(packet));
++		pthread_mutex_unlock(&a->mutex);
++		clock_gettime(CLOCK_MONOTONIC, &now);
++		timestamp = (UINT16)((uint64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000);
++		if (a->out->SendSamples(a->out, packet, sizeof(packet) / 4, timestamp) != CHANNEL_RC_OK) {
++			atomic_store(&a->ready, false);
++			break;
++		}
++	}
++	return NULL;
++}
++
++void weston_rdp_audio_teardown(void *data)
++{
++	struct rdp_audio *a = data;
++
++	if (!a)
++		return;
++	atomic_store(&a->stopping, true);
++	pthread_mutex_lock(&a->mutex);
++	pthread_cond_broadcast(&a->wake);
++	pthread_mutex_unlock(&a->mutex);
++	if (a->worker_started)
++		pthread_join(a->worker, NULL);
++	if (a->out)
++		rdpsnd_server_context_free(a->out);
++	if (a->in)
++		audin_server_context_free(a->in);
++	if (a->loop) {
++		if (a->loop_started)
++			pw_thread_loop_stop(a->loop);
++		if (a->stream)
++			pw_stream_destroy(a->stream);
++		pw_thread_loop_destroy(a->loop);
++	}
++	pthread_cond_destroy(&a->wake);
++	pthread_mutex_destroy(&a->mutex);
++	free(a);
++}
++
++static void *audio_setup(struct weston_compositor *c, void *vcm, bool capture)
++{
++	struct rdp_audio *a = calloc(1, sizeof(*a));
++	(void)c;
++	if (!a)
++		return NULL;
++	a->vcm = vcm;
++	a->capture = capture;
++	atomic_init(&a->stopping, false);
++	atomic_init(&a->ready, false);
++	if (pthread_mutex_init(&a->mutex, NULL)) {
++		free(a);
++		return NULL;
++	}
++	if (pthread_cond_init(&a->wake, NULL)) {
++		pthread_mutex_destroy(&a->mutex);
++		free(a);
++		return NULL;
++	}
++	a->pcm = (AUDIO_FORMAT) { .wFormatTag = WAVE_FORMAT_PCM,
++		.nChannels = capture ? 1 : 2, .nSamplesPerSec = 48000,
++		.nAvgBytesPerSec = capture ? 96000 : 192000,
++		.nBlockAlign = capture ? 2 : 4, .wBitsPerSample = 16 };
++	if (!audio_connect(a))
++		goto fail;
++	if (capture) {
++		a->in = audin_server_context_new(vcm);
++		if (!a->in)
++			goto fail;
++		a->in->userdata = a;
++		a->in->Data = in_data;
++		if (!audin_server_set_formats(a->in, 1, &a->pcm))
++			goto fail;
++	} else {
++		a->out = rdpsnd_server_context_new(vcm);
++		if (!a->out)
++			goto fail;
++		a->out->data = a;
++		a->out->src_format = &a->pcm;
++		a->out->latency = 20;
++		a->out->server_formats = calloc(2, sizeof(AUDIO_FORMAT));
++		if (!a->out->server_formats)
++			goto fail;
++		a->out->num_server_formats = 2;
++		a->out->server_formats[0] = a->pcm;
++		a->out->server_formats[1] = a->pcm;
++		a->out->server_formats[1].nSamplesPerSec = 44100;
++		a->out->server_formats[1].nAvgBytesPerSec = 176400;
++		a->out->Activated = out_activated;
++		if (!a->out->num_server_formats || a->out->Initialize(a->out, TRUE) != CHANNEL_RC_OK)
++			goto fail;
++	}
++	if (pthread_create(&a->worker, NULL, audio_worker, a))
++		goto fail;
++	a->worker_started = true;
++	return a;
++ fail:
++	weston_log("RDP %s audio unavailable; desktop sharing continues\n", capture ? "microphone" : "playback");
++	weston_rdp_audio_teardown(a);
++	return NULL;
++}
++
++void *weston_rdp_audio_out_setup(struct weston_compositor *c, void *vcm)
++{
++	return audio_setup(c, vcm, false);
++}
++void *weston_rdp_audio_in_setup(struct weston_compositor *c, void *vcm)
++{
++	return audio_setup(c, vcm, true);
++}
+diff --git a/frameworks/weston/files/rdpaudio.h b/frameworks/weston/files/rdpaudio.h
+new file mode 100644
+index 0000000..088add1
+--- /dev/null
++++ b/frameworks/weston/files/rdpaudio.h
+@@ -0,0 +1,8 @@
++/* SPDX-License-Identifier: MIT */
++#ifndef WESTON_RDP_AUDIO_H
++#define WESTON_RDP_AUDIO_H
++struct weston_compositor;
++void *weston_rdp_audio_out_setup(struct weston_compositor *c, void *vcm);
++void *weston_rdp_audio_in_setup(struct weston_compositor *c, void *vcm);
++void weston_rdp_audio_teardown(void *data);
++#endif
+diff --git a/frameworks/weston/patches/002-vnc-share-input-seat-for-mirrored-desktops.patch b/frameworks/weston/patches/002-vnc-share-input-seat-for-mirrored-desktops.patch
+new file mode 100644
+index 0000000..3e83622
+--- /dev/null
++++ b/frameworks/weston/patches/002-vnc-share-input-seat-for-mirrored-desktops.patch
+@@ -0,0 +1,270 @@
++--- a/libweston/backend-vnc/vnc.c
+++++ b/libweston/backend-vnc/vnc.c
++@@ -98,6 +98,9 @@
++ struct vnc_peer {
++ 	struct vnc_backend *backend;
++ 	struct weston_seat *seat;
+++	struct weston_seat *input_seat;
+++	struct wl_listener input_seat_destroy;
+++	struct wl_array pressed_keys;
++ 	struct nvnc_client *client;
++ 
++ 	enum nvnc_button_mask last_button_mask;
++@@ -291,6 +294,84 @@
++ 	DRM_FORMAT_ARGB8888,
++ };
++ 
+++/* Mirrored desktops share the local input seat. GTK uses a single default
+++ * seat, so forwarding to a separate per-client seat leaves GTK apps without
+++ * remote input. The peer retains its private seat for standalone VNC and
+++ * for fallback when the local seat disappears.
+++ */
+++static void
+++vnc_input_seat_destroyed(struct wl_listener *listener, void *data)
+++{
+++	struct vnc_peer *peer = wl_container_of(listener, peer, input_seat_destroy);
+++
+++	(void)data;
+++	wl_list_remove(&peer->input_seat_destroy.link);
+++	peer->input_seat = peer->seat;
+++	peer->pressed_keys.size = 0;
+++	peer->last_button_mask = 0;
+++}
+++
+++static void
+++vnc_share_mirror_seat(struct vnc_peer *peer)
+++{
+++	struct weston_seat *seat;
+++
+++	if (!peer->backend->output->base.mirror_of)
+++		return;
+++
+++	wl_list_for_each(seat, &peer->backend->compositor->seat_list, link) {
+++		if (seat == peer->seat || strcmp(seat->seat_name, "VNC Client") == 0)
+++			continue;
+++
+++		weston_seat_init_pointer(seat);
+++		if (weston_seat_init_keyboard(seat, peer->backend->xkb_keymap) < 0) {
+++			weston_seat_release_pointer(seat);
+++			return;
+++		}
+++		peer->input_seat = seat;
+++		peer->input_seat_destroy.notify = vnc_input_seat_destroyed;
+++		wl_signal_add(&seat->destroy_signal, &peer->input_seat_destroy);
+++		return;
+++	}
+++}
+++
+++static void
+++vnc_send_key(struct vnc_peer *peer, uint32_t key,
+++	     enum wl_keyboard_key_state state,
+++	     enum weston_key_state_update update)
+++{
+++	struct weston_key_event event;
+++	struct timespec time;
+++	uint32_t *held, *last;
+++	bool found = false;
+++
+++	wl_array_for_each(held, &peer->pressed_keys) {
+++		if (*held != key)
+++			continue;
+++		found = true;
+++		if (state == WL_KEYBOARD_KEY_STATE_RELEASED) {
+++			last = (uint32_t *)((char *)peer->pressed_keys.data +
+++				peer->pressed_keys.size) - 1;
+++			*held = *last;
+++			peer->pressed_keys.size -= sizeof(*held);
+++		}
+++		break;
+++	}
+++	if (!found && state == WL_KEYBOARD_KEY_STATE_PRESSED) {
+++		held = wl_array_add(&peer->pressed_keys, sizeof(*held));
+++		if (!held)
+++			return;
+++		*held = key;
+++	}
+++	if (!found && state == WL_KEYBOARD_KEY_STATE_RELEASED &&
+++	    peer->input_seat != peer->seat)
+++		return;
+++
+++	weston_compositor_get_time(&time);
+++	weston_key_event_init(&event, &time, peer->input_seat, key, state, update);
+++	notify_key(&event);
+++}
+++
++ static void
++ vnc_handle_key_event(struct nvnc_client *client, uint32_t keysym,
++ 		     bool is_pressed)
++@@ -336,9 +417,18 @@
++ 		return;
++ 	}
++ 
+++	/* Do not release a Shift key already held by the local keyboard. */
+++	if (needs_shift) {
+++		struct weston_keyboard *keyboard = weston_seat_get_keyboard(peer->input_seat);
+++
+++		if (keyboard && xkb_state_mod_name_is_active(keyboard->xkb_state.state,
+++				"Shift", XKB_STATE_MODS_DEPRESSED) > 0)
+++			needs_shift = false;
+++	}
+++
++ 	/* emulate lshift press */
++ 	if (needs_shift) {
++-		weston_key_event_init(&key_event, &time, peer->seat,
+++		weston_key_event_init(&key_event, &time, peer->input_seat,
++ 				      KEY_LEFTSHIFT,
++ 				      WL_KEYBOARD_KEY_STATE_PRESSED,
++ 				      STATE_UPDATE_AUTOMATIC);
++@@ -346,13 +436,11 @@
++ 	}
++ 
++ 	/* send detected key code */
++-	weston_key_event_init(&key_event, &time, peer->seat,
++-			      key, state, state_update);
++-	notify_key(&key_event);
+++	vnc_send_key(peer, key, state, state_update);
++ 
++ 	/* emulate lshift release */
++ 	if (needs_shift) {
++-		weston_key_event_init(&key_event, &time, peer->seat,
+++		weston_key_event_init(&key_event, &time, peer->input_seat,
++ 				      KEY_LEFTSHIFT,
++ 				      WL_KEYBOARD_KEY_STATE_RELEASED,
++ 				      STATE_UPDATE_AUTOMATIC);
++@@ -366,19 +454,13 @@
++ {
++ 	struct vnc_peer *peer = nvnc_client_get_userdata(client);
++ 	enum wl_keyboard_key_state state;
++-	struct timespec time;
++-	struct weston_key_event key_event;
++-
++-	weston_compositor_get_time(&time);
++ 
++ 	if (is_pressed)
++ 		state = WL_KEYBOARD_KEY_STATE_PRESSED;
++ 	else
++ 		state = WL_KEYBOARD_KEY_STATE_RELEASED;
++ 
++-	weston_key_event_init(&key_event, &time, peer->seat,
++-			      key, state, STATE_UPDATE_AUTOMATIC);
++-	notify_key(&key_event);
+++	vnc_send_key(peer, key, state, STATE_UPDATE_AUTOMATIC);
++ }
++ 
++ static void
++@@ -452,7 +534,7 @@
++ 
++ 		pos = weston_coord_global_from_output_point(x, y, &output->base);
++ 
++-		weston_pointer_motion_event_init(&event, &time, peer->seat,
+++		weston_pointer_motion_event_init(&event, &time, peer->input_seat,
++ 						 WESTON_POINTER_MOTION_ABS,
++ 						 &pos, NULL, NULL);
++ 		notify_motion(&event);
++@@ -461,7 +543,7 @@
++ 	changed_button_mask = peer->last_button_mask ^ button_mask;
++ 
++ 	if (changed_button_mask & NVNC_BUTTON_LEFT) {
++-		weston_pointer_button_event_init(&button_event, &time, peer->seat,
+++		weston_pointer_button_event_init(&button_event, &time, peer->input_seat,
++ 						 BTN_LEFT,
++ 						 (button_mask & NVNC_BUTTON_LEFT) ?
++ 						 WL_POINTER_BUTTON_STATE_PRESSED :
++@@ -470,7 +552,7 @@
++ 	}
++ 
++ 	if (changed_button_mask & NVNC_BUTTON_MIDDLE) {
++-		weston_pointer_button_event_init(&button_event, &time, peer->seat,
+++		weston_pointer_button_event_init(&button_event, &time, peer->input_seat,
++ 						 BTN_MIDDLE,
++ 						 (button_mask & NVNC_BUTTON_MIDDLE) ?
++ 						 WL_POINTER_BUTTON_STATE_PRESSED :
++@@ -479,7 +561,7 @@
++ 	}
++ 
++ 	if (changed_button_mask & NVNC_BUTTON_RIGHT) {
++-		weston_pointer_button_event_init(&button_event, &time, peer->seat,
+++		weston_pointer_button_event_init(&button_event, &time, peer->input_seat,
++ 						 BTN_RIGHT,
++ 						 (button_mask & NVNC_BUTTON_RIGHT) ?
++ 						 WL_POINTER_BUTTON_STATE_PRESSED :
++@@ -499,7 +581,7 @@
++ 		if (button_mask & NVNC_SCROLL_DOWN)
++ 			value = DEFAULT_AXIS_STEP_DISTANCE;
++ 
++-		weston_pointer_axis_event_init(&weston_event, &time, peer->seat,
+++		weston_pointer_axis_event_init(&weston_event, &time, peer->input_seat,
++ 					       WL_POINTER_AXIS_VERTICAL_SCROLL,
++ 					       value, false, 0);
++ 		notify_axis(&weston_event);
++@@ -507,7 +589,7 @@
++ 
++ 	peer->last_button_mask = button_mask;
++ 
++-	notify_pointer_frame(peer->seat);
+++	notify_pointer_frame(peer->input_seat);
++ }
++ 
++ static void
++@@ -535,10 +617,42 @@
++ 	struct vnc_peer *peer = userdata;
++ 	struct vnc_output *output = peer->backend->output;
++ 
+++	struct weston_key_event key_event;
+++	struct weston_pointer_button_event button_event;
+++	struct timespec time;
+++	uint32_t *held;
+++	const uint32_t masks[] = { NVNC_BUTTON_LEFT, NVNC_BUTTON_MIDDLE, NVNC_BUTTON_RIGHT };
+++	const uint32_t buttons[] = { BTN_LEFT, BTN_MIDDLE, BTN_RIGHT };
+++	size_t i;
+++
+++	/* A disconnected client must not leave modifiers or buttons depressed
+++	 * on the shared local seat.
+++	 */
+++	weston_compositor_get_time(&time);
+++	wl_array_for_each(held, &peer->pressed_keys) {
+++		weston_key_event_init(&key_event, &time, peer->input_seat, *held,
+++			WL_KEYBOARD_KEY_STATE_RELEASED, STATE_UPDATE_AUTOMATIC);
+++		notify_key(&key_event);
+++	}
+++	for (i = 0; i < ARRAY_LENGTH(masks); i++) {
+++		if (!(peer->last_button_mask & masks[i]))
+++			continue;
+++		weston_pointer_button_event_init(&button_event, &time, peer->input_seat,
+++			buttons[i], WL_POINTER_BUTTON_STATE_RELEASED);
+++		notify_button(&button_event);
+++	}
+++	notify_pointer_frame(peer->input_seat);
+++	if (peer->input_seat != peer->seat) {
+++		wl_list_remove(&peer->input_seat_destroy.link);
+++		weston_seat_release_keyboard(peer->input_seat);
+++		weston_seat_release_pointer(peer->input_seat);
+++	}
+++	wl_array_release(&peer->pressed_keys);
++ 	wl_list_remove(&peer->link);
++ 	weston_seat_release_keyboard(peer->seat);
++ 	weston_seat_release_pointer(peer->seat);
++ 	weston_seat_release(peer->seat);
+++	free(peer->seat);
++ 	free(peer);
++ 	weston_log("VNC Client disconnected\n");
++ 
++@@ -555,7 +669,7 @@
++ 	struct vnc_peer *peer;
++ 
++ 	wl_list_for_each(peer, &output->peers, link) {
++-		pointer = weston_seat_get_pointer(peer->seat);
+++		pointer = weston_seat_get_pointer(peer->input_seat);
++ 		break;
++ 	}
++ 
++@@ -807,6 +921,9 @@
++ 	weston_seat_init(peer->seat, backend->compositor, seat_name);
++ 	weston_seat_init_pointer(peer->seat);
++ 	weston_seat_init_keyboard(peer->seat, backend->xkb_keymap);
+++	peer->input_seat = peer->seat;
+++	wl_array_init(&peer->pressed_keys);
+++	vnc_share_mirror_seat(peer);
++ 
++ 	if (wl_list_empty(&output->peers))
++ 		weston_output_power_on(&output->base);
+diff --git a/frameworks/weston/patches/003-rdp-authenticated-local-desktop-sharing.patch b/frameworks/weston/patches/003-rdp-authenticated-local-desktop-sharing.patch
+new file mode 100644
+index 0000000..3da586f
+--- /dev/null
++++ b/frameworks/weston/patches/003-rdp-authenticated-local-desktop-sharing.patch
+@@ -0,0 +1,728 @@
++Subject: [PATCH] rdp: share the local desktop with mandatory NLA
++
++Keep listener settings independent from VNC and route mirrored input to
++the local seat. Require TLS/NLA credentials and limit login to the desktop
++owner.
++
++---
++diff --git a/frontend/main.c b/frontend/main.c
++--- a/frontend/main.c
+++++ b/frontend/main.c
++@@ -93,6 +93,7 @@
++ 	struct wl_listener head_destroy_listener;
++ 	struct wl_listener resized_listener;
++ 	struct wet_compositor *wet;
+++	struct weston_head *mirror_head;
++ };
++ 
++ /** User data for each weston_output */
++@@ -2437,40 +2438,25 @@
++ }
++ 
++ static struct weston_head *
++-wet_config_find_head_to_mirror(struct weston_output *output,
++-			       struct wet_compositor *wet)
++-{
++-	struct weston_head *head = NULL;
++-	struct weston_config_section *section = NULL;
++-
++-	do {
++-		char *mof_name = NULL;
++-		char *remote_output_name = NULL;
++-
++-		/* do we have a mirror-of key at all? */
++-		if (wet_config_find_output_mirror(output, wet, &mof_name,
++-						  &remote_output_name,
++-						  &section))
++-			break;
++-
++-		assert(mof_name);
++-
++-		/* do we have a matching output between signal event and the
++-		 * output to mirror ? */
++-		if (strcmp(mof_name, output->name)) {
++-			free(mof_name);
++-			free(remote_output_name);
++-			continue;
++-		}
++-
++-		/* grab the output name of this 'remote_output_name' */
++-		head = wet_head_find_by_name(wet, remote_output_name);
++-
++-		free(mof_name);
++-		free(remote_output_name);
++-	} while (!head);
++-
++-	return head;
+++wet_config_find_next_head_to_mirror(struct weston_output *output,
+++				  struct wet_compositor *wet,
+++				  struct weston_config_section **section)
+++{
+++	char *source_name;
+++	char *remote_name;
+++	struct weston_head *head;
+++
+++	while (!wet_config_find_output_mirror(output, wet, &source_name,
+++					     &remote_name, section)) {
+++		head = NULL;
+++		if (!strcmp(source_name, output->name))
+++			head = wet_head_find_by_name(wet, remote_name);
+++		free(source_name);
+++		free(remote_name);
+++		if (head)
+++			return head;
+++	}
+++	return NULL;
++ }
++ 
++ static bool
++@@ -3204,14 +3190,16 @@
++ 	struct wet_output *output;
++ 	struct wet_compositor *wet;
++ 	struct weston_head *head = NULL;
+++	struct weston_config_section *section = NULL;
++ 
++ 	output = wl_container_of(listener, output, output_destroy_listener);
++ 	assert(output->output == data);
++ 
++ 	wet = output->layoutput->compositor;
++-	head = wet_config_find_head_to_mirror(output->output, wet);
++-	if (head && !wet->compositor->shutting_down) {
++-		simple_head_disable(head);
+++	while (!wet->compositor->shutting_down &&
+++	       (head = wet_config_find_next_head_to_mirror(output->output, wet, &section))) {
+++		if (weston_head_is_enabled(head))
+++			simple_head_disable(head);
++ 	}
++ 
++ 
++@@ -3292,12 +3280,12 @@
++ 	struct weston_output *output = data;
++ 	struct wet_head_tracker *head_track =
++ 		container_of(listener, struct wet_head_tracker, resized_listener);
++-	struct wet_compositor *wet = head_track->wet;
++ 	struct weston_mode mode;
++ 	int scale = 1;
++ 
++-	head_to_mirror = wet_config_find_head_to_mirror(output, wet);
++-	if (!head_to_mirror)
+++	head_to_mirror = head_track->mirror_head;
+++	if (!head_to_mirror || !head_to_mirror->output ||
+++	    head_to_mirror->output->mirror_of != output)
++ 		return;
++ 
++ 	weston_output_set_position(head_to_mirror->output, output->pos);
++@@ -3314,14 +3302,12 @@
++ 	struct wet_compositor *wet =
++ 		container_of(listener, struct wet_compositor, output_created_listener);
++ 	struct weston_output *output = data;
++-	struct weston_head *head = NULL;
++-	struct weston_head *head_to_mirror =
++-		weston_output_get_first_head(output);
+++	struct weston_head *head;
+++	struct weston_head *head_to_mirror = weston_output_get_first_head(output);
+++	struct weston_config_section *section = NULL;
++ 	struct wet_head_tracker *head_track;
++-
++ 	struct wet_backend *wb;
++ 
++-	/* just ignore events from other remote backends */
++ 	switch (weston_get_backend_type(output->backend)) {
++ 	case WESTON_BACKEND_RDP:
++ 	case WESTON_BACKEND_VNC:
++@@ -3331,24 +3317,25 @@
++ 		break;
++ 	}
++ 
++-	head = wet_config_find_head_to_mirror(output, wet);
++-	if (!head)
++-		return;
++-
++-	wb = wet_get_backend_from_head(wet, head);
++-	assert(wb);
++-
++-	simple_head_enable(wet, wb, head, head_to_mirror,
++-			   wet_output_overlap_pre_enable,
++-			   wet_output_overlap_post_enable);
++-	weston_head_reset_device_changed(head);
++-
++-	head_track = wet_head_tracker_from_head(head);
++-	head_track->wet = wet;
++-	head_track->resized_listener.notify = simple_heads_output_sharing_resize;
++-
++-	wl_signal_add(&wet->compositor->output_resized_signal,
++-		      &head_track->resized_listener);
+++	/* One physical output may be shared by both VNC and RDP. */
+++	while ((head = wet_config_find_next_head_to_mirror(output, wet, &section))) {
+++		if (weston_head_is_enabled(head))
+++			continue;
+++		wb = wet_get_backend_from_head(wet, head);
+++		assert(wb);
+++		simple_head_enable(wet, wb, head, head_to_mirror,
+++				   wet_output_overlap_pre_enable,
+++				   wet_output_overlap_post_enable);
+++		if (!weston_head_is_enabled(head))
+++			continue;
+++		weston_head_reset_device_changed(head);
+++		head_track = wet_head_tracker_from_head(head);
+++		head_track->wet = wet;
+++		head_track->mirror_head = head;
+++		head_track->resized_listener.notify = simple_heads_output_sharing_resize;
+++		wl_signal_add(&wet->compositor->output_resized_signal,
+++			      &head_track->resized_listener);
+++	}
++ }
++ 
++ static struct wet_output *
++@@ -4529,6 +4516,10 @@
++ 	config.renderer = renderer;
++ 
++ 	section = weston_config_get_section(wc, "rdp", NULL, NULL);
+++	/* Remote backends must not consume each other's address/port options. */
+++	weston_config_section_get_string(section, "address",
+++					 &config.bind_address, config.bind_address);
+++	weston_config_section_get_int(section, "port", &config.port, config.port);
++ 	weston_config_section_get_int(section, "refresh-rate",
++ 				      &config.refresh_rate,
++ 				      RDP_DEFAULT_FREQ);
++@@ -4548,6 +4539,7 @@
++ 	free(config.rdp_key);
++ 	free(config.server_cert);
++ 	free(config.server_key);
+++	free(config.nla_ntlm_db);
++ 
++ 	if (!wb)
++ 		return -1;
++diff --git a/libweston/backend-rdp/rdp.h b/libweston/backend-rdp/rdp.h
++--- a/libweston/backend-rdp/rdp.h
+++++ b/libweston/backend-rdp/rdp.h
++@@ -165,6 +165,9 @@
++ 	NSC_CONTEXT *nsc_context;
++ 
++ 	struct rdp_peers_item item;
+++	struct weston_seat *private_seat;
+++	struct wl_listener input_seat_destroy;
+++	struct wl_array pressed_keys;
++ 
++ 	bool button_state[5];
++ 
++diff --git a/libweston/backend-rdp/rdp.c b/libweston/backend-rdp/rdp.c
++--- a/libweston/backend-rdp/rdp.c
+++++ b/libweston/backend-rdp/rdp.c
++@@ -24,6 +24,7 @@
++  */
++ 
++ #include "config.h"
+++#include <pwd.h>
++ 
++ #include <assert.h>
++ #include <drm_fourcc.h>
++@@ -267,6 +268,8 @@
++ 	struct rdp_output *output = rdp_get_first_output(context->rdpBackend);
++ 	rdpSettings *settings = peer->context->settings;
++ 
+++	if (!output || !output->buffer)
+++		return;
++ 	if (freerdp_settings_get_bool(settings, FreeRDP_RemoteFxCodec))
++ 		rdp_peer_refresh_rfx(region, output->buffer->shadow_surface, peer);
++ 	else if (freerdp_settings_get_bool(settings, FreeRDP_NSCodec))
++@@ -311,7 +314,7 @@
++ 					       output_base,
++ 					       &damage);
++ 		wl_list_for_each(peer, &b->peers, link) {
++-			if ((peer->flags & RDP_PEER_ACTIVATED) &&
+++			if ((peer->flags & RDP_PEER_ACTIVATED) && peer->peer->activated &&
++ 			    (peer->flags & RDP_PEER_OUTPUT_ENABLED)) {
++ 				rdp_peer_refresh_region(&transformed_damage, peer->peer);
++ 			}
++@@ -738,6 +741,7 @@
++ 	free(b->server_cert);
++ 	free(b->server_key);
++ 	free(b->rdp_key);
+++	free(b->nla_ntlm_db);
++ 	free(b);
++ }
++ 
++@@ -782,9 +786,145 @@
++ }
++ 
++ 
+++/* Mirrored clients use the local seat so existing GTK/Xwayland windows
+++ * receive input. A peer still owns its private seat for standalone use.
+++ */
+++static void
+++rdp_send_key(RdpPeerContext *ctx, uint32_t key,
+++	     enum wl_keyboard_key_state state)
+++{
+++	struct weston_key_event event;
+++	struct timespec time;
+++	uint32_t *held, *last;
+++	bool found = false;
+++
+++	if (!ctx->item.seat)
+++		return;
+++	wl_array_for_each(held, &ctx->pressed_keys) {
+++		if (*held != key)
+++			continue;
+++		found = true;
+++		if (state == WL_KEYBOARD_KEY_STATE_RELEASED) {
+++			last = (uint32_t *)((char *)ctx->pressed_keys.data +
+++				ctx->pressed_keys.size) - 1;
+++			*held = *last;
+++			ctx->pressed_keys.size -= sizeof(*held);
+++		}
+++		break;
+++	}
+++	if (!found && state == WL_KEYBOARD_KEY_STATE_RELEASED)
+++		return;
+++	if (!found && state == WL_KEYBOARD_KEY_STATE_PRESSED) {
+++		struct weston_keyboard *keyboard = weston_seat_get_keyboard(ctx->item.seat);
+++
+++		/* Do not take ownership of a key already held locally. */
+++		if (ctx->item.seat != ctx->private_seat && keyboard) {
+++			wl_array_for_each(held, &keyboard->keys) {
+++				if (*held == key)
+++					return;
+++			}
+++		}
+++		held = wl_array_add(&ctx->pressed_keys, sizeof(*held));
+++		if (!held)
+++			return;
+++		*held = key;
+++	}
+++	clock_gettime(CLOCK_MONOTONIC, &time);
+++	weston_key_event_init(&event, &time, ctx->item.seat, key, state,
+++			      STATE_UPDATE_AUTOMATIC);
+++	notify_key(&event);
+++}
+++
+++static void
+++rdp_input_seat_destroyed(struct wl_listener *listener, void *data)
+++{
+++	RdpPeerContext *ctx = wl_container_of(listener, ctx, input_seat_destroy);
+++
+++	(void)data;
+++	wl_list_remove(&ctx->input_seat_destroy.link);
+++	ctx->item.seat = ctx->private_seat;
+++	weston_seat_init_keyboard(ctx->private_seat, NULL);
+++	weston_seat_init_pointer(ctx->private_seat);
+++	ctx->pressed_keys.size = 0;
+++	memset(ctx->button_state, 0, sizeof(ctx->button_state));
+++}
+++
+++static void
+++rdp_share_mirror_seat(RdpPeerContext *ctx, struct weston_output *output)
+++{
+++	struct weston_seat *seat;
+++
+++	if (!output->mirror_of)
+++		return;
+++	wl_list_for_each(seat, &ctx->rdpBackend->compositor->seat_list, link) {
+++		if (seat == ctx->private_seat ||
+++		    strcmp(seat->seat_name, "VNC Client") == 0 ||
+++		    strncmp(seat->seat_name, "RDP ", 4) == 0)
+++			continue;
+++		weston_seat_init_pointer(seat);
+++		if (weston_seat_init_keyboard(seat, NULL) < 0) {
+++			weston_seat_release_pointer(seat);
+++			return;
+++		}
+++		/* An unused keyboard would become a second Xwayland master device. */
+++		if (ctx->private_seat->keyboard_device_count)
+++			weston_seat_release_keyboard(ctx->private_seat);
+++		ctx->item.seat = seat;
+++		ctx->input_seat_destroy.notify = rdp_input_seat_destroyed;
+++		wl_signal_add(&seat->destroy_signal, &ctx->input_seat_destroy);
+++		return;
+++	}
+++}
+++
+++static void
+++rdp_release_input(RdpPeerContext *ctx)
+++{
+++	struct weston_key_event key_event;
+++	struct weston_pointer_button_event button_event;
+++	struct timespec time;
+++	uint32_t *held;
+++	unsigned int i;
+++
+++	if (ctx->item.seat) {
+++		clock_gettime(CLOCK_MONOTONIC, &time);
+++		wl_array_for_each(held, &ctx->pressed_keys) {
+++			weston_key_event_init(&key_event, &time, ctx->item.seat, *held,
+++				WL_KEYBOARD_KEY_STATE_RELEASED, STATE_UPDATE_AUTOMATIC);
+++			notify_key(&key_event);
+++		}
+++		for (i = 0; i < ARRAY_LENGTH(ctx->button_state); i++) {
+++			if (!ctx->button_state[i])
+++				continue;
+++			weston_pointer_button_event_init(&button_event, &time,
+++				ctx->item.seat, BTN_LEFT + i,
+++				WL_POINTER_BUTTON_STATE_RELEASED);
+++			notify_button(&button_event);
+++		}
+++		notify_pointer_frame(ctx->item.seat);
+++		if (ctx->item.seat != ctx->private_seat) {
+++			wl_list_remove(&ctx->input_seat_destroy.link);
+++			weston_seat_release_keyboard(ctx->item.seat);
+++			weston_seat_release_pointer(ctx->item.seat);
+++		}
+++	}
+++	wl_array_release(&ctx->pressed_keys);
+++	if (ctx->private_seat) {
+++		if (ctx->private_seat->keyboard_device_count)
+++			weston_seat_release_keyboard(ctx->private_seat);
+++		if (ctx->private_seat->pointer_device_count)
+++			weston_seat_release_pointer(ctx->private_seat);
+++		weston_seat_release(ctx->private_seat);
+++		free(ctx->private_seat);
+++	}
+++	ctx->item.seat = NULL;
+++	ctx->private_seat = NULL;
+++}
+++
++ static BOOL
++ rdp_peer_context_new(freerdp_peer* client, RdpPeerContext* context)
++ {
+++	wl_list_init(&context->item.link);
+++	wl_array_init(&context->pressed_keys);
++ 	context->item.peer = client;
++ 	context->item.flags = RDP_PEER_OUTPUT_ENABLED;
++ 
++@@ -857,12 +997,7 @@
++ 
++ 	rdp_destroy_dispatch_task_event_source(context);
++ 
++-	if (context->item.flags & RDP_PEER_ACTIVATED) {
++-		weston_seat_release_keyboard(context->item.seat);
++-		weston_seat_release_pointer(context->item.seat);
++-		weston_seat_release(context->item.seat);
++-		free(context->item.seat);
++-	}
+++	rdp_release_input(context);
++ 
++ 	Stream_Free(context->encode_stream, TRUE);
++ 	nsc_context_free(context->nsc_context);
++@@ -1087,18 +1222,12 @@
++ static void
++ rdp_full_refresh(freerdp_peer *peer, struct rdp_output *output)
++ {
++-	pixman_box32_t box;
++-	pixman_region32_t damage;
++-
++-	box.x1 = 0;
++-	box.y1 = 0;
++-	box.x2 = output->base.current_mode->width;
++-	box.y2 = output->base.current_mode->height;
++-	pixman_region32_init_with_extents(&damage, &box);
++-
++-	rdp_peer_refresh_region(&damage, peer);
++-
++-	pixman_region32_fini(&damage);
+++	(void)peer;
+++	/* Input synchronization can arrive during connection finalization.
+++	 * Queue repaint after FreeRDP has sent the protocol control messages.
+++	 */
+++	if (output && output->buffer && output->base.current_mode)
+++		weston_output_damage(&output->base);
++ }
++ 
++ static BOOL
++@@ -1125,6 +1254,11 @@
++ 	output = rdp_get_first_output(b);
++ 	settings = client->context->settings;
++ 
+++	if (!output || !output->buffer || !output->base.current_mode) {
+++		weston_log("RDP has no enabled output to share\n");
+++		return FALSE;
+++	}
+++
++ 	if (!freerdp_settings_get_bool(settings, FreeRDP_SurfaceCommandsEnabled)) {
++ 		weston_log("client doesn't support required SurfaceCommands\n");
++ 		return FALSE;
++@@ -1170,7 +1304,10 @@
++ 			} else {
++ 				freerdp_settings_set_uint32(settings, FreeRDP_DesktopWidth, mode->width);
++ 				freerdp_settings_set_uint32(settings, FreeRDP_DesktopHeight, mode->height);
++-				client->context->update->DesktopResize(client->context);
+++				if (!client->context->update->DesktopResize(client->context))
+++					return FALSE;
+++				/* Finish resize/reactivation before exposing a frame or seat. */
+++				return TRUE;
++ 			}
++ 		}
++ 	} else {
++@@ -1221,7 +1358,11 @@
++ 	weston_seat_init(peersItem->seat, b->compositor, seat_name);
++ 	weston_seat_init_keyboard(peersItem->seat, keymap);
++ 	xkb_keymap_unref(keymap);
++-	weston_seat_init_pointer(peersItem->seat);
+++
+++	peerCtx->private_seat = peersItem->seat;
+++	rdp_share_mirror_seat(peerCtx, weston_output);
+++	if (peerCtx->item.seat == peerCtx->private_seat)
+++		weston_seat_init_pointer(peerCtx->private_seat);
++ 
++ 	/* Initialize RDP clipboard after seat is initialized */
++ 	if (freerdp_settings_get_bool(settings, FreeRDP_RedirectClipboard))
++@@ -1235,7 +1376,7 @@
++ 	pointer_system.type = SYSPTR_NULL;
++ 	pointer->PointerSystem(client->context, &pointer_system);
++ 
++-	rdp_full_refresh(client, output);
+++	weston_output_damage(&output->base);
++ 
++ 	return TRUE;
++ 
++@@ -1253,6 +1394,37 @@
++ }
++ 
++ static BOOL
+++xf_peer_logon(freerdp_peer *client, const SEC_WINNT_AUTH_IDENTITY *identity,
+++	      BOOL automatic)
+++{
+++	struct passwd *pw;
+++	const char *username;
+++	char *decoded = NULL;
+++	bool allowed;
+++
+++	if (!automatic)
+++		return FALSE;
+++	/* Recent FreeRDP stores decoded CredSSP credentials in settings;
+++	 * older versions populate the callback identity instead.
+++	 */
+++	username = freerdp_settings_get_string(client->context->settings, FreeRDP_Username);
+++	if ((!username || !*username) && identity->User && identity->UserLength) {
+++		if (identity->Flags & SEC_WINNT_AUTH_IDENTITY_UNICODE)
+++			decoded = ConvertWCharNToUtf8Alloc(
+++				identity->User, identity->UserLength, NULL);
+++		else
+++			decoded = strndup((const char *)identity->User, identity->UserLength);
+++		username = decoded;
+++	}
+++	if (!username || !*username)
+++		return FALSE;
+++	pw = getpwnam(username);
+++	allowed = pw && pw->pw_uid >= 1000 && pw->pw_uid == getuid();
+++	free(decoded);
+++	return allowed;
+++}
+++
+++static BOOL
++ xf_peer_post_connect(freerdp_peer *client)
++ {
++ 	return TRUE;
++@@ -1263,10 +1435,28 @@
++ {
++ 	struct weston_coord_global pos;
++ 	struct timespec time;
+++	struct rdp_output *output;
++ 	int sx, sy;
++ 
++ 	if (!peerContext->item.seat)
++ 		return FALSE;
+++
+++	/* Mirrored client coordinates are relative to this output, even when
+++	 * the selected local monitor is not at the desktop origin.
+++	 */
+++	output = rdp_get_first_output(peerContext->rdpBackend);
+++	if (!output)
+++		return FALSE;
+++	if (output->base.mirror_of) {
+++		struct weston_pointer_motion_event event;
+++
+++		pos = weston_coord_global_from_output_point(x, y, &output->base);
+++		clock_gettime(CLOCK_MONOTONIC, &time);
+++		weston_pointer_motion_event_init(&event, &time, peerContext->item.seat,
+++					 WESTON_POINTER_MOTION_ABS, &pos, NULL, NULL);
+++		notify_motion(&event);
+++		return TRUE;
+++	}
++ 
++ 	/* (TS_POINTERX_EVENT):The xy-coordinate of the pointer relative to the top-left
++ 	 *                     corner of the server's desktop combined all monitors */
++@@ -1285,7 +1475,7 @@
++ 		struct weston_pointer_motion_event event;
++ 
++ 		pos.c = weston_coord(sx, sy);
++-		weston_compositor_get_time(&time);
+++		clock_gettime(CLOCK_MONOTONIC, &time);
++ 
++ 		weston_pointer_motion_event_init(&event, &time,
++ 						 peerContext->item.seat,
++@@ -1407,7 +1597,7 @@
++ 			  ivalue, *accumWheelRotationPrecise, *accumWheelRotationDiscrete);
++ 
++ 	if (abs(*accumWheelRotationPrecise) >= 12) {
++-		weston_compositor_get_time(&time);
+++		clock_gettime(CLOCK_MONOTONIC, &time);
++ 
++ 		weston_pointer_axis_event_init(&weston_event,
++ 					       &time, peerContext->item.seat,
++@@ -1445,8 +1635,9 @@
++ 	 * the RDP client.
++ 	 */
++ 	if (!(flags & (PTR_FLAGS_WHEEL | PTR_FLAGS_HWHEEL))) {
+++		/* Dispatch motion before buttons for Xwayland clients. */
++ 		if (rdp_translate_and_notify_mouse_position(peerContext, x, y))
++-			need_frame = true;
+++			notify_pointer_frame(peerContext->item.seat);
++ 	}
++ 
++ 	if (flags & PTR_FLAGS_BUTTON1)
++@@ -1465,7 +1656,7 @@
++ 	if (button) {
++ 		struct weston_pointer_button_event button_event;
++ 
++-		weston_compositor_get_time(&time);
+++		clock_gettime(CLOCK_MONOTONIC, &time);
++ 
++ 		weston_pointer_button_event_init(&button_event, &time,
++ 						 peerContext->item.seat,
++@@ -1499,11 +1690,12 @@
++ 	RdpPeerContext *peerContext = (RdpPeerContext *)input->context;
++ 	uint32_t button = 0;
++ 	bool need_frame = false;
++-	struct rdp_output *output;
++ 	struct timespec time;
++-	struct weston_coord_global pos;
++ 
++ 	dump_mouseinput(peerContext, flags, x, y, true);
+++
+++	if (rdp_translate_and_notify_mouse_position(peerContext, x, y))
+++		notify_pointer_frame(peerContext->item.seat);
++ 
++ 	if (flags & PTR_XFLAGS_BUTTON1)
++ 		button = BTN_SIDE;
++@@ -1518,7 +1710,7 @@
++ 
++ 	if (button) {
++ 		struct weston_pointer_button_event button_event;
++-		weston_compositor_get_time(&time);
+++		clock_gettime(CLOCK_MONOTONIC, &time);
++ 
++ 		weston_pointer_button_event_init(&button_event, &time,
++ 						 peerContext->item.seat,
++@@ -1529,19 +1721,6 @@
++ 		need_frame = true;
++ 	}
++ 
++-	output = rdp_get_first_output(peerContext->rdpBackend);
++-	if (x < output->base.width && y < output->base.height) {
++-		struct weston_pointer_motion_event event;
++-
++-		weston_compositor_get_time(&time);
++-		pos.c = weston_coord(x, y);
++-
++-		weston_pointer_motion_event_init(&event, &time, peerContext->item.seat,
++-						 WESTON_POINTER_MOTION_ABS,
++-						 &pos, NULL, NULL);
++-		notify_motion(&event);
++-		need_frame = true;
++-	}
++ 
++ 	if (need_frame)
++ 		notify_pointer_frame(peerContext->item.seat);
++@@ -1567,7 +1746,7 @@
++ 			  flags & KBD_SYNC_KANA_LOCK ? 1 : 0);
++ 
++ 	keyboard = weston_seat_get_keyboard(peerCtx->item.seat);
++-	if (keyboard) {
+++	if (keyboard && peerCtx->item.seat == peerCtx->private_seat) {
++ 		uint32_t value = 0;
++ 
++ 		if (flags & KBD_SYNC_NUM_LOCK)
++@@ -1594,8 +1773,6 @@
++ 	RdpPeerContext *peerContext = (RdpPeerContext *)input->context;
++ 	bool send_release_key = false;
++ 	int notify = 0;
++-	struct timespec time;
++-	struct weston_key_event key_event;
++ 
++         rdp_debug_verbose(peerContext->rdpBackend, "RDP backend: %s flags:0x%x, code:0x%x\n",
++ 			  __func__, flags, code);
++@@ -1660,18 +1837,11 @@
++ 
++ 		/*weston_log("code=%x ext=%d vk_code=%x scan_code=%x\n", code, (flags & KBD_FLAGS_EXTENDED) ? 1 : 0,
++ 				vk_code, scan_code);*/
++-		weston_compositor_get_time(&time);
++-
++-		weston_key_event_init(&key_event, &time, peerContext->item.seat,
++-				      scan_code - 8, keyState,
++-				      STATE_UPDATE_AUTOMATIC);
++-		notify_key(&key_event);
+++
+++		rdp_send_key(peerContext, scan_code - 8, keyState);
++ 
++ 		if (send_release_key) {
++-			weston_key_event_init(&key_event, &time, peerContext->item.seat,
++-					      scan_code - 8, WL_KEYBOARD_KEY_STATE_RELEASED,
++-					      STATE_UPDATE_AUTOMATIC);
++-			notify_key(&key_event);
+++			rdp_send_key(peerContext, scan_code - 8, WL_KEYBOARD_KEY_STATE_RELEASED);
++ 		}
++ 	}
++ 
++@@ -1915,6 +2085,15 @@
++ 	}
++ #endif
++ 
+++	/* NLA establishes its own TLS transport; never negotiate anonymous TLS
+++	 * or legacy RDP security for the shared desktop.
+++	 */
+++	if (!freerdp_settings_set_bool(settings, FreeRDP_RdpSecurity, FALSE) ||
+++	    !freerdp_settings_set_bool(settings, FreeRDP_TlsSecurity, FALSE) ||
+++	    !freerdp_settings_set_bool(settings, FreeRDP_NlaSecurity, TRUE) ||
+++	    !freerdp_settings_set_bool(settings, FreeRDP_ExtSecurity, FALSE))
+++		goto error_initialize;
+++	client->Logon = xf_peer_logon;
++ 	if (!client->Initialize(client)) {
++ 		weston_log("peer initialization failed\n");
++ 		goto error_initialize;
++@@ -2050,7 +2229,11 @@
++ 	b->audio_in_teardown = config->audio_in_teardown;
++ 	b->audio_out_setup = config->audio_out_setup;
++ 	b->audio_out_teardown = config->audio_out_teardown;
++-	b->nla_ntlm_db = config->nla_ntlm_db;
+++	b->nla_ntlm_db = strdup(config->nla_ntlm_db);
+++	if (!b->nla_ntlm_db) {
+++		free(b);
+++		return NULL;
+++	}
++ 
++ 	b->debug = weston_compositor_add_log_scope(compositor,
++ 						   "rdp-backend",
++@@ -2103,8 +2286,8 @@
++ 				b->nla_enabled = 1;
++ 				rdp_debug(b, "NLA support activated\n");
++ 			} else {
++-				b->nla_enabled = 0;
++-				rdp_debug(b, "NLA credential file ('%s') not found, fall back to TLS Security.\n", b->nla_ntlm_db);
+++				weston_log("RDP NLA credential file is missing\n");
+++				goto err_free_strings;
++ 			}
++ 		}
++ 	}
++@@ -2222,6 +2405,7 @@
++ 	if (b->verbose)
++ 		weston_log_scope_destroy(b->verbose);
++ 	free(b->rdp_key);
+++	free(b->nla_ntlm_db);
++ 	free(b->server_cert);
++ 	free(b->server_key);
++ 	free(b);
++@@ -2286,6 +2470,14 @@
++ 	config_init_to_defaults(&config);
++ 	memcpy(&config, config_base, config_base->struct_size);
++ 
+++	if (!config.server_cert || !config.server_key || !config.nla_ntlm_db ||
+++	    access(config.server_cert, R_OK) || access(config.server_key, R_OK) ||
+++	    access(config.nla_ntlm_db, R_OK) || config.rdp_key || config.vmconnect ||
+++	    config.external_listener_fd >= 0 || config.env_socket) {
+++		weston_log("RDP requires readable TLS and NLA credentials\n");
+++		return -1;
+++	}
+++
++ 	b = rdp_backend_create(compositor, &config);
++ 	if (b == NULL)
++ 		return -1;
+diff --git a/frameworks/weston/patches/005-rdp-unicode-keyboard.patch b/frameworks/weston/patches/005-rdp-unicode-keyboard.patch
+new file mode 100644
+index 0000000..f427a34
+--- /dev/null
++++ b/frameworks/weston/patches/005-rdp-unicode-keyboard.patch
+@@ -0,0 +1,336 @@
++From: OpenWrt desktop maintainers
++Subject: [PATCH] rdp: deliver Unicode soft-keyboard input
++
++Translate Unicode key-downs to complete strokes. Use the current keymap
++when possible and temporarily borrow an unmapped X11-range key for other
++Unicode scalars. Decode UTF-16 pairs, ignore releases, and wait for held
++keys before changing a shared keymap. Never log typed text.
++
++---
++
++--- a/libweston/backend-rdp/rdp.c
+++++ b/libweston/backend-rdp/rdp.c
++@@ -33,6 +33,7 @@
++ #include <string.h>
++ #include <errno.h>
++ #include <linux/input.h>
+++#include <xkbcommon/xkbcommon-keysyms.h>
++ #include <unistd.h>
++ 
++ #include "rdp.h"
++@@ -841,6 +842,8 @@
++ 	RdpPeerContext *ctx = wl_container_of(listener, ctx, input_seat_destroy);
++ 
++ 	(void)data;
+++	ctx->unicode_count = 0;
+++	ctx->unicode_high_surrogate = 0;
++ 	wl_list_remove(&ctx->input_seat_destroy.link);
++ 	ctx->item.seat = ctx->private_seat;
++ 	weston_seat_init_keyboard(ctx->private_seat, NULL);
++@@ -885,6 +888,12 @@
++ 	uint32_t *held;
++ 	unsigned int i;
++ 
+++	if (ctx->unicode_timer) {
+++		wl_event_source_remove(ctx->unicode_timer);
+++		ctx->unicode_timer = NULL;
+++	}
+++	ctx->unicode_count = 0;
+++	ctx->unicode_high_surrogate = 0;
++ 	if (ctx->item.seat) {
++ 		clock_gettime(CLOCK_MONOTONIC, &time);
++ 		wl_array_for_each(held, &ctx->pressed_keys) {
++@@ -1848,17 +1857,272 @@
++ 	return TRUE;
++ }
++ 
+++/* Unicode input carries text, not a physical key held until key-up. Emit a
+++ * complete stroke on key-down and ignore key-up (including surrogate key-ups).
+++ * Reuse the current layout where possible, including Ctrl/Alt shortcuts.
+++ */
+++static bool
+++rdp_unicode_key_held(struct weston_keyboard *keyboard, uint32_t key)
+++{
+++	uint32_t *held;
+++
+++	wl_array_for_each(held, &keyboard->keys)
+++		if (*held == key)
+++			return true;
+++	return false;
+++}
+++
+++static void
+++rdp_unicode_stroke(RdpPeerContext *ctx, uint32_t key)
+++{
+++	rdp_send_key(ctx, key, WL_KEYBOARD_KEY_STATE_PRESSED);
+++	rdp_send_key(ctx, key, WL_KEYBOARD_KEY_STATE_RELEASED);
+++}
+++
+++/* Prefer a physical Shift stroke to a temporary map. This also keeps
+++ * ordinary ASCII typing compatible with X11 clients that query their keymap
+++ * asynchronously after receiving the key event.
+++ */
+++static bool
+++rdp_unicode_shifted_stroke(RdpPeerContext *ctx, struct weston_keyboard *keyboard,
+++			   xkb_keysym_t sym)
+++{
+++	struct xkb_keymap *map = keyboard->xkb_info->keymap;
+++	struct xkb_state *state;
+++	xkb_mod_index_t shift = xkb_keymap_mod_get_index(map, XKB_MOD_NAME_SHIFT);
+++	xkb_mod_mask_t depressed;
+++	xkb_keycode_t key;
+++	bool found = false;
+++
+++	if (shift == XKB_MOD_INVALID || shift >= 32 ||
+++	    rdp_unicode_key_held(keyboard, KEY_LEFTSHIFT) ||
+++	    xkb_state_key_get_one_sym(keyboard->xkb_state.state,
+++				     KEY_LEFTSHIFT + 8) != XKB_KEY_Shift_L)
+++		return false;
+++	depressed = xkb_state_serialize_mods(keyboard->xkb_state.state,
+++					   XKB_STATE_MODS_DEPRESSED);
+++	if (depressed & (1u << shift))
+++		return false;
+++	state = xkb_state_new(map);
+++	if (!state)
+++		return false;
+++	xkb_state_update_mask(state, depressed | (1u << shift),
+++		xkb_state_serialize_mods(keyboard->xkb_state.state, XKB_STATE_MODS_LATCHED),
+++		xkb_state_serialize_mods(keyboard->xkb_state.state, XKB_STATE_MODS_LOCKED),
+++		xkb_state_serialize_layout(keyboard->xkb_state.state, XKB_STATE_LAYOUT_DEPRESSED),
+++		xkb_state_serialize_layout(keyboard->xkb_state.state, XKB_STATE_LAYOUT_LATCHED),
+++		xkb_state_serialize_layout(keyboard->xkb_state.state, XKB_STATE_LAYOUT_LOCKED));
+++	for (key = xkb_keymap_min_keycode(map);
+++	     key <= xkb_keymap_max_keycode(map) && key <= 255; key++) {
+++		if (rdp_unicode_key_held(keyboard, key - 8) ||
+++		    xkb_state_key_get_one_sym(state, key) != sym)
+++			continue;
+++		rdp_send_key(ctx, KEY_LEFTSHIFT, WL_KEYBOARD_KEY_STATE_PRESSED);
+++		rdp_unicode_stroke(ctx, key - 8);
+++		rdp_send_key(ctx, KEY_LEFTSHIFT, WL_KEYBOARD_KEY_STATE_RELEASED);
+++		found = true;
+++		break;
+++	}
+++	xkb_state_unref(state);
+++	return found;
+++}
+++
+++/* Return zero while held keys prevent a safe keymap update. */
+++static int
+++rdp_unicode_emit(RdpPeerContext *ctx, uint32_t codepoint)
+++{
+++	struct weston_keyboard *keyboard = weston_seat_get_keyboard(ctx->item.seat);
+++	struct xkb_keymap *base, *map;
+++	xkb_keysym_t sym = xkb_utf32_to_keysym(codepoint);
+++	xkb_keycode_t key, spare = XKB_KEYCODE_INVALID;
+++	xkb_layout_index_t group, depressed, latched, locked;
+++	xkb_level_index_t level;
+++	const xkb_keysym_t *syms;
+++	const char *name;
+++	char *text, *end, *overlay;
+++	bool empty;
+++	int ret;
+++
+++	if (!keyboard)
+++		return -1;
+++	base = keyboard->xkb_info->keymap;
+++	/* Unicode control characters need their conventional keysyms. */
+++	switch (codepoint) {
+++	case 8:
+++		sym = XKB_KEY_BackSpace;
+++		break;
+++	case 9:
+++		sym = XKB_KEY_Tab;
+++		break;
+++	case 10:
+++	case 13:
+++		sym = XKB_KEY_Return;
+++		break;
+++	case 27:
+++		sym = XKB_KEY_Escape;
+++		break;
+++	case 127:
+++		sym = XKB_KEY_Delete;
+++		break;
+++	}
+++	if (sym == XKB_KEY_NoSymbol)
+++		return -1;
+++
+++	for (key = xkb_keymap_min_keycode(base);
+++	     key <= xkb_keymap_max_keycode(base) && key <= 255; key++) {
+++		if (!rdp_unicode_key_held(keyboard, key - 8) &&
+++		    xkb_state_key_get_one_sym(keyboard->xkb_state.state, key) == sym) {
+++			rdp_unicode_stroke(ctx, key - 8);
+++			return 1;
+++		}
+++	}
+++	if (rdp_unicode_shifted_stroke(ctx, keyboard, sym))
+++		return 1;
+++	/* Weston defers keymap changes until all keys are up. Never release a
+++	 * local user's keys or rewrite the mapping of a held remote key.
+++	 */
+++	if (keyboard->keys.size || keyboard->pending_keymap)
+++		return 0;
+++
+++	/* Stay within X11's keycode range so Xwayland gets the same text. Only
+++	 * borrow a named key with no symbols in any layout or level.
+++	 */
+++	for (key = 255; key >= 8; key--) {
+++		if (!xkb_keymap_key_get_name(base, key))
+++			continue;
+++		empty = true;
+++		for (group = 0; group < xkb_keymap_num_layouts_for_key(base, key); group++)
+++			for (level = 0; level < xkb_keymap_num_levels_for_key(base, key, group);
+++			     level++)
+++				if (xkb_keymap_key_get_syms_by_level(base, key,
+++								      group, level, &syms))
+++					empty = false;
+++		if (empty) {
+++			spare = key;
+++			break;
+++		}
+++	}
+++	if (spare == XKB_KEYCODE_INVALID)
+++		return -1;
+++	name = xkb_keymap_key_get_name(base, spare);
+++	text = xkb_keymap_get_as_string(base, XKB_KEYMAP_FORMAT_TEXT_V1);
+++	if (!text)
+++		return -1;
+++	/* V1 serialization ends with the symbols block and the keymap block. */
+++	end = strrchr(text, '}');
+++	if (!end) {
+++		free(text);
+++		return -1;
+++	}
+++	*end = '\0';
+++	end = strrchr(text, '}');
+++	if (!end) {
+++		free(text);
+++		return -1;
+++	}
+++	ret = asprintf(&overlay,
+++		"%.*s\n replace key <%s> { type=\"ONE_LEVEL\", "
+++		"symbols[Group1]=[0x%08x], repeat=no };\n%s};\n",
+++		(int)(end - text), text, name, sym, end);
+++	free(text);
+++	if (ret < 0)
+++		return -1;
+++	map = xkb_keymap_new_from_string(ctx->rdpBackend->compositor->xkb_context,
+++			overlay, XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
+++	free(overlay);
+++	if (!map)
+++		return -1;
+++
+++	/* Preserve the active layout too: Weston's keymap update retains locks
+++	 * but resets the layout group. The temporary key has just one level.
+++	 */
+++	depressed = xkb_state_serialize_layout(keyboard->xkb_state.state,
+++					       XKB_STATE_LAYOUT_DEPRESSED);
+++	latched = xkb_state_serialize_layout(keyboard->xkb_state.state, XKB_STATE_LAYOUT_LATCHED);
+++	locked = xkb_state_serialize_layout(keyboard->xkb_state.state, XKB_STATE_LAYOUT_LOCKED);
+++	xkb_keymap_ref(base);
+++	weston_seat_update_keymap(ctx->item.seat, map);
+++	if (keyboard->xkb_info->keymap == map)
+++		rdp_unicode_stroke(ctx, spare - 8);
+++	else
+++		ret = -1;
+++	weston_seat_update_keymap(ctx->item.seat, base);
+++	xkb_state_update_mask(keyboard->xkb_state.state, 0,
+++		keyboard->modifiers.mods_latched, keyboard->modifiers.mods_locked,
+++		depressed, latched, locked);
+++	notify_modifiers(ctx->item.seat,
+++		wl_display_next_serial(ctx->rdpBackend->compositor->wl_display));
+++	xkb_keymap_unref(base);
+++	xkb_keymap_unref(map);
+++	return ret < 0 ? -1 : 1;
+++}
+++
+++static int
+++rdp_unicode_flush(void *data)
+++{
+++	RdpPeerContext *ctx = data;
+++	int ret;
+++
+++	while (ctx->unicode_count && ctx->item.seat) {
+++		ret = rdp_unicode_emit(ctx, ctx->unicode_queue[0]);
+++		if (!ret) {
+++			wl_event_source_timer_update(ctx->unicode_timer, 10);
+++			return 0;
+++		}
+++		if (ret < 0)
+++			weston_log("RDP: unable to map Unicode input\n");
+++		ctx->unicode_count--;
+++		memmove(ctx->unicode_queue, ctx->unicode_queue + 1,
+++			ctx->unicode_count * sizeof(ctx->unicode_queue[0]));
+++	}
+++	return 0;
+++}
+++
+++static BOOL
+++rdp_unicode_queue(RdpPeerContext *ctx, uint32_t codepoint)
+++{
+++	if (ctx->unicode_count == ARRAY_LENGTH(ctx->unicode_queue)) {
+++		weston_log("RDP: Unicode input queue full\n");
+++		return FALSE;
+++	}
+++	if (!ctx->unicode_timer) {
+++		ctx->unicode_timer = wl_event_loop_add_timer(
+++			wl_display_get_event_loop(ctx->rdpBackend->compositor->wl_display),
+++			rdp_unicode_flush, ctx);
+++		if (!ctx->unicode_timer)
+++			return FALSE;
+++	}
+++	ctx->unicode_queue[ctx->unicode_count++] = codepoint;
+++	rdp_unicode_flush(ctx);
+++	return TRUE;
+++}
+++
++ static BOOL
++ xf_input_unicode_keyboard_event(rdpInput *input, UINT16 flags, UINT16 code)
++ {
++-	RdpPeerContext *peerContext = (RdpPeerContext *)input->context;
++-	struct rdp_backend *b = peerContext->rdpBackend;
++-
++-	rdp_debug(b, "Client sent a unicode keyboard event (flags:0x%X code:0x%X)\n", flags, code);
++-
++-	return TRUE;
++-}
++-
+++	RdpPeerContext *ctx = (RdpPeerContext *)input->context;
+++	uint32_t codepoint;
+++	uint16_t high;
+++
+++	if (!(ctx->item.flags & RDP_PEER_ACTIVATED) || !ctx->item.seat ||
+++	    (flags & KBD_FLAGS_RELEASE))
+++		return TRUE;
+++
+++	high = ctx->unicode_high_surrogate;
+++	ctx->unicode_high_surrogate = 0;
+++	if (high && code >= 0xdc00 && code <= 0xdfff) {
+++		codepoint = 0x10000 + ((high - 0xd800) << 10) + code - 0xdc00;
+++		return rdp_unicode_queue(ctx, codepoint);
+++	}
+++	if (high && !rdp_unicode_queue(ctx, 0xfffd))
+++		return FALSE;
+++	if (code >= 0xd800 && code <= 0xdbff) {
+++		ctx->unicode_high_surrogate = code;
+++		return TRUE;
+++	}
+++	codepoint = code >= 0xdc00 && code <= 0xdfff ? 0xfffd : code;
+++	return rdp_unicode_queue(ctx, codepoint);
+++}
++ 
++ static BOOL
++ xf_suppress_output(rdpContext *context, BYTE allow, const RECTANGLE_16 *area)
++--- a/libweston/backend-rdp/rdp.h
+++++ b/libweston/backend-rdp/rdp.h
++@@ -168,6 +168,10 @@
++ 	struct weston_seat *private_seat;
++ 	struct wl_listener input_seat_destroy;
++ 	struct wl_array pressed_keys;
+++	struct wl_event_source *unicode_timer;
+++	uint32_t unicode_queue[256];
+++	unsigned int unicode_count;
+++	uint16_t unicode_high_surrogate;
++ 
++ 	bool button_state[5];
++ 
+diff --git a/frameworks/weston/patches/006-rdp-pipewire-audio.patch b/frameworks/weston/patches/006-rdp-pipewire-audio.patch
+new file mode 100644
+index 0000000..811ddf4
+--- /dev/null
++++ b/frameworks/weston/patches/006-rdp-pipewire-audio.patch
+@@ -0,0 +1,125 @@
++Subject: [PATCH] rdp: bridge authenticated peer audio through PipeWire
++
++Audio is explicitly enabled per direction in the existing RDP configuration.
++The audio implementation is supplied in files/rdpaudio.c by the recipe.
++
++--- a/meson_options.txt
+++++ b/meson_options.txt
++@@ -223,3 +223,5 @@
++ 	value: false,
++ 	description: 'DEPRECATED: Allow non-atomic modeset paths which will be removed soon'
++ )
+++
+++option('backend-rdp-audio', type: 'boolean', value: false, description: 'PipeWire RDP playback and microphone bridge')
++--- a/libweston/backend-rdp/meson.build
+++++ b/libweston/backend-rdp/meson.build
++@@ -47,12 +47,21 @@
++         dep_wpr,
++         dep_libdrm_headers,
++ ]
+++config_h.set10('HAVE_RDP_AUDIO', get_option('backend-rdp-audio'))
+++if get_option('backend-rdp-audio')
+++  deps_rdp += dependency('libpipewire-0.3', version: '>= 1.0')
+++  deps_rdp += dependency('threads')
+++endif
++ srcs_rdp = [
++         'rdp.c',
++         'rdpclip.c',
++         'rdpdisp.c',
++         'rdputil.c',
++ ]
+++
+++if get_option('backend-rdp-audio')
+++  srcs_rdp += 'rdpaudio.c'
+++endif
++ 
++ plugin_rdp = shared_library(
++         'rdp-backend',
++--- a/libweston/backend-rdp/rdp.c
+++++ b/libweston/backend-rdp/rdp.c
++@@ -37,6 +37,9 @@
++ #include <unistd.h>
++ 
++ #include "rdp.h"
+++#if HAVE_RDP_AUDIO
+++#include "rdpaudio.h"
+++#endif
++ 
++ #include <winpr/input.h>
++ #include <winpr/ssl.h>
++@@ -2734,5 +2737,15 @@
++ 	config_init_to_defaults(&config);
++ 	memcpy(&config, config_base, config_base->struct_size);
+++#if HAVE_RDP_AUDIO
+++	if (config.pipewire_playback) {
+++		config.audio_out_setup = weston_rdp_audio_out_setup;
+++		config.audio_out_teardown = weston_rdp_audio_teardown;
+++	}
+++	if (config.pipewire_capture) {
+++		config.audio_in_setup = weston_rdp_audio_in_setup;
+++		config.audio_in_teardown = weston_rdp_audio_teardown;
+++	}
+++#endif
++ 
++ 	if (!config.server_cert || !config.server_key || !config.nla_ntlm_db ||
++ 	    access(config.server_cert, R_OK) || access(config.server_key, R_OK) ||
++--- a/frontend/main.c
+++++ b/frontend/main.c
++@@ -4483,6 +4483,7 @@
++ 	bool no_remotefx_codec = false;
++ 	struct wet_output_config *parsed_options = wet_init_parsed_options(c);
++ 	bool no_resizeable = false;
+++	bool audio_playback = false, audio_capture = false;
++ 
++ 	if (!parsed_options)
++ 		return -1;
++@@ -4530,6 +4531,11 @@
++ 					 &config.server_key, config.server_key);
++ 	weston_config_section_get_string(section, "nla-ntlm-db",
++ 					 &config.nla_ntlm_db, config.nla_ntlm_db);
+++
+++	weston_config_section_get_bool(section, "audio-playback", &audio_playback, false);
+++	weston_config_section_get_bool(section, "audio-capture", &audio_capture, false);
+++	config.pipewire_playback = audio_playback;
+++	config.pipewire_capture = audio_capture;
++ 
++ 	wb = wet_compositor_load_backend(c, WESTON_BACKEND_RDP, &config.base,
++ 					 simple_heads_changed,
++--- a/include/libweston/backend-rdp.h
+++++ b/include/libweston/backend-rdp.h
++@@ -105,6 +105,8 @@
++ 	rdp_audio_out_setup audio_out_setup;
++ 	rdp_audio_out_teardown audio_out_teardown;
++ 	char *nla_ntlm_db;
+++	bool pipewire_playback;
+++	bool pipewire_capture;
++ };
++ 
++ #ifdef  __cplusplus
++--- a/libweston/backend-rdp/rdp.c
+++++ b/libweston/backend-rdp/rdp.c
++@@ -1293,9 +1293,9 @@
++ 		}
++ 		/* Audio setup will return NULL on failure, and we'll proceed without audio */
++-		if (audio_playback)
+++		if (audio_playback && !peerCtx->audio_out_private)
++ 			peerCtx->audio_out_private = b->audio_out_setup(b->compositor, peerCtx->vcm);
++ 
++-		if (audio_capture)
+++		if (audio_capture && !peerCtx->audio_in_private)
++ 			peerCtx->audio_in_private = b->audio_in_setup(b->compositor, peerCtx->vcm);
++ 	}
++ 
++--- a/libweston/backend-rdp/rdp.c
+++++ b/libweston/backend-rdp/rdp.c
++@@ -1031,7 +1031,9 @@
++ 
++ 	if (peerCtx && peerCtx->vcm)
++ 	{
++-		if (!WTSVirtualChannelManagerCheckFileDescriptor(peerCtx->vcm)) {
+++		/* Opening drdynvc before channel join permanently disables AUDIN. */
+++		if (!WTSVirtualChannelManagerCheckFileDescriptorEx(peerCtx->vcm,
+++							  client->activated)) {
++ 			weston_log("failed to check FreeRDP WTS VC file descriptor for %p\n", client);
++ 			goto out_clean;
++ 		}
+diff --git a/frameworks/weston/patches/007-rdp-audio-error-cleanup.patch b/frameworks/weston/patches/007-rdp-audio-error-cleanup.patch
+new file mode 100644
+index 0000000..b13070f
+--- /dev/null
++++ b/frameworks/weston/patches/007-rdp-audio-error-cleanup.patch
+@@ -0,0 +1,14 @@
++Subject: [PATCH] rdp: clear peer audio pointers after failed activation
++
++--- a/libweston/backend-rdp/rdp.c
+++++ b/libweston/backend-rdp/rdp.c
++@@ -1399,6 +1399,9 @@
++ 	if (audio_capture && peerCtx->audio_in_private)
++ 		b->audio_in_teardown(peerCtx->audio_in_private);
++ 
+++	peerCtx->audio_out_private = NULL;
+++	peerCtx->audio_in_private = NULL;
+++
++ 	return FALSE;
++ }
++ 
+diff --git a/frameworks/weston/patches/008-inert-tablet-seat-after-disconnect.patch b/frameworks/weston/patches/008-inert-tablet-seat-after-disconnect.patch
+new file mode 100644
+index 0000000..6ff1ed1
+--- /dev/null
++++ b/frameworks/weston/patches/008-inert-tablet-seat-after-disconnect.patch
+@@ -0,0 +1,39 @@
++Subject: [PATCH] input: keep tablet seat resources inert after seat removal
++
++Clients can request tablet seats after an RDP seat global has been removed.
++Match the inert-resource handling of pointer, keyboard and touch requests,
++and unlink existing tablet seat resources before freeing the seat.
++
++---
++
++--- a/libweston/input.c
+++++ b/libweston/input.c
++@@ -4425,6 +4425,11 @@
++ 		wl_resource_set_user_data(resource, NULL);
++ 	}
++ 
+++	wl_resource_for_each(resource, &seat->tablet_seat_resource_list) {
+++		wl_resource_set_user_data(resource, NULL);
+++	}
+++	wl_list_remove(&seat->tablet_seat_resource_list);
+++
++ 	wl_list_remove(&seat->base_resource_list);
++ 	wl_list_remove(&seat->drag_resource_list);
++ 
++@@ -4606,10 +4611,14 @@
++ 		return;
++ 	}
++ 
++-	/* store the resource in the weston_seat */
++-	wl_list_insert(&seat->tablet_seat_resource_list, wl_resource_get_link(cr));
+++	/* A removed wl_seat remains valid as an inert protocol resource. */
+++	wl_list_init(wl_resource_get_link(cr));
++ 	wl_resource_set_implementation(cr, &tablet_seat_interface, seat,
++ 				       unbind_resource);
+++	if (!seat)
+++		return;
+++
+++	wl_list_insert(&seat->tablet_seat_resource_list, wl_resource_get_link(cr));
++ 
++ 	/* Notify client of any tablets already connected to the system */
++ 	wl_list_for_each(tablet, &seat->tablet_list, link) {
+diff --git a/frameworks/weston/patches/009-retire-seat-globals-before-destroy.patch b/frameworks/weston/patches/009-retire-seat-globals-before-destroy.patch
+new file mode 100644
+index 0000000..10647e4
+--- /dev/null
++++ b/frameworks/weston/patches/009-retire-seat-globals-before-destroy.patch
+@@ -0,0 +1,64 @@
++Subject: [PATCH] input: retire seat globals before destroying them
++
++A VNC peer can announce and remove its private seat before clients have
++processed the registry announcement. Immediate destruction rejects their
++in-flight binds, disconnecting the desktop shell and leaving no background
++for repaint. Reuse the compositor wl_output retirement grace period, clear
++the freed seat data and permit late binds to create inert seat resources.
++
++---
++
++--- a/libweston/compositor.c
+++++ b/libweston/compositor.c
++@@ -6474,7 +6474,7 @@
++ 	return 0;
++ }
++ 
++-static void
+++void
++ weston_global_destroy_save(struct weston_compositor *compositor,
++ 			   struct wl_global *global)
++ {
++--- a/libweston/libweston-internal.h
+++++ b/libweston/libweston-internal.h
++@@ -318,6 +318,10 @@
++ noop_renderer_init(struct weston_compositor *ec);
++ 
++ void
+++weston_global_destroy_save(struct weston_compositor *compositor,
+++			   struct wl_global *global);
+++
+++void
++ weston_compositor_add_head(struct weston_compositor *compositor,
++ 			   struct weston_head *head);
++ void
++--- a/libweston/input.c
+++++ b/libweston/input.c
++@@ -3913,12 +3913,14 @@
++ 
++ 	resource = wl_resource_create(client,
++ 				      &wl_seat_interface, version, id);
++-	wl_list_insert(&seat->base_resource_list, wl_resource_get_link(resource));
+++	wl_list_init(wl_resource_get_link(resource));
+++	if (seat)
+++		wl_list_insert(&seat->base_resource_list, wl_resource_get_link(resource));
++ 	wl_resource_set_implementation(resource, &seat_interface, data,
++ 				       unbind_resource);
++ 
++ 	if (version >= WL_SEAT_NAME_SINCE_VERSION)
++-		wl_seat_send_name(resource, seat->seat_name);
+++		wl_seat_send_name(resource, seat ? seat->seat_name : "retired");
++ 
++ 	if (weston_seat_get_pointer(seat))
++ 		caps |= WL_SEAT_CAPABILITY_POINTER;
++@@ -4451,7 +4453,9 @@
++ 
++ 	free (seat->seat_name);
++ 
++-	wl_global_destroy(seat->global);
+++	/* Let in-flight registry binds create inert seats, as for wl_output. */
+++	wl_global_set_user_data(seat->global, NULL);
+++	weston_global_destroy_save(seat->compositor, seat->global);
++ 
++ 	wl_signal_emit(&seat->destroy_signal, seat);
++ }
+diff --git a/frameworks/weston/patches/010-terminal-consume-rgb-sgr-colors.patch b/frameworks/weston/patches/010-terminal-consume-rgb-sgr-colors.patch
+new file mode 100644
+index 0000000..d393cc0
+--- /dev/null
++++ b/frameworks/weston/patches/010-terminal-consume-rgb-sgr-colors.patch
+@@ -0,0 +1,111 @@
++Subject: [PATCH] terminal: consume extended SGR colors as complete attributes
++
++Map RGB foreground/background colors to the existing cell palette. Consume
++indexed colors without dropping subsequent attributes, and reject malformed
++color payloads without treating components as independent commands.
++
++---
++
++--- a/clients/terminal.c
+++++ b/clients/terminal.c
++@@ -1316,6 +1316,71 @@
++ 	}
++ }
++ 
+++/* Cell attributes store palette indices. Map RGB to the nearest existing
+++ * palette entry rather than interpreting its components as SGR commands. */
+++static int
+++terminal_rgb_index(struct terminal *terminal, int r, int g, int b)
+++{
+++	double best = 4.0;
+++	int index = 0, i;
+++
+++	for (i = 0; i < 256; i++) {
+++		double dr = terminal->color_table[i].r - r / 255.0;
+++		double dg = terminal->color_table[i].g - g / 255.0;
+++		double db = terminal->color_table[i].b - b / 255.0;
+++		double distance = dr * dr + dg * dg + db * db;
+++
+++		if (distance < best) {
+++			best = distance;
+++			index = i;
+++		}
+++	}
+++
+++	return index;
+++}
+++
+++static void
+++terminal_handle_sgr(struct terminal *terminal, int *args, int *set, int count)
+++{
+++	int i, j, components, index;
+++
+++	if (!set[0]) {
+++		handle_sgr(terminal, 0);
+++		return;
+++	}
+++
+++	for (i = 0; i < count && set[i]; i++) {
+++		if (args[i] != 38 && args[i] != 48) {
+++			handle_sgr(terminal, args[i]);
+++			continue;
+++		}
+++
+++		/* Consume a complete extended color atomically. Invalid or
+++		 * truncated payloads must not change bold, blink, or other state. */
+++		if (i + 1 >= count || !set[i + 1])
+++			return;
+++		if (args[i + 1] == 5)
+++			components = 1;
+++		else if (args[i + 1] == 2)
+++			components = 3;
+++		else
+++			return;
+++		if (i + 1 + components >= count)
+++			return;
+++		for (j = 0; j < components; j++) {
+++			if (!set[i + 2 + j] || args[i + 2 + j] < 0 ||
+++			    args[i + 2 + j] > 255)
+++				return;
+++		}
+++		index = args[i + 2];
+++		if (components == 3)
+++			index = terminal_rgb_index(terminal, args[i + 2],
+++					   args[i + 3], args[i + 4]);
+++		handle_sgr(terminal, index + (args[i] == 38 ? 256 : 512));
+++		i += 1 + components;
+++	}
+++}
+++
++ static void
++ handle_escape(struct terminal *terminal)
++ {
++@@ -1580,27 +1645,7 @@
++ 		}
++ 		break;
++ 	case 'm':    /* SGR - Set attributes */
++-		for (i = 0; i < 10; i++) {
++-			if (i <= 7 && set[i] && set[i + 1] &&
++-				set[i + 2] && args[i + 1] == 5)
++-			{
++-				if (args[i] == 38) {
++-					handle_sgr(terminal, args[i + 2] + 256);
++-					break;
++-				} else if (args[i] == 48) {
++-					handle_sgr(terminal, args[i + 2] + 512);
++-					break;
++-				}
++-			}
++-			if (set[i]) {
++-				handle_sgr(terminal, args[i]);
++-			} else if (i == 0) {
++-				handle_sgr(terminal, 0);
++-				break;
++-			} else {
++-				break;
++-			}
++-		}
+++		terminal_handle_sgr(terminal, args, set, ARRAY_LENGTH(args));
++ 		break;
++ 	case 'n':    /* DSR - Status report */
++ 		i = set[0] ? args[0] : 0;
+diff --git a/frameworks/weston/patches/011-pipewire-mirror-initial-mode.patch b/frameworks/weston/patches/011-pipewire-mirror-initial-mode.patch
+new file mode 100644
+index 0000000..928eaa9
+--- /dev/null
++++ b/frameworks/weston/patches/011-pipewire-mirror-initial-mode.patch
+@@ -0,0 +1,37 @@
++Subject: [PATCH] pipewire: negotiate the physical mirror mode before enable
++
++--- a/frontend/main.c
+++++ b/frontend/main.c
++@@ -4308,6 +4308,8 @@
++ 	struct weston_config *wc = wet_get_config(output->compositor);
++ 	struct weston_config_section *section;
++ 	char *gbm_format = NULL;
+++	char *mirror_name = NULL;
+++	struct weston_output *source;
++ 	int width;
++ 	int height;
++ 	int framerate = -1;
++@@ -4328,6 +4330,23 @@
++ 
++ 	wet_output_set_scale(output, section, 1, 0);
++ 	weston_output_set_transform(output, WL_OUTPUT_TRANSFORM_NORMAL);
+++
+++	/* Advertise the mirror's real mode before connecting its PipeWire stream.
+++	 * Changing only the renderer size after enable leaves the initial 640x480
+++	 * at 30 Hz in the stream's format negotiation. */
+++	weston_config_section_get_string(section, "mirror-of", &mirror_name, NULL);
+++	if (mirror_name) {
+++		source = weston_compositor_find_output_by_name(output->compositor,
+++						    mirror_name);
+++		free(mirror_name);
+++		if (!source || !source->current_mode) {
+++			free(gbm_format);
+++			return -1;
+++		}
+++		width = source->current_mode->width;
+++		height = source->current_mode->height;
+++		framerate = (source->current_mode->refresh + 500) / 1000;
+++	}
++ 
++ 	api->set_gbm_format(output, gbm_format);
++ 	free(gbm_format);
+diff --git a/libs/cairo/Makefile b/libs/cairo/Makefile
+index 55f8441..cf55070 100644
+--- a/libs/cairo/Makefile
++++ b/libs/cairo/Makefile
+@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=cairo
+ PKG_VERSION:=1.18.4
+-PKG_RELEASE:=1
++PKG_RELEASE:=3
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://cairo.freedesktop.org/releases/
+@@ -21,7 +21,7 @@ define Package/libcairo
+   SUBMENU:=Video
+   TITLE:=cairo
+   URL:=https://cairo.freedesktop.org/
+-  DEPENDS:=+libpng +libfreetype +fontconfig +libmesa +pixman +glib2 +libjpeg +zlib +liblzo
++  DEPENDS:=+libpng +libfreetype +fontconfig +libmesa +pixman +glib2 +libjpeg +zlib +liblzo +libX11 +libXext +libXrender +libxcb
+ endef
+ 
+ define Package/libcairo/description
+@@ -33,8 +33,8 @@ MESON_ARGS += \
+ 	-Dfontconfig=enabled \
+ 	-Dfreetype=enabled \
+ 	-Dpng=enabled \
+-	-Dxcb=disabled \
+-	-Dxlib=disabled \
++	-Dxcb=enabled \
++	-Dxlib=enabled \
+ 	-Dxlib-xcb=disabled \
+ 	-Dzlib=enabled
+ 
+diff --git a/libs/gdk-pixbuf/Makefile b/libs/gdk-pixbuf/Makefile
+index 3f8fbf3..01ede65 100644
+--- a/libs/gdk-pixbuf/Makefile
++++ b/libs/gdk-pixbuf/Makefile
+@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=gdk-pixbuf
+ PKG_VERSION:=2.44.8
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=@GNOME/$(PKG_NAME)/$(basename $(PKG_VERSION))
+@@ -29,7 +29,7 @@ define Package/libgdk-pixbuf
+   SECTION:=video-frameworks
+   CATEGORY:=Video
+   SUBMENU:=Frameworks and Toolkits
+-  DEPENDS:=+giflib +libpng +libtiff +libjpeg +shared-mime-info
++  DEPENDS:=+PACKAGE_glib2-gir:glib2-gir +giflib +libpng +libtiff +libjpeg +shared-mime-info
+   TITLE:=GdkPixbuf: Image loading library
+   URL:=http://www.gtk.org/
+ endef
+@@ -38,7 +38,18 @@ define Package/libgdk-pixbuf/description
+   GdkPixbuf is a library that loads image data in various formats and stores it as linear buffers in memory.
+ endef
+ 
++PKG_CONFIG_DEPENDS += CONFIG_PACKAGE_glib2-gir
++# Metadata scans ignore .config, so declare the GIR build deps conditionally.
++PKG_BUILD_DEPENDS += PACKAGE_glib2-gir:gobject-introspection/host PACKAGE_glib2-gir:gobject-introspection PACKAGE_glib2-gir:glib2-gir
++ifeq ($(CONFIG_PACKAGE_glib2-gir),y)
++include $(INCLUDE_DIR)/gobject-introspection.mk
++MESON_ARGS += -Dintrospection=enabled -Ddefault_library=both
++endif
++
+ define Build/InstallDev
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(INSTALL_DIR) $(1)/usr/share/gir-1.0 $(1)/usr/lib/girepository-1.0)
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(CP) $(PKG_INSTALL_DIR)/usr/share/gir-1.0/*.gir $(1)/usr/share/gir-1.0/)
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(CP) $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0/*.typelib $(1)/usr/lib/girepository-1.0/)
+ 	$(INSTALL_DIR) $(1)/usr/include/gdk-pixbuf-2.0/gdk-pixbuf
+ 	$(CP) \
+ 		$(PKG_INSTALL_DIR)/usr/include/gdk-pixbuf-2.0/gdk-pixbuf/*.h \
+@@ -56,6 +67,8 @@ define Build/InstallDev
+ endef
+ 
+ define Package/libgdk-pixbuf/install
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(INSTALL_DIR) $(1)/usr/lib/girepository-1.0)
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(CP) $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0/*.typelib $(1)/usr/lib/girepository-1.0/)
+ 	$(INSTALL_DIR) $(1)/usr/lib
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/*.so* $(1)/usr/lib/
+ 
+diff --git a/libs/graphene/Makefile b/libs/graphene/Makefile
+index 440c3ce..2cd0509 100644
+--- a/libs/graphene/Makefile
++++ b/libs/graphene/Makefile
+@@ -1,7 +1,8 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=graphene
+-PKG_RELEASE:=1
++PKG_RELEASE:=4
++PKG_CONFIG_DEPENDS:=CONFIG_PACKAGE_gtk4
+ 
+ PKG_SOURCE_PROTO:=git
+ PKG_SOURCE_DATE:=2025-12-19
+@@ -19,10 +20,17 @@ PKG_FORTIFY_SOURCE:=0
+ include $(INCLUDE_DIR)/package.mk
+ include $(INCLUDE_DIR)/meson.mk
+ 
++# Metadata scans ignore .config, so declare the GIR build deps conditionally.
++PKG_BUILD_DEPENDS += PACKAGE_gtk4:gobject-introspection/host PACKAGE_gtk4:gobject-introspection PACKAGE_gtk4:glib2-gir
++ifneq ($(CONFIG_PACKAGE_gtk4),)
++PKG_BUILD_DEPENDS+=glib2-gir
++include $(INCLUDE_DIR)/gobject-introspection.mk
++endif
++
+ MESON_ARGS += \
+ 	-Dgtk_doc=false \
+ 	-Dgobject_types=true \
+-	-Dintrospection=disabled \
++	-Dintrospection=$(if $(CONFIG_PACKAGE_gtk4),enabled,disabled) \
+ 	-Dtests=false \
+ 	-Dinstalled_tests=false
+ 
+@@ -48,11 +56,15 @@ define Build/InstallDev
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/graphene-1.0/include/*.h $(1)/usr/lib/graphene-1.0/include
+ 	$(INSTALL_DIR) $(1)/usr/lib/pkgconfig
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/*.pc $(1)/usr/lib/pkgconfig
++	$(if $(CONFIG_PACKAGE_gtk4),$(INSTALL_DIR) $(1)/usr/share/gir-1.0 $(1)/usr/lib/girepository-1.0)
++	$(if $(CONFIG_PACKAGE_gtk4),$(CP) $(PKG_INSTALL_DIR)/usr/share/gir-1.0/. $(1)/usr/share/gir-1.0/)
++	$(if $(CONFIG_PACKAGE_gtk4),$(CP) $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0/. $(1)/usr/lib/girepository-1.0/)
+ endef
+ 
+ define Package/libgraphene/install
+ 	$(INSTALL_DIR) $(1)/usr/lib
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/*.so* $(1)/usr/lib
++	$(if $(CONFIG_PACKAGE_gtk4),$(CP) $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0 $(1)/usr/lib/)
+ endef
+ 
+ $(eval $(call BuildPackage,libgraphene))
+diff --git a/libs/harfbuzz/Makefile b/libs/harfbuzz/Makefile
+index 82f8187..dc85b8a 100644
+--- a/libs/harfbuzz/Makefile
++++ b/libs/harfbuzz/Makefile
+@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=harfbuzz
+ PKG_VERSION:=14.3.1
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://github.com/harfbuzz/harfbuzz/releases/download/$(PKG_VERSION)/
+@@ -30,13 +30,24 @@ define Package/harfbuzz
+   SUBMENU:=Video
+   TITLE:=hafbuzz
+   URL:=http://www.harfbuzz.org/
+-  DEPENDS:=+glib2 +icu +libcairo +libfreetype
++  DEPENDS:=+PACKAGE_glib2-gir:glib2-gir +glib2 +icu +libcairo +libfreetype
+ endef
+ 
+ define Package/harfbuzz/description
+ endef
+ 
++PKG_CONFIG_DEPENDS += CONFIG_PACKAGE_glib2-gir
++# Metadata scans ignore .config, so declare the GIR build deps conditionally.
++PKG_BUILD_DEPENDS += PACKAGE_glib2-gir:gobject-introspection/host PACKAGE_glib2-gir:gobject-introspection PACKAGE_glib2-gir:glib2-gir
++ifeq ($(CONFIG_PACKAGE_glib2-gir),y)
++include $(INCLUDE_DIR)/gobject-introspection.mk
++MESON_ARGS += -Dintrospection=enabled
++endif
++
+ define Build/InstallDev
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(INSTALL_DIR) $(1)/usr/share/gir-1.0 $(1)/usr/lib/girepository-1.0)
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(CP) $(PKG_INSTALL_DIR)/usr/share/gir-1.0/*.gir $(1)/usr/share/gir-1.0/)
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(CP) $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0/*.typelib $(1)/usr/lib/girepository-1.0/)
+ 	$(INSTALL_DIR) $(1)/usr/include
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/include/* $(1)/usr/include/
+ 	$(INSTALL_DIR) $(1)/usr/lib
+@@ -46,6 +57,8 @@ define Build/InstallDev
+ endef
+ 
+ define Package/harfbuzz/install
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(INSTALL_DIR) $(1)/usr/lib/girepository-1.0)
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(CP) $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0/*.typelib $(1)/usr/lib/girepository-1.0/)
+ 	$(INSTALL_DIR) $(1)/usr/lib
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/*.so* $(1)/usr/lib/
+ endef
+diff --git a/libs/libepoxy/Makefile b/libs/libepoxy/Makefile
+index 4a2464d..f411de9 100644
+--- a/libs/libepoxy/Makefile
++++ b/libs/libepoxy/Makefile
+@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=libepoxy
+ PKG_VERSION:=1.5.10
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
+ PKG_SOURCE_URL:=https://codeload.github.com/anholt/libepoxy/tar.gz/$(PKG_VERSION)?
+@@ -21,7 +21,7 @@ define Package/libepoxy
+   SUBMENU:=Video
+   TITLE:=Epoxy OpenGL function pointer management
+   URL:=https://github.com/anholt/libepoxy
+-  DEPENDS:=+libmesa
++  DEPENDS:=+libmesa +libX11
+ endef
+ 
+ define Package/libepoxy/description
+@@ -30,9 +30,9 @@ endef
+ 
+ MESON_ARGS += \
+ 	-Ddocs=false \
+-	-Dglx=no \
++	-Dglx=yes \
+ 	-Degl=yes \
+-	-Dx11=false \
++	-Dx11=true \
+ 	-Dtests=false
+ 
+ define Package/libepoxy/install
+diff --git a/libs/libxkbcommon/Makefile b/libs/libxkbcommon/Makefile
+index e8c414d..38225bd 100644
+--- a/libs/libxkbcommon/Makefile
++++ b/libs/libxkbcommon/Makefile
+@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=libxkbcommon
+ PKG_VERSION:=1.13.2
+-PKG_RELEASE:=1
++PKG_RELEASE:=5
+ 
+ PKG_SOURCE_PROTO:=git
+ PKG_SOURCE_VERSION:=xkbcommon-$(PKG_VERSION)
+@@ -14,13 +14,13 @@ PKG_LICENSE:=BSD-3-Clause
+ 
+ PKG_INSTALL:=1
+ 
+-PKG_BUILD_DEPENDS:=wayland
++PKG_BUILD_DEPENDS:=wayland libxcb
+ 
+ include $(INCLUDE_DIR)/package.mk
+ include $(INCLUDE_DIR)/meson.mk
+ 
+ MESON_ARGS += \
+-	-Denable-x11=false \
++	-Denable-x11=true \
+ 	-Denable-docs=false \
+ 	-Denable-wayland=true \
+ 	-Dxkb-config-unversioned-extensions-path=/usr/share/xkeyboard-config.d \
+@@ -46,13 +46,33 @@ define Build/InstallDev
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/pkgconfig/*.pc $(1)/usr/lib/pkgconfig/
+ endef
+ 
++define Package/libxkbcommon-x11
++  SECTION:=libs
++  CATEGORY:=Libraries
++  TITLE:=libxkbcommon X11 support
++  URL:=https://xkbcommon.org/
++  DEPENDS:=+libxkbcommon +libxcb
++endef
++
+ define Package/libxkbcommon/install
+ 	$(INSTALL_DIR) $(1)/usr/lib
+-	$(CP) $(PKG_INSTALL_DIR)/usr/lib/*.so* $(1)/usr/lib/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libxkbcommon.so.* $(1)/usr/lib/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libxkbregistry.so.* $(1)/usr/lib/
+ 	$(INSTALL_DIR) $(1)/usr/libexec/xkbcommon
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/libexec/xkbcommon/* $(1)/usr/libexec/xkbcommon/
++	rm -f $(1)/usr/libexec/xkbcommon/*-x11
+ 	$(INSTALL_DIR) $(1)/usr/bin
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/xkbcli $(1)/usr/bin/
+ endef
+ 
++define Package/libxkbcommon-x11/install
++	$(INSTALL_DIR) $(1)/usr/lib
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libxkbcommon-x11.so.* $(1)/usr/lib/
++	$(INSTALL_DIR) $(1)/usr/libexec/xkbcommon
++	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/libexec/xkbcommon/xkbcli-dump-keymap-x11 \
++		$(PKG_INSTALL_DIR)/usr/libexec/xkbcommon/xkbcli-interactive-x11 \
++		$(1)/usr/libexec/xkbcommon/
++endef
++
+ $(eval $(call BuildPackage,libxkbcommon))
++$(eval $(call BuildPackage,libxkbcommon-x11))
+diff --git a/libs/mesa/Makefile b/libs/mesa/Makefile
+index fd5c201..05755a6 100644
+--- a/libs/mesa/Makefile
++++ b/libs/mesa/Makefile
+@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=mesa
+ PKG_VERSION:=26.2.2
+-PKG_RELEASE:=5
++PKG_RELEASE:=12
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=https://archive.mesa3d.org/
+@@ -24,6 +24,7 @@ HOST_BUILD_DEPENDS:=$(MESA_PYTHON_BUILD_DEPENDS) spirv-tools/host MESA_USE_LLVM:
+ PKG_CONFIG_DEPENDS:= \
+ 	CONFIG_PACKAGE_libmesa-amd \
+ 	CONFIG_PACKAGE_libmesa-intel \
++	CONFIG_PACKAGE_libmesa-virtualization \
+ 	CONFIG_PACKAGE_libmesa-tegra \
+ 	CONFIG_PACKAGE_libmesa-etnaviv \
+ 	CONFIG_PACKAGE_libmesa-broadcom \
+@@ -110,7 +111,7 @@ endef
+ define Package/libmesa-amd
+ $(call Package/libmesa/Default,$(1))
+   TITLE+= (AMD)
+-  DEPENDS+=accel-support +libdrm-amdgpu +libdrm-radeon +libelf @MESA_USE_LLVM
++  DEPENDS+=+accel-support +libdrm-amdgpu +libdrm-radeon +libelf @MESA_USE_LLVM
+   VARIANT:=amd
+ endef
+ 
+@@ -134,11 +135,27 @@ endef
+ 
+ define Package/libmesa-intel
+ $(call Package/libmesa/Default,$(1))
+-  DEPENDS+=accel-support +libdrm-intel @(i386||i686||x86_64) @MESA_USE_LLVM
++  DEPENDS+=+accel-support +libdrm-intel @(i386||i686||x86_64) @MESA_USE_LLVM
+   TITLE+= (Intel)
+   VARIANT:=intel
+ endef
+ 
++define Package/libmesa-virtualization
++$(call Package/libmesa/Default,$(1))
++  TITLE+= (Intel, VirtIO and software rendering)
++  DEPENDS+=+accel-support +libdisplay-info +libdrm-intel +libexpat +libglvnd +libudev \
++	+libX11 +libXext +libXfixes +libXrandr +libXxf86vm +libxcb +libxcb-keysyms +libxshmfence \
++	@TARGET_x86_64 @MESA_USE_LLVM
++  VARIANT:=virtualization
++endef
++
++define Package/libmesa-virtualization/description
++  A single Mesa provider with Intel iris/crocus/i915, VirtIO virgl and
++  software softpipe drivers, plus Intel and VirtIO Vulkan ICDs. Shared
++  EGL, GBM, Gallium and Vulkan libraries are installed once, so all
++  render paths remain available in the same image.
++endef
++
+ define Package/libmesa-intel/description
+ A collection of drivers for GPUs embedded in Intel's CPUs.
+ 
+@@ -162,7 +179,7 @@ endef
+ 
+ define Package/libmesa-tegra
+ $(call Package/libmesa/Default,$(1))
+-  DEPENDS+=accel-support +libdrm-tegra @(aarch64||arm) @MESA_USE_LLVM
++  DEPENDS+=+accel-support +libdrm-tegra @(aarch64||arm) @MESA_USE_LLVM
+   TITLE+= (NVIDIA Tegra)
+   VARIANT:=tegra
+ endef
+@@ -176,7 +193,7 @@ endef
+ 
+ define Package/libmesa-etnaviv
+ $(call Package/libmesa/Default,$(1))
+-  DEPENDS+=accel-support +libdrm-etnaviv @(aarch64||arm||mips||mips64||mipsel||mips64el||riscv64)
++  DEPENDS+=+accel-support +libdrm-etnaviv @(aarch64||arm||mips||mips64||mipsel||mips64el||riscv64)
+   TITLE+= (Vivante)
+   VARIANT:=etnaviv
+ endef
+@@ -190,7 +207,7 @@ endef
+ 
+ define Package/libmesa-nouveau
+ $(call Package/libmesa/Default,$(1))
+-  DEPENDS+=accel-support +libdrm-nouveau @MESA_USE_LLVM
++  DEPENDS+=+accel-support +libdrm-nouveau @MESA_USE_LLVM
+   TITLE+= (NVIDIA)
+   VARIANT:=nouveau
+ endef
+@@ -207,7 +224,7 @@ define Package/libmesa-broadcom
+ $(call Package/libmesa/Default,$(1))
+   TITLE+= (Broadcom)
+   VARIANT:=broadcom
+-  DEPENDS+=accel-support +libarchive @(aarch64||arm) @HAS_FPU
++  DEPENDS+=+accel-support +libarchive @(aarch64||arm) @HAS_FPU
+ endef
+ 
+ define Package/libmesa-broadcom/description
+@@ -229,7 +246,7 @@ define Package/libmesa-lima
+ $(call Package/libmesa/Default,$(1))
+   TITLE+= (ARM Mali Utgard)
+   VARIANT:=lima
+-  DEPENDS+=accel-support @(aarch64||arm)
++  DEPENDS+=+accel-support @(aarch64||arm)
+ endef
+ 
+ define Package/libmesa-lima/description
+@@ -252,7 +269,7 @@ define Package/libmesa-panfrost
+ $(call Package/libmesa/Default,$(1))
+   TITLE+= (ARM Mali Midgard and later)
+   VARIANT:=panfrost
+-  DEPENDS+=accel-support @(aarch64||arm) @MESA_USE_LLVM
++  DEPENDS+=+accel-support @(aarch64||arm) @MESA_USE_LLVM
+ endef
+ 
+ define Package/libmesa-panfrost/description
+@@ -277,7 +294,7 @@ define Package/libmesa-virgl
+ $(call Package/libmesa/Default,$(1))
+   TITLE+= (VirtIO GL)
+   VARIANT:=virgl
+-  DEPENDS+=accel-support
++  DEPENDS+=+accel-support
+ endef
+ 
+ define Package/libmesa-virgl/description
+@@ -292,7 +309,7 @@ define Package/libmesa-zink
+ $(call Package/libmesa/Default,$(1))
+   TITLE+= (Zink GL via Vulkan)
+   VARIANT:=vulkan
+-  DEPENDS+=accel-support @MESA_USE_LLVM
++  DEPENDS+=+accel-support @MESA_USE_LLVM
+ endef
+ 
+ define Package/libmesa-zink/description
+@@ -334,7 +351,7 @@ endef
+ 
+ define Package/libvulkan-broadcom
+ $(call Package/mesa/Default)
+-  DEPENDS+=accel-support +libdisplay-info +libdrm +libexpat +libstdcpp +libudev +libwayland +libzstd +zlib \
++  DEPENDS+=+accel-support +libdisplay-info +libdrm +libexpat +libstdcpp +libudev +libwayland +libzstd +zlib \
+ 	   @(arm||aarch64) @HAS_FPU
+   TITLE+= Broadcom Vulkan driver
+   VARIANT:=vulkan
+@@ -347,7 +364,7 @@ endef
+ 
+ define Package/libvulkan-imagination
+ $(call Package/mesa/Default)
+-  DEPENDS+=accel-support +libatomic +libdisplay-info +libdrm +libexpat +libstdcpp +libudev +libwayland +libzstd \
++  DEPENDS+=+accel-support +libatomic +libdisplay-info +libdrm +libexpat +libstdcpp +libudev +libwayland +libzstd \
+ 	   +zlib @(aarch64||arm||mips||mips64||mipsel||mips64el||riscv64)
+   TITLE+= Imagination PowerVR driver (EXPERIMENTAL)
+   VARIANT:=vulkan
+@@ -371,7 +388,7 @@ endef
+ 
+ define Package/libvulkan-intel
+ $(call Package/mesa/Default)
+-  DEPENDS+=accel-support +libdisplay-info +libdrm-intel +libexpat +libstdcpp +libudev +libwayland +libzstd +zlib \
++  DEPENDS+=+accel-support +libdisplay-info +libdrm-intel +libexpat +libstdcpp +libudev +libwayland +libzstd +zlib \
+ 	   @(i386||i686||x86_64) @MESA_USE_LLVM
+   TITLE+= Intel Gen9+ Vulkan driver
+   VARIANT:=vulkan
+@@ -384,7 +401,7 @@ endef
+ 
+ define Package/libvulkan-intel-hasvk
+ $(call Package/mesa/Default)
+-  DEPENDS+=accel-support +libdisplay-info +libdrm-intel +libexpat +libstdcpp +libudev +libwayland +libzstd +zlib \
++  DEPENDS+=+accel-support +libdisplay-info +libdrm-intel +libexpat +libstdcpp +libudev +libwayland +libzstd +zlib \
+ 	   @(i386||i686||x86_64) @MESA_USE_LLVM
+   TITLE+= Intel Gen7/Gen8 Vulkan driver
+   VARIANT:=vulkan
+@@ -410,7 +427,7 @@ endef
+ define Package/libvulkan-nouveau
+ $(call Package/mesa/Default)
+   TITLE+= nouveau Vulkan driver for nVidia GPUs
+-  DEPENDS+=accel-support $(RUST_ARCH_DEPENDS) @MESA_USE_LLVM @BROKEN
++  DEPENDS+=+accel-support $(RUST_ARCH_DEPENDS) @MESA_USE_LLVM @BROKEN
+   VARIANT:=vulkan
+ # needs rust-bindgen which currently can't be built
+ endef
+@@ -426,7 +443,7 @@ endef
+ 
+ define Package/libvulkan-panfrost
+ $(call Package/mesa/Default)
+-  DEPENDS+=accel-support +libdisplay-info +libdrm +libexpat +libstdcpp +libudev +libwayland +libzstd +zlib \
++  DEPENDS+=+accel-support +libdisplay-info +libdrm +libexpat +libstdcpp +libudev +libwayland +libzstd +zlib \
+ 	   @(arm||aarch64) @MESA_USE_LLVM
+   TITLE+= ARM Mali Midgard/Bifrost/Valhall Vulkan driver
+   VARIANT:=vulkan
+@@ -440,7 +457,7 @@ endef
+ define Package/libvulkan-radeon
+ $(call Package/mesa/Default)
+   TITLE+= AMD Radeon Vulkan driver
+-  DEPENDS+=accel-support +libdisplay-info +libdrm-amdgpu +libelf +libexpat +libstdcpp +libudev +libwayland \
++  DEPENDS+=+accel-support +libdisplay-info +libdrm-amdgpu +libelf +libexpat +libstdcpp +libudev +libwayland \
+ 	   +libzstd +zlib @MESA_USE_LLVM
+   VARIANT:=vulkan
+ endef
+@@ -452,7 +469,7 @@ endef
+ define Package/libvulkan-virtio
+ $(call Package/mesa/Default)
+   TITLE+= virtio-gpu Vulkan driver (venus)
+-  DEPENDS+=accel-support +libdisplay-info +libdrm +libstdcpp +libudev +libwayland +libzstd +zlib
++  DEPENDS+=+accel-support +libdisplay-info +libdrm +libstdcpp +libudev +libwayland +libzstd +zlib
+   VARIANT:=vulkan
+ endef
+ 
+@@ -561,13 +578,13 @@ MESON_HOST_ARGS += \
+ endif
+ 
+ MESON_ARGS += \
+-	-Dplatforms=wayland \
+-	-Dglx=disabled \
++	-Dplatforms=$(if $(filter virtualization,$(BUILD_VARIANT)),wayland$(comma)x11,wayland) \
++	-Dglx=$(if $(filter virtualization,$(BUILD_VARIANT)),dri,disabled) \
+ 	-Degl=enabled \
+ 	-Dgbm=enabled \
+ 	-Dgles1=enabled \
+ 	-Dgles2=enabled \
+-	-Dglvnd=disabled \
++	-Dglvnd=$(if $(filter virtualization,$(BUILD_VARIANT)),en,dis)abled \
+ 	-Dopengl=true \
+ 	-Dandroid-stub=false \
+ 	-Dlibunwind=disabled \
+@@ -590,6 +607,13 @@ MESON_ARGS += \
+ 	-Dintel-rt=$(if $(CONFIG_TARGET_x86_64),en,dis)abled
+ endif
+ 
++ifeq ($(BUILD_VARIANT),virtualization)
++MESON_ARGS += \
++	-Dgallium-drivers=crocus,i915,iris,virgl,softpipe \
++	-Dvulkan-drivers=intel,intel_hasvk,virtio \
++	-Dintel-rt=enabled
++endif
++
+ ifeq ($(BUILD_VARIANT),tegra)
+ MESON_ARGS += \
+ 	-Dgallium-drivers=tegra,nouveau
+@@ -663,7 +687,7 @@ ifeq ($(BUILD_VARIANT),vulkan)
+ MESON_ARGS += \
+ 	-Dgallium-drivers=zink \
+ 	-Dvulkan-drivers=$(subst $(space),$(comma),$(strip $(VULKAN_DRIVERS)))
+-else
++else ifneq ($(BUILD_VARIANT),virtualization)
+ MESON_ARGS += \
+ 	-Dvulkan-drivers=
+ endif
+@@ -832,6 +856,14 @@ endef
+ Package/libteflon-rocket/install = $(Package/libteflon/install)
+ Package/libteflon-etnaviv/install = $(Package/libteflon/install)
+ 
++define Package/libmesa-virtualization/install
++	$(call Package/libmesa/install,$(1))
++	$(INSTALL_DIR) $(1)/usr/share/glvnd/egl_vendor.d
++	$(CP) $(PKG_INSTALL_DIR)/usr/share/glvnd/egl_vendor.d/*.json $(1)/usr/share/glvnd/egl_vendor.d/
++	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libvulkan_*.so $(1)/usr/lib/
++	$(INSTALL_DIR) $(1)/usr/share/vulkan/icd.d
++	$(CP) $(PKG_INSTALL_DIR)/usr/share/vulkan/icd.d/*_icd.*.json $(1)/usr/share/vulkan/icd.d/
++endef
+ Package/libmesa-intel/install = $(Package/libmesa/install)
+ Package/libmesa-amd/install = $(Package/libmesa/install)
+ Package/libmesa-tegra/install = $(Package/libmesa/install)
+@@ -848,6 +880,7 @@ Package/libmesa-llvmpipe/install = $(Package/libmesa/install)
+ $(eval $(call BuildPackage,mesa3d))
+ $(eval $(call BuildPackage,libmesa-amd))
+ $(eval $(call BuildPackage,libmesa-intel))
++$(eval $(call BuildPackage,libmesa-virtualization))
+ $(eval $(call BuildPackage,libmesa-tegra))
+ $(eval $(call BuildPackage,libmesa-etnaviv))
+ $(eval $(call BuildPackage,libmesa-broadcom))
+diff --git a/libs/mesa/patches/700-meson-prefer-machine-file-python.patch b/libs/mesa/patches/700-meson-prefer-machine-file-python.patch
+new file mode 100644
+index 0000000..b9eed0d
+--- /dev/null
++++ b/libs/mesa/patches/700-meson-prefer-machine-file-python.patch
+@@ -0,0 +1,21 @@
++From: hnt510 <hnt510@gmail.com>
++Subject: meson: prefer the machine-file python
++
++Mesa probes versioned interpreters (python3.16, python3.15, ...) before
++"python". When the build host ships a newer interpreter than the one the
++build system stages, meson picks the host one while PYTHONPATH still points
++at the staged standard library, and the code generators fail inside
++importlib. Look up "python" first so the [binaries] entry of the native or
++cross file wins; the version and mako checks below still apply to it.
++
++--- a/meson.build
+++++ b/meson.build
++@@ -1090,7 +1090,7 @@ endif
++ # - On Windows, a venv has no versioned aliased to 'python'.
++ # - On RHEL 9, python3 is 3.9, so we must use python3.12.
++ python_version_req = '>= 3.10'
++-python_exec_list = ['python3.16', 'python3.15', 'python3.14', 'python3.13',
+++python_exec_list = ['python', 'python3.16', 'python3.15', 'python3.14', 'python3.13',
++                     'python3.12', 'python3.11', 'python3.10', 'python3', 'python']
++ 
++ foreach p : python_exec_list
+diff --git a/libs/pango/Makefile b/libs/pango/Makefile
+index 264df16..519661a 100644
+--- a/libs/pango/Makefile
++++ b/libs/pango/Makefile
+@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=pango
+ PKG_VERSION:=1.58.2
+-PKG_RELEASE:=1
++PKG_RELEASE:=2
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=@GNOME/$(PKG_NAME)/$(basename $(PKG_VERSION))
+@@ -28,18 +28,28 @@ define Package/libpango
+   SUBMENU:=Video
+   TITLE:=libpango
+   URL:=https://www.pango.org/
+-  DEPENDS:=+glib2 +fribidi +harfbuzz +libcairo $(ICONV_DEPENDS) $(INTL_DEPENDS)
++  DEPENDS:=+PACKAGE_glib2-gir:glib2-gir +glib2 +fribidi +harfbuzz +libcairo $(ICONV_DEPENDS) $(INTL_DEPENDS)
+ endef
+ 
+ MESON_ARGS += \
+-	-Dintrospection=disabled \
+ 	-Dgtk_doc=false \
+ 	-Dsysprof=disabled
+ 
+ define package/libpango/decription
+ endef
+ 
++PKG_CONFIG_DEPENDS += CONFIG_PACKAGE_glib2-gir
++# Metadata scans ignore .config, so declare the GIR build deps conditionally.
++PKG_BUILD_DEPENDS += PACKAGE_glib2-gir:gobject-introspection/host PACKAGE_glib2-gir:gobject-introspection PACKAGE_glib2-gir:glib2-gir
++ifeq ($(CONFIG_PACKAGE_glib2-gir),y)
++include $(INCLUDE_DIR)/gobject-introspection.mk
++MESON_ARGS += -Dintrospection=enabled
++endif
++
+ define Build/InstallDev
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(INSTALL_DIR) $(1)/usr/share/gir-1.0 $(1)/usr/lib/girepository-1.0)
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(CP) $(PKG_INSTALL_DIR)/usr/share/gir-1.0/*.gir $(1)/usr/share/gir-1.0/)
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(CP) $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0/*.typelib $(1)/usr/lib/girepository-1.0/)
+ 	$(INSTALL_DIR) $(1)/usr/lib
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/*.so* $(1)/usr/lib/
+ 	$(INSTALL_DIR) $(1)/usr/include/pango-1.0/pango
+@@ -50,6 +60,8 @@ define Build/InstallDev
+ endef
+ 
+ define Package/libpango/install
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(INSTALL_DIR) $(1)/usr/lib/girepository-1.0)
++	$(if $(CONFIG_PACKAGE_glib2-gir),$(CP) $(PKG_INSTALL_DIR)/usr/lib/girepository-1.0/*.typelib $(1)/usr/lib/girepository-1.0/)
+ 	$(INSTALL_DIR) $(1)/usr/lib
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/*.so* $(1)/usr/lib/
+ endef

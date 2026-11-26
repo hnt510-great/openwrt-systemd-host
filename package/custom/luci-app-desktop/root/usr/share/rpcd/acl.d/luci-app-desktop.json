@@ -9,7 +9,7 @@
 		},
 		"write": {
 			"ubus": {
-				"luci.desktop": [ "action", "switch", "sync_boot" ]
+				"luci.desktop": [ "action", "switch", "sync_boot", "sync_sunshine" ]
 			},
 			"uci": [ "desktop" ]
 		}

@@ -1,0 +1,6 @@
+[Unit]
+Description=Reconcile OpenWrt desktop audio device ACLs
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/desktop-audio-reconcile

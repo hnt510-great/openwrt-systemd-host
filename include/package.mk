@@ -154,7 +154,7 @@ STAMP_INSTALLED:=$(STAGING_DIR)/stamp/.$(PKG_DIR_NAME)$(if $(BUILD_VARIANT),.$(B
 STAGING_FILES_LIST:=$(PKG_DIR_NAME)$(if $(BUILD_VARIANT),.$(BUILD_VARIANT),).list
 STAGING_TMP_DIR:=$(TMP_DIR)/stage-$(PKG_DIR_NAME)$(if $(BUILD_VARIANT),.$(BUILD_VARIANT),)
 
-STAGE_DEV = python3 "$(SCRIPT_DIR)/stage-package.py" --root "$(STAGING_DIR)" \
+STAGE_DEV = $(if $(wildcard $(STAGING_DIR_HOST)/bin/python3),$(STAGING_DIR_HOST)/bin/python3,python3) "$(SCRIPT_DIR)/stage-package.py" --root "$(STAGING_DIR)" \
 	--lock "$(TMP_DIR)/.staging-dir.flock" --manifest "$(STAGING_DIR)/packages/$(STAGING_FILES_LIST)"
 
 define CleanStaging

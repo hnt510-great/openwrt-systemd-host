@@ -88,8 +88,10 @@ rules for DNS data apply.
 
 **`conn_flows`** — proxied and userspace-routed traffic, from daed patch
 `009-connection-audit-events.patch`. daed sends one nonblocking datagram per TCP dial (including
-failed dials) and per new UDP endpoint to `/run/router-audit/conn.sock`; the collector accepts only
-root (`SCM_CREDENTIALS`), validates every field, caps its queue at 10,000 events and groups one
+failed dials) and per new UDP endpoint to `/run/router-audit/conn.sock` (mode `0600`, root-only;
+`/run/router-audit/dns.sock` is `0660` owned by `root:dnsmasq` when running as root so unprivileged
+processes are rejected before entering the socket buffer); the collector also validates
+`SCM_CREDENTIALS`, validates every field, caps its queue at 10,000 events and groups one
 minute into flows:
 
 | Field | Meaning |

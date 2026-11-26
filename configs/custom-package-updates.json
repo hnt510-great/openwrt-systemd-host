@@ -1495,6 +1495,11 @@
       "recipe": "feeds/video/frameworks/qt6/common.mk",
       "feed_group": "qt6"
     },
+    "qt6charts": {
+      "provider": "follow",
+      "recipe": "feeds/video/frameworks/qt6/common.mk",
+      "feed_group": "qt6"
+    },
     "kf6-frameworkintegration": {
       "provider": "follow",
       "recipe": "package/custom/extra-cmake-modules/Makefile"

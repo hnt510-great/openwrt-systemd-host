@@ -33,7 +33,7 @@ previous_key=
 previous_address=
 
 cleanup() {
-	systemctl --user stop app-org.kde.krdpserver.service 2>/dev/null || :
+	systemctl --user stop --no-block app-org.kde.krdpserver.service 2>/dev/null || :
 }
 
 read_environment() {
@@ -61,16 +61,19 @@ while :; do
 		fi
 		case "$address" in ''|0.0.0.0|*[!0-9.]*) address= ;; esac
 		if [ "$address" != "$previous_address" ]; then
-			cleanup
+			if [ -n "$previous_address" ]; then
+				systemctl --user stop app-org.kde.krdpserver.service 2>/dev/null || :
+			fi
 			previous_address=$address
 		fi
 		if [ -n "$address" ]; then
 			[ -n "$rdp" ] || rdp=$(/sbin/uci -q get desktop.main.rdp_enabled || :)
 			if [ -f /usr/lib/systemd/user/app-org.kde.krdpserver.service ]; then
 				if [ "$rdp" = 1 ]; then
+					systemctl --user start xdg-desktop-portal.service 2>/dev/null || :
 					systemctl --user start app-org.kde.krdpserver.service || :
 				else
-					systemctl --user stop app-org.kde.krdpserver.service || :
+					systemctl --user stop --no-block app-org.kde.krdpserver.service || :
 				fi
 			fi
 		fi
