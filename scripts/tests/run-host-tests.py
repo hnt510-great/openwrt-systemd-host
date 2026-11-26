@@ -69,6 +69,7 @@ HOST_SUITES = {
         'test-desktop-icon-theme-hook.py',
         'test-desktop-ime.py',
         'test-desktop-sessions.py',
+        'test-desktop-setup.py',
         'test-flatpak-user-link.py',
         'test-gnome-keyring.py',
         'test-gnome-rdp-audio-latency.py',
@@ -80,6 +81,7 @@ HOST_SUITES = {
     ],
     'luci': [
         'test-luci-daed-view.js',
+        'test-luci-desktop-setup.js',
         'test-luci-desktop-view.js',
         'test-luci-desktop.py',
         'test-luci-firewall-fullcone.js',
