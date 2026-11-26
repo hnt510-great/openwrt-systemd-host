@@ -1,8 +1,0 @@
-{
-  "packages": {
-    "url": "https://github.com/openwrt/packages.git",
-    "base": "c983b8adf7bf16f74f07f24067ecee05623884a5",
-    "commit": "3d9ab43923b54a495f64d9552197705eb02ed02c",
-    "patch": "patches/feeds/0053-packages-virtio-console-systemd.patch"
-  }
-}

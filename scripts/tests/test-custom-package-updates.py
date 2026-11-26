@@ -1009,17 +1009,19 @@ class UpdateTests(unittest.TestCase):
                 'feed_group': 'qt6',
             }
 
-        patch_file = self.root / 'patches/feeds/0052-video-qt6-11-plasma.patch'
+        patch_file = self.root / 'patches/feeds/0058-video-local-snapshot.patch'
         patch_file.parent.mkdir(parents=True)
-        patch_file.write_text('From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\n'
-                              'Subject: [PATCH] qt6: update\n\n---\nold diff\n')
-        manifest_file = self.root / 'configs/kde-plasma-feeds.json'
+        patch_file.write_text('old diff\n')
+        old_tree = subprocess.check_output(
+            ['git', '-C', str(self.root / 'feeds/video'), 'rev-parse', 'HEAD^{tree}'], text=True).strip()
+        manifest_file = self.root / 'configs/feed-mirrors-snapshot.json'
         manifest_file.parent.mkdir(parents=True)
         manifest_file.write_text(json.dumps({
             'video': {
                 'base': base_rev,
-                'patch': 'patches/feeds/0052-video-qt6-11-plasma.patch',
-                'paths': ['frameworks/qt6/common.mk'] + [f'frameworks/qt6/{n}/Makefile' for n in sorted(feed_mods)],
+                'commit': 'deadbeef' * 5,
+                'tree': old_tree,
+                'patch': 'patches/feeds/0058-video-local-snapshot.patch',
             }
         }))
         (self.root / '.gitignore').write_text('/feeds/\n')
@@ -1035,7 +1037,7 @@ class UpdateTests(unittest.TestCase):
                 'subdir': 'submodules/',
                 'version_file': 'feeds/video/frameworks/qt6/common.mk',
                 'feed_repo': 'feeds/video',
-                'feed_manifest': 'configs/kde-plasma-feeds.json',
+                'feed_manifest': 'configs/feed-mirrors-snapshot.json',
                 'feed_name': 'video',
                 'rebuild_dependents': ['kwin'],
                 'feed_modules': {
@@ -1066,6 +1068,14 @@ class UpdateTests(unittest.TestCase):
         self.assertIn('PKG_HASH:=' + xz_digest + '\n', (self.root / 'feeds/video/frameworks/qt6/qt6base/Makefile').read_text())
         self.assertIn('PKG_VERSION:=6.11.4\n', (self.root / 'package/custom/qt6wayland/Makefile').read_text())
         self.assertIn('+PKG_VERSION?=6.11.4', patch_file.read_text())
+        manifest = json.loads((self.root / 'configs/feed-mirrors-snapshot.json').read_text())
+        self.assertNotIn('commit', manifest['video'])
+        self.assertNotEqual(manifest['video']['tree'], '')
+        feed_dir = self.root / 'feeds/video'
+        subprocess.run(['git', '-C', str(feed_dir), 'add', '-A'], check=True, capture_output=True)
+        actual_tree = subprocess.check_output(
+            ['git', '-C', str(feed_dir), 'write-tree'], text=True).strip()
+        self.assertEqual(manifest['video']['tree'], actual_tree)
         self.assertEqual(updater.report['packages']['qt6base']['review_version'], '6.12')
         self.assertEqual(updater.report['packages']['qt6wayland']['status'], 'updated')
 

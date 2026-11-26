@@ -1,8 +1,0 @@
-{
-  "packages": {
-    "url": "https://github.com/openwrt/packages.git",
-    "base": "677d3dbc362e9ff3a6f721eeae9824e705b1ea49",
-    "commit": "030ddddfefe7100c1d3bfd680434f7a4e08d4613",
-    "patch": "patches/feeds/0049-packages-local-build-fixes.patch"
-  }
-}

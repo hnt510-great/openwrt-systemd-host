@@ -37,23 +37,24 @@ x86/64 正式目标自动启用 glibc、APK 和 systemd。原生 failsafe 使用
 
 ## Feed 补丁备份
 
-`packages` 和 `video` feeds 是独立 Git 仓库，主仓库忽略 `feeds/`。
-两者的本地修改分别提交；`configs/local-feeds.json` 记录各自的基线和提交。
-对应补丁也保存在 `patches/feeds/`，便于随主仓库保存和审阅。
+`packages`、`luci`、`video` 和 `taskplan` feeds 是独立 Git 仓库，主仓库忽略 `feeds/`。
+四者的本地修改分别提交，并作为累积快照补丁保存于 `patches/feeds/0056`–`0059-*-local-snapshot.patch`，基线与目标树哈希记录在 `configs/feed-mirrors-snapshot.json`。
 
-在尚未包含这些修改、工作区干净且基线与清单一致的 feed checkout 中，
-以 OpenWrt 根目录作为当前目录执行：
+在尚未包含这些修改、工作区干净且基线与 `configs/feed-mirrors-snapshot.json` 一致的 feed checkout 中，以 OpenWrt 根目录作为当前目录按快照重放：
 
 ```sh
-git -C feeds/packages am "$PWD/patches/feeds/0001-packages-local-integration.patch"
-git -C feeds/video am "$PWD/patches/feeds/0001-video-local-integration.patch"
+git -C feeds/packages apply --binary "$PWD/patches/feeds/0056-packages-local-snapshot.patch"
+git -C feeds/luci apply --binary "$PWD/patches/feeds/0057-luci-local-snapshot.patch"
+git -C feeds/video apply --binary "$PWD/patches/feeds/0058-video-local-snapshot.patch"
+git -C feeds/taskplan apply --binary "$PWD/patches/feeds/0059-taskplan-local-snapshot.patch"
 ./scripts/feeds install -a
 cp configs/x86-64-systemd-desktop.config .config
 make defconfig
 ```
 
 当前工作区已包含这些 feed 提交，不要再次应用补丁。不同上游基线需要
-先审阅并解决差异，不能用重置覆盖本地修改。
+先审阅并解决差异，不能用重置覆盖本地修改；可用 `python3 scripts/audit-feed-mirrors.py`
+校验本地 feed 树与快照补丁是否逐字节一致。
 
 提交前的配置导出发现现有 Kconfig 依赖循环：`video-support`、
 `openwrt-desktop`、`glib2-gir` 与 Mesa 的链路，以及 LuCI weechat 的链路。
@@ -65,27 +66,9 @@ make defconfig
 中。其余被忽略的个人网络、DDNS、VPN/代理配置、备份包、本地工具权限
 设置及构建产物仍留在本地。提交内容不预置人类账号、密码或私钥。
 
-### systemd 单 init 的 feed 补丁
+## SPICE / VirtIO / OpenGL
 
-`configs/systemd-only-feeds.json` 记录 packages、LuCI 和 taskplan 补丁的起点。
-在对应 feed 位于清单中的基线、且尚未包含改动时，使用
-`git -C feeds/<feed> apply --check <绝对补丁路径>` 检查，再用
-`git -C feeds/<feed> apply <绝对补丁路径>` 重建工作树。随后重新生成 feed 索引和包链接。
-
-## SPICE / VirtIO / OpenGL 增量
-
-`configs/virtio-spice-feeds.json` 单独记录本次图形支持的两个 feed 基线、
-提交和 `0002-*-virtio-spice.patch`。它们只包含本次改动，不替代以上历史
-清单。在匹配该增量基线且工作区干净的 feed checkout 中应用：
-
-```sh
-git -C feeds/packages am "$PWD/patches/feeds/0002-packages-virtio-spice.patch"
-git -C feeds/video am "$PWD/patches/feeds/0002-video-virtio-spice.patch"
-./scripts/feeds install -a
-```
-
-当前 feed 已包含这些提交，不要重复应用。配置片段只覆盖这次图形选项，
-保留已有 x86_64/glibc、APK、原生 systemd 及其他配置：
+完整桌面配置已包含虚拟化图形支持。若需在纯路由配置上仅叠加图形相关配置，保留已有 x86_64/glibc、APK、原生 systemd 及其他选项：
 
 ```sh
 ./scripts/kconfig.pl + .config configs/virtio-spice.config > .config.graphics
