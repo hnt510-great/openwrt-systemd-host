@@ -1054,15 +1054,21 @@ class Updater:
                 subprocess.run(
                     ['git', '-C', str(feed_repo), 'update-index', '--cacheinfo', f'{mode},{blob},{rel}'],
                     env=env, check=True, capture_output=True)
-            diff_args = ['git', '-C', str(feed_repo), 'diff', '--cached', '--stat', '--patch', base_rev]
+            diff_args = ['git', '-C', str(feed_repo), 'diff', '--cached']
+            if not manifest_paths:
+                diff_args.append('--binary')
+            diff_args += ['--stat', '--patch', base_rev]
             if manifest_paths:
                 diff_args += ['--', *manifest_paths]
             diff = subprocess.run(diff_args, env=env, check=True, capture_output=True).stdout.decode()
+            new_tree = subprocess.run(
+                ['git', '-C', str(feed_repo), 'write-tree'],
+                env=env, check=True, capture_output=True).stdout.decode().strip()
         existing = patch_path.read_text() if patch_path.exists() else ''
         if '\n---\n' in existing:
             header = existing.split('\n---\n', 1)[0] + '\n---\n'
-            return header + diff
-        return diff
+            return header + diff, new_tree
+        return diff, new_tree
 
     def execute_feed_group(self, group_name, custom_members):
         group = self.feed_groups[group_name]
@@ -1187,9 +1193,12 @@ class Updater:
             return
 
         # 3. Check both repos' cleanliness and video feed base commit BEFORE downloading.
+        update_snapshot_manifest = not feed_spec.get('paths') and ('tree' in feed_spec or 'commit' in feed_spec)
         main_paths = [self.recipe(n) for n in custom_members]
         if patch_path.exists():
             main_paths.append(patch_path)
+        if update_snapshot_manifest and manifest_path.exists():
+            main_paths.append(manifest_path)
         feed_paths = [version_file] + [(self.root / feed_modules[m]['recipe']).resolve() for m in sorted(feed_modules)]
         self.assert_clean(main_paths, repo_root=self.root)
         self.assert_clean(feed_paths, repo_root=feed_repo)
@@ -1232,8 +1241,18 @@ class Updater:
 
         # 5. Regenerate the video feed patch mirror and apply all files atomically.
         originals[patch_path] = patch_path.read_text() if patch_path.exists() else ''
-        changes[patch_path] = self.render_feed_patch(
+        patch_text, new_tree = self.render_feed_patch(
             feed_repo, feed_spec['base'], patch_path, feed_spec.get('paths', []), feed_proposed)
+        changes[patch_path] = patch_text
+        if update_snapshot_manifest:
+            updated_spec = dict(feed_spec, tree=new_tree)
+            updated_spec.pop('commit', None)
+            updated_manifest = dict(manifest)
+            updated_manifest[group['feed_name']] = updated_spec
+            originals[manifest_path] = manifest_path.read_text()
+            changes[manifest_path] = json.dumps(updated_manifest, indent=2) + '\n'
+            if manifest_path not in main_paths:
+                main_paths.append(manifest_path)
         repo_paths = {
             self.root: [p for p in changes if p in main_paths],
             feed_repo: [p for p in changes if p in feed_paths],

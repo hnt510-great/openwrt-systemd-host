@@ -1,0 +1,44 @@
+Subject: [PATCH] procd: validate kernel netlink hotplug sender and group
+
+Subscribe only to kernel netlink group 1 and verify with recvmsg() that
+each uevent originates from the kernel without truncation or trailing
+userspace garbage.
+
+---
+--- a/plug/hotplug.c
++++ b/plug/hotplug.c
+@@ -687,12 +687,21 @@ static void hotplug_handler(struct uloop
+ {
+ 	int i = 0;
+ 	static char buf[4096];
+-	int len = recv(u->fd, buf, sizeof(buf) - 1, MSG_DONTWAIT);
+-	if (len < 1)
++	struct sockaddr_nl nls = {};
++	struct iovec iov = { .iov_base = buf, .iov_len = sizeof(buf) };
++	struct msghdr msg = {
++		.msg_name = &nls,
++		.msg_namelen = sizeof(nls),
++		.msg_iov = &iov,
++		.msg_iovlen = 1,
++	};
++	int len = recvmsg(u->fd, &msg, MSG_DONTWAIT);
++
++	if (len < 1 || (msg.msg_flags & MSG_TRUNC) ||
++	    msg.msg_namelen < sizeof(nls) || nls.nl_pid ||
++	    nls.nl_groups != 1 || buf[len - 1] != '\0')
+ 		return;
+ 
+-	buf[len] = '\0';
+-
+ 	blob_buf_init(&b, 0);
+ 	while (i < len) {
+ 		int l = strlen(buf + i) + 1;
+@@ -730,7 +739,7 @@ void hotplug(char *rules)
+ 	rule_file = strdup(rules);
+ 	nls.nl_family = AF_NETLINK;
+ 	nls.nl_pid = 0;
+-	nls.nl_groups = -1;
++	nls.nl_groups = 1;
+ 
+ 	if ((hotplug_fd.fd = socket(PF_NETLINK, SOCK_DGRAM | SOCK_CLOEXEC, NETLINK_KOBJECT_UEVENT)) == -1) {
+ 		ERROR("Failed to open hotplug socket: %m\n");

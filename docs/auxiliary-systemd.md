@@ -18,9 +18,9 @@ systemd units in the top-level `auxiliary.slice` (`CPUWeight=100`, sibling of
     (`sysfixtime` `S00`, `boot`/`uci-defaults` `S10`, `system` timezone `S10`,
     and late rc scripts such as `wgserver` `S99` that populate `/etc/crontabs/root`)
     complete before `crond` scans `/etc/crontabs`.
-  - `ExecCondition=/usr/libexec/cron-systemd condition` skips starting `crond`
+  - `ConditionDirectoryNotEmpty=/etc/crontabs` skips starting `crond`
     when `/etc/crontabs` is empty (matching the original init script without
-    marking the unit failed).
+    marking the unit failed or spawning a control process).
   - `cron-config.path` watches `/etc/crontabs` and `/etc/config/system` and
     triggers `cron-reconfigure.service` (`StartLimitIntervalSec=0`) to restart
     or stop `cron.service` when crontabs or `cronloglevel` change.

@@ -6,7 +6,7 @@ subtrees.
 ---
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -38,6 +38,11 @@
+@@ -38,6 +38,11 @@ IF(OPENWRT_SYSTEMD)
    ADD_DEFINITIONS(-DOPENWRT_SYSTEMD)
    FIND_LIBRARY(systemd NAMES systemd REQUIRED)
    SET(SYSTEMD_LIB ${systemd})
@@ -18,7 +18,7 @@ subtrees.
  ENDIF()
  
  SET(LIBS ${ubox} ${ubus} ${json} ${blobmsg_json} ${json_script} ${udebug})
-@@ -114,7 +119,10 @@
+@@ -114,7 +119,10 @@ ENDIF()
  
  IF(JAIL_SUPPORT)
  ADD_EXECUTABLE(ujail jail/jail.c jail/cgroups.c jail/cgroups-bpf.c jail/elf.c jail/fs.c jail/capabilities.c jail/landlock.c jail/netifd.c ${SOURCES_OCI_SECCOMP} ${SOURCES_JAIL_TRACE})
@@ -32,7 +32,7 @@ subtrees.
  )
 --- a/jail/cgroups.c
 +++ b/jail/cgroups.c
-@@ -66,6 +66,15 @@
+@@ -66,6 +66,15 @@ struct avl_tree cgvals;
  static struct avl_tree cgceil, cgprev;
  static char cg_refused[NAME_MAX + 1];
  static char *cgroup_path;
@@ -48,7 +48,7 @@ subtrees.
  static bool initialized;
  static bool destroyed;
  static bool cg_sealed;
-@@ -644,7 +653,8 @@
+@@ -647,7 +656,8 @@ void cgroups_destroy(void)
  	sep = strrchr(cgroup_path, '/');
  	if (sep && sep != cgroup_path) {
  		*sep = '\0';
@@ -58,7 +58,7 @@ subtrees.
  		*sep = '/';
  	}
  }
-@@ -679,7 +689,8 @@
+@@ -682,7 +692,8 @@ void cgroups_create(void)
  		exit(ENOMEM);
  
  	DEBUG("recursively applying cgroup.subtree_control = \"%s\"\n", subtree_control);
@@ -88,7 +88,7 @@ subtrees.
  #include "netifd.h"
  #include "../jail-status.h"
  #include "../state-file.h"
-@@ -3819,6 +3820,52 @@
+@@ -3828,6 +3829,52 @@ static int parseOCIrootfspropagation(con
  	return 0;
  }
  
@@ -141,7 +141,7 @@ subtrees.
  static int parseOCIlinux(struct blob_attr *msg)
  {
  	struct blob_attr *tb[__OCI_LINUX_MAX];
-@@ -3826,7 +3873,7 @@
+@@ -3835,7 +3882,7 @@ static int parseOCIlinux(struct blob_att
  	int rem;
  	int res = 0;
  	char *cgpath;
@@ -150,7 +150,7 @@ subtrees.
  	char cgleaf[200];
  	char *cgsep;
  
-@@ -3928,7 +3975,15 @@
+@@ -3937,7 +3984,15 @@ static int parseOCIlinux(struct blob_att
  			return res;
  	}
  
@@ -177,7 +177,7 @@ subtrees.
  static bool systemd_ubus_ready, systemd_coldplug_ready;
  
  static void systemd_ready(void)
-@@ -53,14 +54,35 @@
+@@ -53,14 +54,35 @@ void procd_systemd_coldplug_ready(void)
  }
  
  #ifdef OPENWRT_SYSTEMD
@@ -216,7 +216,7 @@ subtrees.
  static struct uloop_signal systemd_term = { .signo = SIGTERM, .cb = systemd_stop };
 --- a/procd.h
 +++ b/procd.h
-@@ -32,6 +32,7 @@
+@@ -32,6 +32,7 @@ extern const char *rc_d_path;
  
  extern const char *ubus_socket;
  extern bool procd_systemd;
@@ -268,16 +268,16 @@ subtrees.
  
  #include "service.h"
  #include "instance.h"
-@@ -48,6 +49,8 @@
- 
+@@ -49,6 +50,8 @@
  #define UJAIL_BIN_PATH "/sbin/ujail"
  #define CGROUP_BASEDIR "/sys/fs/cgroup/services"
-+
-+static void instance_cgroup_wait(struct service_instance *in);
  
++static void instance_cgroup_wait(struct service_instance *in);
++
  enum {
  	INSTANCE_ATTR_COMMAND,
-@@ -725,7 +728,7 @@
+ 	INSTANCE_ATTR_WORKDIR,
+@@ -738,7 +741,7 @@ instance_run(struct service_instance *in
  static int
  instance_add_cgroup(const char *service, const char *instance)
  {
@@ -286,7 +286,7 @@ subtrees.
  	int ret;
  
  	ret = snprintf(cgnamebuf, sizeof(cgnamebuf), "%s/%s/%s", CGROUP_BASEDIR,
-@@ -744,11 +747,33 @@
+@@ -757,11 +760,33 @@ instance_add_cgroup(const char *service,
  static int
  instance_set_vrf(struct service_instance *in)
  {
@@ -323,15 +323,14 @@ subtrees.
  	if (ret >= (int)sizeof(cgnamebuf))
  		return in->vrf ? -ENAMETOOLONG : 0;
  
-@@ -768,37 +793,48 @@
+@@ -781,37 +806,48 @@ instance_set_vrf(struct service_instance
  }
  
  static void
 -instance_kill_cgroup(const char *service, const char *instance)
--{
--	char cgnamebuf[256];
 +instance_kill_cgroup(struct service_instance *in)
-+{
+ {
+-	char cgnamebuf[256];
 +	char cgnamebuf[1024];
  	int ret;
  
@@ -353,19 +352,15 @@ subtrees.
  	if (ret)
 -		ULOG_WARN("failed to kill cgroup of %s::%s: %s\n", service,
 -			  instance, strerror(-ret));
--}
--
--static void
--instance_rmdir_cgroup(const char *service, const char *instance)
--{
--	char cgnamebuf[256];
 +		ULOG_WARN("failed to kill cgroup of %s::%s: %s\n", in->srv->name,
 +			  in->name, strerror(-ret));
-+}
-+
-+static void
+ }
+ 
+ static void
+-instance_rmdir_cgroup(const char *service, const char *instance)
 +instance_rmdir_cgroup(struct service_instance *in)
-+{
+ {
+-	char cgnamebuf[256];
 +	char cgnamebuf[1024];
  	char *sep;
  	int ret;
@@ -387,22 +382,21 @@ subtrees.
  
  	sep = strrchr(cgnamebuf, '/');
  	if (sep)
-@@ -807,10 +843,10 @@
+@@ -820,10 +856,10 @@ instance_rmdir_cgroup(const char *servic
  }
  
  static void
 -instance_remove_cgroup(const char *service, const char *instance)
--{
++instance_remove_cgroup(struct service_instance *in)
+ {
 -	instance_kill_cgroup(service, instance);
 -	instance_rmdir_cgroup(service, instance);
-+instance_remove_cgroup(struct service_instance *in)
-+{
 +	instance_kill_cgroup(in);
 +	instance_rmdir_cgroup(in);
  }
  
  static void
-@@ -1029,15 +1065,41 @@
+@@ -1042,15 +1078,41 @@ instance_jail_status_open(struct service
  		uloop_timeout_set(&in->jail_create_timer, ms < INT_MAX ? ms : INT_MAX);
  }
  
@@ -444,7 +438,7 @@ subtrees.
  	if (!avl_is_empty(&in->errors.avl)) {
  		LOG("Not starting instance %s::%s, an error was indicated\n", in->srv->name, in->name);
  		return;
-@@ -1048,9 +1110,18 @@
+@@ -1061,12 +1123,21 @@ instance_start(struct service_instance *
  		return;
  	}
  
@@ -452,19 +446,22 @@ subtrees.
 +	if (in->proc.pending || (procd_systemd && in->systemd_cleaning)) {
  		if (in->halt)
  			in->restart = true;
-+		return;
-+	}
-+
+ 		return;
+ 	}
+ 
 +	if (procd_systemd && *in->systemd_scope) {
 +		/* A daemonizing, non-respawn command can leave live workers. */
 +		in->halt = true;
 +		in->restart = true;
 +		instance_kill_cgroup(in);
 +		instance_cgroup_wait(in);
- 		return;
- 	}
- 
-@@ -1087,11 +1158,22 @@
++		return;
++	}
++
+ 	uloop_timeout_cancel(&in->timeout);
+ 	in->respawn_next = 0;
+ 	in->respawn_run = in->respawning;
+@@ -1100,11 +1171,22 @@ instance_start(struct service_instance *
  	}
  
  	in->incarnation = ++last_incarnation;
@@ -487,7 +484,7 @@ subtrees.
  		procd_signal_restore(&oldset);
  		closefd(spair[0]);
  		closefd(spair[1]);
-@@ -1110,10 +1192,34 @@
+@@ -1127,11 +1209,35 @@ instance_start(struct service_instance *
  		uloop_done();
  		closefd(opipe[0]);
  		closefd(epipe[0]);
@@ -515,15 +512,16 @@ subtrees.
  		if (ret)
  			ULOG_WARN("failed adding instance cgroup for %s: %s\n",
  				  in->srv->name, strerror(-ret));
-+
+ 
 +		if (procd_systemd && ret && in->bundle) {
 +			ERROR("cannot delegate cgroups for %s::%s\n", in->srv->name, in->name);
 +			exit(127);
 +		}
- 
++
  		/*
  		 * Never run the instance outside of its VRF. The program only
-@@ -1134,6 +1240,13 @@
+ 		 * binds the sockets of processes inside the instance cgroup.
+@@ -1151,6 +1257,13 @@ instance_start(struct service_instance *
  
  	procd_signal_restore(&oldset);
  
@@ -537,7 +535,7 @@ subtrees.
  	P_DEBUG(2, "Started instance %s::%s[%d]\n", in->srv->name, in->name, pid);
  	in->proc.pid = pid;
  	in->proc_pidfd = syscall(SYS_pidfd_open, pid, 0);
-@@ -1278,8 +1391,8 @@
+@@ -1295,8 +1408,8 @@ instance_timeout(struct uloop_timeout *t
  	if (in->halt) {
  		LOG("Instance %s::%s pid %d not stopped on SIGTERM, sending SIGKILL instead\n",
  				in->srv->name, in->name, in->proc.pid);
@@ -548,7 +546,7 @@ subtrees.
  
  		instance_signal(in, SIGKILL);
  	} else if (in->restart || in->respawn) {
-@@ -1333,7 +1446,7 @@
+@@ -1350,7 +1463,7 @@ instance_exit_code(int ret)
  static void
  instance_cgroup_survivors(const char *service, const char *instance)
  {
@@ -557,7 +555,7 @@ subtrees.
  	char buf[128];
  	ssize_t len;
  	int fd, ret;
-@@ -1406,8 +1519,14 @@
+@@ -1423,8 +1536,14 @@ instance_exit_done(struct service_instan
  	if (in->proc.pending)
  		return;
  
@@ -573,7 +571,7 @@ subtrees.
  
  	runtime = in->stop.tv_sec - in->start.tv_sec;
  
-@@ -1438,6 +1557,12 @@
+@@ -1455,6 +1574,12 @@ instance_cgroup_timeout_cb(struct uloop_
  	populated = in->cgroup_events.fd > -1 &&
  		    cgroup_populated(in->cgroup_events.fd);
  
@@ -586,7 +584,7 @@ subtrees.
  	instance_cgroup_wait_stop(in);
  
  	if (populated && !in->proc.pending)
-@@ -1462,13 +1587,17 @@
+@@ -1479,13 +1604,17 @@ instance_cgroup_events_cb(struct uloop_f
  static void
  instance_cgroup_wait(struct service_instance *in)
  {
@@ -607,7 +605,7 @@ subtrees.
  	if (ret >= (int)sizeof(cgnamebuf)) {
  		instance_exit_done(in);
  		return;
-@@ -1496,6 +1625,8 @@
+@@ -1513,6 +1642,8 @@ instance_exit(struct uloop_process *p, i
  
  	in = container_of(p, struct service_instance, proc);
  
@@ -616,7 +614,7 @@ subtrees.
  	instance_free_pidfd(in);
  	clock_gettime(CLOCK_MONOTONIC, &in->stop);
  	runtime = in->stop.tv_sec - in->start.tv_sec;
-@@ -1518,12 +1649,14 @@
+@@ -1535,12 +1666,14 @@ instance_exit(struct uloop_process *p, i
  
  	service_event("instance.stop", in->srv->name, in->name);
  
@@ -633,7 +631,7 @@ subtrees.
  	instance_cgroup_wait(in);
  }
  
-@@ -1531,6 +1664,13 @@
+@@ -1548,6 +1681,13 @@ void
  instance_stop(struct service_instance *in, bool halt)
  {
  	if (!in->proc.pending) {
@@ -647,7 +645,7 @@ subtrees.
  		if (halt)
  			instance_delete(in);
  		return;
-@@ -2467,6 +2607,10 @@
+@@ -2502,6 +2642,10 @@ void
  instance_free(struct service_instance *in)
  {
  	service_data_trigger(&in->data);
@@ -658,7 +656,7 @@ subtrees.
  	instance_free_stdio(in);
  	instance_free_stdio_fds(in);
  	instance_free_notify_fd(in);
-@@ -2479,7 +2623,7 @@
+@@ -2514,7 +2658,7 @@ instance_free(struct service_instance *i
  	trigger_del(in);
  	watch_del(in);
  	if (in->has_cgroup)
@@ -667,7 +665,7 @@ subtrees.
  
  	instance_config_cleanup(in);
  	free(in->config);
-@@ -2519,6 +2663,7 @@
+@@ -2555,6 +2699,7 @@ instance_init(struct service_instance *i
  	in->timeout.cb = instance_timeout;
  	in->jail_create_timer.cb = instance_jail_create_timeout;
  	in->proc.cb = instance_exit;
@@ -675,7 +673,7 @@ subtrees.
  	in->cgroup_events.fd = -1;
  	in->cgroup_events.cb = instance_cgroup_events_cb;
  	in->cgroup_timeout.cb = instance_cgroup_timeout_cb;
-@@ -2573,6 +2718,11 @@
+@@ -2609,6 +2754,11 @@ void instance_dump(struct blob_buf *b, s
  
  	i = blobmsg_open_table(b, in->name);
  	blobmsg_add_u8(b, "running", in->proc.pending);
@@ -689,7 +687,7 @@ subtrees.
  	if (in->incarnation)
 --- a/service/instance.h
 +++ b/service/instance.h
-@@ -87,6 +87,11 @@
+@@ -87,6 +87,11 @@ struct service_instance {
  	gid_t gr_gid;
  
  	bool has_cgroup;
@@ -703,7 +701,7 @@ subtrees.
  	bool respawn;
 --- a/service/service.c
 +++ b/service/service.c
-@@ -817,7 +817,8 @@
+@@ -820,7 +820,8 @@ service_stop_all(void)
  	service_avl_stop_all(&services, &term_timeout);
  	procd_inittab_kill();
  

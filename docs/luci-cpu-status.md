@@ -77,20 +77,12 @@ required.
 | Item | Value |
 | --- | --- |
 | Feed | `luci`, `https://github.com/openwrt/luci.git` |
-| Base | `816a314705c9a79a9db2a968fbd80ccdd3ae119e` |
-| Local commit | `4f946141d805ea94b2a618836d408bfd3fee2530` |
-| Mirror | `patches/feeds/0001-luci-status-cpu-stats.patch`, then `patches/feeds/0002-luci-base-resource-version.patch` |
-| Manifest | `configs/luci-feeds.json` |
+| Mirror | `patches/feeds/0057-luci-local-snapshot.patch` |
+| Manifest | `configs/feed-mirrors-snapshot.json` |
 
-On a clean checkout with the recorded base, apply both patches in order:
-
-```bash
-git -C feeds/luci am "$PWD/patches/feeds/0001-luci-status-cpu-stats.patch"
-git -C feeds/luci am "$PWD/patches/feeds/0002-luci-base-resource-version.patch"
-./scripts/feeds install -a
-```
-
-Do not apply the patch when the feed working tree already contains the commit.
+See [local build instructions](local-build.md) for replaying the feed snapshot
+on a clean upstream checkout. Do not reapply the snapshot when the feed working
+tree already contains the local commits.
 
 ## Validation
 

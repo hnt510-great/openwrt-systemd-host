@@ -112,23 +112,12 @@ versions are not guaranteed to work after a downgrade.
 
 ## Build and runtime checks
 
-`configs/firefox-esr-feeds.json` records the video feed base and local commit.
-The incremental patch is `patches/feeds/0003-video-firefox-esr.patch`. Apply it
-only to a clean video feed at the recorded base that does not already contain
-this change. Keep the earlier feed integrations described in
-[local build instructions](local-build.md). The current checkout already
-contains the Firefox feed commit; do not apply it again.
-
-On the matching feed base, from the OpenWrt root directory:
-
-```sh
-git -C feeds/video am "$PWD/patches/feeds/0003-video-firefox-esr.patch"
-./scripts/feeds install -a
-```
-
-VA-API also requires the packages-feed patch and base recorded in
-`configs/firefox-vaapi-feeds.json`. Apply that patch with `git apply` only to
-the matching clean base; do not reapply it to this checkout. New driver recipes
+Feed changes for `video` and `packages` are already committed in the feed
+checkouts and mirrored via the cumulative snapshots in
+`configs/feed-mirrors-snapshot.json` (`patches/feeds/0058-video-local-snapshot.patch`
+and `patches/feeds/0056-packages-local-snapshot.patch`). See
+[local build instructions](local-build.md) for snapshot replay; do not reapply
+patches to a checkout that already contains those commits. New driver recipes
 live in the main tree and are registered in the custom updater registry.
 
 Merge the Firefox configuration fragment into the existing desktop profile:

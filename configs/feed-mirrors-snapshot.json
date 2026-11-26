@@ -19,8 +19,8 @@
     "url": "https://github.com/openwrt/video.git",
     "upstream": "origin/master",
     "base": "6a3b5fd6e963f41caa73ef4f691e156d467e2894",
-    "commit": "d86d1eb51bb71773a5e04dcb2e0d9c31d1cf7d31",
-    "tree": "b2078ca5e8131e4f922b512de51e2f80f3a47edf",
+    "commit": "91fb9d408feb9866456151e60c969d619fdd699d",
+    "tree": "a895358cc62a495f33831d8337aec7a742cbb34a",
     "patch": "patches/feeds/0058-video-local-snapshot.patch"
   },
   "taskplan": {

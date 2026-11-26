@@ -2,19 +2,18 @@ Subject: [PATCH] apk: retain kernel generations and gate activation on transacti
 
 --- a/src/commit.c
 +++ b/src/commit.c
-@@ -10,6 +10,7 @@
+@@ -7,6 +7,7 @@
+  * SPDX-License-Identifier: GPL-2.0-only
+  */
+ 
 +#include <sys/stat.h>
  #include <unistd.h>
  #include "apk_defines.h"
  #include "apk_database.h"
- #include "apk_package.h"
- #include "apk_solver.h"
- #include "apk_print.h"
-@@ -33,6 +34,80 @@
- #else
+@@ -34,6 +35,80 @@ static bool running_on_host(void)
  static bool running_on_host(void) { return false; }
  #endif
-+
+ 
 +
 +/* Distribution policy is deliberately independent of optional APK scripts.
 + * The protected dependency file is root-owned and only created by kernelctl.
@@ -88,10 +87,11 @@ Subject: [PATCH] apk: retain kernel generations and gate activation on transacti
 +		(db->ctx->flags & APK_SIMULATE) ? "simulate" : "live", flags, NULL };
 +	return apk_db_run_script(db, phase, NULL, -1, argv, "kernel policy: ");
 +}
- 
++
  struct apk_stats {
  	uint64_t bytes;
-@@ -473,6 +548,9 @@
+ 	unsigned int changes;
+@@ -473,6 +548,9 @@ int apk_solver_commit_changeset(struct a
  		if (r > 0) apk_msg(out, "Proceeding with upgrade...");
  	}
  
@@ -101,7 +101,7 @@ Subject: [PATCH] apk: retain kernel generations and gate activation on transacti
  	if (run_commit_hooks(db, PRE_COMMIT_HOOK) == -2)
  		return -1;
  
-@@ -507,6 +585,7 @@
+@@ -507,6 +585,7 @@ all_done:
  	apk_dependency_array_copy(&db->world, world);
  	if (apk_db_write_config(db) != 0) errors++;
  	run_commit_hooks(db, POST_COMMIT_HOOK);
@@ -109,7 +109,7 @@ Subject: [PATCH] apk: retain kernel generations and gate activation on transacti
  
  	if (!db->performing_preupgrade) {
  		char buf2[32];
-@@ -962,6 +1041,7 @@
+@@ -962,6 +1041,7 @@ int apk_solver_commit(struct apk_databas
  {
  	struct apk_out *out = &db->ctx->out;
  	struct apk_changeset changeset = {};
@@ -117,7 +117,7 @@ Subject: [PATCH] apk: retain kernel generations and gate activation on transacti
  	int r;
  
  	if (apk_db_check_world(db, world) != 0) {
-@@ -969,6 +1049,14 @@
+@@ -969,6 +1049,14 @@ int apk_solver_commit(struct apk_databas
  		return -1;
  	}
  
@@ -132,55 +132,10 @@ Subject: [PATCH] apk: retain kernel generations and gate activation on transacti
  	apk_change_array_init(&changeset.changes);
  	r = apk_solver_solve(db, solver_flags, world, &changeset);
  	if (r == 0)
-@@ -976,5 +1064,6 @@
+@@ -976,5 +1064,6 @@ int apk_solver_commit(struct apk_databas
  	else
  		apk_solver_print_errors(db, &changeset, world);
  	apk_change_array_free(&changeset.changes);
 +	apk_dependency_array_free(&world);
  	return r;
  }
---- a/src/database.c
-+++ b/src/database.c
-@@ -2982,6 +2982,32 @@
- 	return memcmp(a, b, sizeof(struct fileid));
- }
- 
-+
-+/* During adoption, old kmods become trackers. Retire their database ownership
-+ * without unlinking the protected legacy module tree still used by uname -r.
-+ * No new generation ever installs into this directory.
-+ */
-+static bool kernel_legacy_directory(struct apk_database *db, apk_blob_t dirname)
-+{
-+	char release[128], path[180];
-+	int fd = openat(db->root_fd, "etc/openwrt-kernel/legacy-release", O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
-+	if (fd < 0) return false;
-+	ssize_t n = read(fd, release, sizeof release - 1);
-+	close(fd);
-+	if (n <= 0 || n >= sizeof release - 1) return false;
-+	release[n] = 0;
-+	release[strcspn(release, "\r\n")] = 0;
-+	if (!release[0] || strspn(release, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._+-") != strlen(release))
-+		return false;
-+	int len = snprintf(path, sizeof path, "usr/lib/modules/%s", release);
-+	if (dirname.len >= len && !memcmp(dirname.ptr, path, len) &&
-+	    (dirname.len == len || dirname.ptr[len] == '/'))
-+		return true;
-+	len = snprintf(path, sizeof path, "usr/src/linux-headers-%s", release);
-+	return dirname.len >= len && !memcmp(dirname.ptr, path, len) &&
-+		(dirname.len == len || dirname.ptr[len] == '/');
-+}
-+
- static void apk_db_purge_pkg(struct apk_database *db, struct apk_installed_package *ipkg, bool is_installed, struct fileid_array *fileids)
- {
- 	struct apk_out *out = &db->ctx->out;
-@@ -3011,7 +3037,8 @@
- 			};
- 			bool do_delete = !fileids || !fileid_get(&d, key.filename, &id) ||
- 				apk_array_bsearch(fileids, fileid_cmp, &id) == NULL;
--			if (do_delete && (dirclean || apk_db_audit_file(&d, key.filename, file) == 0))
-+			if (do_delete && !(is_installed && kernel_legacy_directory(db, dirname)) &&
-+			    (dirclean || apk_db_audit_file(&d, key.filename, file) == 0))
- 				apk_fsdir_file_control(&d, key.filename, ctrl);
- 			if (delapknew)
- 				apk_fsdir_file_control(&d, key.filename, APK_FS_CTRL_DELETE_APKNEW);

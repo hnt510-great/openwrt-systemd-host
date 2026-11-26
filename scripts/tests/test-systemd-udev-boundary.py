@@ -25,6 +25,10 @@ class Boundary(unittest.TestCase):
         recipe = (ROOT / 'package/system/systemd/Makefile').read_text()
         install = recipe.split('define Package/systemd-udev/install', 1)[1].split('endef', 1)[0]
         self.assertIn('$(INSTALL_DATA) ./files/99-systemd.rules', install)
+        self.assertIn('78-sound-card', install)
+        postinst = recipe.split('define Package/systemd-udev/postinst', 1)[1].split('endef', 1)[0]
+        self.assertIn('udevadm control --reload-rules', postinst)
+        self.assertIn('udevadm trigger --subsystem-match=sound --action=change', postinst)
         self.assertIn('KERNEL=="tpmrm[0-9]*", TAG+="systemd"', RULE.read_text())
         self.assertIn('KERNEL=="tpm[0-9]*", TAG+="systemd"', RULE.read_text())
         desktop = (ROOT / 'package/custom/openwrt-desktop/files/desktop.init').read_text()

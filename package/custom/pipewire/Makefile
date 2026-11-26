@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=pipewire
 PKG_VERSION:=1.6.11
-PKG_RELEASE:=2
+PKG_RELEASE:=4
 PKG_BUILD_DIR:=$(BUILD_DIR)/pipewire-$(PKG_VERSION)
 PKG_SOURCE:=pipewire-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/PipeWire/pipewire/tar.gz/refs/tags/$(PKG_VERSION)?

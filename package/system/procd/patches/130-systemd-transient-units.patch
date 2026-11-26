@@ -22,7 +22,7 @@ read-only.
 ---
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -42,7 +42,10 @@
+@@ -42,7 +42,10 @@ IF(OPENWRT_SYSTEMD)
    ADD_EXECUTABLE(openwrt-cgroup scope-helper.c $<TARGET_OBJECTS:systemd-cgroup>)
    TARGET_LINK_LIBRARIES(openwrt-cgroup ${systemd})
    INSTALL(TARGETS openwrt-cgroup RUNTIME DESTINATION ${CMAKE_INSTALL_LIBEXECDIR})
@@ -44,7 +44,7 @@ read-only.
  
  #define HOTPLUG_BASEDIR "/etc/hotplug.d"
  #define HOTPLUG_OBJECT_PREFIX "hotplug."
-@@ -459,9 +460,50 @@
+@@ -459,9 +460,50 @@ void hotplug_ubus_event(struct blob_attr
  	ubus_notify(ctx, &h->ubus, "event", data, -1);
  }
  
@@ -97,7 +97,7 @@ read-only.
  		printf("failed to initialize hotplug subsystems from %s\n", HOTPLUG_BASEDIR);
 --- a/plug/coldplug.c
 +++ b/plug/coldplug.c
-@@ -17,7 +17,8 @@
+@@ -17,6 +17,7 @@
  #include <sys/mount.h>
  #include <sys/sysmacros.h>
  
@@ -105,8 +105,7 @@ read-only.
  #include <stdlib.h>
  #include <string.h>
  #include <unistd.h>
- 
-@@ -44,10 +45,93 @@
+@@ -73,10 +74,93 @@ static void udevtrigger_complete(struct
  	hotplug_last_event(coldplug_complete);
  }
  
@@ -203,16 +202,16 @@ read-only.
  		umount2("/dev/pts", MNT_DETACH);
 --- a/plug/hotplug.c
 +++ b/plug/hotplug.c
-@@ -89,6 +89,8 @@
+@@ -85,6 +85,8 @@ static struct blob_buf b, button_buf;
  static char *rule_file;
  static struct blob_buf script;
  static struct cmd_queue *current;
 +/* Units mode: udev owns device nodes and forwards its events to procd. */
 +static bool hotplug_external;
  
- static void hotplug_handler(struct uloop_fd *u, unsigned int ev);
- static struct uloop_fd hotplug_fd = {
-@@ -172,6 +174,11 @@
+ static void queue_add(struct cmd_handler *h, struct blob_attr *msg, struct blob_attr *data);
+ static void handle_button_complete(struct blob_attr *msg, struct blob_attr *data, int ret);
+@@ -163,6 +165,11 @@ static void handle_makedev(struct blob_a
  	char *major = hotplug_msg_find_var(msg, "MAJOR");
  	char *subsystem = hotplug_msg_find_var(msg, "SUBSYSTEM");
  
@@ -224,7 +223,7 @@ read-only.
  	blobmsg_parse_array(mkdev_policy, 3, tb, blobmsg_data(data), blobmsg_data_len(data));
  	if (tb[0] && tb[1] && minor && major && subsystem) {
  		mode_t m = S_IFCHR;
-@@ -199,6 +206,9 @@
+@@ -190,6 +197,9 @@ static void handle_rm(struct blob_attr *
  	};
  	struct blob_attr *tb;
  
@@ -234,7 +233,7 @@ read-only.
  	blobmsg_parse_array(&rm_policy, 1, &tb, blobmsg_data(data), blobmsg_data_len(data));
  	if (tb)
  		unlink(blobmsg_data(tb));
-@@ -759,6 +769,21 @@
+@@ -713,6 +723,19 @@ static void hotplug_handler(struct uloop
  		}
  		i += l;
  	}
@@ -246,8 +245,6 @@ read-only.
 +	if (hotplug_external) {
 +		char *subsystem = hotplug_msg_find_var(b.head, "SUBSYSTEM");
 +
-+		free(c);
-+		c = NULL;
 +		if (!subsystem || strcmp(subsystem, "button") ||
 +		    hotplug_msg_find_var(b.head, "DEVPATH"))
 +			return;
@@ -256,7 +253,7 @@ read-only.
  	hotplug_ubus_event(b.head);
  	hotplug_handler_debug(b.head);
  	json_script_run(&jctx, rule_file, b.head);
-@@ -809,6 +834,37 @@
+@@ -761,6 +784,37 @@ void hotplug(char *rules)
  	uloop_fd_add(&hotplug_fd, ULOOP_READ);
  }
  
@@ -309,7 +306,7 @@ read-only.
  int hotplug_run(char *rules);
  void hotplug_shutdown(void);
  void hotplug_last_event(uloop_timeout_handler handler);
-@@ -28,6 +32,14 @@
+@@ -28,6 +32,14 @@ static inline void hotplug(char *rules)
  {
  }
  
@@ -349,7 +346,7 @@ read-only.
  
  static void systemd_ready(void)
  {
-@@ -44,6 +47,11 @@
+@@ -44,6 +47,11 @@ static void systemd_ready(void)
  void procd_systemd_ubus_ready(void)
  {
  	systemd_ubus_ready = true;
@@ -361,7 +358,7 @@ read-only.
  	systemd_ready();
  }
  
-@@ -80,8 +88,10 @@
+@@ -80,8 +88,10 @@ static void systemd_stop(struct uloop_si
  	sd_notify(0, "STOPPING=1");
  	service_stop_all();
  	hotplug_shutdown();
@@ -374,7 +371,7 @@ read-only.
  	uloop_timeout_set(&systemd_drain, 0);
  }
  
-@@ -149,6 +159,7 @@
+@@ -149,6 +159,7 @@ static int usage(const char *prog)
  		"	-I <path>	Path to init.d directory\n"
  		"	-R <path>	Path to rc.d directory\n"
  		"	-S		Print messages to stdout\n"
@@ -382,7 +379,7 @@ read-only.
  		"\n", prog);
  	return 1;
  }
-@@ -157,7 +168,7 @@
+@@ -157,7 +168,7 @@ int main(int argc, char **argv)
  {
  	int ch;
  	static const struct option options[] = {
@@ -391,7 +388,7 @@ read-only.
  		{ NULL, 0, NULL, 0 }
  	};
  	char *dbglvl = getenv("DBGLVL");
-@@ -174,7 +185,10 @@
+@@ -174,7 +185,10 @@ int main(int argc, char **argv)
  		case 1000:
  			if (getpid() == 1)
  				return usage(argv[0]);
@@ -402,7 +399,7 @@ read-only.
  			break;
  #endif
  		case 'h':
-@@ -208,9 +222,14 @@
+@@ -208,9 +222,14 @@ int main(int argc, char **argv)
  #ifdef OPENWRT_SYSTEMD
  	if (procd_systemd) {
  		uloop_signal_add(&systemd_term);
@@ -422,7 +419,7 @@ read-only.
  	procd_udebug_set_enabled(true);
 --- a/procd.h
 +++ b/procd.h
-@@ -33,6 +33,8 @@
+@@ -33,6 +33,8 @@ extern const char *rc_d_path;
  extern const char *ubus_socket;
  extern bool procd_systemd;
  extern bool procd_systemd_stopping;
@@ -441,7 +438,7 @@ read-only.
  #include "vrf.h"
  
  #define JAIL_CREATE_TIMEOUT_DEFAULT 120
-@@ -353,15 +354,14 @@
+@@ -355,15 +356,14 @@ jail_run(struct service_instance *in, ch
  	static char stop_timeout_str[12];
  	static char incarnation_str[21];
  	static char notify_fd_str[12];
@@ -459,7 +456,7 @@ read-only.
  
  	argv[argc++] = "-t";
  	argv[argc++] = term_timeout_str;
-@@ -725,6 +725,44 @@
+@@ -738,6 +738,44 @@ instance_run(struct service_instance *in
  	exit(127);
  }
  
@@ -504,7 +501,7 @@ read-only.
  static int
  instance_add_cgroup(const char *service, const char *instance)
  {
-@@ -890,6 +928,15 @@
+@@ -903,6 +941,15 @@ instance_free_pidfd(struct service_insta
  int
  instance_signal(struct service_instance *in, int sig)
  {
@@ -520,7 +517,7 @@ read-only.
  	if (in->proc_pidfd >= 0)
  		return syscall(SYS_pidfd_send_signal, in->proc_pidfd, sig, NULL, 0);
  
-@@ -1110,6 +1157,18 @@
+@@ -1123,6 +1170,18 @@ instance_start(struct service_instance *
  		return;
  	}
  
@@ -539,7 +536,7 @@ read-only.
  	if (in->proc.pending || (procd_systemd && in->systemd_cleaning)) {
  		if (in->halt)
  			in->restart = true;
-@@ -1136,6 +1195,34 @@
+@@ -1149,6 +1208,34 @@ instance_start(struct service_instance *
  	if (!in->valid)
  		return;
  
@@ -574,7 +571,7 @@ read-only.
  	if (in->_stdout.fd.fd > -2 && in->stdio_fd[1] < 0) {
  		if (pipe(opipe)) {
  			ULOG_WARN("pipe() failed: %m\n");
-@@ -1664,9 +1751,176 @@
+@@ -1677,9 +1764,176 @@ instance_exit(struct uloop_process *p, i
  	instance_cgroup_wait(in);
  }
  
@@ -751,7 +748,7 @@ read-only.
  	if (!in->proc.pending) {
  		if (procd_systemd && *in->systemd_scope) {
  			in->halt = halt;
-@@ -1690,6 +1944,19 @@
+@@ -1703,6 +1957,19 @@ instance_stop(struct service_instance *i
  static void
  instance_restart(struct service_instance *in, bool reload)
  {
@@ -771,7 +768,7 @@ read-only.
  	if (!in->proc.pending)
  		return;
  
-@@ -2530,7 +2797,7 @@
+@@ -2556,7 +2823,7 @@ void
  instance_update(struct service_instance *in, struct service_instance *in_new)
  {
  	bool changed = instance_config_changed(in, in_new);
@@ -780,7 +777,7 @@ read-only.
  	bool stopping = in->halt;
  
  	if (in_new->stdio_fd[1] > -1)
-@@ -2629,6 +2896,7 @@
+@@ -2655,6 +2922,7 @@ instance_free(struct service_instance *i
  	uloop_timeout_cancel(&in->timeout);
  	uloop_timeout_cancel(&in->watchdog.timeout);
  	instance_cgroup_wait_stop(in);
@@ -788,7 +785,7 @@ read-only.
  	trigger_del(in);
  	watch_del(in);
  	if (in->has_cgroup)
-@@ -2676,6 +2944,7 @@
+@@ -2703,6 +2971,7 @@ instance_init(struct service_instance *i
  	in->cgroup_events.fd = -1;
  	in->cgroup_events.cb = instance_cgroup_events_cb;
  	in->cgroup_timeout.cb = instance_cgroup_timeout_cb;
@@ -796,7 +793,7 @@ read-only.
  	in->term_timeout = 5;
  	in->syslog_facility = LOG_DAEMON;
  	in->exit_code = 0;
-@@ -2726,13 +2995,20 @@
+@@ -2753,13 +3022,20 @@ void instance_dump(struct blob_buf *b, s
  		return;
  
  	i = blobmsg_open_table(b, in->name);
@@ -820,7 +817,7 @@ read-only.
  		blobmsg_add_u32(b, "pid", in->proc.pid);
  	if (in->incarnation)
  		blobmsg_add_u64(b, "incarnation", in->incarnation);
-@@ -2747,7 +3023,7 @@
+@@ -2776,7 +3052,7 @@ void instance_dump(struct blob_buf *b, s
  	if (in->bundle)
  		blobmsg_add_string(b, "bundle", in->bundle);
  	blobmsg_add_u32(b, "term_timeout", in->term_timeout);
@@ -831,7 +828,7 @@ read-only.
  	if (!avl_is_empty(&in->errors.avl)) {
 --- a/service/instance.h
 +++ b/service/instance.h
-@@ -164,6 +164,29 @@
+@@ -165,6 +165,29 @@ struct service_instance {
  	struct blobmsg_list errors;
  
  	struct watchdog watchdog;
@@ -861,7 +858,7 @@ read-only.
  };
  
  void instance_start(struct service_instance *in);
-@@ -177,5 +200,8 @@
+@@ -178,5 +201,8 @@ void instance_notify_set(struct service_
  void instance_free(struct service_instance *in);
  void instance_dump(struct blob_buf *b, struct service_instance *in, int debug);
  void service_event_instance_exit(const char *type, struct service_instance *in);
@@ -872,7 +869,7 @@ read-only.
  #endif
 --- a/service/service.c
 +++ b/service/service.c
-@@ -781,9 +781,9 @@
+@@ -784,9 +784,9 @@ service_handle_state(struct ubus_context
  
  	spawn = !!blobmsg_get_u8(tb[SERVICE_STATE_ATTR_SPAWN]);
  	vlist_for_each_element(&s->instances, in, node) {
@@ -1827,7 +1824,7 @@ read-only.
  #include <sys/wait.h>
  #include <errno.h>
  
-@@ -530,6 +531,25 @@
+@@ -530,6 +531,25 @@ static int watchdog_set(struct ubus_cont
  		return UBUS_STATUS_INVALID_ARGUMENT;
  
  	blobmsg_parse(watchdog_policy, __WDT_MAX, tb, blob_data(msg), blob_len(msg));
@@ -1863,7 +1860,7 @@ read-only.
  #define CALL_TIMEOUT 2000000
  
  static int manager(sd_bus **bus)
-@@ -57,7 +58,7 @@
+@@ -57,7 +58,7 @@ int owrt_scope_name(char *name, size_t l
  }
  
  /* Escape a component, including dashes: they delimit slice hierarchy. */
@@ -1872,7 +1869,7 @@ read-only.
  {
  	const unsigned char *p = (const unsigned char *)service;
  	size_t n = strlen("openwrt-");
-@@ -130,7 +131,7 @@
+@@ -130,7 +131,7 @@ int owrt_scope_enter(const char *name, c
  	uint32_t job_id = 0;
  	struct timespec deadline, now;
  
@@ -1881,7 +1878,7 @@ read-only.
  	if (r < 0)
  		return r;
  	pidfd = syscall(SYS_pidfd_open, pid, 0);
-@@ -246,13 +247,18 @@
+@@ -246,13 +247,18 @@ int owrt_scope_stop(const char *name)
  	return r < 0 ? r : 0;
  }
  
@@ -1902,7 +1899,7 @@ read-only.
  	int r = manager(&bus), delegated = 0;
  
  	if (r >= 0)
-@@ -267,15 +273,22 @@
+@@ -267,15 +273,22 @@ int owrt_scope_delegation(char *path, si
  	}
  	if (r >= 0)
  		r = sd_bus_get_property_string(bus, DEST, object, UIFACE, "Id", NULL, &id);
@@ -1931,7 +1928,7 @@ read-only.
  		r = -ENAMETOOLONG;
 --- a/systemd-cgroup.h
 +++ b/systemd-cgroup.h
-@@ -13,6 +13,7 @@
+@@ -13,6 +13,7 @@ int owrt_scope_enter(const char *name, c
  int owrt_scope_path(const char *name, char *path, size_t len);
  int owrt_scope_stop(const char *name);
  int owrt_scope_delegation(char *path, size_t len);
@@ -1939,7 +1936,7 @@ read-only.
  #else
  static inline bool owrt_systemd_active(void)
  {
-@@ -43,5 +44,10 @@
+@@ -43,5 +44,10 @@ static inline int owrt_scope_delegation(
  {
  	return -EOPNOTSUPP;
  }

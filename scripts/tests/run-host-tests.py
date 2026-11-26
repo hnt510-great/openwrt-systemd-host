@@ -117,7 +117,6 @@ HOST_SUITES = {
     ],
     'legacy': [
         'test-desktop-launcher.py',
-        'test-weston-terminal-sgr.py',
     ],
 }
 

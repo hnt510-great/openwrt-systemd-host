@@ -1,7 +1,0 @@
-{
-  "packages": {
-    "base": "d318677fef79a903d16e829887e926ac027ba00a",
-    "patch": "patches/feeds/0041-packages-nas-native-systemd.patch",
-    "commit": "96b67b5afc307897117e697c82a2af9b0500cab1"
-  }
-}

@@ -249,6 +249,29 @@ class JournalTests(unittest.TestCase):
         self.resume()
         self.assert_upgraded()
 
+    def test_package_script_failure_does_not_leave_resumable_journal(self):
+        self.sudo('mkdir', '-p', str(self.root / 'etc/openwrt-kernel'), str(self.root / 'usr/sbin'))
+        self.sudo('touch', str(self.root / 'etc/openwrt-kernel/protected'))
+        self.sudo('install', '-m', '0755', str(self.helper), str(self.root / 'usr/sbin/kernelctl'))
+        fail_src = self.work / 'fail_script.c'
+        fail_bin = self.work / 'fail_script'
+        fail_src.write_text('int main(void) { return 1; }\n')
+        subprocess.run(['cc', '-static', '-O2', str(fail_src), '-o', str(fail_bin)], check=True)
+        with tempfile.TemporaryDirectory(dir=self.work) as temp:
+            files = Path(temp) / 'files'
+            target = files / 'usr/share/beta'; target.parent.mkdir(parents=True); target.write_bytes(b'two')
+            subprocess.run([BUILDER, 'mkpkg', '--info', 'name:beta', '--info', 'version:1-r2',
+                            '--info', 'arch:x86_64', '--info', 'depends:alpha=1-r2',
+                            '--sign', str(self.key), '--files', str(files),
+                            '--script', 'post-upgrade:' + str(fail_bin),
+                            '--output', str(self.repo / 'beta-1-r2.apk')],
+                           check=True, capture_output=True)
+        self.index()
+        result = self.apk('upgrade', code=None)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.exists('lib/apk/db/transaction/journal'))
+        self.assertIn('apk-post apk-post', self.read('run/script-log'))
+
 
 if __name__ == '__main__':
     unittest.main()

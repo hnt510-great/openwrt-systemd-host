@@ -1,0 +1,95 @@
+Subject: [PATCH] firewall4: support Broadcom masquerade fullcone mode
+
+Support defaults.fullcone=2 (Broadcom "masquerade fullcone") for IPv4 zone
+masquerading, probing nft support before emitting rules. Reject fullcone=1
+with a warning since the out-of-tree nft_fullcone module is not carried.
+
+---
+--- a/root/etc/config/firewall
++++ b/root/etc/config/firewall
+@@ -3,6 +3,7 @@ config defaults
+ 	option input		REJECT
+ 	option output		ACCEPT
+ 	option forward		REJECT
++	option fullcone		0
+ 
+ config zone
+ 	option name		lan
+--- a/root/usr/share/firewall4/templates/ruleset.uc
++++ b/root/usr/share/firewall4/templates/ruleset.uc
+@@ -346,14 +346,14 @@ table inet fw4 {
+ {%   if (zone.masq): %}
+ {%    for (let saddrs in zone.masq4_src_subnets): %}
+ {%     for (let daddrs in zone.masq4_dest_subnets): %}
+-		{%+ include("zone-masq.uc", { fw4, zone, family: 4, saddrs, daddrs }) %}
++		{%+ include("zone-masq.uc", { fw4, zone, family: 4, saddrs, daddrs, fullcone: fw4.default_option("fullcone") == 2 }) %}
+ {%     endfor %}
+ {%    endfor %}
+ {%   endif %}
+ {%   if (zone.masq6): %}
+ {%    for (let saddrs in zone.masq6_src_subnets): %}
+ {%     for (let daddrs in zone.masq6_dest_subnets): %}
+-		{%+ include("zone-masq.uc", { fw4, zone, family: 6, saddrs, daddrs }) %}
++		{%+ include("zone-masq.uc", { fw4, zone, family: 6, saddrs, daddrs, fullcone: false }) %}
+ {%     endfor %}
+ {%    endfor %}
+ {%   endif %}
+--- a/root/usr/share/firewall4/templates/zone-masq.uc
++++ b/root/usr/share/firewall4/templates/zone-masq.uc
+@@ -10,4 +10,4 @@ meta nfproto {{ fw4.nfproto(family) }} {
+ 	{{ fw4.ipproto(family) }} daddr != {{ fw4.set(map(daddrs[1], fw4.cidr)) }} {%+ endif -%}
+ {%+ for (let a in (daddrs ? daddrs[2] : [])): -%}
+ 	{{ fw4.ipproto(family) }} daddr & {{ a.mask }} {{ a.invert ? '!=' : '==' }} {{ a.addr }} {%+ endfor -%}
+-masquerade comment "!fw4: Masquerade {{ fw4.nfproto(family, true) }} {{ zone.name }} traffic"
++masquerade{% if (fullcone): %} fullcone{% endif %} comment "!fw4: Masquerade{% if (fullcone): %} (Fullcone){% endif %} {{ fw4.nfproto(family, true) }} {{ zone.name }} traffic"
+--- a/root/usr/share/ucode/fw4.uc
++++ b/root/usr/share/ucode/fw4.uc
+@@ -542,6 +542,20 @@ function nft_try_hw_offload(devices) {
+ 	return (rc == 0);
+ }
+ 
++function nft_try_masq_fullcone() {
++	let nft_test =
++		'add table inet fw4-masq-fullcone-test; ' +
++		'add chain inet fw4-masq-fullcone-test srcnat { ' +
++			'type nat hook postrouting priority -100; policy accept; ' +
++			'meta nfproto ipv4 masquerade fullcone; ' +
++		'}; ';
++	let cmd = sprintf("/usr/sbin/nft -c '%s' 2>/dev/null", replace(nft_test, "'", "'\\''"));
++	let ok = system(cmd) == 0;
++	if (!ok) {
++		warn("nft_try_masq_fullcone: cmd " + cmd + "\n");
++	}
++	return ok;
++}
+ 
+ return {
+ 	read_kernel_version: function() {
+@@ -2122,6 +2136,7 @@ return {
+ 		}
+ 
+ 		let defs = this.parse_options(data, {
++			fullcone: [ "int", "0" ],
+ 			input: [ "policy", "drop" ],
+ 			output: [ "policy", "drop" ],
+ 			forward: [ "policy", "drop" ],
+@@ -2156,6 +2171,19 @@ return {
+ 
+ 		delete defs.syn_flood;
+ 
++		if (defs.fullcone == 1) {
++			warn("nft_fullcone mode (fullcone=1) is not supported; use fullcone=2 for Broadcom masquerade fullcone\n");
++			defs.fullcone = 0;
++		}
++		else if (defs.fullcone != 2) {
++			defs.fullcone = 0;
++		}
++
++		if (defs.fullcone == 2 && !nft_try_masq_fullcone()) {
++			delete defs.fullcone;
++			warn("nft_try_masq_fullcone failed, disable fullcone globally\n");
++		}
++
+ 		this.state.defaults = defs;
+ 	},
+ 

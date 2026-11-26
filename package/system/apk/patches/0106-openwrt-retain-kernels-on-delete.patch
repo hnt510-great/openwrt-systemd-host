@@ -5,10 +5,9 @@ Apply the same protected checksum constraints before its solve so garbage
 collection cannot select an unrelated fallback generation for removal.
 
 ---
-diff --git a/src/commit.c b/src/commit.c
 --- a/src/commit.c
 +++ b/src/commit.c
-@@ -43,7 +43,7 @@
+@@ -43,7 +43,7 @@ static bool running_on_host(void) { retu
   * The protected dependency file is root-owned and only created by kernelctl.
   * Script arguments, rather than ambient environment, carry transaction state.
   */
@@ -17,9 +16,9 @@ diff --git a/src/commit.c b/src/commit.c
  {
  	char line[4096];
  	int fd = openat(db->root_fd, "etc/openwrt-kernel/protected", O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
-@@ -1509,7 +1509,8 @@
+@@ -1337,7 +1337,8 @@ int apk_solver_plan(struct apk_database
+ 
  	apk_dependency_array_init(&protected_world);
- 	apk_dependency_array_init(&solver_world);
  	apk_dependency_array_copy(&protected_world, world);
 -	if (apk_db_check_world(db, world) != 0 || kernel_retain(db, &protected_world) < 0) {
 +	if (apk_db_check_world(db, world) != 0 ||
@@ -27,10 +26,9 @@ diff --git a/src/commit.c b/src/commit.c
  		blocker = "invalid-world-or-protected-dependencies";
  		r = -1;
  		goto out;
-diff --git a/src/apk_solver.h b/src/apk_solver.h
 --- a/src/apk_solver.h
 +++ b/src/apk_solver.h
-@@ -38,6 +38,8 @@
+@@ -38,6 +38,8 @@ struct apk_changeset {
  void apk_solver_set_name_flags(struct apk_name *name,
  			       unsigned short solver_flags,
  			       unsigned short solver_flags_inheritable);
@@ -39,19 +37,82 @@ diff --git a/src/apk_solver.h b/src/apk_solver.h
  int apk_solver_solve(struct apk_database *db,
  		     unsigned short solver_flags,
  		     struct apk_dependency_array *world,
-diff --git a/src/app_del.c b/src/app_del.c
 --- a/src/app_del.c
 +++ b/src/app_del.c
-@@ -159,6 +159,12 @@
- 	apk_dependency_array_copy(&ctx->world, db->world);
+@@ -151,6 +151,7 @@ static int del_main(void *pctx, struct a
+ 	};
+ 	struct apk_changeset changeset = {};
+ 	struct apk_dependency_array *orig_world = apk_array_bclone(db->world, &db->ba_deps);
++	struct apk_dependency_array *solver_world;
+ 	int r = 0;
+ 
+ 	apk_change_array_init(&changeset.changes);
+@@ -160,7 +161,16 @@ static int del_main(void *pctx, struct a
  	if (apk_array_len(args)) apk_db_foreach_matching_name(db, args, delete_name, ctx);
  	if (ctx->errors) return ctx->errors;
-+
-+	if (apk_solver_kernel_retain(db, &ctx->world) < 0) {
+ 
+-	r = apk_solver_solve(db, 0, ctx->world, &changeset);
++	apk_dependency_array_init(&solver_world);
++	apk_dependency_array_copy(&solver_world, ctx->world);
++	if (apk_solver_kernel_retain(db, &solver_world) < 0) {
 +		apk_err(&db->ctx->out, "Invalid protected kernel dependencies; refusing deletion.");
++		apk_dependency_array_free(&solver_world);
 +		apk_dependency_array_free(&ctx->world);
 +		return -1;
 +	}
- 
- 	r = apk_solver_solve(db, 0, ctx->world, &changeset);
++
++	r = apk_solver_solve(db, 0, solver_world, &changeset);
  	if (r == 0) {
+ 		if (apk_out_verbosity(&db->ctx->out) >= 1) {
+ 			apk_array_foreach(d, orig_world)
+@@ -181,8 +191,9 @@ static int del_main(void *pctx, struct a
+ 
+ 		r = apk_solver_commit_changeset(db, &changeset, ctx->world);
+ 	} else {
+-		apk_solver_print_errors(db, &changeset, ctx->world);
++		apk_solver_print_errors(db, &changeset, solver_world);
+ 	}
++	apk_dependency_array_free(&solver_world);
+ 	apk_change_array_free(&changeset.changes);
+ 	apk_dependency_array_free(&ctx->world);
+ 
+--- a/src/app_upgrade.c
++++ b/src/app_upgrade.c
+@@ -96,11 +96,12 @@ int apk_do_preupgrade(struct apk_databas
+ 	struct apk_ctx *ac = db->ctx;
+ 	struct apk_out *out = &db->ctx->out;
+ 	struct apk_changeset changeset = {};
+-	struct apk_dependency_array *deps;
++	struct apk_dependency_array *deps, *solver_world;
+ 	char buf[PATH_MAX];
+ 	int r = 0;
+ 
+ 	apk_dependency_array_init(&deps);
++	apk_dependency_array_init(&solver_world);
+ 	apk_change_array_init(&changeset.changes);
+ 
+ 	struct apk_query_match qm;
+@@ -158,7 +159,14 @@ int apk_do_preupgrade(struct apk_databas
+ 	/* Create new commit for preupgrades with minimal other changes */
+ 	db->performing_preupgrade = 1;
+ 
+-	r = apk_solver_solve(db, 0, db->world, &changeset);
++	apk_dependency_array_copy(&solver_world, db->world);
++	if (apk_solver_kernel_retain(db, &solver_world) < 0) {
++		apk_err(out, "Invalid protected kernel dependencies; refusing preupgrade.");
++		r = -1;
++		goto ret;
++	}
++
++	r = apk_solver_solve(db, 0, solver_world, &changeset);
+ 	if (r != 0) {
+ 		apk_warn(out, "Failed to perform initial preupgrade, continuing with a full upgrade.");
+ 		r = 0;
+@@ -198,6 +206,7 @@ int apk_do_preupgrade(struct apk_databas
+ ret:
+ 	apk_change_array_free(&changeset.changes);
+ 	apk_dependency_array_free(&deps);
++	apk_dependency_array_free(&solver_world);
+ 	db->performing_preupgrade = 0;
+ 	return r;
+ }

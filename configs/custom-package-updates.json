@@ -10,7 +10,7 @@
       "subdir": "submodules/",
       "version_file": "feeds/video/frameworks/qt6/common.mk",
       "feed_repo": "feeds/video",
-      "feed_manifest": "configs/kde-plasma-feeds.json",
+      "feed_manifest": "configs/feed-mirrors-snapshot.json",
       "feed_name": "video",
       "rebuild_dependents": [
         "extra-cmake-modules",

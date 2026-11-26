@@ -10,8 +10,8 @@ and PipeWire) serves both the GNOME 51 and KDE Plasma 6.8.3 desktops. Merge
 `configs/desktop-audio.config` into the existing build configuration (or select
 the `audio` component in the offline installer ISO) and run `make defconfig`.
 This adds audio services, common codecs, RDP audio and Sunshine. Preserve the
-rest of the configuration. Feed changes are recorded in
-`configs/desktop-audio-feeds.json`. HDA/HDMI and USB audio drivers are supplied
+rest of the configuration. Feed snapshots are recorded in
+`configs/feed-mirrors-snapshot.json`. HDA/HDMI and USB audio drivers are supplied
 by the existing desktop kernel configuration.
 
 ## Enrollment
@@ -38,7 +38,9 @@ Restart the desktop when ready to activate its RDP audio settings:
 ```
 
 The account's PipeWire sockets and WirePlumber service start automatically on
-native-systemd logins. In a desktop terminal, use `wpctl status`, `pactl info`,
+native-systemd logins. `systemd-udev` installs upstream `78-sound-card.rules`
+so ALSA cards receive `SOUND_INITIALIZED=1` natively without downstream
+`pipewire` udev workarounds. In a desktop terminal, use `wpctl status`, `pactl info`,
 `pw-play FILE.wav`, and `pw-record RECORDING.wav`. Select the output/source and
 volume with `wpctl`; the normal output is preferred, with a virtual fallback
 when there is no sound device.

@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=libvirt
 PKG_VERSION:=12.9.0
-PKG_RELEASE:=5
+PKG_RELEASE:=6
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=https://download.libvirt.org/
 PKG_HASH:=dcf579d8a949f4cbf56820529d48f200382a48ea12855ffded7c16a189353cd7

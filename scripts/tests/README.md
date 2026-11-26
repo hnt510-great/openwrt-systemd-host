@@ -23,7 +23,7 @@ Suites:
 - `installer`: whole-disk installer core, optical bootstrap, and 10-component offline catalog.
 - `audit`: `router-audit` and `uci-history` host unit tests.
 - `staged` (opt-in): `test-custom-branch-upgrade.py` runs Node/npm and GJS with the staged x86_64 desktop libraries and verifies the weather database and calendar server linkage. Build the desktop packages before running this suite.
-- `legacy` (opt-in via `--suite legacy` or `--include-legacy`): tests for disabled optional/legacy recipes kept in tree (`test-desktop-launcher.py`, `test-weston-terminal-sgr.py`).
+- `legacy` (opt-in via `--suite legacy` or `--include-legacy`): tests for disabled optional/legacy recipes kept in tree (`test-desktop-launcher.py`).
 
 The summary counts scripts. `PARTIAL` means the script succeeded with a mix of completed and skipped tests. Use `-v` to see the underlying unittest report.
 

@@ -1,6 +1,6 @@
 # Device management boundary on native-systemd OpenWrt
 
-Since `systemd-udev` 262-r14 (current `262-r15`), the package installs a reviewed distribution subset of systemd v262's
+Since `systemd-udev` 262-r14 (current `262-r17`), the package installs upstream `78-sound-card.rules` (for `SOUND_INITIALIZED` on ALSA cards) alongside a reviewed distribution subset of systemd v262's
 `rules.d/99-systemd.rules.in`. It restores device units, including
 `dev-tpmrm0.device`, without transferring router policy to systemd.
 The installed file is `package/system/systemd/files/99-systemd.rules`.
@@ -9,7 +9,7 @@ upstream rules wholesale or silently filter them with installation-time sed.
 
 The [udev and hotplug migration plan](systemd-udev-hotplug-migration-plan.md) and
 [migration validation record](systemd-udev-hotplug-migration-validation.md)
-record the ownership changes, disconnect buffering and acceptance results.
+record the ownership changes and acceptance results.
 
 ## Ownership and event flow
 
@@ -35,14 +35,11 @@ record the ownership changes, disconnect buffering and acceptance results.
 - procd retains ubus/UCI, init scripts, and hotplug handlers. In units
   mode it ignores ordinary raw device events and receives selected processed
   events through `90-openwrt-hotplug.rules` -> `openwrt-udev-forward` ->
-  root-private bounded queue `/run/openwrt-hotplug/` (2,048 items / 8 MiB,
-  `(boot_id, SEQNUM)` dedup, `receiver.cap` two-step mixed-version fallback to
-  legacy `procd.udev event`, inflight crash quarantine with per-device
-  deferral, and `procd.udev` `queue_status`/`queue_resolve`) ->
-  `hotplug-systemd.json` -> `/etc/hotplug.d/`. Synthetic button events remain
-  direct. Pure software/logic hotplug calls (`iface`, `dhcp`, `firewall`,
-  `ntp`, direct `hotplug-call`, `ubus call hotplug.<subsys> call`) bypass udev
-  and the queue. Non-systemd targets retain ordinary `hotplug.json`.
+  `procd.udev event` -> `hotplug-systemd.json` -> `/etc/hotplug.d/`. Synthetic
+  button events remain direct. Pure software/logic hotplug calls (`iface`,
+  `dhcp`, `firewall`, `ntp`, direct `hotplug-call`, `ubus call
+  hotplug.<subsys> call`) bypass udev forwarding. Non-systemd targets retain
+  ordinary `hotplug.json`.
 
 The forwarder normalizes DEVNAME; hotplug-call derives DEVICENAME from DEVPATH.
 netifd independently listens to rtnetlink and network uevents. These listeners
